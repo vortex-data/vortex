@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -24,6 +25,7 @@ use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -54,10 +56,10 @@ use crate::sequence::SequentialStreamExt;
 
 /// Configuration for building zoned layouts.
 ///
-/// The input stream is assumed to already be partitioned into one chunk per zone, except
-/// possibly the final partial zone.
+/// The input chunks need not line up with the zones: the writer cuts the stream into zones of
+/// `block_size` rows itself, and only the final zone may be shorter.
 pub struct ZonedLayoutOptions {
-    /// The size of a statistics block
+    /// The number of rows in each zone.
     pub block_size: NonZeroUsize,
     /// The aggregate partials to collect for each block.
     ///
@@ -165,17 +167,22 @@ impl LayoutStrategy for ZonedStrategy {
 
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
+        let zones = Arc::new(Mutex::new(ZoneCutter::new(self.options.block_size)));
+        let zones2 = Arc::clone(&zones);
+        let aggregate_fns2 = Arc::clone(&aggregate_fns);
         let stream = stream
             .map(move |item| {
-                let aggregate_fns = Arc::clone(&aggregate_fns);
+                // Zones are cut here, in stream order, before the chunks spread across tasks.
+                let chunk_zones = zones2.lock().push_item(&item);
+                let aggregate_fns = Arc::clone(&aggregate_fns2);
                 let session = compute_session.clone();
                 session.handle().spawn_cpu(move || {
                     let (sequence_id, chunk) = item?;
-                    let partials = aggregate_partials(
-                        &chunk,
-                        &aggregate_fns,
-                        &mut session.create_execution_ctx(),
-                    )?;
+                    let mut exec_ctx = session.create_execution_ctx();
+                    let partials = chunk_zones?
+                        .iter()
+                        .map(|zone| aggregate_partials(zone, &aggregate_fns, &mut exec_ctx))
+                        .collect::<VortexResult<Vec<_>>>()?;
                     Ok::<_, VortexError>((sequence_id, chunk, partials))
                 })
             })
@@ -188,7 +195,10 @@ impl LayoutStrategy for ZonedStrategy {
             stream_dtype,
             stream.map(move |item| {
                 let (sequence_id, chunk, partials) = item?;
-                stats_accumulator2.lock().push_partials(partials)?;
+                let mut stats_accumulator = stats_accumulator2.lock();
+                for zone_partials in partials {
+                    stats_accumulator.push_partials(zone_partials)?;
+                }
                 Ok((sequence_id, chunk))
             }),
         )
@@ -208,6 +218,23 @@ impl LayoutStrategy for ZonedStrategy {
                 session,
             )
             .await?;
+
+        // The final zone ends with the stream, so it may be short.
+        let final_zone = zones.lock().finish()?;
+        if let Some(zone) = final_zone {
+            let compute_session = session.clone();
+            let partials = session
+                .handle()
+                .spawn_cpu(move || {
+                    aggregate_partials(
+                        &zone,
+                        &aggregate_fns,
+                        &mut compute_session.create_execution_ctx(),
+                    )
+                })
+                .await?;
+            stats_accumulator.lock().push_partials(partials)?;
+        }
 
         let mut exec_ctx = session.create_execution_ctx();
         let Some((stats_array, aggregate_fns)) =
@@ -253,14 +280,21 @@ impl ZonedStrategy {
         let compute_session = session.clone();
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
+        let zones = Arc::new(Mutex::new(ZoneCutter::new(self.options.block_size)));
+        let zones2 = Arc::clone(&zones);
+        let stats2 = Arc::clone(&stats);
         let stream = stream
             .map(move |item| {
-                let stats = Arc::clone(&stats);
+                let chunk_zones = zones2.lock().push_item(&item);
+                let stats = Arc::clone(&stats2);
                 let session = compute_session.clone();
                 session.handle().spawn_cpu(move || {
                     let (sequence_id, chunk) = item?;
-                    let values =
-                        legacy_stat_values(&chunk, &stats, &mut session.create_execution_ctx())?;
+                    let mut exec_ctx = session.create_execution_ctx();
+                    let values = chunk_zones?
+                        .iter()
+                        .map(|zone| legacy_stat_values(zone, &stats, &mut exec_ctx))
+                        .collect::<VortexResult<Vec<_>>>()?;
                     Ok::<_, VortexError>((sequence_id, chunk, values))
                 })
             })
@@ -273,7 +307,10 @@ impl ZonedStrategy {
             stream_dtype,
             stream.map(move |item| {
                 let (sequence_id, chunk, values) = item?;
-                stats_accumulator2.lock().push_values(values)?;
+                let mut stats_accumulator = stats_accumulator2.lock();
+                for zone_values in values {
+                    stats_accumulator.push_values(zone_values)?;
+                }
                 Ok((sequence_id, chunk))
             }),
         )
@@ -291,6 +328,18 @@ impl ZonedStrategy {
                 session,
             )
             .await?;
+
+        let final_zone = zones.lock().finish()?;
+        if let Some(zone) = final_zone {
+            let compute_session = session.clone();
+            let values = session
+                .handle()
+                .spawn_cpu(move || {
+                    legacy_stat_values(&zone, &stats, &mut compute_session.create_execution_ctx())
+                })
+                .await?;
+            stats_accumulator.lock().push_values(values)?;
+        }
 
         let mut exec_ctx = session.create_execution_ctx();
         let Some((stats_array, stats)) = stats_accumulator.lock().as_array(&mut exec_ctx)? else {
@@ -310,6 +359,74 @@ impl ZonedStrategy {
             LegacyStatsLayout::try_new(data_layout, zones_layout, self.options.block_size, stats)?
                 .into_layout(),
         )
+    }
+}
+
+/// Cuts a stream of chunks into zones of `zone_len` rows, whatever the chunk boundaries.
+///
+/// A zone within one chunk is a slice of it, and a zone spanning chunks is a [`ChunkedArray`] of
+/// their slices. A chunk that is exactly one zone is returned as is.
+struct ZoneCutter {
+    zone_len: usize,
+    /// Slices of the zone that is still receiving rows.
+    open_zone: Vec<ArrayRef>,
+    open_len: usize,
+}
+
+impl ZoneCutter {
+    fn new(zone_len: NonZeroUsize) -> Self {
+        Self {
+            zone_len: zone_len.get(),
+            open_zone: Vec::new(),
+            open_len: 0,
+        }
+    }
+
+    /// Like [`Self::push`], passing an errored stream item through untouched.
+    fn push_item<S>(&mut self, item: &VortexResult<(S, ArrayRef)>) -> VortexResult<Vec<ArrayRef>> {
+        match item {
+            Ok((_, chunk)) => self.push(chunk),
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    /// Adds the next chunk of the stream, returning the zones it completes.
+    fn push(&mut self, chunk: &ArrayRef) -> VortexResult<Vec<ArrayRef>> {
+        let mut zones = Vec::new();
+        let mut offset = 0;
+        while offset < chunk.len() {
+            let piece_len = (self.zone_len - self.open_len).min(chunk.len() - offset);
+            let piece = if piece_len == chunk.len() {
+                chunk.clone()
+            } else {
+                chunk.slice(offset..offset + piece_len)?
+            };
+            self.open_zone.push(piece);
+            self.open_len += piece_len;
+            offset += piece_len;
+            if self.open_len == self.zone_len {
+                zones.push(self.take_open_zone()?);
+            }
+        }
+        Ok(zones)
+    }
+
+    /// Returns the final, short zone, if the stream did not end on a zone boundary.
+    fn finish(&mut self) -> VortexResult<Option<ArrayRef>> {
+        if self.open_zone.is_empty() {
+            return Ok(None);
+        }
+        self.take_open_zone().map(Some)
+    }
+
+    fn take_open_zone(&mut self) -> VortexResult<ArrayRef> {
+        let mut pieces = std::mem::take(&mut self.open_zone);
+        self.open_len = 0;
+        if pieces.len() == 1 {
+            return Ok(pieces.remove(0));
+        }
+        let dtype = pieces[0].dtype().clone();
+        Ok(ChunkedArray::try_new(pieces, dtype)?.into_array())
     }
 }
 
@@ -354,6 +471,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -361,13 +479,16 @@ mod tests {
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_expr::root;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
@@ -378,8 +499,10 @@ mod tests {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::file_stats::contains_variant;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::zoned::LegacyStats;
     use crate::layouts::zoned::Zoned;
     use crate::layouts::zoned::schema::aggregate_state_dtype;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -531,5 +654,130 @@ mod tests {
                 .iter()
                 .all(|aggregate_fn| !aggregate_fn.is::<Sum>())
         );
+    }
+
+    fn session_with_handle(handle: Handle) -> VortexSession {
+        VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with_handle(handle)
+    }
+
+    /// Writes `values`, chunked into `chunk_len` rows, with zones of `zone_len` rows.
+    fn write_chunked(
+        ctx: LayoutWriterContext,
+        values: &[i32],
+        chunk_len: usize,
+        zone_len: usize,
+    ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(zone_len).vortex_expect("non zero"),
+                ..Default::default()
+            },
+        );
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = ChunkedArray::from_iter(
+            values
+                .chunks(chunk_len)
+                .map(|chunk| chunk.iter().copied().collect::<Buffer<i32>>().into_array()),
+        )
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+        let segments = Arc::new(TestSegments::default());
+        let sink = Arc::clone(&segments);
+        let layout = block_on(|handle: Handle| async move {
+            strategy
+                .write_stream(ctx, sink, stream, eof, &session_with_handle(handle))
+                .await
+        })?;
+        Ok((segments, layout))
+    }
+
+    /// Reads the zone table, the second child of a zoned or legacy stats layout.
+    fn zone_table(
+        layout: &LayoutRef,
+        segments: Arc<dyn SegmentSource>,
+    ) -> VortexResult<ArrayRef> {
+        let zones = layout.children()?.remove(1);
+        block_on(|handle: Handle| async move {
+            let session = session_with_handle(handle);
+            let reader = zones.new_reader("".into(), segments, &session, &Default::default())?;
+            let row_count = zones.row_count();
+            reader
+                .projection_evaluation(
+                    &(0..row_count),
+                    &root().bind(reader.dtype())?,
+                    MaskFuture::new_true(usize::try_from(row_count)?),
+                )?
+                .await
+        })
+    }
+
+    /// The zone table is the same however the input is chunked, for both the zoned layout and
+    /// the legacy stats layout.
+    #[rstest]
+    fn zones_need_not_line_up_with_chunks(
+        #[values(1, 3, 7, 16, 50)] chunk_len: usize,
+        #[values(false, true)] legacy: bool,
+    ) -> VortexResult<()> {
+        const ZONE_LEN: usize = 5;
+        let ctx = || {
+            let ctx = LayoutWriterContext::new(ArrayContext::empty());
+            if legacy {
+                ctx.with_allowed_layouts(HashSet::from_iter([LegacyStats.id()]))
+            } else {
+                ctx
+            }
+        };
+        // 48 rows, so the final zone is short.
+        let values: Vec<i32> = (0..48).map(|i| (i * 37) % 23).collect();
+
+        let (segments, layout) = write_chunked(ctx(), &values, chunk_len, ZONE_LEN)?;
+        // Chunks of exactly one zone each are the input the writer used to require.
+        let (aligned_segments, aligned) = write_chunked(ctx(), &values, ZONE_LEN, ZONE_LEN)?;
+
+        assert_eq!(layout.is::<LegacyStats>(), legacy);
+        let table = zone_table(&layout, segments)?;
+        assert_eq!(table.len(), values.len().div_ceil(ZONE_LEN));
+        assert_arrays_eq!(
+            table,
+            zone_table(&aligned, aligned_segments)?,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::one_chunk_per_zone(&[3, 3, 3], &[3, 3, 3])]
+    #[case::chunks_smaller_than_zones(&[1, 1, 1, 1, 1, 1, 1], &[3, 3, 1])]
+    #[case::chunks_larger_than_zones(&[8], &[3, 3, 2])]
+    #[case::chunks_unaligned(&[2, 4, 0, 5], &[3, 3, 3, 2])]
+    fn zone_cutter_cuts_at_zone_boundaries(
+        #[case] chunk_lens: &[usize],
+        #[case] zone_lens: &[usize],
+    ) -> VortexResult<()> {
+        let mut cutter = ZoneCutter::new(NonZeroUsize::new(3).vortex_expect("non zero"));
+        let mut zones = Vec::new();
+        let mut next = 0i32;
+        for &chunk_len in chunk_lens {
+            let chunk = (next..next + i32::try_from(chunk_len)?)
+                .collect::<Buffer<i32>>()
+                .into_array();
+            next += i32::try_from(chunk_len)?;
+            zones.extend(cutter.push(&chunk)?);
+        }
+        zones.extend(cutter.finish()?);
+
+        assert_eq!(zones.iter().map(|zone| zone.len()).collect::<Vec<_>>(), zone_lens);
+        assert_arrays_eq!(
+            ChunkedArray::from_iter(zones).into_array(),
+            (0..next).collect::<Buffer<i32>>().into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
     }
 }
