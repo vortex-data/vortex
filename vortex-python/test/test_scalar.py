@@ -153,6 +153,18 @@ def test_duration_scalar_preserves_pandas_nanoseconds(stored: int) -> None:
     assert array.scalar_at(1).as_py() is None
 
 
+@pytest.mark.parametrize("unit,stored", [("s", 10_000_000_000), ("ms", -1_501), ("us", -42)])
+def test_duration_scalar_preserves_pandas_storage_unit(unit: Literal["s", "ms", "us"], stored: int) -> None:
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    value = pd.Timedelta(np.timedelta64(stored, unit))
+
+    scalar = vx.scalar(value)
+    assert scalar.dtype == vx.DType.from_arrow(pa.duration(unit), non_nullable=True)
+    expected = vx.array(pa.array([stored], type=pa.duration(unit))).scalar_at(0)
+    assert vx.scalar(value, dtype=expected.dtype) == expected
+
+
 def test_duration_scalar_reports_missing_pandas() -> None:
     # A fresh process keeps the cached pandas type from bypassing the import.
     script = dedent(r"""
