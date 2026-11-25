@@ -26,10 +26,9 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::task::Context;
     use std::task::Poll;
-    use std::task::Waker;
 
     use futures::AsyncRead;
-    use futures::Stream;
+    use futures::StreamExt;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -101,18 +100,16 @@ mod tests {
         }
     }
 
-    struct AsyncAsIter(AsyncMessageReader<FaultyReader>);
+    struct AsyncAsIter {
+        rt: tokio::runtime::Runtime,
+        stream: AsyncMessageReader<FaultyReader>,
+    }
 
     impl Iterator for AsyncAsIter {
         type Item = VortexResult<DecoderMessage>;
 
         fn next(&mut self) -> Option<Self::Item> {
-            let mut cx = Context::from_waker(Waker::noop());
-            loop {
-                if let Poll::Ready(item) = Pin::new(&mut self.0).poll_next(&mut cx) {
-                    return item;
-                }
-            }
+            self.rt.block_on(self.stream.next())
         }
     }
 
@@ -129,7 +126,12 @@ mod tests {
         ) -> Box<dyn Iterator<Item = VortexResult<DecoderMessage>>> {
             match self {
                 Self::Sync => Box::new(SyncMessageReader::new(reader)),
-                Self::Async => Box::new(AsyncAsIter(AsyncMessageReader::new(reader))),
+                Self::Async => Box::new(AsyncAsIter {
+                    rt: tokio::runtime::Builder::new_current_thread()
+                        .build()
+                        .vortex_expect("runtime"),
+                    stream: AsyncMessageReader::new(reader),
+                }),
             }
         }
     }
