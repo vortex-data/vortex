@@ -194,30 +194,37 @@ def test_run_terminates_and_reaps_child_when_on_result_raises(tmp_path: Path) ->
 
 
 def test_run_separates_stderr_and_delivers_batched_stdout_lines_immediately(tmp_path: Path) -> None:
+    ack = tmp_path / "ack"
     script = tmp_path / "batched-bench.py"
     script.write_text(
         textwrap.dedent(
             f"""\
             #!{sys.executable}
             import os
+            from pathlib import Path
             import sys
             import time
 
             os.write(2, b'{{"level":"info","msg":"stderr json"}}\\n')
             os.write(1, b'{{"query":1}}\\n{{"query":2}}\\n')
-            time.sleep(0.4)
+            ack = Path({str(ack)!r})
+            deadline = time.monotonic() + 2.0
+            while not ack.exists():
+                if time.monotonic() >= deadline:
+                    sys.exit(1)
+                time.sleep(0.01)
             """
         )
     )
     script.chmod(0o755)
 
     executor = BenchmarkExecutor(script, Engine.DATAFUSION)
-    arrival_times: list[float] = []
     streamed: list[str] = []
 
     def record(line: str) -> None:
-        arrival_times.append(time.monotonic())
         streamed.append(line)
+        if len(streamed) == 2:
+            ack.touch()
 
     results = executor.run(
         benchmark=Benchmark.TPCH,
@@ -228,8 +235,7 @@ def test_run_separates_stderr_and_delivers_batched_stdout_lines_immediately(tmp_
 
     assert results == ['{"query":1}', '{"query":2}']
     assert streamed == results
-    # Both lines from the single write must arrive together without stalling behind a read buffer.
-    assert arrival_times[1] - arrival_times[0] < 0.1
+    assert ack.exists()
 
 
 def test_datasource_integration_registers_vortex_table() -> None:

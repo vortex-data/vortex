@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shrink_then_grow_while_slots_full_never_exceeds_slots() {
+    async fn test_apply_limit_shrink_then_grow_never_exceeds_slots() {
         let batch = BatchProgress::new(10, 4, 4);
         let mut guards = Vec::new();
         for i in 0..4 {
@@ -829,7 +829,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shrink_absorbs_idle_permits_immediately() {
+    async fn test_apply_limit_shrink_absorbs_idle_permits_immediately() {
         let batch = BatchProgress::new(10, 4, 4);
         let guard = batch.acquire("shard-0").await;
         assert_eq!(batch.inner.in_flight.available_permits(), 3);
