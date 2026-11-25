@@ -53,9 +53,10 @@ impl StatsRewriteRule for SpatialDistancePrune {
         let options = expr.as_::<Compare>();
 
         // The proof needs an order in which `-0.0 = +0.0`. For a radius that is not `NaN`, these
-        // orders differ only for a `NaN` distance, and a bounding box gives no bound for such a
-        // row in any of them. A total-order comparison separates the zeros, and an order that
-        // this version does not know has no proof.
+        // orders differ only for a `NaN` distance. Such a row has a `NaN` coordinate, which makes
+        // the zone box the whole plane (see `GeometryAabb`), so no order prunes its chunk. A
+        // total-order comparison separates the zeros, and an order that this version does not
+        // know has no proof.
         if !matches!(
             options.compare_mode().float_order(),
             FloatOrder::ZerosEqual | FloatOrder::Canonical | FloatOrder::Ieee754
@@ -228,6 +229,45 @@ mod tests {
         let mask = zones.prune(&proof, &spatial_session())?;
 
         assert_eq!(mask.iter().collect::<Vec<_>>(), [false, true]);
+        Ok(())
+    }
+
+    /// A row with a `NaN` coordinate has a `NaN` distance, which satisfies `>= r` in `Canonical`
+    /// and can satisfy `<= r` as a negative `NaN` in `ZerosEqual`. Its zone box is the whole
+    /// plane, which no comparison prunes, while a zone of finite points next to it still prunes.
+    #[rstest]
+    #[case::gte(CompareOperator::Gte, [true, false])]
+    #[case::gt(CompareOperator::Gt, [true, false])]
+    #[case::lte(CompareOperator::Lte, [true, false])]
+    #[case::lt(CompareOperator::Lt, [true, false])]
+    fn whole_plane_zone_is_kept(
+        #[case] operator: CompareOperator,
+        #[case] kept: [bool; 2],
+    ) -> VortexResult<()> {
+        let (radius, finite_zone) = match operator {
+            CompareOperator::Gte | CompareOperator::Gt => (1.0, [0.0, 0.0, 0.0, 0.0]),
+            _ => (0.5, [1.0, 0.0, 1.0, 0.0]),
+        };
+
+        for float_order in [FloatOrder::ZerosEqual, FloatOrder::Canonical, FloatOrder::Ieee754] {
+            let mode = CompareMode::new().with_float_order(float_order);
+            let proof = falsify_distance_in(CompareOptions::new(operator, mode), true, radius)?
+                .expect("an order with equal zeros prunes");
+
+            let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+            let whole_plane = [
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+            ];
+            let zones = aabb_zone_map(&dtype, &[whole_plane, finite_zone])?;
+            let mask = zones.prune(&proof, &spatial_session())?;
+
+            // The mask is true for a pruned zone.
+            let pruned = mask.iter().collect::<Vec<_>>();
+            assert_eq!(pruned, kept.map(|k| !k), "{operator} in {float_order}");
+        }
         Ok(())
     }
 
