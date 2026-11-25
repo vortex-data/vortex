@@ -250,6 +250,15 @@ fn v3_narrowed_bitpacked_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
+fn assert_err_contains(result: VortexResult<ArrayRef>, expected: &str) {
+    let err = result.expect_err("expected deserialization error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains(expected),
+        "expected error containing {expected:?}, got {msg:?}"
+    );
+}
+
 #[test]
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -269,37 +278,48 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     assert_arrays_eq!(restored, array, &mut ctx);
 
     // The references child is missing.
-    assert!(deserialize_v2_parts(&dtype, len, 0, std::slice::from_ref(&encoded)).is_err());
+    assert_err_contains(
+        deserialize_v2_parts(&dtype, len, 0, std::slice::from_ref(&encoded)),
+        "Expected at least 2 children",
+    );
 
     // Buffers are not part of the contract.
     let buffer = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 8]));
-    assert!(
-        FoRPlugin
-            .deserialize(
-                ArrayDeserialization::new(
-                    for_v2_id(),
-                    &dtype,
-                    len,
-                    &v2::FoRV2Metadata { offset: 0 }.encode_to_vec(),
-                    std::slice::from_ref(&buffer),
-                    &both,
-                ),
-                &SESSION,
-            )
-            .is_err()
+    assert_err_contains(
+        FoRPlugin.deserialize(
+            ArrayDeserialization::new(
+                for_v2_id(),
+                &dtype,
+                len,
+                &v2::FoRV2Metadata { offset: 0 }.encode_to_vec(),
+                std::slice::from_ref(&buffer),
+                &both,
+            ),
+            &SESSION,
+        ),
+        "expects 0 buffers",
     );
 
     // A non-integer dtype.
     let float = DType::Primitive(PType::F32, dtype.nullability());
-    assert!(deserialize_v2_parts(&float, len, 0, &both).is_err());
+    assert_err_contains(
+        deserialize_v2_parts(&float, len, 0, &both),
+        "requires an integer dtype",
+    );
 
     // The offset must lie in the first chunk.
     for offset in [1024, u32::MAX] {
-        assert!(deserialize_v2_parts(&dtype, len, offset, &both).is_err());
+        assert_err_contains(
+            deserialize_v2_parts(&dtype, len, offset, &both),
+            "FoR offset must be less than",
+        );
     }
 
     // The number of chunks spanned by `offset + len` must not overflow.
-    assert!(deserialize_v2_parts(&dtype, usize::MAX, 1, &both).is_err());
+    assert_err_contains(
+        deserialize_v2_parts(&dtype, usize::MAX, 1, &both),
+        "overflowed usize",
+    );
     Ok(())
 }
 
@@ -327,33 +347,38 @@ fn v3_rejects_malformed_parts() -> VortexResult<()> {
     assert_arrays_eq!(restored, array, &mut ctx);
 
     // The references child is missing.
-    assert!(deserialize_v3_parts(&dtype, len, &metadata, std::slice::from_ref(&encoded)).is_err());
+    assert_err_contains(
+        deserialize_v3_parts(&dtype, len, &metadata, std::slice::from_ref(&encoded)),
+        "Expected at least 2 children",
+    );
 
     // Buffers are not part of the contract.
     let buffer = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 8]));
-    assert!(
-        FoRPlugin
-            .deserialize(
-                ArrayDeserialization::new(
-                    for_v3_id(),
-                    &dtype,
-                    len,
-                    &metadata.encode_to_vec(),
-                    std::slice::from_ref(&buffer),
-                    &both,
-                ),
-                &SESSION,
-            )
-            .is_err()
+    assert_err_contains(
+        FoRPlugin.deserialize(
+            ArrayDeserialization::new(
+                for_v3_id(),
+                &dtype,
+                len,
+                &metadata.encode_to_vec(),
+                std::slice::from_ref(&buffer),
+                &both,
+            ),
+            &SESSION,
+        ),
+        "expects 0 buffers",
     );
 
     // A non-integer dtype.
     let float = DType::Primitive(PType::F32, dtype.nullability());
-    assert!(deserialize_v3_parts(&float, len, &metadata, &both).is_err());
+    assert_err_contains(
+        deserialize_v3_parts(&float, len, &metadata, &both),
+        "requires an integer dtype",
+    );
 
     // The offset must lie in the first chunk.
     for offset in [1024, u32::MAX] {
-        assert!(
+        assert_err_contains(
             deserialize_v3_parts(
                 &dtype,
                 len,
@@ -362,14 +387,14 @@ fn v3_rejects_malformed_parts() -> VortexResult<()> {
                     encoded_bytes: valid_bytes,
                 },
                 &both,
-            )
-            .is_err()
+            ),
+            "FoR offset must be less than",
         );
     }
 
     // Reject missing (0), invalid (3), and non-narrower (4 for u32) encoded_bytes values.
     for encoded_bytes in [0, 3, 4] {
-        assert!(
+        assert_err_contains(
             deserialize_v3_parts(
                 &dtype,
                 len,
@@ -378,8 +403,8 @@ fn v3_rejects_malformed_parts() -> VortexResult<()> {
                     encoded_bytes,
                 },
                 &both,
-            )
-            .is_err()
+            ),
+            "Invalid FoR v3 encoded_bytes",
         );
     }
 
@@ -388,33 +413,87 @@ fn v3_rejects_malformed_parts() -> VortexResult<()> {
         offset: 1,
         encoded_bytes: valid_bytes,
     };
-    assert!(deserialize_v3_parts(&dtype, usize::MAX, &offset_one, &both).is_err());
+    assert_err_contains(
+        deserialize_v3_parts(&dtype, usize::MAX, &offset_one, &both),
+        "overflowed usize",
+    );
     Ok(())
+}
+
+#[derive(Debug)]
+struct LegacyFoRV2OnlyPlugin;
+
+impl ArrayPlugin for LegacyFoRV2OnlyPlugin {
+    fn id(&self) -> ArrayId {
+        FoR.id()
+    }
+
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![for_v1_id(), for_v2_id()]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
+        vec![for_v1_id(), for_v2_id()]
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        FoRPlugin.serialize(array, session)
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        FoRPlugin.deserialize(parts, session)
+    }
 }
 
 #[test]
 fn v3_rejected_by_reader_without_v3_plugin() -> VortexResult<()> {
-    let array = chunked_narrowed()?.into_array();
-    let array_ctx = ArrayContext::empty();
-    let buffers = array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())?;
-    assert!(array_ctx.to_ids().contains(&for_v3_id()));
-    let mut bytes = ByteBufferMut::empty();
-    for buffer in buffers {
-        bytes.extend_from_slice(&buffer);
-    }
+    let mut ctx = SESSION.create_execution_ctx();
+    let legacy_reader = VortexSession::empty();
+    legacy_reader.arrays().register(LegacyFoRV2OnlyPlugin);
 
-    // A reader that does not register `fastlanes.for.v3` fails with an unknown-ID error instead
-    // of misdecoding the narrowed child under `fastlanes.for.v2`.
-    let empty_reader = VortexSession::empty();
-    assert!(
-        SerializedArray::try_from(bytes.freeze())?
-            .decode(
-                array.dtype(),
-                array.len(),
-                &ReadContext::new(array_ctx.to_ids()),
-                &empty_reader,
-            )
-            .is_err()
+    // Same-width blocked FoR serializes under `fastlanes.for.v2` and decodes on a v2-only reader.
+    let same_width = chunked_same_width()?.into_array();
+    let v2_ctx = ArrayContext::empty();
+    let v2_buffers = same_width.serialize(&v2_ctx, &SESSION, &SerializeOptions::default())?;
+    assert!(v2_ctx.to_ids().contains(&for_v2_id()));
+    let mut v2_bytes = ByteBufferMut::empty();
+    for buffer in v2_buffers {
+        v2_bytes.extend_from_slice(&buffer);
+    }
+    let decoded_v2 = SerializedArray::try_from(v2_bytes.freeze())?.decode(
+        same_width.dtype(),
+        same_width.len(),
+        &ReadContext::new(v2_ctx.to_ids()),
+        &legacy_reader,
+    )?;
+    assert_arrays_eq!(decoded_v2, same_width, &mut ctx);
+
+    // Narrowed blocked FoR serializes under `fastlanes.for.v3`, which the v2-only reader rejects
+    // with an unknown-ID error instead of misdecoding the narrowed child under `fastlanes.for.v2`.
+    let narrowed = chunked_narrowed()?.into_array();
+    let v3_ctx = ArrayContext::empty();
+    let v3_buffers = narrowed.serialize(&v3_ctx, &SESSION, &SerializeOptions::default())?;
+    assert!(v3_ctx.to_ids().contains(&for_v3_id()));
+    let mut v3_bytes = ByteBufferMut::empty();
+    for buffer in v3_buffers {
+        v3_bytes.extend_from_slice(&buffer);
+    }
+    assert_err_contains(
+        SerializedArray::try_from(v3_bytes.freeze())?.decode(
+            narrowed.dtype(),
+            narrowed.len(),
+            &ReadContext::new(v3_ctx.to_ids()),
+            &legacy_reader,
+        ),
+        for_v3_id().as_ref(),
     );
     Ok(())
 }
