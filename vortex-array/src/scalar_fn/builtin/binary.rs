@@ -1,41 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Code that the two-operand functions [`Compare`], [`Boolean`], and [`Numeric`] share, and the
-//! reader for the legacy `vortex.binary` function.
+//! Code that the two-operand functions [`Compare`], [`Boolean`], and [`Numeric`] share.
 //!
-//! Vortex wrote all three kinds of operation as one `vortex.binary` function with a
-//! [`pb::BinaryOpts`] operator. [`LegacyBinary`] reads such a function and returns the function
-//! that now owns the operator, so an expression that an older version serialized still loads.
+//! [`Compare`]: crate::scalar_fn::builtin::compare::Compare
+//! [`Boolean`]: crate::scalar_fn::builtin::boolean::Boolean
+//! [`Numeric`]: crate::scalar_fn::builtin::numeric::Numeric
 
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use prost::Message;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::AnyColumnar;
 use crate::ExecutionCtx;
 use crate::matcher::Matcher;
-use crate::proto::expr as pb;
-use crate::proto::expr::binary_opts::BinaryOp;
 use crate::require_input;
-use crate::scalar::NumericOperator;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnExecutionResult;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnPlugin;
-use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::boolean::Boolean;
-use crate::scalar_fn::builtin::compare::Compare;
-use crate::scalar_fn::builtin::numeric::Numeric;
-use crate::scalar_fn::builtin::operators::BooleanOperator;
-use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::scalar_fn::display::ExprDisplay;
 
 /// Returns the name of an operand of a two-operand function.
@@ -87,39 +71,6 @@ pub(super) fn execute_strict_step<V: ScalarFnVTable>(
     vtable
         .execute(options, args, ctx)
         .map(ScalarFnExecutionResult::done)
-}
-
-/// The reader for the legacy `vortex.binary` function.
-///
-/// It is only a [`ScalarFnPlugin`]: no expression or array holds it. Deserialization returns a
-/// [`Compare`], [`Boolean`], or [`Numeric`] function, which serializes with its own id.
-#[derive(Debug)]
-pub(crate) struct LegacyBinary;
-
-impl ScalarFnPlugin for LegacyBinary {
-    fn id(&self) -> ScalarFnId {
-        static ID: CachedId = CachedId::new("vortex.binary");
-        *ID
-    }
-
-    fn deserialize(&self, metadata: &[u8], _session: &VortexSession) -> VortexResult<ScalarFnRef> {
-        let opts = pb::BinaryOpts::decode(metadata)?;
-
-        Ok(match BinaryOp::try_from(opts.op)? {
-            BinaryOp::Eq => Compare.bind(CompareOperator::Eq),
-            BinaryOp::NotEq => Compare.bind(CompareOperator::NotEq),
-            BinaryOp::Gt => Compare.bind(CompareOperator::Gt),
-            BinaryOp::Gte => Compare.bind(CompareOperator::Gte),
-            BinaryOp::Lt => Compare.bind(CompareOperator::Lt),
-            BinaryOp::Lte => Compare.bind(CompareOperator::Lte),
-            BinaryOp::And => Boolean.bind(BooleanOperator::And),
-            BinaryOp::Or => Boolean.bind(BooleanOperator::Or),
-            BinaryOp::Add => Numeric.bind(NumericOperator::Add),
-            BinaryOp::Sub => Numeric.bind(NumericOperator::Sub),
-            BinaryOp::Mul => Numeric.bind(NumericOperator::Mul),
-            BinaryOp::Div => Numeric.bind(NumericOperator::Div),
-        })
-    }
 }
 
 #[cfg(test)]

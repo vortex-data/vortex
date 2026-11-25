@@ -108,27 +108,6 @@ message NumericOpts {
   }
 }
 
-// Options for the legacy `vortex.binary` function. Vortex no longer writes it. A reader converts
-// it to `vortex.compare`, `vortex.boolean`, or `vortex.numeric`.
-message BinaryOpts {
-  BinaryOp op = 1;
-
-  enum BinaryOp {
-    Eq = 0;
-    NotEq = 1;
-    Gt = 2;
-    Gte = 3;
-    Lt = 4;
-    Lte = 5;
-    And = 6;
-    Or = 7;
-    Add = 8;
-    Sub = 9;
-    Mul = 10;
-    Div = 11;
-  }
-}
-
 message BetweenOpts {
   bool lower_strict = 1;
   bool upper_strict = 2;

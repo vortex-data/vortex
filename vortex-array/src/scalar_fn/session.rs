@@ -12,7 +12,6 @@ use vortex_session::registry::Id;
 
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::builtin::LegacyBinary;
 use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::cast::Cast;
 use crate::scalar_fn::builtin::compare::Compare;
@@ -65,10 +64,6 @@ impl Default for ScalarFnSession {
         this.register(Not);
         this.register(Numeric);
         this.register(Pack);
-
-        // Expressions that an older version serialized can hold the legacy `vortex.binary` id.
-        let legacy_binary = Arc::new(LegacyBinary) as ScalarFnPluginRef;
-        this.registry.insert(legacy_binary.id(), legacy_binary);
 
         this
     }

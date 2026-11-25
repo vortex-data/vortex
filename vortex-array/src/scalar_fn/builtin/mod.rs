@@ -16,7 +16,6 @@
 //! [`ArrayBuiltins`]: crate::builtins::ArrayBuiltins
 
 mod binary;
-pub(crate) use binary::LegacyBinary;
 pub mod boolean;
 pub mod cast;
 pub mod compare;

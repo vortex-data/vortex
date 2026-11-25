@@ -10,7 +10,6 @@ mod expression;
 mod fill_null;
 mod get_item;
 mod is_not_null;
-mod legacy_binary;
 mod literal;
 mod mask;
 mod not;
