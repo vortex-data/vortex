@@ -379,7 +379,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Selection> {
-        let mut eligible_schemes: Vec<&'static dyn Scheme> = self
+        let eligible_schemes: Vec<&'static dyn Scheme> = self
             .schemes
             .iter()
             .copied()
@@ -452,18 +452,8 @@ impl CascadingCompressor {
                 eligible: &eligible,
                 ctx: &compress_ctx,
             };
-            match policy.select_scheme_with_stats(&request, &data, exec_ctx) {
+            match policy.select_scheme(&request) {
                 SchemeSelection::Estimate => {}
-                SchemeSelection::EstimateAmong(ids) => {
-                    let among: Vec<&'static dyn Scheme> = eligible_schemes
-                        .iter()
-                        .copied()
-                        .filter(|s| ids.contains(&s.id()))
-                        .collect();
-                    if !among.is_empty() {
-                        eligible_schemes = among;
-                    }
-                }
                 SchemeSelection::Canonical => {
                     return Ok(observed(
                         Some(policy),

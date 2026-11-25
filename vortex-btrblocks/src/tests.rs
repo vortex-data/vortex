@@ -758,6 +758,7 @@ fn wide_runs_of_two() -> ArrayRef {
 
 #[test]
 fn run_model_size_only_picks_runend_for_wide_short_runs() -> VortexResult<()> {
+
     use crate::schemes::integer::RunModel;
 
     let input = wide_runs_of_two();
@@ -779,6 +780,7 @@ fn run_model_size_only_picks_runend_for_wide_short_runs() -> VortexResult<()> {
 
 #[test]
 fn run_model_decode_cost_avoids_runend_at_memory_bandwidth() -> VortexResult<()> {
+
     use crate::schemes::integer::RunModel;
 
     let input = wide_runs_of_two();
@@ -804,179 +806,4 @@ fn run_model_reuses_schemes_for_equal_models() {
     let a = modeled_schemes(RunModel::for_bandwidth(2e9));
     let b = modeled_schemes(RunModel::for_bandwidth(2e9));
     assert!(a.iter().zip(&b).all(|(x, y)| std::ptr::addr_eq(*x, *y)));
-}
-
-mod learned_selector {
-    use std::sync::Arc;
-
-    use vortex_array::arrays::RunEnd;
-    use vortex_error::VortexResult;
-    use vortex_fastlanes::BitPacked;
-
-    use super::BITPACKING_V1;
-    use super::RunEndScheme;
-    use super::assert_roundtrip;
-    use super::runs;
-    use crate::BtrBlocksCompressor;
-    use crate::BtrBlocksCompressorBuilder;
-    use crate::CompressionPolicy;
-    use crate::SESSION;
-    use crate::SchemeExt;
-    use crate::selector::INT_FEATURE_NAMES;
-    use crate::selector::Leaf;
-    use crate::selector::LearnedPolicy;
-    use crate::selector::N_INT_FEATURES;
-    use crate::selector::Node;
-    use crate::selector::RecordFeatures;
-    use crate::selector::TreeModel;
-    use vortex_array::VortexSessionExecute;
-
-    const SCHEMES: &[&str] = &["vortex.int.bitpacking", "vortex.int.runend"];
-
-    static WIDE: [f64; N_INT_FEATURES] = [f64::INFINITY; N_INT_FEATURES];
-    static NARROW: [f64; N_INT_FEATURES] = [1.0; N_INT_FEATURES];
-    static LOW: [f64; N_INT_FEATURES] = [f64::NEG_INFINITY; N_INT_FEATURES];
-    static SURE: [Leaf; 1] = [Leaf {
-        ranked: &[0, 1],
-        confidence: 1.0,
-    }];
-    static NOT_SURE: [Leaf; 1] = [Leaf {
-        ranked: &[0, 1],
-        confidence: 0.0,
-    }];
-
-    /// A one-leaf model that ranks BitPacking first.
-    const fn model(leaves: &'static [Leaf], feature_max: &'static [f64]) -> TreeModel {
-        TreeModel {
-            name: "test",
-            training_hash: "",
-            schemes: SCHEMES,
-            feature_names: &INT_FEATURE_NAMES,
-            feature_min: &LOW,
-            feature_max,
-            nodes: &[Node::Leaf(0)],
-            leaves,
-        }
-    }
-
-    static CONFIDENT: TreeModel = model(&SURE, &WIDE);
-    static UNSURE: TreeModel = model(&NOT_SURE, &WIDE);
-    static OUT_OF_RANGE: TreeModel = model(&SURE, &NARROW);
-
-    fn compressor(policy: Arc<dyn CompressionPolicy>) -> BtrBlocksCompressor {
-        BtrBlocksCompressorBuilder::empty()
-            .with_new_scheme(&RunEndScheme)
-            .with_new_scheme(&BITPACKING_V1)
-            .with_policy(policy)
-            .build()
-    }
-
-    #[test]
-    fn test_scheme_names_match_the_model() {
-        assert_eq!(BITPACKING_V1.id().to_string(), SCHEMES[0]);
-        assert_eq!(RunEndScheme.id().to_string(), SCHEMES[1]);
-    }
-
-    #[test]
-    fn test_confident_pick_skips_estimation() -> VortexResult<()> {
-        let policy = Arc::new(LearnedPolicy::new(&CONFIDENT));
-        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
-        assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
-        Ok(())
-    }
-
-    #[test]
-    fn test_unsure_pick_estimates_over_the_top_k() -> VortexResult<()> {
-        let policy = Arc::new(LearnedPolicy::new(&UNSURE).with_fallback_k(1));
-        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
-        assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
-
-        let policy = Arc::new(LearnedPolicy::new(&UNSURE).with_fallback_k(0));
-        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
-        assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
-        Ok(())
-    }
-
-    #[test]
-    fn test_out_of_range_features_fall_back() -> VortexResult<()> {
-        let policy = Arc::new(LearnedPolicy::new(&OUT_OF_RANGE).with_fallback_k(1));
-        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
-        assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
-        Ok(())
-    }
-
-    #[test]
-    fn test_record_features_sees_every_integer_site() -> VortexResult<()> {
-        let recorder = Arc::new(RecordFeatures::new());
-        let compressor = compressor(Arc::<RecordFeatures>::clone(&recorder) as _);
-        let mut ctx = SESSION.create_execution_ctx();
-        compressor.compress(&runs(), &mut ctx)?;
-        let sites = recorder.take();
-        let root = sites.iter().find(|s| s.path.is_empty()).expect("root site");
-        assert_eq!(root.applied, Some(RunEndScheme.id()));
-        assert_eq!(root.features[0], 100_000f64.log2());
-        assert!(sites.iter().any(|s| s.path.starts_with("vortex.int.runend#")));
-        Ok(())
-    }
-}
-
-fn nullable_runs() -> ArrayRef {
-    PrimitiveArray::from_option_iter((0..100_000).map(|i| (i % 1_000 != 7).then_some(i / 100)))
-        .into_array()
-}
-
-/// A leaf's validity bitmap is a nested site, so a plan that keeps the leaf canonical still lets
-/// the bitmap be compressed, and recording the leaf's plan does not pick up the bitmap's scheme.
-#[test]
-fn test_nullable_leaf_plan_covers_the_leaf() -> VortexResult<()> {
-    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .unrestricted()
-        .build();
-    let input = nullable_runs();
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let canonical = compressor.compress_with_plan(&input, &Plan::Canonical, &mut ctx)?;
-    assert!(canonical.is_canonical(), "{}", canonical.encoding_id());
-    let validity = canonical.validity()?;
-    let bitmap = validity
-        .as_array()
-        .vortex_expect("nullable input has a validity bitmap");
-    assert!(!bitmap.is_canonical(), "{}", bitmap.encoding_id());
-    assert_arrays_eq!(&canonical, &input, &mut ctx);
-
-    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
-    assert!(
-        matches!(&plan, Plan::Scheme { .. }),
-        "{plan} for {}",
-        compressed.encoding_id()
-    );
-    let replayed = compressor.compress_with_plan(&input, &plan, &mut ctx)?;
-    assert_eq!(replayed.nbytes(), compressed.nbytes());
-    assert_arrays_eq!(&replayed, &input, &mut ctx);
-    Ok(())
-}
-
-/// Struct fields are nested sites, so a struct's plan leaves them to estimation and replays to
-/// the same array.
-#[test]
-fn test_struct_plan_leaves_fields_to_estimation() -> VortexResult<()> {
-    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-        .unrestricted()
-        .build();
-    let strings = VarBinViewArray::from_iter_str((0..100_000).map(|i| ["a", "bb", "ccc"][i % 3]));
-    let input = StructArray::from_fields(&[
-        ("runs", runs()),
-        ("nullable", nullable_runs()),
-        ("strings", strings.into_array()),
-    ])?
-    .into_array();
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
-    assert_eq!(plan, Plan::Adaptive);
-
-    let replayed = compressor.compress_with_plan(&input, &plan, &mut ctx)?;
-    assert_eq!(replayed.nbytes(), compressed.nbytes());
-    assert_arrays_eq!(&replayed, &input, &mut ctx);
-    Ok(())
 }

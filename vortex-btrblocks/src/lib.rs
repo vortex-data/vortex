@@ -85,7 +85,6 @@ pub use session::CompressionSession;
 pub use session::CompressionSessionExt;
 pub use vortex_compressor::CascadingCompressor;
 pub use vortex_compressor::plan::FollowPlan;
-pub use vortex_compressor::selector;
 pub use vortex_compressor::plan::Plan;
 pub use vortex_compressor::plan::RecordPlan;
 pub use vortex_compressor::scheme::Child;
