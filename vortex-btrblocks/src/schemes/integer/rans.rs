@@ -23,17 +23,17 @@ use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_rans::BLOCK_HEADER_BYTES;
+use vortex_rans::BLOCK_STATES_BYTES;
 use vortex_rans::BLOCK_VALUES;
 use vortex_rans::EBITS_TABLE;
 use vortex_rans::MAX_SYMS;
 use vortex_rans::Rans;
 use vortex_rans::pow2_sym_and_ebits;
 use vortex_rans::rans_id;
-use vortex_rans::zigzag_encode;
 
 use super::IntDictScheme;
 use super::RunEndScheme;
-use super::ZigZagScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
@@ -41,7 +41,9 @@ use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::boolean::BoolRunEndScheme;
 
-/// Minimum array length to evaluate [`RansScheme`].
+/// Minimum array length to evaluate [`RansScheme`] (`1024` matches `SAMPLE_SIZE * SAMPLE_COUNT`,
+/// so parent schemes such as `ZigZagScheme`, `ALPScheme`, and `IntDictScheme` see accurate rANS
+/// child compression ratios during sampling).
 const MIN_RANS_LEN: usize = 1024;
 
 /// Maximum number of evenly spaced `4,096`-value blocks sampled by the in-memory estimator.
@@ -56,14 +58,16 @@ const MIN_NARROW_BITS_SAVED: f64 = 0.35;
 /// Relative size ceiling paired with [`MIN_NARROW_BITS_SAVED`].
 const MAX_NARROW_REL_RATIO: f64 = 0.80;
 
-/// Per-block fixed byte cost (`32 * 4` state bytes + `16` header bytes = `144` bytes per `4,096`
-/// values, or `~0.28125` bits/value on full blocks).
-const PER_BLOCK_FIXED_BYTES: usize = 144;
+/// Per-block fixed byte cost (`32 * 4` state bytes + `8` header bytes = `136` bytes per `4,096`
+/// values, or `~0.265625` bits/value on full blocks).
+const PER_BLOCK_FIXED_BYTES: usize = BLOCK_STATES_BYTES + BLOCK_HEADER_BYTES;
 
-/// 32-lane `Pow2-Bin + Raw-Bits` rANS leaf scheme (`vortex.int.rans`) for skewed integer streams.
+/// 32-lane `Pow2-Bin + Raw-Bits` rANS leaf scheme (`vortex.int.rans`) for non-negative skewed
+/// integer streams.
 ///
-/// Competes as a leaf alongside `BitPackingScheme` at the bottom of BtrBlocks cascades, including
-/// underneath `Dict.codes`, `ALP`, `FoR`, `ZigZag`, `Affine`, `Delta`, and `DecimalByteParts`.
+/// Like `BitPackingScheme`, `RansScheme` requires non-negative values (`!min_is_negative()`);
+/// signed arrays with negative values are mapped to unsigned by `ZigZagScheme` and compressed as
+/// `ZigZag(Rans)`.
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct RansScheme;
 
@@ -81,7 +85,7 @@ impl Scheme for RansScheme {
     }
 
     /// Exclude `RunEnd.ends` and `BoolRunEnd.ends` (binary-searched via `scalar_at`), while
-    /// allowing `Dict.codes`, `ALP`, `FoR.v2`, `ZigZag`, `Affine`, `Delta`, and `DecimalByteParts`.
+    /// allowing `ZigZag`, `Dict.codes`, `ALP`, `FoR.v2`, `Delta`, and `DecimalByteParts`.
     fn ancestor_exclusions(&self) -> Vec<AncestorExclusion> {
         vec![
             AncestorExclusion {
@@ -98,10 +102,16 @@ impl Scheme for RansScheme {
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        if compress_ctx.is_sample() || data.array_len() < MIN_RANS_LEN {
+        if data.array_len() < MIN_RANS_LEN {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
+
+        // Like `BitPackingScheme`, `Rans` only encodes non-negative integers; negative signed
+        // arrays cascade through `ZigZagScheme` into `ZigZag(Rans)`.
+        if data.integer_stats(exec_ctx).erased().min_is_negative() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -112,14 +122,9 @@ impl Scheme for RansScheme {
                 }
 
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-                let zigzag_available = zigzag_is_available(compressor, &compress_ctx);
                 let dict_available = dict_is_available(compressor, &compress_ctx);
-                let Some((bp_bits, rans_bits)) = estimate_bp_vs_rans_bits(
-                    &primitive,
-                    zigzag_available,
-                    dict_available,
-                    exec_ctx,
-                )?
+                let Some((bp_bits, rans_bits)) =
+                    estimate_bp_vs_rans_bits(&primitive, dict_available, exec_ctx)?
                 else {
                     return Ok(EstimateVerdict::Skip);
                 };
@@ -152,15 +157,6 @@ impl Scheme for RansScheme {
     }
 }
 
-fn zigzag_is_available(compressor: &CascadingCompressor, compress_ctx: &CompressorContext) -> bool {
-    let zz_id = ZigZagScheme.id();
-    compressor.has_scheme(zz_id)
-        && !compress_ctx
-            .cascade_history()
-            .iter()
-            .any(|&(id, _)| id == zz_id)
-}
-
 fn dict_is_available(compressor: &CascadingCompressor, compress_ctx: &CompressorContext) -> bool {
     let dict_id = IntDictScheme.id();
     compressor.has_scheme(dict_id)
@@ -175,7 +171,6 @@ fn dict_is_available(compressor: &CascadingCompressor, compress_ctx: &Compressor
 /// `(bp_bits, rans_bits)` in bits/value.
 fn estimate_bp_vs_rans_bits(
     array: &PrimitiveArray,
-    zigzag_available: bool,
     dict_available: bool,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<(f64, f64)>> {
@@ -194,7 +189,6 @@ fn estimate_bp_vs_rans_bits(
             array.as_slice::<T>(),
             ptype,
             &mask,
-            zigzag_available,
             dict_available,
             total_len,
         )
@@ -205,7 +199,6 @@ fn estimate_typed<T>(
     values: &[T],
     ptype: PType,
     mask: &Mask,
-    zigzag_available: bool,
     dict_available: bool,
     total_len: usize,
 ) -> Option<(f64, f64)>
@@ -214,18 +207,9 @@ where
 {
     let num_blocks = total_len.div_ceil(BLOCK_VALUES);
     let is_signed = ptype.is_signed_int();
-    let has_negative = is_signed && sampled_has_negative(values, mask, num_blocks, total_len);
 
-    let sample =
-        collect_sampled_histograms(values, is_signed, has_negative, mask, num_blocks, total_len)?;
-
-    let bp_bits = compute_bp_bits(
-        ptype,
-        &sample.bw_hist,
-        sample.sample_len,
-        has_negative,
-        zigzag_available,
-    );
+    let sample = collect_sampled_histograms(values, is_signed, mask, num_blocks, total_len)?;
+    let bp_bits = compute_bp_bits(ptype, &sample.bw_hist, sample.sample_len);
     let (rans_bits, bp_bits) = compute_rans_and_capped_bp_bits(
         ptype,
         &sample.sym_counts,
@@ -249,37 +233,6 @@ fn sampled_block_idx(idx: usize, num_blocks: usize) -> usize {
     }
 }
 
-fn sampled_has_negative<T>(values: &[T], mask: &Mask, num_blocks: usize, total_len: usize) -> bool
-where
-    T: Copy + AsPrimitive<i64>,
-{
-    let sampled_blocks = num_blocks.min(SAMPLE_BLOCKS);
-    for i in 0..sampled_blocks {
-        let start = sampled_block_idx(i, num_blocks) * BLOCK_VALUES;
-        let end = (start + BLOCK_VALUES).min(total_len);
-        match mask {
-            Mask::AllTrue(_) => {
-                if values[start..end]
-                    .iter()
-                    .any(|&v| AsPrimitive::<i64>::as_(v) < 0)
-                {
-                    return true;
-                }
-            }
-            Mask::Values(mv) => {
-                let bits = mv.bit_buffer();
-                for (rel, &v) in values[start..end].iter().enumerate() {
-                    if bits.value(start + rel) && AsPrimitive::<i64>::as_(v) < 0 {
-                        return true;
-                    }
-                }
-            }
-            Mask::AllFalse(_) => return false,
-        }
-    }
-    false
-}
-
 struct SampledHistograms {
     sym_counts: [usize; MAX_SYMS],
     bw_hist: [usize; 65],
@@ -290,7 +243,6 @@ struct SampledHistograms {
 fn collect_sampled_histograms<T>(
     values: &[T],
     is_signed: bool,
-    has_negative: bool,
     mask: &Mask,
     num_blocks: usize,
     total_len: usize,
@@ -299,16 +251,6 @@ where
     T: Copy + AsPrimitive<i64> + AsPrimitive<u64>,
 {
     let sampled_blocks = num_blocks.min(SAMPLE_BLOCKS);
-    let map_val = |v: T| -> u64 {
-        if has_negative {
-            zigzag_encode(AsPrimitive::<i64>::as_(v))
-        } else if is_signed {
-            AsPrimitive::<i64>::as_(v) as u64
-        } else {
-            AsPrimitive::<u64>::as_(v)
-        }
-    };
-
     let mut sym_counts = [0usize; MAX_SYMS];
     let mut bw_hist = [0usize; 65];
     let mut sample_len = 0usize;
@@ -322,7 +264,15 @@ where
         match mask {
             Mask::AllTrue(_) => {
                 for &v in &values[start..end] {
-                    let u = map_val(v);
+                    let u = if is_signed {
+                        let s = AsPrimitive::<i64>::as_(v);
+                        if s < 0 {
+                            return None;
+                        }
+                        s as u64
+                    } else {
+                        AsPrimitive::<u64>::as_(v)
+                    };
                     bw_hist[(u64::BITS - u.leading_zeros()) as usize] += 1;
                     sym_counts[pow2_sym_and_ebits(u).0] += 1;
                 }
@@ -332,7 +282,15 @@ where
                 let bits = mv.bit_buffer();
                 for (rel, &v) in values[start..end].iter().enumerate() {
                     if bits.value(start + rel) {
-                        let u = map_val(v);
+                        let u = if is_signed {
+                            let s = AsPrimitive::<i64>::as_(v);
+                            if s < 0 {
+                                return None;
+                            }
+                            s as u64
+                        } else {
+                            AsPrimitive::<u64>::as_(v)
+                        };
                         bw_hist[(u64::BITS - u.leading_zeros()) as usize] += 1;
                         sym_counts[pow2_sym_and_ebits(u).0] += 1;
                         valid_count += 1;
@@ -357,18 +315,7 @@ where
     })
 }
 
-fn compute_bp_bits(
-    ptype: PType,
-    bw_hist: &[usize; 65],
-    sample_len: usize,
-    has_negative: bool,
-    zigzag_available: bool,
-) -> f64 {
-    let full_width = ptype.bit_width() as f64;
-    if has_negative && !zigzag_available {
-        return full_width;
-    }
-
+fn compute_bp_bits(ptype: PType, bw_hist: &[usize; 65], sample_len: usize) -> f64 {
     let max_bw = ptype.bit_width();
     let actual_max_bw = (0..=max_bw).rev().find(|&bw| bw_hist[bw] > 0).unwrap_or(0);
     let bytes_per_exception = ptype.byte_width() + 4;
@@ -437,7 +384,8 @@ fn compute_rans_and_capped_bp_bits(
         bp_bits
     };
 
-    let overhead_bytes = num_blocks * PER_BLOCK_FIXED_BYTES + active_syms * 3 + 16;
+    let per_block_bytes = PER_BLOCK_FIXED_BYTES + if any_extra_bits { 8 } else { 0 };
+    let overhead_bytes = num_blocks * per_block_bytes + active_syms * 3 + 16;
     let overhead_bpv = (overhead_bytes * 8) as f64 / total_len as f64;
     let rans_bits = (entropy_and_ebits / n_f64) + overhead_bpv;
 
@@ -469,6 +417,8 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_rans::Rans;
     use vortex_session::VortexSession;
+    use vortex_zigzag::ZigZag;
+    use vortex_zigzag::ZigZagArraySlotsExt;
 
     use super::RansScheme;
     use crate::BtrBlocksCompressorBuilder;
@@ -512,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_rans_on_statpopgen_gt_and_pl_and_beats_bitpacked() -> VortexResult<()> {
+    fn selects_rans_on_statpopgen_gt_pl_and_signed_zigzag_streams() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let with_rans = BtrBlocksCompressorBuilder::from_session(&SESSION)
             .unrestricted()
@@ -526,7 +476,6 @@ mod tests {
         let len = 65_536usize;
 
         // 1. `statpopgen.GT`-shaped `{0, 1, 2}` u64 with ~21% nulls & ~78% of valid calls == 0
-        //    (Hardy-Weinberg MAF ~0.11: 21% null, 61.6% 0, 16.4% 1, 1.0% 2).
         let gt = PrimitiveArray::from_option_iter((0..len).map(|_| {
             let d = rng.random_range(0..1000u32);
             if d < 210 {
@@ -549,12 +498,6 @@ mod tests {
             "GT should select vortex.rans directly, got: {}",
             gt_rans.display_tree()
         );
-        assert!(
-            gt_rans.nbytes() < gt_bp.nbytes(),
-            "GT rANS ({}) must beat BitPacked ({})",
-            gt_rans.nbytes(),
-            gt_bp.nbytes()
-        );
         let validity_bytes = (len / 8) as u64;
         assert!(
             (gt_rans.nbytes() - validity_bytes) * 100 < (gt_bp.nbytes() - validity_bytes) * 75,
@@ -563,8 +506,7 @@ mod tests {
             gt_bp.nbytes() - validity_bytes
         );
 
-        // Ultra-sparse 0.5% `{1, 2}` (where BitPacked(bw=0) + compressed patches is below the
-        // 0.28 bpv rANS block-state floor) must yield cleanly to BitPacked without regression.
+        // Ultra-sparse 0.5% `{1, 2}` must yield cleanly to BitPacked without regression.
         let ultra_sparse_gt = PrimitiveArray::from_option_iter((0..len).map(|_| {
             let d = rng.random_range(0..1000u32);
             if d < 210 {
@@ -586,7 +528,7 @@ mod tests {
             ultra_bp.nbytes()
         );
 
-        // 2. `statpopgen.PL`-shaped `[0, ~60, ~900]` i32 triples
+        // 2. `statpopgen.PL`-shaped `[0, ~60, ~900]` i32 triples (non-negative signed -> direct Rans)
         let pl = PrimitiveArray::from_iter((0..len).map(|i| match i % 3 {
             0 => 0i32,
             1 => 45 + rng.random_range(0..35i32),
@@ -598,8 +540,8 @@ mod tests {
         let pl_bp = without_rans.compress(&pl, &mut ctx)?;
         assert_arrays_eq!(&pl_rans, &pl, &mut ctx);
         assert!(
-            find_rans(&pl_rans).is_some(),
-            "PL should select vortex.rans, got: {}",
+            pl_rans.is::<Rans>(),
+            "Non-negative signed PL should select vortex.rans directly, got: {}",
             pl_rans.display_tree()
         );
         assert!(
@@ -607,6 +549,39 @@ mod tests {
             "PL rANS ({}) must beat baseline ({}) by >22%",
             pl_rans.nbytes(),
             pl_bp.nbytes()
+        );
+
+        // 3. Signed Laplacian residuals with negatives must compose as `ZigZag(Rans)` and beat
+        //    `ZigZag(BitPacked)`.
+        let laplacian = PrimitiveArray::from_iter((0..len).map(|_| {
+            let d = rng.random_range(0..1000u32);
+            if d < 650 {
+                0i64
+            } else if d < 820 {
+                -1
+            } else if d < 950 {
+                1
+            } else {
+                rng.random_range(-500..=500i64)
+            }
+        }))
+        .into_array();
+        let lap_rans = with_rans.compress(&laplacian, &mut ctx)?;
+        let lap_bp = without_rans.compress(&laplacian, &mut ctx)?;
+        assert_arrays_eq!(&lap_rans, &laplacian, &mut ctx);
+        let zz = lap_rans
+            .as_opt::<ZigZag>()
+            .expect("Negative Laplacian array should wrap in ZigZag");
+        assert!(
+            zz.encoded().is::<Rans>(),
+            "ZigZag child should be Rans, got: {}",
+            lap_rans.display_tree()
+        );
+        assert!(
+            lap_rans.nbytes() < lap_bp.nbytes(),
+            "ZigZag(Rans) ({}) must beat ZigZag(BitPacked) ({})",
+            lap_rans.nbytes(),
+            lap_bp.nbytes()
         );
 
         Ok(())
@@ -620,7 +595,8 @@ mod tests {
             .exclude_schemes([DeltaScheme::default().id()])
             .build();
 
-        // 1. Zipfian low-cardinality dictionary column: `Dict.codes` should compress with `Rans`.
+        // 1. Zipfian low-cardinality dictionary column: `Dict.codes` selects `Rans` now that
+        //    `RansScheme` also participates during `IntDictScheme` sampling.
         let mut rng = StdRng::seed_from_u64(99);
         let dict_vals: Vec<i64> = (0..64).map(|k| 10_000_000 + k * 9973).collect();
         let zipf_input = PrimitiveArray::from_iter((0..32_768).map(|_| {
@@ -639,15 +615,14 @@ mod tests {
         .into_array();
         let zipf_comp = compressor.compress(&zipf_input, &mut ctx)?;
         assert_arrays_eq!(&zipf_comp, &zipf_input, &mut ctx);
-        if let Some(dict) = zipf_comp.as_opt::<Dict>() {
-            assert!(
-                find_rans(dict.codes()).is_some(),
-                "Zipfian Dict.codes should select vortex.rans: {}",
-                dict.codes().display_tree()
-            );
-        } else {
-            assert!(find_rans(&zipf_comp).is_some());
-        }
+        let dict = zipf_comp
+            .as_opt::<Dict>()
+            .expect("Zipfian 64-value column should select Dict");
+        assert!(
+            find_rans(dict.codes()).is_some(),
+            "Zipfian Dict.codes should select vortex.rans: {}",
+            dict.codes().display_tree()
+        );
 
         // 2. Uniform 8-bit integers must NOT pick rANS over BitPacked.
         let uniform =

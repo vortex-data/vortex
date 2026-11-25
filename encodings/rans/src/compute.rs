@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Block-skipping `SliceReduce`, `TakeExecute`, and `FilterKernel` implementations for [`Rans`].
+//! Block-skipping `SliceReduce`, `TakeExecute`, `FilterKernel`, and fused `ZigZag` parent
+//! execution for [`Rans`].
 
 #![expect(clippy::cast_possible_truncation)]
 
+use std::mem::MaybeUninit;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -14,6 +16,7 @@ use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -21,6 +24,8 @@ use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -29,10 +34,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
+use vortex_zigzag::ZigZag;
+use vortex_zigzag::ZigZagSlots;
 
 use crate::Rans;
 use crate::RansArrayExt;
 use crate::RansData;
+use crate::array::decompress_rans_mapped;
 use crate::codec::BLOCK_HEADER_BYTES;
 use crate::codec::BLOCK_VALUES;
 use crate::codec::NUM_LANES;
@@ -43,6 +51,56 @@ use crate::codec::decode_block_stripes;
 /// per-block scratch decode.
 const FULL_ARRAY_DECODE_RATIO: usize = 8;
 
+/// Fused parent-execute kernel that decodes `ZigZag(Rans)` in a single pass with zero intermediate
+/// unsigned buffer allocation.
+#[derive(Clone, Copy, Debug)]
+pub struct RansZigZagKernel;
+
+impl ExecuteParentKernel<Rans> for RansZigZagKernel {
+    type Parent = ZigZag;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, Rans>,
+        parent: ArrayView<'_, ZigZag>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != ZigZagSlots::ENCODED {
+            return Ok(None);
+        }
+
+        let validity = match array.rans_validity() {
+            Validity::Array(v) if !v.is_canonical() => {
+                Validity::Array(v.execute::<BoolArray>(ctx)?.into_array())
+            }
+            other => other,
+        };
+
+        let decoded = match parent.dtype().as_ptype() {
+            PType::I8 => decompress_rans_mapped::<i8, _>(array, validity, ctx, |u| {
+                let v = u as u8;
+                ((v >> 1) as i8) ^ -((v & 1) as i8)
+            }),
+            PType::I16 => decompress_rans_mapped::<i16, _>(array, validity, ctx, |u| {
+                let v = u as u16;
+                ((v >> 1) as i16) ^ -((v & 1) as i16)
+            }),
+            PType::I32 => decompress_rans_mapped::<i32, _>(array, validity, ctx, |u| {
+                let v = u as u32;
+                ((v >> 1) as i32) ^ -((v & 1) as i32)
+            }),
+            PType::I64 => decompress_rans_mapped::<i64, _>(array, validity, ctx, |u| {
+                ((u >> 1) as i64) ^ -((u & 1) as i64)
+            }),
+            other => {
+                vortex_bail!("ZigZag parent of Rans must have signed integer ptype, got {other}")
+            }
+        };
+        Ok(Some(decoded.into_array()))
+    }
+}
+
 impl SliceReduce for Rans {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let validity = array.rans_validity().slice(range.clone())?;
@@ -50,7 +108,6 @@ impl SliceReduce for Rans {
             let data = RansData::try_new(
                 0,
                 0,
-                array.signed_zigzag(),
                 array.has_extra_bits(),
                 Arc::from(array.sym_freqs()),
                 Arc::clone(array.decode_table()),
@@ -78,8 +135,7 @@ impl SliceReduce for Rans {
             let last_hdr = RansBlockHeader::read_at(hdr_bytes.as_ref(), end_block - 1);
             let old_base = array.payload_base_offset() as usize;
             let start_abs_byte = first_hdr.rans_byte_offset as usize;
-            let end_abs_byte =
-                (last_hdr.raw_byte_offset as usize) + (last_hdr.raw_u64_len as usize) * 8;
+            let end_abs_byte = last_hdr.end_byte_offset()?;
             let rel_start = start_abs_byte - old_base;
             let rel_end = end_abs_byte - old_base;
             (
@@ -93,7 +149,6 @@ impl SliceReduce for Rans {
         let data = RansData::try_new(
             new_offset,
             new_base_offset,
-            array.signed_zigzag(),
             array.has_extra_bits(),
             Arc::from(array.sym_freqs()),
             Arc::clone(array.decode_table()),
@@ -174,7 +229,6 @@ fn take_typed<T, I>(
 ) -> VortexResult<PrimitiveArray>
 where
     T: NativePType,
-    i64: AsPrimitive<T>,
     u64: AsPrimitive<T>,
     I: IntegerPType,
 {
@@ -265,7 +319,6 @@ fn take_ordered_blocks<T, I>(
     out_slice: &mut [T],
 ) where
     T: NativePType,
-    i64: AsPrimitive<T>,
     u64: AsPrimitive<T>,
     I: IntegerPType,
 {
@@ -274,9 +327,9 @@ fn take_ordered_blocks<T, I>(
     let payload_bytes = array.payload().as_host();
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
-    let signed_zigzag = array.signed_zigzag();
     let has_extra_bits = array.has_extra_bits();
-    let mut scratch = [T::default(); BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
     let mut decoded_block = usize::MAX;
 
     let mut read_at = |raw_idx: I| -> T {
@@ -292,13 +345,14 @@ fn take_ordered_blocks<T, I>(
                 base_offset,
                 b,
                 n_stripes,
-                signed_zigzag,
                 has_extra_bits,
                 &mut scratch[..n_stripes * NUM_LANES],
             );
             decoded_block = b;
         }
-        scratch[in_block]
+        // SAFETY: `in_block <= max_stripe_per_block[b] * 32 + 31 < n_stripes * 32`, which was
+        // initialized by `decode_block_stripes`.
+        unsafe { scratch[in_block].assume_init() }
     };
 
     match index_validity {
@@ -329,7 +383,6 @@ fn take_scattered_blocks<T, I>(
     out_slice: &mut [T],
 ) where
     T: NativePType,
-    i64: AsPrimitive<T>,
     u64: AsPrimitive<T>,
     I: IntegerPType,
 {
@@ -374,9 +427,9 @@ fn take_scattered_blocks<T, I>(
     let payload_bytes = array.payload().as_host();
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
-    let signed_zigzag = array.signed_zigzag();
     let has_extra_bits = array.has_extra_bits();
-    let mut scratch = [T::default(); BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
 
     for b in 0..num_blocks {
         let start_hit = offsets[b] as usize;
@@ -392,12 +445,12 @@ fn take_scattered_blocks<T, I>(
             base_offset,
             b,
             n_stripes,
-            signed_zigzag,
             has_extra_bits,
             &mut scratch[..n_stripes * NUM_LANES],
         );
         for &(out_i, in_block) in &grouped[start_hit..end_hit] {
-            out_slice[out_i as usize] = scratch[usize::from(in_block)];
+            // SAFETY: `in_block < n_stripes * 32`, initialized above by `decode_block_stripes`.
+            out_slice[out_i as usize] = unsafe { scratch[usize::from(in_block)].assume_init() };
         }
     }
 }
@@ -442,7 +495,6 @@ fn filter_typed<T>(
 ) -> PrimitiveArray
 where
     T: NativePType,
-    i64: AsPrimitive<T>,
     u64: AsPrimitive<T>,
 {
     let true_count = mask_values.true_count();
@@ -456,10 +508,10 @@ where
     let payload_bytes = array.payload().as_host();
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
-    let signed_zigzag = array.signed_zigzag();
     let has_extra_bits = array.has_extra_bits();
 
-    let mut scratch = [T::default(); BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
     let mut written = 0usize;
 
     if let Some(indices) = mask_values.cached_indices() {
@@ -480,7 +532,6 @@ where
                 base_offset,
                 block_idx,
                 n_stripes,
-                signed_zigzag,
                 has_extra_bits,
                 &mut scratch[..n_stripes * NUM_LANES],
             );
@@ -489,7 +540,9 @@ where
                 .iter_mut()
                 .zip(block_indices)
             {
-                *dst = scratch[orig_idx + offset - block_abs_start];
+                let in_block = orig_idx + offset - block_abs_start;
+                // SAFETY: `in_block <= last_in_block < n_stripes * 32`, initialized above.
+                *dst = unsafe { scratch[in_block].assume_init() };
             }
             written += count;
             rest = &rest[count..];
@@ -527,7 +580,6 @@ where
                 base_offset,
                 block_idx,
                 n_stripes,
-                signed_zigzag,
                 has_extra_bits,
                 &mut scratch[..n_stripes * NUM_LANES],
             );
@@ -536,7 +588,8 @@ where
                 .iter_mut()
                 .zip(&positions[..count])
             {
-                *dst = scratch[usize::from(in_block)];
+                // SAFETY: `in_block <= last_in_block < n_stripes * 32`, initialized above.
+                *dst = unsafe { scratch[usize::from(in_block)].assume_init() };
             }
             written += count;
         }

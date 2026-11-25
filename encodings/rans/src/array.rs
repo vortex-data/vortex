@@ -7,6 +7,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
@@ -48,6 +49,7 @@ use crate::codec::BLOCK_VALUES;
 use crate::codec::NUM_LANES;
 use crate::codec::RansDecodeTable;
 use crate::codec::decode_block_stripes;
+use crate::codec::decode_block_stripes_into;
 use crate::codec::encode_primitive_slice;
 use crate::codec::validate_block_headers;
 use crate::plugin::rans_id;
@@ -58,7 +60,7 @@ pub type RansArray = Array<Rans>;
 /// Child slots of a [`RansArray`].
 #[array_slots(Rans)]
 pub struct RansSlots {
-    /// Optional validity bitmap child (absent when non-nullable or all-valid).
+    /// Optional validity bitmap child in memory (always emitted at wire slot `0` when serialized).
     #[slot(0)]
     pub validity_child: Option<ArrayRef>,
 }
@@ -72,7 +74,6 @@ pub struct Rans;
 pub struct RansData {
     pub(crate) offset: u16,
     pub(crate) payload_base_offset: u32,
-    pub(crate) signed_zigzag: bool,
     pub(crate) has_extra_bits: bool,
     pub(crate) sym_freqs: Arc<[(u8, u16)]>,
     pub(crate) decode_table: Arc<RansDecodeTable>,
@@ -84,9 +85,8 @@ impl Display for RansData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "offset: {}, zigzag: {}, extra_bits: {}, syms: {}",
+            "offset: {}, extra_bits: {}, syms: {}",
             self.offset,
-            self.signed_zigzag,
             self.has_extra_bits,
             self.sym_freqs.len()
         )
@@ -97,7 +97,6 @@ impl ArrayHash for RansData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
         self.payload_base_offset.hash(state);
-        self.signed_zigzag.hash(state);
         self.has_extra_bits.hash(state);
         self.sym_freqs.hash(state);
         self.block_headers.array_hash(state, accuracy);
@@ -109,7 +108,6 @@ impl ArrayEq for RansData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
             && self.payload_base_offset == other.payload_base_offset
-            && self.signed_zigzag == other.signed_zigzag
             && self.has_extra_bits == other.has_extra_bits
             && self.sym_freqs == other.sym_freqs
             && self.block_headers.array_eq(&other.block_headers, accuracy)
@@ -129,11 +127,9 @@ pub(crate) fn num_blocks_for(offset: u16, len: usize) -> usize {
 
 impl RansData {
     /// Constructs [`RansData`] from validated components and precomputed decode table.
-    #[expect(clippy::too_many_arguments)]
     pub fn try_new(
         offset: u16,
         payload_base_offset: u32,
-        signed_zigzag: bool,
         has_extra_bits: bool,
         sym_freqs: Arc<[(u8, u16)]>,
         decode_table: Arc<RansDecodeTable>,
@@ -147,7 +143,6 @@ impl RansData {
         Ok(Self {
             offset,
             payload_base_offset,
-            signed_zigzag,
             has_extra_bits,
             sym_freqs,
             decode_table,
@@ -179,12 +174,6 @@ impl RansData {
             "RansArray offset {} must be < {BLOCK_VALUES}",
             self.offset
         );
-        if !dtype.as_ptype().is_signed_int() {
-            vortex_ensure!(
-                !self.signed_zigzag,
-                "Unsigned RansArray ({dtype}) cannot set signed_zigzag"
-            );
-        }
 
         let expected_blocks = num_blocks_for(self.offset, len);
         vortex_ensure_eq!(
@@ -217,12 +206,6 @@ impl RansData {
         self.payload_base_offset
     }
 
-    /// Whether signed ZigZag mapping is enabled.
-    #[inline]
-    pub fn signed_zigzag(&self) -> bool {
-        self.signed_zigzag
-    }
-
     /// Whether any active symbol in the chunk has `ebits > 0`.
     #[inline]
     pub fn has_extra_bits(&self) -> bool {
@@ -241,7 +224,7 @@ impl RansData {
         &self.decode_table
     }
 
-    /// Per-block 16-byte headers buffer.
+    /// Per-block 8-byte headers buffer.
     #[inline]
     pub fn block_headers(&self) -> &BufferHandle {
         &self.block_headers
@@ -268,12 +251,6 @@ pub trait RansArrayExt: TypedArrayRef<Rans> {
         RansData::payload_base_offset(self)
     }
 
-    /// Whether signed ZigZag mapping is enabled.
-    #[inline]
-    fn signed_zigzag(&self) -> bool {
-        RansData::signed_zigzag(self)
-    }
-
     /// Whether any active symbol has `ebits > 0`.
     #[inline]
     fn has_extra_bits(&self) -> bool {
@@ -292,7 +269,7 @@ pub trait RansArrayExt: TypedArrayRef<Rans> {
         RansData::decode_table(self)
     }
 
-    /// Per-block 16-byte headers buffer.
+    /// Per-block 8-byte headers buffer.
     #[inline]
     fn block_headers(&self) -> &BufferHandle {
         RansData::block_headers(self)
@@ -328,7 +305,8 @@ impl Rans {
         Array::try_from_parts(ArrayParts::new(Rans, dtype, len, data, slots))
     }
 
-    /// Encodes an integer [`PrimitiveArray`] into a 32-lane `Pow2-Bin + Raw-Bits` [`RansArray`].
+    /// Encodes a non-negative integer [`PrimitiveArray`] into a 32-lane `Pow2-Bin + Raw-Bits`
+    /// [`RansArray`]. Negative signed inputs return an error (wrap with `ZigZag` first).
     pub fn encode(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<RansArray> {
         let dtype = array.dtype().clone();
         vortex_ensure!(
@@ -347,7 +325,6 @@ impl Rans {
         let data = RansData::try_new(
             0,
             0,
-            encoded.signed_zigzag,
             encoded.has_extra_bits,
             Arc::from(encoded.sym_freqs),
             Arc::new(encoded.decode_table),
@@ -462,7 +439,6 @@ fn scalar_at_typed<T>(
 ) -> Scalar
 where
     T: NativePType + Into<PValue>,
-    i64: AsPrimitive<T>,
     u64: AsPrimitive<T>,
 {
     let pos = usize::from(array.offset()) + index;
@@ -473,7 +449,8 @@ where
 
     let headers_bytes = array.block_headers().as_host();
     let payload_bytes = array.payload().as_host();
-    let mut scratch = [T::default(); BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
     decode_block_stripes::<T>(
         array.decode_table(),
         headers_bytes.as_ref(),
@@ -481,11 +458,13 @@ where
         array.payload_base_offset(),
         block_idx,
         n_stripes,
-        array.signed_zigzag(),
         array.has_extra_bits(),
         &mut scratch[..n_stripes * NUM_LANES],
     );
-    Scalar::primitive::<T>(scratch[pos_in_block], nullability)
+    // SAFETY: `pos_in_block < n_stripes * NUM_LANES`, and `decode_block_stripes` initialized all
+    // `n_stripes * NUM_LANES` elements of `scratch`.
+    let value = unsafe { scratch[pos_in_block].assume_init() };
+    Scalar::primitive::<T>(value, nullability)
 }
 
 pub(crate) fn decompress_rans(
@@ -494,29 +473,26 @@ pub(crate) fn decompress_rans(
 ) -> VortexResult<PrimitiveArray> {
     let ptype = array.dtype().as_ptype();
     let validity = array.rans_validity();
-    let len = array.len();
-    if len == 0 {
-        return Ok(match_each_integer_ptype!(ptype, |T| {
-            PrimitiveArray::new(BufferMut::<T>::with_capacity(0).freeze(), validity)
-        }));
-    }
-
     Ok(match_each_integer_ptype!(ptype, |T| {
-        decompress_typed::<T>(array, validity, ctx)
+        decompress_rans_mapped::<T, _>(array, validity, ctx, |u| u.as_())
     }))
 }
 
-fn decompress_typed<T>(
+pub(crate) fn decompress_rans_mapped<Out, F>(
     array: ArrayView<'_, Rans>,
     validity: Validity,
     ctx: &mut ExecutionCtx,
+    map_out: F,
 ) -> PrimitiveArray
 where
-    T: NativePType,
-    i64: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
+    Out: NativePType,
+    F: Copy + Fn(u64) -> Out,
 {
     let len = array.len();
+    if len == 0 {
+        return PrimitiveArray::new(BufferMut::<Out>::with_capacity(0).freeze(), validity);
+    }
+
     let offset = usize::from(array.offset());
     let total_end = offset + len;
     let num_blocks = total_end.div_ceil(BLOCK_VALUES);
@@ -525,15 +501,13 @@ where
     let payload_bytes = array.payload().as_host();
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
-    let signed_zigzag = array.signed_zigzag();
     let has_extra_bits = array.has_extra_bits();
 
-    let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-    // SAFETY: We initialize every element in `0..len` below before freezing `out`.
-    unsafe { out.set_len(len) };
-    let out_slice = out.as_mut_slice();
+    let mut out = BufferMut::<Out>::with_capacity_in(len, ctx.allocator().clone());
+    let out_uninit = &mut out.spare_capacity_mut()[..len];
 
-    let mut scratch = [T::default(); BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<Out>; BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
     let mut written = 0usize;
 
     for block_idx in 0..num_blocks {
@@ -544,37 +518,37 @@ where
         let n_stripes = in_block_end.div_ceil(NUM_LANES);
 
         if in_block_start == 0 && copy_len == BLOCK_VALUES {
-            // Interior aligned full 4,096-element block: decode directly into `out_slice` with zero
-            // intermediate copy!
-            decode_block_stripes::<T>(
+            decode_block_stripes_into(
                 table,
                 headers_bytes.as_ref(),
                 payload_bytes.as_ref(),
                 base_offset,
                 block_idx,
                 n_stripes,
-                signed_zigzag,
                 has_extra_bits,
-                &mut out_slice[written..written + BLOCK_VALUES],
+                &mut out_uninit[written..written + BLOCK_VALUES],
+                map_out,
             );
         } else {
-            decode_block_stripes::<T>(
+            decode_block_stripes_into(
                 table,
                 headers_bytes.as_ref(),
                 payload_bytes.as_ref(),
                 base_offset,
                 block_idx,
                 n_stripes,
-                signed_zigzag,
                 has_extra_bits,
                 &mut scratch[..n_stripes * NUM_LANES],
+                map_out,
             );
-            out_slice[written..written + copy_len]
+            out_uninit[written..written + copy_len]
                 .copy_from_slice(&scratch[in_block_start..in_block_end]);
         }
         written += copy_len;
     }
     debug_assert_eq!(written, len);
+    // SAFETY: Every element in `0..len` of `out` was initialized above.
+    unsafe { out.set_len(len) };
 
     PrimitiveArray::new(out.freeze(), validity)
 }

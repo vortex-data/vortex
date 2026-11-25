@@ -6,6 +6,7 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use std::cmp::Reverse;
+use std::mem::MaybeUninit;
 
 use num_traits::AsPrimitive;
 use vortex_array::dtype::NativePType;
@@ -42,24 +43,31 @@ pub const RANS_L: u32 = 1 << 15;
 /// Number of symbols in the `Pow2-Bin + Raw-Bits` alphabet (`0..=149`).
 pub const MAX_SYMS: usize = 150;
 
-/// Byte size of one serialized [`RansBlockHeader`] (`4 * u32 = 16` bytes).
-pub const BLOCK_HEADER_BYTES: usize = 16;
+/// Byte size of one serialized [`RansBlockHeader`] (`u32 + u16 + u16 = 8` bytes).
+pub const BLOCK_HEADER_BYTES: usize = 8;
 
 /// Byte size of the 32 initial `u32` rANS states stored at the start of each block (`128` bytes).
 pub const BLOCK_STATES_BYTES: usize = NUM_LANES * 4;
 
-/// 48-bit reciprocal table for division-free rANS encoding across `freq in 1..=2048`.
-///
-/// For `x < 2^31` and `f in 1..=2048`, `q = ((x as u128 * RECIP48[f] as u128) >> 48) as u32`
-/// equals `x / f` with zero hardware `udiv`.
-pub static RECIP48: [u64; (PROB_SCALE as usize) + 1] = build_recip48();
+/// Shift for 43-bit native `u64` division-free rANS encoding across `freq in 1..=2048`.
+pub const RECIP_SHIFT: u32 = 43;
 
-const fn build_recip48() -> [u64; (PROB_SCALE as usize) + 1] {
+/// Maximum `ebits` where `(bit_pos & 7) + ebits <= 64` holds for every byte-unaligned `u64` load.
+const FAST_EXTRA_MAX_EBITS: u8 = 57;
+
+/// 43-bit reciprocal table for native `u64` division-free rANS encoding across `freq in 1..=2048`.
+///
+/// After renormalization `state < freq << 20`, so `u64::from(state) * RECIP43[freq] < 2^64` fits
+/// without overflow in a single `u64` multiply and `(u64::from(state) * RECIP43[freq]) >> 43`
+/// equals `state / freq` for every `freq in 1..=2048`.
+pub static RECIP43: [u64; (PROB_SCALE as usize) + 1] = build_recip43();
+
+const fn build_recip43() -> [u64; (PROB_SCALE as usize) + 1] {
     let mut table = [0u64; (PROB_SCALE as usize) + 1];
-    table[1] = 1u64 << 48;
+    table[1] = 1u64 << RECIP_SHIFT;
     let mut f = 2usize;
     while f <= PROB_SCALE as usize {
-        table[f] = ((1u64 << 48) / (f as u64)) + 1;
+        table[f] = ((1u64 << RECIP_SHIFT) / (f as u64)) + 1;
         f += 1;
     }
     table
@@ -99,18 +107,6 @@ const fn build_ebits_table() -> [u8; MAX_SYMS] {
         sym += 1;
     }
     table
-}
-
-/// ZigZag-encodes a signed 64-bit integer into `u64` (`0 -> 0, -1 -> 1, 1 -> 2, i64::MIN -> u64::MAX`).
-#[inline]
-pub const fn zigzag_encode(val: i64) -> u64 {
-    ((val as u64) << 1) ^ ((val >> 63) as u64)
-}
-
-/// Inverse ZigZag mapping from `u64` back to `i64`, valid across the full `i64::MIN..=i64::MAX` range.
-#[inline]
-pub const fn zigzag_decode(val: u64) -> i64 {
-    ((val >> 1) as i64) ^ -((val & 1) as i64)
 }
 
 /// Decomposes `u` into `(sym, ebits, raw)` under the `Pow2-Bin + Raw-Bits` bijection.
@@ -163,6 +159,8 @@ pub struct DecodeSlot {
 pub struct RansDecodeTable {
     /// Probability-slot lookup table indexed by `state & 2047`.
     pub slots: [DecodeSlot; PROB_SCALE as usize],
+    /// Maximum `ebits` across all active symbols in this table (`0..=62`).
+    pub max_ebits: u8,
 }
 
 impl RansDecodeTable {
@@ -179,7 +177,7 @@ impl RansDecodeTable {
         let mut seen = [false; MAX_SYMS];
         let mut slots = [DecodeSlot::default(); PROB_SCALE as usize];
         let mut cum = 0usize;
-        let mut has_extra_bits = false;
+        let mut max_ebits = 0u8;
 
         for &(sym, freq) in sym_freqs {
             let sym_idx = usize::from(sym);
@@ -196,9 +194,7 @@ impl RansDecodeTable {
             );
 
             let ebits = EBITS_TABLE[sym_idx];
-            if ebits > 0 {
-                has_extra_bits = true;
-            }
+            max_ebits = max_ebits.max(ebits);
             let freq_usize = usize::from(freq);
             vortex_ensure!(
                 cum + freq_usize <= PROB_SCALE as usize,
@@ -222,7 +218,8 @@ impl RansDecodeTable {
             PROB_SCALE as usize,
             "Rans normalized frequencies must sum to {PROB_SCALE}"
         );
-        Ok((Self { slots }, has_extra_bits))
+        let has_extra_bits = max_ebits > 0;
+        Ok((Self { slots, max_ebits }, has_extra_bits))
     }
 }
 
@@ -293,7 +290,6 @@ pub fn normalize_counts(counts: &[u64; MAX_SYMS]) -> Vec<(u8, u16)> {
     let target = PROB_SCALE as i32;
     if sum_freqs < target {
         let deficit = (target - sum_freqs) as usize;
-        // Award +1 to symbols that were not already rounded up from 0, ordered by largest remainder.
         active.sort_by_key(|&sym| (floored_zero[sym], Reverse(remainders[sym]), sym));
         for &sym in active.iter().take(deficit) {
             freqs[sym] += 1;
@@ -301,8 +297,6 @@ pub fn normalize_counts(counts: &[u64; MAX_SYMS]) -> Vec<(u8, u16)> {
         active.sort_unstable();
     } else if sum_freqs > target {
         let mut surplus = (sum_freqs - target) as usize;
-        // Reclaim surplus from symbols with freq > 1, smallest remainder first (breaking ties by
-        // largest frequency so relative distortion stays minimal).
         let mut donors = active.clone();
         donors.sort_by_key(|&sym| (remainders[sym], Reverse(freqs[sym]), sym));
         while surplus > 0 {
@@ -327,17 +321,15 @@ pub fn normalize_counts(counts: &[u64; MAX_SYMS]) -> Vec<(u8, u16)> {
         .collect()
 }
 
-/// Parsed 16-byte per-block header referencing slices inside `payload`.
+/// Compact 8-byte per-block header referencing slices inside `payload`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RansBlockHeader {
     /// Byte offset (prior to subtracting `payload_base_offset`) of `[u32; 32]` states + `u16` words.
     pub rans_byte_offset: u32,
-    /// Number of `u16` refill words following the 128-byte initial state block.
-    pub rans_u16_len: u32,
-    /// Byte offset (prior to subtracting `payload_base_offset`) of packed `u64` raw-bit words.
-    pub raw_byte_offset: u32,
-    /// Number of `u64` words in the block's raw-bits stream.
-    pub raw_u64_len: u32,
+    /// Number of `u16` refill words following the 128-byte initial state block (`<= 4,096`).
+    pub rans_u16_len: u16,
+    /// Number of `u64` words in the block's raw-bits stream (`0` when `!has_extra_bits`).
+    pub raw_u64_len: u16,
 }
 
 impl RansBlockHeader {
@@ -348,17 +340,35 @@ impl RansBlockHeader {
         let hdr = &headers_bytes[base..base + BLOCK_HEADER_BYTES];
         Self {
             rans_byte_offset: u32::from_le_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]),
-            rans_u16_len: u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]),
-            raw_byte_offset: u32::from_le_bytes([hdr[8], hdr[9], hdr[10], hdr[11]]),
-            raw_u64_len: u32::from_le_bytes([hdr[12], hdr[13], hdr[14], hdr[15]]),
+            rans_u16_len: u16::from_le_bytes([hdr[4], hdr[5]]),
+            raw_u64_len: u16::from_le_bytes([hdr[6], hdr[7]]),
         }
+    }
+
+    /// Computes the 8-byte-aligned start offset (prior to subtracting `payload_base_offset`) of
+    /// this block's `raw_bits` stream.
+    #[inline]
+    pub fn raw_byte_offset(self) -> VortexResult<usize> {
+        let rans_end = (self.rans_byte_offset as usize)
+            .checked_add(BLOCK_STATES_BYTES + usize::from(self.rans_u16_len) * 2)
+            .ok_or_else(|| vortex_error::vortex_err!("Rans block raw_byte_offset overflow"))?;
+        rans_end
+            .checked_next_multiple_of(8)
+            .ok_or_else(|| vortex_error::vortex_err!("Rans block raw_byte_offset align8 overflow"))
+    }
+
+    /// Computes the end byte offset (prior to subtracting `payload_base_offset`) of this block.
+    #[inline]
+    pub fn end_byte_offset(self) -> VortexResult<usize> {
+        self.raw_byte_offset()?
+            .checked_add(usize::from(self.raw_u64_len) * 8)
+            .ok_or_else(|| vortex_error::vortex_err!("Rans block end_byte_offset overflow"))
     }
 
     #[inline]
     fn write_into(self, dst: &mut ByteBufferMut) {
         dst.extend_from_slice(&self.rans_byte_offset.to_le_bytes());
         dst.extend_from_slice(&self.rans_u16_len.to_le_bytes());
-        dst.extend_from_slice(&self.raw_byte_offset.to_le_bytes());
         dst.extend_from_slice(&self.raw_u64_len.to_le_bytes());
     }
 }
@@ -401,12 +411,13 @@ impl BitWriter {
     }
 
     #[inline]
-    fn finish(&mut self) {
+    fn finish_with_slack(&mut self, slack_words: usize) {
         if self.bits > 0 {
             self.words.push(self.acc as u64);
             self.acc = 0;
             self.bits = 0;
         }
+        self.words.resize(self.words.len() + slack_words, 0u64);
     }
 
     fn clear(&mut self) {
@@ -416,14 +427,15 @@ impl BitWriter {
     }
 }
 
-struct BitReader<'a> {
+/// Fallback `u128` reader used only when `max_ebits > 57` (`u64` values `>= 2^59`).
+struct WideBitReader<'a> {
     chunks: &'a [[u8; 8]],
     pos: usize,
     acc: u128,
     bits: u32,
 }
 
-impl<'a> BitReader<'a> {
+impl<'a> WideBitReader<'a> {
     #[inline]
     fn new(raw_bytes: &'a [u8]) -> Self {
         let chunks = raw_bytes.as_chunks::<8>().0;
@@ -455,7 +467,8 @@ impl<'a> BitReader<'a> {
         self.acc >>= n;
         self.bits = self.bits.saturating_sub(n);
         if self.bits <= 64 && self.pos < self.chunks.len() {
-            self.acc |= u128::from(u64::from_le_bytes(self.chunks[self.pos])) << self.bits;
+            self.acc |=
+                u128::from(u64::from_le_bytes(chunks_word(self.chunks, self.pos))) << self.bits;
             self.pos += 1;
             self.bits += 64;
         }
@@ -463,23 +476,27 @@ impl<'a> BitReader<'a> {
     }
 }
 
-/// Output of encoding a slice of primitive integers with 32-lane `Pow2-Bin + Raw-Bits` rANS.
+#[inline]
+fn chunks_word(chunks: &[[u8; 8]], pos: usize) -> [u8; 8] {
+    chunks[pos]
+}
+
+/// Output of encoding a slice of non-negative primitive integers with 32-lane `Pow2-Bin + Raw-Bits` rANS.
 pub struct EncodedRansBuffers {
-    /// Whether signed ZigZag mapping was applied.
-    pub signed_zigzag: bool,
     /// Whether any active symbol uses extra raw bits (`sym >= 32`).
     pub has_extra_bits: bool,
     /// Normalized `(sym, freq)` table summing to `2048`.
     pub sym_freqs: Vec<(u8, u16)>,
     /// Precomputed decode lookup table.
     pub decode_table: RansDecodeTable,
-    /// 8-byte aligned `16 * num_blocks` block headers buffer.
+    /// 8-byte aligned `8 * num_blocks` block headers buffer.
     pub block_headers: ByteBuffer,
     /// 8-byte aligned payload buffer containing block states, `u16` refills, and `u64` raw bits.
     pub payload: ByteBuffer,
 }
 
-/// Encodes `values` (`T` integer slice) with validity `mask` into 32-lane block-reset rANS buffers.
+/// Encodes non-negative `values` (`T` integer slice) with validity `mask` into 32-lane block-reset
+/// rANS buffers. Signed slices containing negative valid values return an error (wrap with `ZigZag`).
 pub fn encode_primitive_slice<T>(
     values: &[T],
     is_signed: bool,
@@ -493,7 +510,6 @@ where
         let sym_freqs = vec![(0u8, PROB_SCALE as u16)];
         let (decode_table, has_extra_bits) = RansDecodeTable::try_from_sym_freqs(&sym_freqs)?;
         return Ok(EncodedRansBuffers {
-            signed_zigzag: false,
             has_extra_bits,
             sym_freqs,
             decode_table,
@@ -502,11 +518,16 @@ where
         });
     }
 
-    let signed_zigzag = detect_signed_zigzag(values, is_signed, mask);
-    let (counts, fill_sym) = count_chunk_symbols(values, is_signed, signed_zigzag, mask);
-
+    let (counts, fill_sym) = count_chunk_symbols(values, is_signed, mask)?;
     let sym_freqs = normalize_counts(&counts);
     let (decode_table, has_extra_bits) = RansDecodeTable::try_from_sym_freqs(&sym_freqs)?;
+    let slack_words = if !has_extra_bits {
+        0
+    } else if decode_table.max_ebits <= FAST_EXTRA_MAX_EBITS {
+        1
+    } else {
+        2
+    };
 
     let mut enc_table = [EncodeSymInfo::default(); MAX_SYMS];
     let mut cum = 0u32;
@@ -516,7 +537,7 @@ where
             freq: f,
             cumfreq: cum,
             x_max: f << 20,
-            recip: RECIP48[f as usize],
+            recip: RECIP43[f as usize],
         };
         cum += f;
     }
@@ -531,7 +552,7 @@ where
 
     let mut scratch = BlockEncodeScratch {
         block_syms: [fill_sym; BLOCK_VALUES],
-        emitted_u16: Vec::with_capacity(BLOCK_VALUES),
+        emitted_u16: [0u16; BLOCK_VALUES],
         bit_writer: BitWriter::with_capacity(BLOCK_VALUES),
     };
 
@@ -543,8 +564,8 @@ where
             block_start,
             block_end,
             is_signed,
-            signed_zigzag,
             has_extra_bits,
+            slack_words,
             fill_sym,
             mask,
             &enc_table,
@@ -555,7 +576,6 @@ where
     }
 
     Ok(EncodedRansBuffers {
-        signed_zigzag,
         has_extra_bits,
         sym_freqs,
         decode_table,
@@ -565,46 +585,22 @@ where
 }
 
 #[inline]
-fn map_int_to_u64<T>(val: T, is_signed: bool, signed_zigzag: bool) -> u64
+fn nonneg_to_u64<T>(val: T, is_signed: bool) -> u64
 where
     T: Copy + AsPrimitive<i64> + AsPrimitive<u64>,
 {
-    if signed_zigzag {
-        zigzag_encode(AsPrimitive::<i64>::as_(val))
-    } else if is_signed {
+    if is_signed {
         AsPrimitive::<i64>::as_(val) as u64
     } else {
         AsPrimitive::<u64>::as_(val)
     }
 }
 
-fn detect_signed_zigzag<T>(values: &[T], is_signed: bool, mask: &Mask) -> bool
-where
-    T: Copy + AsPrimitive<i64>,
-{
-    if !is_signed || matches!(mask, Mask::AllFalse(_)) {
-        return false;
-    }
-    if matches!(mask, Mask::AllTrue(_)) {
-        return values.iter().any(|&v| AsPrimitive::<i64>::as_(v) < 0);
-    }
-    let mut has_neg = false;
-    if let vortex_mask::AllOr::Some(buf) = mask.bit_buffer() {
-        buf.for_each_set_index(|idx| {
-            if AsPrimitive::<i64>::as_(values[idx]) < 0 {
-                has_neg = true;
-            }
-        });
-    }
-    has_neg
-}
-
 fn count_chunk_symbols<T>(
     values: &[T],
     is_signed: bool,
-    signed_zigzag: bool,
     mask: &Mask,
-) -> ([u64; MAX_SYMS], u8)
+) -> VortexResult<([u64; MAX_SYMS], u8)>
 where
     T: Copy + AsPrimitive<i64> + AsPrimitive<u64>,
 {
@@ -613,18 +609,41 @@ where
     let mut valid_count = 0u64;
 
     if matches!(mask, Mask::AllTrue(_)) {
-        for &v in values {
-            let (sym, _) = pow2_sym_and_ebits(map_int_to_u64(v, is_signed, signed_zigzag));
-            counts[sym] += 1;
+        if is_signed {
+            for &v in values {
+                let signed = AsPrimitive::<i64>::as_(v);
+                vortex_ensure!(
+                    signed >= 0,
+                    "Rans::encode requires non-negative integer values (got {signed}); wrap negative arrays with ZigZag"
+                );
+                counts[pow2_sym_and_ebits(signed as u64).0] += 1;
+            }
+        } else {
+            for &v in values {
+                counts[pow2_sym_and_ebits(AsPrimitive::<u64>::as_(v)).0] += 1;
+            }
         }
         valid_count = len as u64;
     } else if let vortex_mask::AllOr::Some(buf) = mask.bit_buffer() {
+        let mut neg_found: Option<i64> = None;
         buf.for_each_set_index(|idx| {
-            let (sym, _) =
-                pow2_sym_and_ebits(map_int_to_u64(values[idx], is_signed, signed_zigzag));
-            counts[sym] += 1;
+            if is_signed {
+                let signed = AsPrimitive::<i64>::as_(values[idx]);
+                if signed < 0 {
+                    neg_found = Some(signed);
+                    return;
+                }
+                counts[pow2_sym_and_ebits(signed as u64).0] += 1;
+            } else {
+                counts[pow2_sym_and_ebits(AsPrimitive::<u64>::as_(values[idx])).0] += 1;
+            }
             valid_count += 1;
         });
+        if let Some(neg) = neg_found {
+            vortex_bail!(
+                "Rans::encode requires non-negative integer values (got {neg}); wrap negative arrays with ZigZag"
+            );
+        }
     }
 
     let mut fill_sym = 0u8;
@@ -643,12 +662,12 @@ where
     let fill_positions = (padded_total as u64).saturating_sub(valid_count);
     counts[usize::from(fill_sym)] += fill_positions;
 
-    (counts, fill_sym)
+    Ok((counts, fill_sym))
 }
 
 struct BlockEncodeScratch {
     block_syms: [u8; BLOCK_VALUES],
-    emitted_u16: Vec<u16>,
+    emitted_u16: [u16; BLOCK_VALUES],
     bit_writer: BitWriter,
 }
 
@@ -658,8 +677,8 @@ fn encode_one_block<T>(
     block_start: usize,
     block_end: usize,
     is_signed: bool,
-    signed_zigzag: bool,
     has_extra_bits: bool,
+    slack_words: usize,
     fill_sym: u8,
     mask: &Mask,
     enc_table: &[EncodeSymInfo; MAX_SYMS],
@@ -680,8 +699,8 @@ where
         block_start,
         padded_len,
         is_signed,
-        signed_zigzag,
         has_extra_bits,
+        slack_words,
         fill_sym,
         mask,
         &mut scratch.block_syms,
@@ -689,7 +708,7 @@ where
     );
 
     let mut states = [RANS_L; NUM_LANES];
-    scratch.emitted_u16.clear();
+    let mut emit_pos = BLOCK_VALUES;
     for stripe in (0..n_stripes).rev() {
         let stripe_base = stripe * NUM_LANES;
         for lane in (0..NUM_LANES).rev() {
@@ -697,42 +716,86 @@ where
             let info = enc_table[usize::from(sym)];
             let mut state = states[lane];
             if state >= info.x_max {
-                scratch.emitted_u16.push(state as u16);
+                emit_pos -= 1;
+                scratch.emitted_u16[emit_pos] = state as u16;
                 state >>= 16;
             }
-            let quot = ((u128::from(state) * u128::from(info.recip)) >> 48) as u32;
+            let quot = ((u64::from(state).wrapping_mul(info.recip)) >> RECIP_SHIFT) as u32;
             let rem = state - quot * info.freq;
             states[lane] = (quot << PROB_BITS) + info.cumfreq + rem;
         }
     }
-    scratch.emitted_u16.reverse();
+    let emitted = &scratch.emitted_u16[emit_pos..];
 
     let rans_byte_offset = u32::try_from(payload_buf.len())?;
-    let rans_u16_len = u32::try_from(scratch.emitted_u16.len())?;
-    for state in states {
-        payload_buf.extend_from_slice(&state.to_le_bytes());
-    }
-    for &word in &scratch.emitted_u16 {
-        payload_buf.extend_from_slice(&word.to_le_bytes());
-    }
+    let rans_u16_len = u16::try_from(emitted.len())?;
+    append_u32_le_slice(payload_buf, &states);
+    append_u16_le_slice(payload_buf, emitted);
     while !payload_buf.len().is_multiple_of(8) {
         payload_buf.push(0);
     }
 
-    let raw_byte_offset = u32::try_from(payload_buf.len())?;
-    let raw_u64_len = u32::try_from(scratch.bit_writer.words.len())?;
-    for &word in &scratch.bit_writer.words {
-        payload_buf.extend_from_slice(&word.to_le_bytes());
-    }
+    let raw_u64_len = u16::try_from(scratch.bit_writer.words.len())?;
+    append_u64_le_slice(payload_buf, &scratch.bit_writer.words);
 
     RansBlockHeader {
         rans_byte_offset,
         rans_u16_len,
-        raw_byte_offset,
         raw_u64_len,
     }
     .write_into(headers_buf);
     Ok(())
+}
+
+#[inline]
+fn append_u32_le_slice(dst: &mut ByteBufferMut, slice: &[u32]) {
+    #[cfg(target_endian = "little")]
+    {
+        // SAFETY: `u32` has no uninitialized padding bytes and host is little-endian.
+        let bytes =
+            unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<u8>(), size_of_val(slice)) };
+        dst.extend_from_slice(bytes);
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        for &w in slice {
+            dst.extend_from_slice(&w.to_le_bytes());
+        }
+    }
+}
+
+#[inline]
+fn append_u16_le_slice(dst: &mut ByteBufferMut, slice: &[u16]) {
+    #[cfg(target_endian = "little")]
+    {
+        // SAFETY: `u16` has no uninitialized padding bytes and host is little-endian.
+        let bytes =
+            unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<u8>(), size_of_val(slice)) };
+        dst.extend_from_slice(bytes);
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        for &w in slice {
+            dst.extend_from_slice(&w.to_le_bytes());
+        }
+    }
+}
+
+#[inline]
+fn append_u64_le_slice(dst: &mut ByteBufferMut, slice: &[u64]) {
+    #[cfg(target_endian = "little")]
+    {
+        // SAFETY: `u64` has no uninitialized padding bytes and host is little-endian.
+        let bytes =
+            unsafe { std::slice::from_raw_parts(slice.as_ptr().cast::<u8>(), size_of_val(slice)) };
+        dst.extend_from_slice(bytes);
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        for &w in slice {
+            dst.extend_from_slice(&w.to_le_bytes());
+        }
+    }
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -741,8 +804,8 @@ fn populate_block_symbols<T>(
     block_start: usize,
     padded_len: usize,
     is_signed: bool,
-    signed_zigzag: bool,
     has_extra_bits: bool,
+    slack_words: usize,
     fill_sym: u8,
     mask: &Mask,
     block_syms: &mut [u8; BLOCK_VALUES],
@@ -754,20 +817,22 @@ fn populate_block_symbols<T>(
     match mask {
         Mask::AllFalse(_) => {
             block_syms[..padded_len].fill(fill_sym);
+            if has_extra_bits {
+                bit_writer.finish_with_slack(slack_words);
+            }
         }
         Mask::AllTrue(_) if has_extra_bits => {
             for (i, &v) in block_vals.iter().enumerate() {
-                let (sym, ebits, raw) =
-                    encode_pow2_bin(map_int_to_u64(v, is_signed, signed_zigzag));
+                let (sym, ebits, raw) = encode_pow2_bin(nonneg_to_u64(v, is_signed));
                 block_syms[i] = sym;
                 bit_writer.write(raw, ebits);
             }
             block_syms[block_len..padded_len].fill(fill_sym);
-            bit_writer.finish();
+            bit_writer.finish_with_slack(slack_words);
         }
         Mask::AllTrue(_) => {
             for (i, &v) in block_vals.iter().enumerate() {
-                block_syms[i] = map_int_to_u64(v, is_signed, signed_zigzag) as u8;
+                block_syms[i] = nonneg_to_u64(v, is_signed) as u8;
             }
             block_syms[block_len..padded_len].fill(fill_sym);
         }
@@ -775,8 +840,7 @@ fn populate_block_symbols<T>(
             let bits = mv.bit_buffer();
             for (i, &v) in block_vals.iter().enumerate() {
                 if bits.value(block_start + i) {
-                    let (sym, ebits, raw) =
-                        encode_pow2_bin(map_int_to_u64(v, is_signed, signed_zigzag));
+                    let (sym, ebits, raw) = encode_pow2_bin(nonneg_to_u64(v, is_signed));
                     block_syms[i] = sym;
                     bit_writer.write(raw, ebits);
                 } else {
@@ -784,13 +848,13 @@ fn populate_block_symbols<T>(
                 }
             }
             block_syms[block_len..padded_len].fill(fill_sym);
-            bit_writer.finish();
+            bit_writer.finish_with_slack(slack_words);
         }
         Mask::Values(mv) => {
             let bits = mv.bit_buffer();
             for (i, &v) in block_vals.iter().enumerate() {
                 block_syms[i] = if bits.value(block_start + i) {
-                    map_int_to_u64(v, is_signed, signed_zigzag) as u8
+                    nonneg_to_u64(v, is_signed) as u8
                 } else {
                     fill_sym
                 };
@@ -800,8 +864,8 @@ fn populate_block_symbols<T>(
     }
 }
 
-/// Validates that all `num_blocks` headers in `headers_bytes` lie cleanly within `payload_len`
-/// relative to `payload_base_offset`.
+/// Validates that all `num_blocks` headers in `headers_bytes` are monotonically ordered and lie
+/// cleanly within `payload_len` relative to `payload_base_offset`.
 pub fn validate_block_headers(
     headers_bytes: &[u8],
     payload_len: usize,
@@ -815,9 +879,10 @@ pub fn validate_block_headers(
         "Rans block_headers byte length mismatch"
     );
     let base = payload_base_offset as usize;
+    let mut prev_end = 0usize;
     for b in 0..num_blocks {
         let hdr = RansBlockHeader::read_at(headers_bytes, b);
-        let rans_start = usize::try_from(hdr.rans_byte_offset)?
+        let rans_start = (hdr.rans_byte_offset as usize)
             .checked_sub(base)
             .ok_or_else(|| {
                 vortex_error::vortex_err!(
@@ -825,25 +890,14 @@ pub fn validate_block_headers(
                     hdr.rans_byte_offset
                 )
             })?;
-        let rans_bytes_len = BLOCK_STATES_BYTES
-            .checked_add((hdr.rans_u16_len as usize).saturating_mul(2))
-            .ok_or_else(|| vortex_error::vortex_err!("Rans block {b} rans byte length overflow"))?;
-        let rans_end = rans_start
-            .checked_add(rans_bytes_len)
-            .ok_or_else(|| vortex_error::vortex_err!("Rans block {b} rans end offset overflow"))?;
         vortex_ensure!(
-            rans_end <= payload_len,
-            "Rans block {b} rans slice {rans_start}..{rans_end} exceeds payload length {payload_len}"
+            prev_end <= rans_start,
+            "Rans block {b} rans_start {rans_start} overlaps previous block end {prev_end}"
         );
-
-        let raw_start = usize::try_from(hdr.raw_byte_offset)?
+        let raw_start = hdr
+            .raw_byte_offset()?
             .checked_sub(base)
-            .ok_or_else(|| {
-                vortex_error::vortex_err!(
-                    "Rans block {b} raw_byte_offset {} precedes payload_base_offset {base}",
-                    hdr.raw_byte_offset
-                )
-            })?;
+            .ok_or_else(|| vortex_error::vortex_err!("Rans block {b} raw_byte_offset underflow"))?;
         if !has_extra_bits {
             vortex_ensure_eq!(
                 hdr.raw_u64_len,
@@ -852,37 +906,37 @@ pub fn validate_block_headers(
                 hdr.raw_u64_len
             );
         }
-        let raw_bytes_len = (hdr.raw_u64_len as usize)
-            .checked_mul(8)
-            .ok_or_else(|| vortex_error::vortex_err!("Rans block {b} raw byte length overflow"))?;
-        let raw_end = raw_start
-            .checked_add(raw_bytes_len)
-            .ok_or_else(|| vortex_error::vortex_err!("Rans block {b} raw end offset overflow"))?;
+        let raw_end = hdr
+            .end_byte_offset()?
+            .checked_sub(base)
+            .ok_or_else(|| vortex_error::vortex_err!("Rans block {b} end_byte_offset underflow"))?;
         vortex_ensure!(
-            rans_end <= raw_start && raw_end <= payload_len,
-            "Rans block {b} raw slice {raw_start}..{raw_end} overlaps rans_end {rans_end} or exceeds payload length {payload_len}"
+            raw_end <= payload_len,
+            "Rans block {b} end {raw_end} exceeds payload length {payload_len}"
         );
+        debug_assert!(rans_start < raw_start && raw_start <= raw_end);
+        prev_end = raw_end;
     }
     Ok(())
 }
 
-/// Decodes the first `n_stripes` (`1..=128`) of `block_idx` into `dst[..n_stripes * 32]`.
+/// Decodes the first `n_stripes` (`1..=128`) of `block_idx` into uninitialized `dst[..n_stripes * 32]`
+/// applying `map_out` to each decoded `u64` value in register.
 #[expect(clippy::too_many_arguments)]
 #[inline]
-pub fn decode_block_stripes<T>(
+pub fn decode_block_stripes_into<Out, F>(
     table: &RansDecodeTable,
     headers_bytes: &[u8],
     payload_bytes: &[u8],
     payload_base_offset: u32,
     block_idx: usize,
     n_stripes: usize,
-    signed_zigzag: bool,
     has_extra_bits: bool,
-    dst: &mut [T],
+    dst: &mut [MaybeUninit<Out>],
+    map_out: F,
 ) where
-    T: NativePType,
-    i64: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
+    Out: Copy,
+    F: Copy + Fn(u64) -> Out,
 {
     debug_assert!(n_stripes <= STRIPES_PER_BLOCK);
     debug_assert!(dst.len() >= n_stripes * NUM_LANES);
@@ -897,54 +951,119 @@ pub fn decode_block_stripes<T>(
     }
 
     let words_start = rans_start + BLOCK_STATES_BYTES;
-    let words_end = words_start + (hdr.rans_u16_len as usize) * 2;
+    let words_end = words_start + usize::from(hdr.rans_u16_len) * 2;
     let word_chunks = payload_bytes[words_start..words_end].as_chunks::<2>().0;
 
     if !has_extra_bits {
-        decode_stripes_no_extra::<T>(
-            table,
-            &mut states,
-            word_chunks,
-            n_stripes,
-            signed_zigzag,
-            dst,
-        );
+        decode_stripes_no_extra(table, &mut states, word_chunks, n_stripes, dst, map_out);
     } else {
-        let raw_start = (hdr.raw_byte_offset as usize) - base;
-        let raw_end = raw_start + (hdr.raw_u64_len as usize) * 8;
+        let raw_start = words_end.next_multiple_of(8);
+        let raw_end = raw_start + usize::from(hdr.raw_u64_len) * 8;
         let raw_bytes = &payload_bytes[raw_start..raw_end];
-        decode_stripes_with_extra::<T>(
-            table,
-            &mut states,
-            word_chunks,
-            raw_bytes,
-            n_stripes,
-            signed_zigzag,
-            dst,
-        );
+        if table.max_ebits <= FAST_EXTRA_MAX_EBITS {
+            decode_stripes_with_fast_extra(
+                table,
+                &mut states,
+                word_chunks,
+                raw_bytes,
+                n_stripes,
+                dst,
+                map_out,
+            );
+        } else {
+            decode_stripes_with_wide_extra(
+                table,
+                &mut states,
+                word_chunks,
+                raw_bytes,
+                n_stripes,
+                dst,
+                map_out,
+            );
+        }
     }
 }
 
-/// Fast path when `has_extra_bits == false`: pure 32-lane state update + branchless `u16` refill,
-/// completely skipping `BASE_TABLE` and the `raw_bits` stream (`sym` IS the exact unsigned value!).
-fn decode_stripes_no_extra<T>(
+/// Convenience wrapper decoding `u64` values cast directly to `T`.
+#[expect(clippy::too_many_arguments)]
+#[inline]
+pub fn decode_block_stripes<T>(
+    table: &RansDecodeTable,
+    headers_bytes: &[u8],
+    payload_bytes: &[u8],
+    payload_base_offset: u32,
+    block_idx: usize,
+    n_stripes: usize,
+    has_extra_bits: bool,
+    dst: &mut [MaybeUninit<T>],
+) where
+    T: NativePType,
+    u64: AsPrimitive<T>,
+{
+    decode_block_stripes_into(
+        table,
+        headers_bytes,
+        payload_bytes,
+        payload_base_offset,
+        block_idx,
+        n_stripes,
+        has_extra_bits,
+        dst,
+        |u| u.as_(),
+    );
+}
+
+#[inline]
+fn refill_lanes(
+    states: &mut [u32; NUM_LANES],
+    next_states: &[u32; NUM_LANES],
+    word_chunks: &[[u8; 2]],
+    word_pos: &mut usize,
+) {
+    let mut pos = *word_pos;
+    if pos + NUM_LANES <= word_chunks.len() {
+        for lane in 0..NUM_LANES {
+            let s = next_states[lane];
+            let need = s < RANS_L;
+            // SAFETY: `pos` starts `<= word_chunks.len() - 32` and increments at most once per
+            // lane across `0..32`, so `pos < word_chunks.len()` holds for every lane.
+            let word = u32::from(u16::from_le_bytes(*unsafe {
+                word_chunks.get_unchecked(pos)
+            }));
+            states[lane] = if need { (s << 16) | word } else { s };
+            pos += usize::from(need);
+        }
+    } else {
+        for lane in 0..NUM_LANES {
+            let mut s = next_states[lane];
+            if s < RANS_L && pos < word_chunks.len() {
+                let word = u32::from(u16::from_le_bytes(word_chunks[pos]));
+                pos += 1;
+                s = (s << 16) | word;
+            }
+            states[lane] = s;
+        }
+    }
+    *word_pos = pos;
+}
+
+/// Fast path when `has_extra_bits == false`: pure 32-lane state update + branchless `u16` refill.
+fn decode_stripes_no_extra<Out, F>(
     table: &RansDecodeTable,
     states: &mut [u32; NUM_LANES],
     word_chunks: &[[u8; 2]],
     n_stripes: usize,
-    signed_zigzag: bool,
-    dst: &mut [T],
+    dst: &mut [MaybeUninit<Out>],
+    map_out: F,
 ) where
-    T: NativePType,
-    i64: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
+    Out: Copy,
+    F: Copy + Fn(u64) -> Out,
 {
     let mut word_pos = 0usize;
     let mut syms = [0u8; NUM_LANES];
     let mut next_states = [0u32; NUM_LANES];
 
     for stripe in 0..n_stripes {
-        // Phase A: 32 independent L1 table lookups and multiply-adds.
         for lane in 0..NUM_LANES {
             let state = states[lane];
             let slot = (state & PROB_MASK) as usize;
@@ -954,70 +1073,40 @@ fn decode_stripes_no_extra<T>(
                 u32::from(entry.freq) * (state >> PROB_BITS) + u32::from(entry.bias);
         }
 
-        // Phase B: single-refill renormalization (100% branchless `csel` + `cinc` when 32 words
-        // of slack remain in `word_chunks`).
-        if word_pos + NUM_LANES <= word_chunks.len() {
-            for lane in 0..NUM_LANES {
-                let s = next_states[lane];
-                let need = s < RANS_L;
-                // SAFETY: `word_pos` starts at `<= word_chunks.len() - 32` and increments at most
-                // once per lane across `0..32`, so `word_pos < word_chunks.len()` holds for every lane.
-                let word = u32::from(u16::from_le_bytes(*unsafe {
-                    word_chunks.get_unchecked(word_pos)
-                }));
-                states[lane] = if need { (s << 16) | word } else { s };
-                word_pos += usize::from(need);
-            }
-        } else {
-            for lane in 0..NUM_LANES {
-                let mut s = next_states[lane];
-                if s < RANS_L && word_pos < word_chunks.len() {
-                    let word = u32::from(u16::from_le_bytes(word_chunks[word_pos]));
-                    word_pos += 1;
-                    s = (s << 16) | word;
-                }
-                states[lane] = s;
-            }
-        }
+        refill_lanes(states, &next_states, word_chunks, &mut word_pos);
 
-        // Phase C: SIMD-friendly 32-wide output conversion.
         let out_stripe = &mut dst[stripe * NUM_LANES..(stripe + 1) * NUM_LANES];
-        if signed_zigzag {
-            for lane in 0..NUM_LANES {
-                let u = u64::from(syms[lane]);
-                out_stripe[lane] = zigzag_decode(u).as_();
-            }
-        } else {
-            for lane in 0..NUM_LANES {
-                out_stripe[lane] = u64::from(syms[lane]).as_();
-            }
+        for lane in 0..NUM_LANES {
+            out_stripe[lane].write(map_out(u64::from(syms[lane])));
         }
     }
 }
 
-/// General path when `has_extra_bits == true`: 32-lane state update + branchless `u16` refill +
-/// forward `u128` raw-bits reader.
-fn decode_stripes_with_extra<T>(
+/// Branchless parallel `raw_bits` path for `max_ebits <= 57` (all `u8..=u32`, `i8..=i32`, and
+/// `u64`/`i64` values `< 2^59`): prefix-sums `ebits_arr` across the 32 lanes so every lane loads
+/// its `u64` raw-bit window independently with zero serial bitstream dependency or branches.
+fn decode_stripes_with_fast_extra<Out, F>(
     table: &RansDecodeTable,
     states: &mut [u32; NUM_LANES],
     word_chunks: &[[u8; 2]],
     raw_bytes: &[u8],
     n_stripes: usize,
-    signed_zigzag: bool,
-    dst: &mut [T],
+    dst: &mut [MaybeUninit<Out>],
+    map_out: F,
 ) where
-    T: NativePType,
-    i64: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
+    Out: Copy,
+    F: Copy + Fn(u64) -> Out,
 {
     let mut word_pos = 0usize;
-    let mut bit_reader = BitReader::new(raw_bytes);
+    let mut bit_cursor = 0usize;
     let mut syms = [0u8; NUM_LANES];
     let mut ebits_arr = [0u8; NUM_LANES];
+    let mut bit_offsets = [0usize; NUM_LANES];
     let mut next_states = [0u32; NUM_LANES];
+    let raw_ptr = raw_bytes.as_ptr();
+    let raw_len = raw_bytes.len();
 
     for stripe in 0..n_stripes {
-        // Phase A: 32 independent L1 table lookups and multiply-adds.
         for lane in 0..NUM_LANES {
             let state = states[lane];
             let slot = (state & PROB_MASK) as usize;
@@ -1028,45 +1117,83 @@ fn decode_stripes_with_extra<T>(
                 u32::from(entry.freq) * (state >> PROB_BITS) + u32::from(entry.bias);
         }
 
-        // Phase B: branchless `u16` refill whenever 32 words remain.
-        if word_pos + NUM_LANES <= word_chunks.len() {
-            for lane in 0..NUM_LANES {
-                let s = next_states[lane];
-                let need = s < RANS_L;
-                // SAFETY: `word_pos_0 + 32 <= word_chunks.len()` and `word_pos` advances by `<= 1`
-                // per lane, so every `word_pos` is strictly `< word_chunks.len()`.
-                let word = u32::from(u16::from_le_bytes(*unsafe {
-                    word_chunks.get_unchecked(word_pos)
-                }));
-                states[lane] = if need { (s << 16) | word } else { s };
-                word_pos += usize::from(need);
-            }
-        } else {
-            for lane in 0..NUM_LANES {
-                let mut s = next_states[lane];
-                if s < RANS_L && word_pos < word_chunks.len() {
-                    let word = u32::from(u16::from_le_bytes(word_chunks[word_pos]));
-                    word_pos += 1;
-                    s = (s << 16) | word;
-                }
-                states[lane] = s;
-            }
+        refill_lanes(states, &next_states, word_chunks, &mut word_pos);
+
+        for lane in 0..NUM_LANES {
+            bit_offsets[lane] = bit_cursor;
+            bit_cursor += usize::from(ebits_arr[lane]);
         }
 
-        // Phase C: reconstruct `u = BASE_TABLE[sym] | raw` from forward `u128` bit-reader.
         let out_stripe = &mut dst[stripe * NUM_LANES..(stripe + 1) * NUM_LANES];
-        if signed_zigzag {
+        if (bit_cursor >> 3) + 8 <= raw_len {
             for lane in 0..NUM_LANES {
-                let base = BASE_TABLE[usize::from(syms[lane])];
-                let raw = bit_reader.read(ebits_arr[lane]);
-                out_stripe[lane] = zigzag_decode(base | raw).as_();
+                let bp = bit_offsets[lane];
+                // SAFETY: `bp <= bit_cursor`, so `(bp >> 3) + 8 <= (bit_cursor >> 3) + 8 <= raw_len`.
+                let word = unsafe { raw_ptr.add(bp >> 3).cast::<u64>().read_unaligned() }.to_le();
+                let shift = (bp & 7) as u32;
+                let ebits = u32::from(ebits_arr[lane]);
+                let mask = (1u64 << ebits) - 1;
+                let raw = (word >> shift) & mask;
+                let u = BASE_TABLE[usize::from(syms[lane])] | raw;
+                out_stripe[lane].write(map_out(u));
             }
         } else {
             for lane in 0..NUM_LANES {
-                let base = BASE_TABLE[usize::from(syms[lane])];
-                let raw = bit_reader.read(ebits_arr[lane]);
-                out_stripe[lane] = (base | raw).as_();
+                let bp = bit_offsets[lane];
+                let byte_idx = bp >> 3;
+                let mut buf = [0u8; 8];
+                if byte_idx < raw_len {
+                    let avail = (raw_len - byte_idx).min(8);
+                    buf[..avail].copy_from_slice(&raw_bytes[byte_idx..byte_idx + avail]);
+                }
+                let word = u64::from_le_bytes(buf);
+                let shift = (bp & 7) as u32;
+                let ebits = u32::from(ebits_arr[lane]);
+                let raw = (word >> shift) & ((1u64 << ebits) - 1);
+                let u = BASE_TABLE[usize::from(syms[lane])] | raw;
+                out_stripe[lane].write(map_out(u));
             }
+        }
+    }
+}
+
+/// Wide `u128` fallback when `max_ebits > 57` (`u64` values `>= 2^59`).
+fn decode_stripes_with_wide_extra<Out, F>(
+    table: &RansDecodeTable,
+    states: &mut [u32; NUM_LANES],
+    word_chunks: &[[u8; 2]],
+    raw_bytes: &[u8],
+    n_stripes: usize,
+    dst: &mut [MaybeUninit<Out>],
+    map_out: F,
+) where
+    Out: Copy,
+    F: Copy + Fn(u64) -> Out,
+{
+    let mut word_pos = 0usize;
+    let mut bit_reader = WideBitReader::new(raw_bytes);
+    let mut syms = [0u8; NUM_LANES];
+    let mut ebits_arr = [0u8; NUM_LANES];
+    let mut next_states = [0u32; NUM_LANES];
+
+    for stripe in 0..n_stripes {
+        for lane in 0..NUM_LANES {
+            let state = states[lane];
+            let slot = (state & PROB_MASK) as usize;
+            let entry = table.slots[slot];
+            syms[lane] = entry.sym;
+            ebits_arr[lane] = entry.ebits;
+            next_states[lane] =
+                u32::from(entry.freq) * (state >> PROB_BITS) + u32::from(entry.bias);
+        }
+
+        refill_lanes(states, &next_states, word_chunks, &mut word_pos);
+
+        let out_stripe = &mut dst[stripe * NUM_LANES..(stripe + 1) * NUM_LANES];
+        for lane in 0..NUM_LANES {
+            let base = BASE_TABLE[usize::from(syms[lane])];
+            let raw = bit_reader.read(ebits_arr[lane]);
+            out_stripe[lane].write(map_out(base | raw));
         }
     }
 }

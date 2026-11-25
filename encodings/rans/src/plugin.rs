@@ -2,6 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! [`ArrayPlugin`] serialization and deserialization for `vortex.rans`.
+//!
+//! Wire slot `0` always corresponds to [`RansSlots::VALIDITY_CHILD`] (`Validity::DTYPE`), using a
+//! zero-buffer `ConstantArray(true, len)` when non-nullable or all-valid so any future slots keep
+//! stable 1-to-1 wire child indices. Readers ignore trailing children and trailing node buffers
+//! beyond the declared ones for forward compatibility.
 
 use std::sync::Arc;
 
@@ -13,7 +18,12 @@ use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -24,6 +34,7 @@ use vortex_session::registry::CachedId;
 
 use crate::Rans;
 use crate::RansArrayExt;
+use crate::RansArraySlotsExt;
 use crate::RansData;
 use crate::RansMetadata;
 use crate::codec::BLOCK_VALUES;
@@ -58,15 +69,21 @@ impl ArrayPlugin for RansPlugin {
 
         let metadata = RansMetadata {
             offset: u32::from(view.offset()),
-            signed_zigzag: view.signed_zigzag(),
             has_extra_bits: view.has_extra_bits(),
             sym_freqs: pack_sym_freqs(view.sym_freqs()),
             payload_base_offset: view.payload_base_offset(),
         };
-        Ok(Some(ArraySerialization::from_array(
+
+        let validity_wire_child = view
+            .validity_child()
+            .cloned()
+            .unwrap_or_else(|| ConstantArray::new(true, view.len()).into_array());
+
+        Ok(Some(ArraySerialization::new(
             rans_id(),
-            array,
             metadata.encode_to_vec(),
+            array.buffers(),
+            vec![validity_wire_child],
         )))
     }
 
@@ -94,11 +111,14 @@ impl ArrayPlugin for RansPlugin {
             dtype.is_int(),
             "RansArray requires an integer dtype, got {dtype}"
         );
-        vortex_ensure_eq!(
-            buffers.len(),
-            2,
-            "RansArray expects 2 buffers (block_headers, payload), got {}",
+        vortex_ensure!(
+            buffers.len() >= 2,
+            "RansArray expects at least 2 buffers (block_headers, payload), got {}",
             buffers.len()
+        );
+        vortex_ensure!(
+            !children.is_empty(),
+            "RansArray expects at least 1 child (slot 0 validity), got 0"
         );
 
         let metadata = RansMetadata::decode(metadata)?;
@@ -128,19 +148,23 @@ impl ArrayPlugin for RansPlugin {
             "RansMetadata has_extra_bits disagrees with active symbol table"
         );
 
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity_arr = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity_arr)
-        } else {
-            vortex_bail!("RansArray expected 0 or 1 child, got {}", children.len());
+        let validity_arr = children.get(0, &Validity::DTYPE, len)?;
+        let validity = match dtype.nullability() {
+            Nullability::NonNullable => {
+                if let Some(c) = validity_arr.as_opt::<Constant>()
+                    && c.scalar().value() == Some(&ScalarValue::Bool(true))
+                {
+                    Validity::NonNullable
+                } else {
+                    vortex_bail!("Non-nullable RansArray requires Constant(true) in slot 0");
+                }
+            }
+            Nullability::Nullable => child_to_validity(Some(&validity_arr), Nullability::Nullable),
         };
 
         let data = RansData::try_new(
             offset,
             metadata.payload_base_offset,
-            metadata.signed_zigzag,
             metadata.has_extra_bits,
             Arc::from(sym_freqs),
             Arc::new(decode_table),

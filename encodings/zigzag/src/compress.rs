@@ -23,10 +23,10 @@ pub fn zigzag_encode(parray: ArrayView<'_, Primitive>) -> VortexResult<ZigZagArr
     let parray = parray.into_owned();
     let validity = parray.validity()?;
     let encoded = match parray.ptype() {
-        PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
-        PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
-        PType::I32 => zigzag_encode_primitive::<i32>(parray.into_buffer_mut(), validity),
-        PType::I64 => zigzag_encode_primitive::<i64>(parray.into_buffer_mut(), validity),
+        PType::I8 => zigzag_encode_primitive::<i8>(parray.try_into_buffer_mut(), validity),
+        PType::I16 => zigzag_encode_primitive::<i16>(parray.try_into_buffer_mut(), validity),
+        PType::I32 => zigzag_encode_primitive::<i32>(parray.try_into_buffer_mut(), validity),
+        PType::I64 => zigzag_encode_primitive::<i64>(parray.try_into_buffer_mut(), validity),
         _ => vortex_bail!(
             "ZigZag can only encode signed integers, got {}",
             parray.ptype()
@@ -36,19 +36,31 @@ pub fn zigzag_encode(parray: ArrayView<'_, Primitive>) -> VortexResult<ZigZagArr
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
-    mut values: BufferMut<T>,
+    values: Result<BufferMut<T>, vortex_buffer::Buffer<T>>,
     validity: Validity,
 ) -> PrimitiveArray
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    ReinterpretSink::<T, T::UInt>::new(values.as_mut_slice()).map_into_in_place(T::encode);
+    match values {
+        Ok(mut values) => {
+            ReinterpretSink::<T, T::UInt>::new(values.as_mut_slice()).map_into_in_place(T::encode);
 
-    // SAFETY: `ReinterpretSink::new` checks that both types have the same size and alignment,
-    // and `map_into_in_place` writes a valid value into every lane.
-    let encoded = unsafe { values.transmute::<T::UInt>() };
+            // SAFETY: `ReinterpretSink::new` checks that both types have the same size and
+            // alignment, and `map_into_in_place` writes a valid value into every lane.
+            let encoded = unsafe { values.transmute::<T::UInt>() };
 
-    PrimitiveArray::new(encoded.freeze(), validity)
+            PrimitiveArray::new(encoded.freeze(), validity)
+        }
+        Err(shared) => {
+            let mut out = BufferMut::<T::UInt>::with_capacity(shared.len());
+            for &v in shared.as_slice() {
+                // SAFETY: `out` was allocated with `shared.len()` capacity above.
+                unsafe { out.push_unchecked(T::encode(v)) };
+            }
+            PrimitiveArray::new(out.freeze(), validity)
+        }
+    }
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
@@ -56,10 +68,10 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
         .validity()
         .vortex_expect("zigzag validity should be derivable");
     match parray.ptype() {
-        PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
-        PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),
-        PType::U32 => zigzag_decode_primitive::<i32>(parray.into_buffer_mut(), validity),
-        PType::U64 => zigzag_decode_primitive::<i64>(parray.into_buffer_mut(), validity),
+        PType::U8 => zigzag_decode_primitive::<i8>(parray.try_into_buffer_mut(), validity),
+        PType::U16 => zigzag_decode_primitive::<i16>(parray.try_into_buffer_mut(), validity),
+        PType::U32 => zigzag_decode_primitive::<i32>(parray.try_into_buffer_mut(), validity),
+        PType::U64 => zigzag_decode_primitive::<i64>(parray.try_into_buffer_mut(), validity),
         _ => vortex_panic!(
             "ZigZag can only decode unsigned integers, got {}",
             parray.ptype()
@@ -68,19 +80,31 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
 }
 
 fn zigzag_decode_primitive<T: ExternalZigZag + NativePType>(
-    mut values: BufferMut<T::UInt>,
+    values: Result<BufferMut<T::UInt>, vortex_buffer::Buffer<T::UInt>>,
     validity: Validity,
 ) -> PrimitiveArray
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    ReinterpretSink::<T::UInt, T>::new(values.as_mut_slice()).map_into_in_place(T::decode);
+    match values {
+        Ok(mut values) => {
+            ReinterpretSink::<T::UInt, T>::new(values.as_mut_slice()).map_into_in_place(T::decode);
 
-    // SAFETY: `ReinterpretSink::new` checks that both types have the same size and alignment,
-    // and `map_into_in_place` writes a valid value into every lane.
-    let decoded = unsafe { values.transmute::<T>() };
+            // SAFETY: `ReinterpretSink::new` checks that both types have the same size and
+            // alignment, and `map_into_in_place` writes a valid value into every lane.
+            let decoded = unsafe { values.transmute::<T>() };
 
-    PrimitiveArray::new(decoded.freeze(), validity)
+            PrimitiveArray::new(decoded.freeze(), validity)
+        }
+        Err(shared) => {
+            let mut out = BufferMut::<T>::with_capacity(shared.len());
+            for &v in shared.as_slice() {
+                // SAFETY: `out` was allocated with `shared.len()` capacity above.
+                unsafe { out.push_unchecked(T::decode(v)) };
+            }
+            PrimitiveArray::new(out.freeze(), validity)
+        }
+    }
 }
 
 #[cfg(test)]

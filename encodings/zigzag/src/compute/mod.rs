@@ -30,6 +30,11 @@ impl TakeExecute for ZigZag {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // When gathering more rows than the ZigZag array holds (for example `Dict(codes, ZigZag)`),
+        // let `Dict` decode the small values table once instead of decoding every gathered row.
+        if indices.len() > array.len() {
+            return Ok(None);
+        }
         let encoded = array.encoded().take(indices.clone())?;
         Ok(Some(ZigZag::try_new(encoded)?.into_array()))
     }
@@ -119,6 +124,33 @@ mod tests {
             zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
                 .into_array();
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn take_zigzag_defers_when_expanding_dict_values() -> VortexResult<()> {
+        use vortex_array::arrays::Dict;
+        use vortex_array::arrays::DictArray;
+        use vortex_array::arrays::dict::DictArraySlotsExt;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = zigzag_encode(
+            PrimitiveArray::new(buffer![-10i32, 0, 25], Validity::NonNullable).as_view(),
+        )?
+        .into_array();
+        let codes = buffer![0u8, 1, 2, 1, 0, 2, 1, 0].into_array();
+        let dict = DictArray::try_new(codes, values)?.into_array();
+
+        let executed = dict.execute::<ArrayRef>(&mut ctx)?;
+        assert!(executed.is::<Dict>());
+        let dict_values = executed.as_::<Dict>().values();
+        assert!(!dict_values.is::<crate::ZigZag>());
+        assert_eq!(dict_values.len(), 3);
+        assert_arrays_eq!(
+            executed,
+            PrimitiveArray::from_iter([-10i32, 0, 25, 0, -10, 25, 0, -10]),
+            &mut ctx
+        );
         Ok(())
     }
 
