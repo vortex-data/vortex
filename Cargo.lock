@@ -11105,6 +11105,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fearless_simd",
  "fearless_simd_macros",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -11890,6 +11891,7 @@ name = "vortex-fuzz"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "flatbuffers",
  "itertools 0.14.0",
  "libfuzzer-sys",
  "num-traits",
@@ -12524,6 +12526,7 @@ dependencies = [
 name = "vortex-zigzag"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "rstest",
  "vortex-array",
  "vortex-buffer",

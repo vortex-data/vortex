@@ -439,10 +439,10 @@ fn test_zstd_reads_legacy_single_frame_var_bin_metadata() -> VortexResult<()> {
     assert_arrays_eq!(compressed, array.clone().into_array(), &mut ctx);
     assert_arrays_eq!(
         compressed.slice(2..5)?,
-        array.into_array().slice(2..5)?,
+        array.clone().into_array().slice(2..5)?,
         &mut ctx
     );
-    Ok(())
+    assert_repeated_probe_eq(&compressed.into_array(), &array.into_array(), &mut ctx)
 }
 
 /// The same legacy metadata for fixed-width values recovers the count from the frame size, which
@@ -463,6 +463,24 @@ fn test_zstd_reads_legacy_primitive_frame_metadata() -> VortexResult<()> {
         PrimitiveArray::from_iter(100..105_i32),
         &mut ctx
     );
+    assert_repeated_probe_eq(&compressed.into_array(), &array.into_array(), &mut ctx)
+}
+
+/// Read every row of `array` through one repeated probe, last row first, so that each frame is
+/// decompressed again after a later one.
+fn assert_repeated_probe_eq(
+    array: &ArrayRef,
+    expected: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let mut probe = array.repeated_probe();
+    for index in (0..array.len()).rev() {
+        assert_eq!(
+            probe.execute_scalar(index, ctx)?,
+            expected.execute_scalar(index, ctx)?,
+            "row {index}"
+        );
+    }
     Ok(())
 }
 

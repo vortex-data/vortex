@@ -4,7 +4,7 @@ name: Fuzzer Issue Autofix
 # covers issues that people file or label manually. Issues that the fuzz
 # pipeline files do not start this workflow, because the pipeline uses
 # GITHUB_TOKEN and events from that token do not trigger workflows. The
-# attempt-fix-* jobs in fuzz.yml fix those issues instead.
+# attempt-fix job in run-fuzzer.yml fixes those issues instead.
 #
 # The trigger is "labeled" only. An issue that is opened with labels also sends
 # one "labeled" event for each label, so an "opened" trigger only adds a second
