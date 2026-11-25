@@ -213,11 +213,13 @@ fn make_alternate_encoding(tc: &TestCase, canonical: &ArrayRef) -> VortexResult<
             let right = canonical.slice(split..len)?;
             Ok(ChunkedArray::try_new(vec![left, right], canonical.dtype().clone())?.into_array())
         }
-        // Dict-encoded array with identity codes.
+        // Dict-encoded array with reversed values and non-identity codes.
         _ => {
-            let codes =
-                PrimitiveArray::from_iter((0..len).map(|i| u32::try_from(i).unwrap())).into_array();
-            Ok(DictArray::try_new(codes, canonical.clone())?.into_array())
+            let reversed: Vec<u32> = (0..len).rev().map(|i| u32::try_from(i).unwrap()).collect();
+            let indices = PrimitiveArray::from_iter(reversed.clone()).into_array();
+            let values = canonical.take(indices)?;
+            let codes = PrimitiveArray::from_iter(reversed).into_array();
+            Ok(DictArray::try_new(codes, values)?.into_array())
         }
     }
 }
@@ -564,7 +566,12 @@ fn draw_column(
     if len > 0 && tc.draw(gs::integers::<u8>().max_value(7)) == 0 {
         let scalar = col.canonical.execute_scalar(0, ctx)?;
         let constant = ConstantArray::new(scalar, len).into_array();
-        let canonical = constant.clone().execute::<Canonical>(ctx)?.into_array();
+        let zeros = PrimitiveArray::from_iter(vec![0u32; len]).into_array();
+        let canonical = col
+            .canonical
+            .take(zeros)?
+            .execute::<Canonical>(ctx)?
+            .into_array();
         let logical = vec![col.logical[0].clone(); len];
         return Ok(GeneratedColumn {
             canonical,
@@ -813,7 +820,7 @@ fn check_table_invariants(
     let encoded_canon = encoder.encode(cols_canon, ctx)?;
     let encoded_alt = encoder.encode(cols_alt, ctx)?;
     let (canon_rows, canon_total_bytes) = collect_rows_and_total_bytes(&encoded_canon, ctx)?;
-    let (alt_rows, _) = collect_rows_and_total_bytes(&encoded_alt, ctx)?;
+    let (alt_rows, alt_total_bytes) = collect_rows_and_total_bytes(&encoded_alt, ctx)?;
 
     // (d) Encoded/sliced/chunked inputs produce byte-identical output to canonical inputs.
     assert_eq!(
@@ -836,6 +843,7 @@ fn check_table_invariants(
         sum_bytes += row.len();
     }
     assert_eq!(canon_total_bytes, sum_bytes);
+    assert_eq!(alt_total_bytes, sum_bytes);
 
     // (a) Pairwise encoded byte-slice ordering matches independent logical tuple comparator.
     // When logical tuples are Equal (including two null parent Struct/FSL rows with differing
@@ -863,7 +871,7 @@ fn check_table_invariants(
 }
 
 #[hegel::test(test_cases = 100, print_blob = true)]
-fn multi_column_row_encode_oracle(tc: TestCase) {
+fn test_multi_column_row_encode_oracle(tc: TestCase) {
     let mut ctx = SESSION.create_execution_ctx();
     let nrows = tc.draw(gs::integers::<usize>().max_value(12));
     let ncols = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
@@ -974,7 +982,7 @@ fn check_varlen_lengths_oracle(lengths: &[usize]) -> VortexResult<()> {
 #[hegel::test(test_cases = 100, print_blob = true)]
 #[hegel::explicit_test_case(lengths = vec![0usize, 1, 31, 32, 33, 63, 64, 65])]
 #[hegel::explicit_test_case(lengths = vec![31usize, 32, 32, 33, 63, 64, 64, 65, 96, 128])]
-fn varlen_boundary_oracle(tc: TestCase) {
+fn test_varlen_boundary_oracle(tc: TestCase) {
     let lengths = tc.draw(
         gs::vecs(gs::integers::<usize>().max_value(128))
             .min_size(1)

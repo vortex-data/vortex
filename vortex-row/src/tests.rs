@@ -922,7 +922,7 @@ pub(super) fn collect_row_sizes(
 #[rstest]
 #[case::asc(false)]
 #[case::desc(true)]
-fn varlen_block_boundaries_and_xor_copy_block(#[case] descending: bool) -> VortexResult<()> {
+fn test_varlen_block_boundaries_and_xor_copy_block(#[case] descending: bool) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     // Cover exact 32-byte block boundaries, multiples of 32, and multi-block payloads (0..=128)
     // to exercise both ascending `copy_nonoverlapping` and descending `xor_copy_block`.
@@ -993,7 +993,7 @@ fn varlen_block_boundaries_and_xor_copy_block(#[case] descending: bool) -> Vorte
 }
 
 #[test]
-fn reject_unsupported_dtypes_and_invalid_inputs() -> VortexResult<()> {
+fn test_reject_unsupported_dtypes_and_invalid_inputs() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
 
     // Variant (top-level and nested).
