@@ -33,6 +33,7 @@ use crate::scalar::PValue;
 use crate::validity::Validity;
 
 pub mod array;
+mod probe;
 mod vtable;
 
 #[cfg(test)]
@@ -60,16 +61,6 @@ pub(crate) fn check_index_arrays(
         "PiecewiseSequenceArray starts length does not match multipliers length",
     );
     Ok(())
-}
-
-pub(crate) fn execute_index_arrays(
-    array: ArrayView<'_, PiecewiseSequence>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(PrimitiveArray, PrimitiveArray, PrimitiveArray)> {
-    let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
-    let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
-    let multipliers = array.multipliers().clone().execute::<PrimitiveArray>(ctx)?;
-    Ok((starts, lengths, multipliers))
 }
 
 pub(crate) fn maybe_contiguous_slices(

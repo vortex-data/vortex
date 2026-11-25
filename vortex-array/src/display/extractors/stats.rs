@@ -7,8 +7,8 @@ use std::fmt::{self};
 use crate::ArrayRef;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 use crate::validity::Validity;
 
 /// Display wrapper for array statistics in compact format.

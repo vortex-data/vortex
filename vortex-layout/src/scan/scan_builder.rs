@@ -15,15 +15,17 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_expr::analysis::referenced_field_paths;
-use vortex_expr::transform::find_between;
+use vortex_expr::BoundExpression;
+use vortex_expr::stats::StatsSessionExt;
+use vortex_functions::between::Between;
+use vortex_functions::between::find_between;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
@@ -34,6 +36,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::analysis::referenced_field_paths;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
@@ -240,11 +243,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.concurrency.max
     }
 
-    /// The number of row splits to make progress on concurrently per-thread, must
-    /// be greater than 0.
+    /// The number of row splits to make progress on concurrently per-thread.
+    ///
+    /// Values less than 1 are clamped to 1.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        assert!(concurrency > 0);
-        self.concurrency.per_worker = concurrency;
+        self.concurrency.per_worker = concurrency.max(1);
         self
     }
 
@@ -383,7 +386,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
 
         let bound_projection = self.projection;
-        let bound_filter = self.filter.map(find_between).transpose()?;
+        let bound_filter = if self.session.stats().has_rewrite_for(Between.id()) {
+            self.filter.map(find_between).transpose()?
+        } else {
+            self.filter
+        };
 
         // Compute the row splits of the scan.
         let splits =
@@ -551,21 +558,21 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::ExactBoundExpr;
-    use vortex_array::expr::and;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::root;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::ExactBoundExpr;
+    use vortex_expr::and;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::get_item;
+    use vortex_expr::gt_eq;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::root;
     use vortex_functions::between::BetweenOptions;
     use vortex_functions::between::StrictComparison;
     use vortex_functions::expr::between;
@@ -1177,6 +1184,7 @@ mod test {
     fn scan_evaluates_filter_ranges_as_between() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
+        vortex_functions::initialize(&session);
         let filter_exprs = Arc::new(Mutex::new(Vec::new()));
         let dtype = nested_dtype();
         let reader = Arc::new(

@@ -2,36 +2,39 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Map;
-use crate::arrays::StructArray;
-use crate::arrays::map::MapArrayExt;
-use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::map::MapSlots;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Map> for Map {
     type ProbeState = ();
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Map>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let dtype = state.array().dtype().clone();
+        let (_, entries) = state
+            .slot(MapSlots::ENTRIES)?
+            .ok_or_else(|| vortex_err!("Map entries slot is missing"))?
+            .execute_scalar(index, ctx)?
+            .into_parts();
+        // The validated ListView child and Map scalar share the same entry tuple layout.
+        Scalar::try_new(dtype, entries)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, Map>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let entries = array.entries_at(index, ctx)?.execute::<StructArray>(ctx)?;
-        let keys = entries.unmasked_field(0);
-        let values = entries.unmasked_field(1);
-        let pairs = (0..entries.len())
-            .map(|entry_index| {
-                Ok((
-                    keys.execute_scalar(entry_index, ctx)?,
-                    values.execute_scalar(entry_index, ctx)?,
-                ))
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        Scalar::try_map(array.dtype().clone(), pairs)
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }

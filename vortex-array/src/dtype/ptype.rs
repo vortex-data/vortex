@@ -922,9 +922,16 @@ impl PType {
     }
 
     /// Returns the wider of two unsigned integer [`PType`]s based on byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either type is not an unsigned integer.
     #[inline]
     pub const fn max_unsigned_ptype(self, other: Self) -> Self {
-        debug_assert!(self.is_unsigned_int() && other.is_unsigned_int());
+        assert!(
+            self.is_unsigned_int() && other.is_unsigned_int(),
+            "max_unsigned_ptype requires two unsigned integer types"
+        );
         if self.byte_width() >= other.byte_width() {
             self
         } else {
@@ -933,9 +940,16 @@ impl PType {
     }
 
     /// Returns the wider of two signed integer [`PType`]s based on byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either type is not a signed integer.
     #[inline]
     pub const fn max_signed_ptype(self, other: Self) -> Self {
-        debug_assert!(self.is_signed_int() && other.is_signed_int());
+        assert!(
+            self.is_signed_int() && other.is_signed_int(),
+            "max_signed_ptype requires two signed integer types"
+        );
         if self.byte_width() >= other.byte_width() {
             self
         } else {
@@ -1070,7 +1084,33 @@ physical_ptype!(u64, u64);
 
 #[cfg(test)]
 mod tests {
+    use std::panic::catch_unwind;
+
     use super::*;
+
+    #[test]
+    fn max_unsigned_ptype_rejects_invalid_types() {
+        for (lhs, rhs) in [(PType::F32, PType::U8), (PType::U8, PType::I64)] {
+            let panic = catch_unwind(|| lhs.max_unsigned_ptype(rhs))
+                .expect_err("both arguments must be unsigned integers");
+            assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("max_unsigned_ptype requires two unsigned integer types")
+            );
+        }
+    }
+
+    #[test]
+    fn max_signed_ptype_rejects_invalid_types() {
+        for (lhs, rhs) in [(PType::U64, PType::I8), (PType::I8, PType::F32)] {
+            let panic = catch_unwind(|| lhs.max_signed_ptype(rhs))
+                .expect_err("both arguments must be signed integers");
+            assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("max_signed_ptype requires two signed integer types")
+            );
+        }
+    }
 
     #[test]
     fn try_from_bytes() -> VortexResult<()> {

@@ -63,7 +63,9 @@ pub trait RuntimeSessionExt: SessionExt {
     /// Configure the runtime session to use a specific Vortex runtime handle.
     fn with_handle(self, handle: Handle) -> VortexSession {
         let session = self.session();
-        session.get_mut::<RuntimeSession>().handle = Some(handle);
+        session.register(RuntimeSession {
+            handle: Some(handle),
+        });
         session
     }
 }

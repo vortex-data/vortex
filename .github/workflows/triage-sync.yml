@@ -32,9 +32,6 @@ on:
         description: Ask Claude to evaluate whether Vortex owes a response on due items
         type: boolean
         default: true
-  schedule:
-    # Hourly 13:00-22:00 UTC Monday-Friday (covers 09:00-17:00 America/New_York in EST and EDT).
-    - cron: "0 13-22 * * 1-5"
 
 permissions: { }
 
