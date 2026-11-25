@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use crate::builtins::ArrayFunctions;
 use crate::zip::ZipKernel;
 use crate::zip::paired_chunks::PairedChunksExt;
+use crate::zip::zip_return_dtype;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
@@ -28,15 +29,13 @@ impl ZipKernel for Chunked {
         let Some(if_false) = if_false.as_opt::<Chunked>() else {
             return Ok(None);
         };
-        let dtype = if_true
-            .dtype()
-            .union_nullability(if_false.dtype().nullability());
+        let dtype = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
         let chunks = if_true.paired_chunks(&if_false).map(|pair| {
             let pair = pair?;
             mask.slice(pair.pos)?.zip(pair.left, pair.right)
         });
         chunks.process_results(|chunks| {
-            // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
+            // SAFETY: each zipped chunk has dtype `zip_return_dtype(if_true.dtype(), if_false.dtype())`.
             Some(unsafe {
                 ChunkedArray::new_unchecked_sized(
                     chunks,
@@ -51,6 +50,7 @@ impl ZipKernel for Chunked {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use vortex_array::ArrayRef;
@@ -58,12 +58,16 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::chunked::ChunkedArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
@@ -124,5 +128,84 @@ mod tests {
             values.extend_from_slice(primitive.as_slice::<i32>());
         }
         assert_eq!(values, vec![1, 11, 3, 13, 5]);
+    }
+
+    #[test]
+    fn test_chunked_zip_unions_nested_list_nullability() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mask = Mask::from_iter([true, false, true]);
+
+        let non_null_list = ChunkedArray::try_new(
+            vec![
+                ListViewArray::new(
+                    buffer![1i32, 2].into_array(),
+                    buffer![0u32, 1].into_array(),
+                    buffer![1u32, 1].into_array(),
+                    Validity::NonNullable,
+                    &mut ctx,
+                )
+                .into_array(),
+                ListViewArray::new(
+                    buffer![3i32].into_array(),
+                    buffer![0u32].into_array(),
+                    buffer![1u32].into_array(),
+                    Validity::NonNullable,
+                    &mut ctx,
+                )
+                .into_array(),
+            ],
+            DType::List(
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                Nullability::NonNullable,
+            ),
+        )?
+        .into_array();
+        let nullable_list = ChunkedArray::try_new(
+            vec![
+                ListViewArray::new(
+                    PrimitiveArray::from_option_iter([Some(10i32)]).into_array(),
+                    buffer![0u32].into_array(),
+                    buffer![1u32].into_array(),
+                    Validity::NonNullable,
+                    &mut ctx,
+                )
+                .into_array(),
+                ListViewArray::new(
+                    PrimitiveArray::from_option_iter([None::<i32>, Some(30)]).into_array(),
+                    buffer![0u32, 1].into_array(),
+                    buffer![1u32, 1].into_array(),
+                    Validity::NonNullable,
+                    &mut ctx,
+                )
+                .into_array(),
+            ],
+            DType::List(
+                Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+                Nullability::NonNullable,
+            ),
+        )?
+        .into_array();
+
+        let zipped = mask
+            .into_array()
+            .zip(non_null_list, nullable_list)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        let chunked = zipped
+            .as_opt::<Chunked>()
+            .expect("zip should keep chunked encoding");
+        let expected_list = ListViewArray::new(
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+            buffer![0u32, 1, 2].into_array(),
+            buffer![1u32, 1, 1].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        );
+        assert!(
+            chunked
+                .iter_chunks()
+                .all(|chunk| chunk.dtype() == expected_list.dtype())
+        );
+        assert_arrays_eq!(zipped, expected_list, &mut ctx);
+        Ok(())
     }
 }
