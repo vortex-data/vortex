@@ -159,13 +159,34 @@ mod tests {
         Ok(())
     }
 
+    #[derive(Clone, Copy)]
+    enum FaultOffset {
+        Length,
+        Header,
+        Body,
+    }
+
+    impl FaultOffset {
+        fn byte_pos(self, header_len: usize) -> usize {
+            match self {
+                Self::Length => 1,
+                Self::Header => 4 + header_len / 2,
+                Self::Body => 4 + header_len + 1,
+            }
+        }
+    }
+
     #[rstest]
     fn resumable_io_error_preserves_progress(
         #[values(ReaderKind::Sync, ReaderKind::Async)] mode: ReaderKind,
         #[values(io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut)] kind: io::ErrorKind,
+        #[values(FaultOffset::Length, FaultOffset::Header, FaultOffset::Body)] offset: FaultOffset,
     ) -> VortexResult<()> {
-        let (array, bytes, _) = encoded_test_array()?;
-        let mut messages = mode.open(FaultyReader::new(bytes, vec![(1, kind)]));
+        let (array, bytes, header_len) = encoded_test_array()?;
+        let mut messages = mode.open(FaultyReader::new(
+            bytes,
+            vec![(offset.byte_pos(header_len), kind)],
+        ));
 
         let err = messages
             .next()
@@ -185,9 +206,18 @@ mod tests {
         let mut messages = mode.open(FaultyReader::new(
             bytes,
             vec![
-                (1, io::ErrorKind::Interrupted),
-                (4 + header_len / 2, io::ErrorKind::Interrupted),
-                (4 + header_len + 1, io::ErrorKind::Interrupted),
+                (
+                    FaultOffset::Length.byte_pos(header_len),
+                    io::ErrorKind::Interrupted,
+                ),
+                (
+                    FaultOffset::Header.byte_pos(header_len),
+                    io::ErrorKind::Interrupted,
+                ),
+                (
+                    FaultOffset::Body.byte_pos(header_len),
+                    io::ErrorKind::Interrupted,
+                ),
             ],
         ));
 
@@ -199,25 +229,26 @@ mod tests {
     #[rstest]
     fn io_error_during_fill_is_terminal(
         #[values(ReaderKind::Sync, ReaderKind::Async)] mode: ReaderKind,
+        #[values(FaultOffset::Length, FaultOffset::Header, FaultOffset::Body)] offset: FaultOffset,
     ) -> VortexResult<()> {
         let (_, bytes, header_len) = encoded_test_array()?;
-        for fail_at in [1, 4 + header_len / 2, 4 + header_len + 1] {
-            let reader =
-                FaultyReader::new(bytes.clone(), vec![(fail_at, io::ErrorKind::BrokenPipe)]);
-            let calls = Arc::clone(&reader.calls);
-            let mut messages = mode.open(reader);
+        let reader = FaultyReader::new(
+            bytes,
+            vec![(offset.byte_pos(header_len), io::ErrorKind::BrokenPipe)],
+        );
+        let calls = Arc::clone(&reader.calls);
+        let mut messages = mode.open(reader);
 
-            let err = messages
-                .next()
-                .vortex_expect("expected io error")
-                .unwrap_err();
-            assert_io_error_kind(&err, io::ErrorKind::BrokenPipe);
+        let err = messages
+            .next()
+            .vortex_expect("expected io error")
+            .unwrap_err();
+        assert_io_error_kind(&err, io::ErrorKind::BrokenPipe);
 
-            let calls_after_err = calls.load(Ordering::SeqCst);
-            assert!(messages.next().is_none());
-            assert!(messages.next().is_none());
-            assert_eq!(calls.load(Ordering::SeqCst), calls_after_err);
-        }
+        let calls_after_err = calls.load(Ordering::SeqCst);
+        assert!(messages.next().is_none());
+        assert!(messages.next().is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), calls_after_err);
         Ok(())
     }
 }
