@@ -132,6 +132,7 @@ mod tests {
     use std::ops::Range;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -141,7 +142,9 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::patched::compute::tests::make_patched;
     use crate::assert_arrays_eq;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::patches::Patches;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -271,5 +274,16 @@ mod tests {
         assert_arrays_eq!(result, expected.into_array(), &mut ctx);
 
         Ok(())
+    }
+
+    #[rstest]
+    #[case::small(make_patched(5, false, &[1, 3], &[100, 300], None))]
+    #[case::single(make_patched(1, false, &[0], &[42], None))]
+    #[case::multi_chunk(make_patched(2048, false, &[1, 512, 1024, 1500, 2047], &[10, 20, 30, 40, 50], None))]
+    #[case::sliced(make_patched(2048, false, &[5, 1030, 1500], &[11, 22, 33], Some(5..1600)))]
+    #[case::nullable(make_patched(64, true, &[1, 7, 33, 62], &[900, 901, 902, 903], None))]
+    #[case::nullable_sliced(make_patched(1500, true, &[1, 1031, 1499], &[10, 20, 30], Some(1030..1500)))]
+    fn test_take_patched_conformance(#[case] array: ArrayRef) {
+        test_take_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 }

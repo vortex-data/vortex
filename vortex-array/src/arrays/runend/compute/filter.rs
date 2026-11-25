@@ -298,6 +298,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::filter_run_end_primitive;
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -305,6 +306,7 @@ mod tests {
     use crate::arrays::runend::RunEndArray;
     use crate::arrays::runend::tests::SESSION;
     use crate::assert_arrays_eq;
+    use crate::compute::conformance::filter::test_filter_conformance;
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(
@@ -427,5 +429,52 @@ mod tests {
         assert_eq!(filtered_ends.as_slice::<u32>(), expected_ends.as_slice());
         assert_eq!(values_mask, Mask::from_iter(expected_values));
         Ok(())
+    }
+
+    fn encode_runend(values: ArrayRef) -> ArrayRef {
+        RunEnd::encode(values, &mut SESSION.create_execution_ctx())
+            .unwrap()
+            .into_array()
+    }
+
+    #[rstest]
+    #[case::small(encode_runend(PrimitiveArray::from_iter([1i32, 1, 2, 2, 3]).into_array()))]
+    #[case::single(encode_runend(PrimitiveArray::from_iter([42i32]).into_array()))]
+    #[case::single_run(encode_runend(PrimitiveArray::from_iter([7i32; 64]).into_array()))]
+    #[case::alternating(encode_runend(PrimitiveArray::from_iter((0..100).map(|i| i % 2)).into_array()))]
+    #[case::nullable(encode_runend(
+        PrimitiveArray::from_option_iter([
+            Some(1i32),
+            Some(1),
+            None,
+            None,
+            None,
+            Some(2),
+            Some(2),
+            None,
+            Some(3),
+        ])
+        .into_array()
+    ))]
+    #[case::large(encode_runend(
+        PrimitiveArray::from_iter((0..1024).map(|i| i / 16)).into_array()
+    ))]
+    #[case::sliced(
+        encode_runend(PrimitiveArray::from_iter((0..256).map(|i| i / 8)).into_array())
+            .slice(13..240)
+            .unwrap()
+    )]
+    #[case::nullable_sliced(
+        encode_runend(
+            PrimitiveArray::from_option_iter(
+                (0..200).map(|i| ((i / 10) % 3 != 1).then_some(i / 10))
+            )
+            .into_array()
+        )
+        .slice(7..185)
+        .unwrap()
+    )]
+    fn test_filter_runend_conformance(#[case] array: ArrayRef) {
+        test_filter_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 }

@@ -492,74 +492,66 @@ mod tests {
         build_views(0, MAX_BUFFER_LEN, bytes, &[31u32]);
     }
 
-    // TODO(someone): ideally CI would run this in release mode as well, since debug builds make the
-    // ~2.25 GiB allocation and fill loop substantially slower.
-    /// Slow regression for the single-buffer fast-path guard. The fast path is only valid when the
-    /// whole heap fits in one buffer (`bytes.len() <= max_buffer_len`); once the heap exceeds
-    /// [`MAX_BUFFER_LEN`] (`i32::MAX`, ~2.0 GiB) `build_views` must roll the heap into multiple
-    /// buffers, resetting the per-buffer offset, so no view references an offset past the
-    /// `i32`-bounded buffer limit.
+    /// Regression for the single-buffer fast-path guard and multi-buffer rollover.
     ///
-    /// We build a heap just past `i32::MAX` and assert it rolls over into more than one buffer, that
-    /// no buffer exceeds `MAX_BUFFER_LEN`, and that values straddling the rollover boundary (where
-    /// the second buffer's offsets restart from zero) reconstruct exactly. If the guard regressed and
-    /// the fast path swallowed the whole heap, it would emit a single >2 GiB buffer with offsets past
-    /// `i32::MAX`, which the buffer-count and buffer-size assertions catch.
-    ///
-    /// Allocates ~2.25 GiB, so it is gated to CI and skipped when `VORTEX_SKIP_SLOW_TESTS` is set:
-    ///
-    /// ```text
-    /// CI=1 cargo test --release -p vortex-array build_views_offsets_overflow
-    /// ```
-    ///
-    /// [`MAX_BUFFER_LEN`]: super::MAX_BUFFER_LEN
-    #[test_with::env(CI)]
-    #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
-    fn build_views_offsets_overflow_i32() {
-        const STRING_LEN: usize = 64 * 1024;
-        // Comfortably past MAX_BUFFER_LEN (`i32::MAX` ~= 2.0 GiB) so the heap must roll over.
-        const TOTAL_BYTES: usize = (1usize << 31) + (256 << 20); // ~2.25 GiB
-        const N: usize = TOTAL_BYTES / STRING_LEN;
-
-        // Each value's first 8 bytes encode its row index, so a misrouted offset is detectable.
+    /// Once the byte heap exceeds `max_buffer_len`, `build_views` must take the rolling path,
+    /// split the heap into multiple zero-copy buffers each at most `max_buffer_len` bytes, reset
+    /// the per-buffer offset to zero on each rollover, and preserve exact data integrity across
+    /// every row (including rows straddling each rollover boundary).
+    #[rstest]
+    #[case::exact_boundary(1024, 256, 10)]
+    #[case::non_divisible_boundary(1000, 256, 10)]
+    fn build_views_multi_buffer_rollover(
+        #[case] max_buffer_len: usize,
+        #[case] string_len: usize,
+        #[case] count: usize,
+    ) {
         let nth_string = |i: usize| {
-            let mut s = vec![b'x'; STRING_LEN];
+            let mut s = vec![b'x'; string_len];
             s[..8].copy_from_slice(&(i as u64).to_le_bytes());
             s
         };
 
-        let mut bytes = ByteBufferMut::with_capacity(N * STRING_LEN);
-        let mut value = vec![b'x'; STRING_LEN];
-        for i in 0..N {
-            value[..8].copy_from_slice(&(i as u64).to_le_bytes());
-            bytes.extend_from_slice(&value);
+        let expected: Vec<Vec<u8>> = (0..count).map(nth_string).collect();
+        let mut bytes = ByteBufferMut::with_capacity(count * string_len);
+        let mut offsets = Vec::with_capacity(count + 1);
+        offsets.push(0u32);
+        for value in &expected {
+            bytes.extend_from_slice(value);
+            offsets.push(u32::try_from(bytes.len()).unwrap());
         }
+        let heap = bytes.freeze();
+        let lens = vec![u32::try_from(string_len).unwrap(); count];
 
-        let lens = vec![u32::try_from(STRING_LEN).unwrap(); N];
-        let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes.freeze(), &lens);
+        let values_per_buf = max_buffer_len / string_len;
+        let expected_buffers = count.div_ceil(values_per_buf);
+        assert!(expected_buffers >= 3);
 
-        assert_eq!(views.len(), N);
-        assert!(
-            buffers.len() >= 2,
-            "heap exceeding MAX_BUFFER_LEN must roll over into multiple buffers, got {}",
-            buffers.len()
-        );
-        for (i, b) in buffers.iter().enumerate() {
-            assert!(
-                b.len() <= MAX_BUFFER_LEN,
-                "buffer {i} of {} bytes exceeds MAX_BUFFER_LEN",
-                b.len()
-            );
-        }
+        for (buffers, views) in [
+            build_views(0, max_buffer_len, heap.clone(), &lens),
+            build_views_from_offsets(0, max_buffer_len, heap, &offsets),
+        ] {
+            assert_eq!(views.len(), count);
+            assert_eq!(buffers.len(), expected_buffers);
+            for (i, b) in buffers.iter().enumerate() {
+                assert!(
+                    b.len() <= max_buffer_len,
+                    "buffer {i} of {} bytes exceeds max_buffer_len ({max_buffer_len})",
+                    b.len()
+                );
+            }
 
-        // The boundary row is the first whose offset would cross MAX_BUFFER_LEN on the fast path.
-        let boundary = MAX_BUFFER_LEN / STRING_LEN;
-        for i in [0, boundary - 1, boundary, boundary + 1, N / 2, N - 1] {
-            let view = &views[i];
-            let r = view.as_view();
-            let got = &buffers[r.buffer_index as usize][r.as_range()];
-            assert_eq!(got, nth_string(i).as_slice(), "value mismatch at row {i}");
-            assert_eq!(r.size as usize, STRING_LEN);
+            // Every row's buffer index and per-buffer offset must reset at each rollover boundary.
+            for (i, view) in views.iter().enumerate() {
+                let r = view.as_view();
+                let expected_buf_idx = u32::try_from(i / values_per_buf).unwrap();
+                let expected_offset = u32::try_from((i % values_per_buf) * string_len).unwrap();
+                assert_eq!(r.buffer_index, expected_buf_idx, "row {i}");
+                assert_eq!(r.offset, expected_offset, "row {i}");
+                assert_eq!(r.size as usize, string_len, "row {i}");
+            }
+
+            assert_eq!(reconstruct(&buffers, &views, 0), expected);
         }
     }
 

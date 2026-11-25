@@ -68,3 +68,69 @@ impl CastKernel for FixedSizeList {
         Ok(Some(build_with_validity(array, elements, validity)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
+
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::FixedSizeListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::Nullability;
+    use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::non_nullable(FixedSizeListArray::new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        3,
+        Validity::NonNullable,
+        2,
+    ))]
+    #[case::nullable_with_nulls(FixedSizeListArray::new(
+        buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
+        3,
+        Validity::from_iter([true, false, true]),
+        3,
+    ))]
+    #[case::nullable_all_valid(FixedSizeListArray::new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        2,
+        Validity::AllValid,
+        3,
+    ))]
+    #[case::nullable_elements(FixedSizeListArray::new(
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    ))]
+    #[case::degenerate_size_0(FixedSizeListArray::new(
+        PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array(),
+        0,
+        Validity::from_iter([true, false, true]),
+        3,
+    ))]
+    #[case::empty(FixedSizeListArray::new(
+        PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array(),
+        3,
+        Validity::NonNullable,
+        0,
+    ))]
+    #[case::large(FixedSizeListArray::new(
+        PrimitiveArray::from_iter(0i32..300).into_array(),
+        10,
+        Validity::NonNullable,
+        30,
+    ))]
+    fn test_cast_fsl_conformance(#[case] array: FixedSizeListArray) {
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
+    }
+}
