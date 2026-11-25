@@ -25,7 +25,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -64,6 +63,7 @@ use crate::canonical::execute_sparse;
 
 mod canonical;
 mod compute;
+mod fill;
 mod kernel;
 mod ops;
 mod plugin;
@@ -487,6 +487,10 @@ impl SparseData {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
+    /// Without one, the fill is the valid value that fills more than half of the valid positions if
+    /// there is one, and some valid value otherwise. That requires a boolean, primitive, decimal,
+    /// UTF-8 or binary array. A string array whose dominant value is too long to inline in a view
+    /// is returned as it is.
     pub fn encode(
         array: &ArrayRef,
         fill_value: Option<Scalar>,
@@ -549,13 +553,10 @@ impl SparseData {
         let fill = if let Some(fill) = fill_value {
             fill.cast(array.dtype())?
         } else {
-            // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
-            let (candidate, _) = primitive
-                .majority_candidate(ctx)?
-                .vortex_expect("Non empty or all null array");
-
-            Scalar::primitive_value(candidate, candidate.ptype(), array.dtype().nullability())
+            match fill::dominant_value(array, &mask, ctx)? {
+                Some(fill) => fill,
+                None => return Ok(array.clone()),
+            }
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
