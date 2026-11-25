@@ -56,8 +56,8 @@ const FULL_ARRAY_DECODE_RATIO: usize = 8;
 /// Full-decode crossover for chunk-local or lightly patched takes (1/16 = 6.25%): above this
 /// selectivity, unpacking the full array once and gathering beats per-chunk decode + patching.
 const PATCHED_CHUNK_DECODE_RATIO: usize = 16;
-/// Full-decode crossover when chunk-aligned patching is unavailable (~0.8%), where `Patches::take`
-/// must hash or binary-search the full patch list per index.
+/// Full-decode crossover for heavily patched takes when chunk-aligned patching is unavailable
+/// (~0.8%), where `Patches::take` must hash or binary-search the full patch list per index.
 const PATCHED_FALLBACK_DECODE_RATIO: usize = 128;
 /// Minimum patch density (1/200 = 0.5%, ~5 patches per 1,024-value chunk) before scattered
 /// takes switch to full-array decode below `PATCHED_CHUNK_DECODE_RATIO`.
@@ -1693,16 +1693,21 @@ mod tests {
         let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
         let parts = BitPacked::into_parts(encoded);
         let orig_patches = parts.patches.expect("encoded array has patches");
+        let narrow_chunk_offsets = orig_patches
+            .chunk_offsets()
+            .as_ref()
+            .map(|co| {
+                co.cast(PType::U16.into())?
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .map(IntoArray::into_array)
+            })
+            .transpose()?;
         let const_patches = Patches::new(
             orig_patches.array_len(),
             orig_patches.offset(),
             orig_patches.indices().clone(),
             ConstantArray::new(999i16, orig_patches.num_patches()).into_array(),
-            orig_patches
-                .chunk_offsets()
-                .as_ref()
-                .map(|co| co.cast(PType::U16.into()))
-                .transpose()?,
+            narrow_chunk_offsets,
             &mut ctx,
         )?;
         let packed = BitPacked::try_new(
@@ -1714,6 +1719,10 @@ mod tests {
             parts.len,
             parts.offset,
         )?;
+        assert!(super::can_use_chunk_aligned_patches(
+            packed.as_view(),
+            &packed.patches().expect("const patches"),
+        )?);
         let indices =
             PrimitiveArray::from_iter([0u32, 1, 31, 62, 1024, 1054, 2048, 3069, 4092]).into_array();
         assert_arrays_eq!(
@@ -1828,6 +1837,21 @@ mod tests {
             heavy_i64.as_view(),
             &scattered_1pct,
             &heavy_i64_patches,
+        )?);
+
+        // Heavily patched array without chunk offsets hits the fallback cutoff even for sorted 1%.
+        let offsetless_patches = Patches::new(
+            heavy_i16_patches.array_len(),
+            heavy_i16_patches.offset(),
+            heavy_i16_patches.indices().clone(),
+            heavy_i16_patches.values().clone(),
+            None,
+            &mut ctx,
+        )?;
+        assert!(should_decode_full_for_patches(
+            heavy_i16.as_view(),
+            &sorted_1pct,
+            &offsetless_patches,
         )?);
         Ok(())
     }
