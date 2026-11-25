@@ -26,7 +26,7 @@ impl ScalarSubclass for PyStructScalar {
 
 #[pymethods]
 impl PyStructScalar {
-    /// Return the child scalar with the given field name.
+    /// Return the Python value of the child scalar with the given field name.
     pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyVortexResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let child = scalar

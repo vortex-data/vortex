@@ -26,7 +26,7 @@ impl ScalarSubclass for PyListScalar {
 
 #[pymethods]
 impl PyListScalar {
-    /// Return the child scalar at the given index.
+    /// Return the Python value of the child scalar at the given index.
     pub fn element(self_: PyRef<'_, Self>, idx: usize) -> PyResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let child = scalar

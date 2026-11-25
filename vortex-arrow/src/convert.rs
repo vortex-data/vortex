@@ -39,6 +39,10 @@ use arrow_array::types::Decimal32Type;
 use arrow_array::types::Decimal64Type;
 use arrow_array::types::Decimal128Type;
 use arrow_array::types::Decimal256Type;
+use arrow_array::types::DurationMicrosecondType;
+use arrow_array::types::DurationMillisecondType;
+use arrow_array::types::DurationNanosecondType;
+use arrow_array::types::DurationSecondType;
 use arrow_array::types::Float16Type;
 use arrow_array::types::Float32Type;
 use arrow_array::types::Float64Type;
@@ -338,7 +342,10 @@ where
         }
         DataType::Date32 => TemporalArray::new_date(storage, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(storage, TimeUnit::Milliseconds).into(),
-        DataType::Duration(_) | DataType::Interval(_) => {
+        DataType::Duration(time_unit) => {
+            TemporalArray::new_duration(storage, from_arrow_time_unit(*time_unit)).into()
+        }
+        DataType::Interval(_) => {
             vortex_bail!("Arrow {} arrays are not supported", value.data_type())
         }
         _ => vortex_panic!("Invalid temporal type: {}", value.data_type()),
@@ -767,6 +774,20 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
                 from_arrow_temporal(array.as_primitive::<Time64NanosecondType>(), nullable)
             }
             ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
+        },
+        DataType::Duration(u) => match u {
+            ArrowTimeUnit::Second => {
+                from_arrow_temporal(array.as_primitive::<DurationSecondType>(), nullable)
+            }
+            ArrowTimeUnit::Millisecond => {
+                from_arrow_temporal(array.as_primitive::<DurationMillisecondType>(), nullable)
+            }
+            ArrowTimeUnit::Microsecond => {
+                from_arrow_temporal(array.as_primitive::<DurationMicrosecondType>(), nullable)
+            }
+            ArrowTimeUnit::Nanosecond => {
+                from_arrow_temporal(array.as_primitive::<DurationNanosecondType>(), nullable)
+            }
         },
         DataType::Decimal32(..) => {
             from_arrow_decimal32(array.as_primitive::<Decimal32Type>(), nullable)
