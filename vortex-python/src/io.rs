@@ -299,8 +299,8 @@ pub fn write(
 /// ----------
 /// iter : vortex.Array | vortex.ArrayIterator | pyarrow.Table | pyarrow.RecordBatchReader
 ///     The data to write.
-/// output : binary file object
-///     The destination for the encoded file bytes. No seeking is needed.
+/// output : object
+///     The binary file object that receives the encoded bytes. No seeking is needed.
 /// edition : str | None
 ///     The Vortex edition to write, or ``None`` for the default.
 #[pyfunction]
