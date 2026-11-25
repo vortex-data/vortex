@@ -9,6 +9,7 @@ use std::sync::Weak;
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Fields;
 use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
@@ -24,6 +25,7 @@ use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::projection::Projector;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr::utils::collect_columns;
@@ -45,8 +47,10 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
@@ -127,6 +131,10 @@ pub(crate) struct VortexOpener {
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
     pub file_schemas: Arc<DashMap<Path, SchemaRef>>,
+    /// The expressions this opener prepared for the files it has opened, by the file's dtype
+    /// and partition values. An opener serves one partition of one scan, so every file it opens
+    /// starts from the same filter and projection.
+    pub file_expressions: Arc<DashMap<FileExpressionsKey, Arc<FileExpressions>>>,
     /// The Vortex expression of each dynamic filter of `filter`, converted once for every file
     /// and partition of the scan. Sharing it lets the scan cache of each file keep the filter's
     /// plans for every partition that scans the file.
@@ -143,6 +151,25 @@ pub(crate) struct VortexOpener {
     /// The chunks in flight that the V2 scans of all partitions share, unless `scan_concurrency`
     /// bounds each file's scan instead.
     pub chunk_budget: ChunkBudget,
+}
+
+/// A file's dtype and partition values, which decide how a scan's expressions adapt to it.
+pub(crate) type FileExpressionsKey = (DType, Vec<ScalarValue>);
+
+/// What a scan evaluates on a file, once its filter and projection are adapted to the file's
+/// schema, converted and bound.
+#[derive(Clone)]
+pub(crate) struct FileExpressions {
+    /// The conjuncts of the filter that Vortex evaluates.
+    native_filter: Option<BoundExpression>,
+    /// The conjuncts that DataFusion evaluates on the scan's output.
+    residual_filter: Option<PhysicalExprRef>,
+    /// The projection that Vortex evaluates.
+    scan_projection: BoundExpression,
+    /// The Arrow fields of the scan's output.
+    stream_fields: Fields,
+    /// Projects the scan's output to the output of the opener.
+    projector: Projector,
 }
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
@@ -225,6 +252,7 @@ impl FileOpener for VortexOpener {
         let scan_caches = Arc::clone(&self.scan_caches);
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
+        let file_expressions = Arc::clone(&self.file_expressions);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
         let chunk_budget = self.chunk_budget.clone();
@@ -326,142 +354,180 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            // Reconcile against the whole file before adapting expressions. Cache by file because
-            // every partition needs the same schema, including extension identity checks.
-            let this_file_schema = match file_schemas.get(&file.object_meta.location) {
-                Some(schema) => Arc::clone(schema.value()),
-                None => {
-                    let schema = Arc::new(
-                        calculate_physical_schema(
-                            vxf.dtype(),
-                            &unified_file_schema,
-                            &session.arrow(),
-                        )
-                        .map_err(|e| {
-                            exec_datafusion_err!(
-                                "Failed to compute the physical schema of {}: {e}",
-                                file.path()
+            let prepare = || -> DFResult<FileExpressions> {
+                // Reconcile against the whole file before adapting expressions. Cache by file because
+                // every partition needs the same schema, including extension identity checks.
+                let this_file_schema = match file_schemas.get(&file.object_meta.location) {
+                    Some(schema) => Arc::clone(schema.value()),
+                    None => {
+                        let schema = Arc::new(
+                            calculate_physical_schema(
+                                vxf.dtype(),
+                                &unified_file_schema,
+                                &session.arrow(),
                             )
-                        })?,
-                    );
-                    file_schemas.insert(file.object_meta.location.clone(), Arc::clone(&schema));
-                    schema
-                }
-            };
+                            .map_err(|e| {
+                                exec_datafusion_err!(
+                                    "Failed to compute the physical schema of {}: {e}",
+                                    file.path()
+                                )
+                            })?,
+                        );
+                        file_schemas.insert(file.object_meta.location.clone(), Arc::clone(&schema));
+                        schema
+                    }
+                };
 
-            let expr_adapter = expr_adapter_factory.create(
-                Arc::clone(&unified_file_schema),
-                Arc::clone(&this_file_schema),
-            )?;
+                let expr_adapter = expr_adapter_factory.create(
+                    Arc::clone(&unified_file_schema),
+                    Arc::clone(&this_file_schema),
+                )?;
 
-            let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
+                let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
 
-            // The adapter rewrites the expressions to the local file schema, allowing
-            // for schema evolution and divergence between the table's schema and individual files.
-            let filter = filter
-                .map(|filter| {
-                    // Expression might now reference columns that don't exist in the file, so we can give it
-                    // another simplification pass.
-                    simplifier.simplify(expr_adapter.rewrite(filter)?)
-                })
-                .transpose()
-                .map_err(|e| {
-                    exec_datafusion_err!("Failed to adapt filter in {}: {e}", file.path())
-                })?;
-            let projection =
-                projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
+                // The adapter rewrites the expressions to the local file schema, allowing
+                // for schema evolution and divergence between the table's schema and individual files.
+                let filter = filter
+                    .map(|filter| {
+                        // Expression might now reference columns that don't exist in the file, so we can give it
+                        // another simplification pass.
+                        simplifier.simplify(expr_adapter.rewrite(filter)?)
+                    })
+                    .transpose()
+                    .map_err(|e| {
+                        exec_datafusion_err!("Failed to adapt filter in {}: {e}", file.path())
+                    })?;
+                let projection =
+                    projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
-            // Split the adapted filter into conjuncts Vortex evaluates natively and residual
-            // conjuncts DataFusion evaluates on the raw scan output.
-            let mut native_filters = Vec::new();
-            let mut residual_filters = Vec::new();
-            if let Some(filter) = &filter {
-                if filter.data_type(&this_file_schema)? != DataType::Boolean {
-                    return Err(exec_datafusion_err!(
-                        "Filter must be Boolean in {}: {filter}",
-                        file.path()
-                    ));
-                }
-                for expr in split_conjunction(filter) {
-                    let converted = expr_converter
-                        .try_convert(expr, &this_file_schema)
-                        .map_err(|e| {
-                            exec_datafusion_err!(
-                                "Failed to convert filter {expr} in {}: {e}",
-                                file.path()
-                            )
-                        })?;
-                    match converted {
-                        Some(expr) => native_filters.push(expr),
-                        None => residual_filters.push(Arc::clone(expr)),
+                // Split the adapted filter into conjuncts Vortex evaluates natively and residual
+                // conjuncts DataFusion evaluates on the raw scan output.
+                let mut native_filters = Vec::new();
+                let mut residual_filters = Vec::new();
+                if let Some(filter) = &filter {
+                    if filter.data_type(&this_file_schema)? != DataType::Boolean {
+                        return Err(exec_datafusion_err!(
+                            "Filter must be Boolean in {}: {filter}",
+                            file.path()
+                        ));
+                    }
+                    for expr in split_conjunction(filter) {
+                        let converted = expr_converter
+                            .try_convert(expr, &this_file_schema)
+                            .map_err(|e| {
+                                exec_datafusion_err!(
+                                    "Failed to convert filter {expr} in {}: {e}",
+                                    file.path()
+                                )
+                            })?;
+                        match converted {
+                            Some(expr) => native_filters.push(expr),
+                            None => residual_filters.push(Arc::clone(expr)),
+                        }
                     }
                 }
-            }
-            // The operator that produces a dynamic filter enforces it exactly, so the scan
-            // evaluates it only where the file has every column it reads.
-            native_filters.extend(
-                dynamic_filters
-                    .iter()
-                    .filter(|(columns, _)| {
-                        columns.iter().all(|column| {
-                            this_file_schema.field_with_name(column).is_ok()
-                                && !literal_value_cols.contains_key(column)
-                        })
-                    })
-                    .map(|(_, expression)| expression.clone()),
-            );
-            let residual_filter = conjunction_opt(residual_filters);
-            let native_filter = and_collect(native_filters)
-                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
-                .transpose()
-                .map_err(|e| {
-                    exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
-                })?;
-
-            // Residual filters must see raw inputs before computed projections or aliases.
-            let ProcessedProjection {
-                scan_projection,
-                scan_reference_schema,
-                leftover_projection,
-            } = if let Some(residual) = &residual_filter {
-                let mut indices = projection.column_indices();
-                indices.extend(
-                    collect_columns(residual)
+                // The operator that produces a dynamic filter enforces it exactly, so the scan
+                // evaluates it only where the file has every column it reads.
+                native_filters.extend(
+                    dynamic_filters
                         .iter()
-                        .map(|column| column.index()),
+                        .filter(|(columns, _)| {
+                            columns.iter().all(|column| {
+                                this_file_schema.field_with_name(column).is_ok()
+                                    && !literal_value_cols.contains_key(column)
+                            })
+                        })
+                        .map(|(_, expression)| expression.clone()),
                 );
-                indices.sort_unstable();
-                indices.dedup();
-                raw_projection(&indices, &this_file_schema, projection)?
-            } else if projection_pushdown {
-                expr_converter.split_projection(
-                    projection,
-                    &this_file_schema,
-                    output_schema.as_ref(),
-                )?
-            } else {
-                expr_converter.no_pushdown_projection(projection, &this_file_schema)?
+                let residual_filter = conjunction_opt(residual_filters);
+                let native_filter = and_collect(native_filters)
+                    .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
+                    .transpose()
+                    .map_err(|e| {
+                        exec_datafusion_err!(
+                            "Couldn't bind Vortex scan filter in {}: {e}",
+                            file.path()
+                        )
+                    })?;
+
+                // Residual filters must see raw inputs before computed projections or aliases.
+                let ProcessedProjection {
+                    scan_projection,
+                    scan_reference_schema,
+                    leftover_projection,
+                } = if let Some(residual) = &residual_filter {
+                    let mut indices = projection.column_indices();
+                    indices.extend(
+                        collect_columns(residual)
+                            .iter()
+                            .map(|column| column.index()),
+                    );
+                    indices.sort_unstable();
+                    indices.dedup();
+                    raw_projection(&indices, &this_file_schema, projection)?
+                } else if projection_pushdown {
+                    expr_converter.split_projection(
+                        projection,
+                        &this_file_schema,
+                        output_schema.as_ref(),
+                    )?
+                } else {
+                    expr_converter.no_pushdown_projection(projection, &this_file_schema)?
+                };
+
+                // The schema of the stream returned from the vortex scan.
+                // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
+                let scan_projection = scan_projection
+                    .bind(vxf.dtype())
+                    .and_then(|projection| projection.optimize_recursive())
+                    .map_err(|_e| {
+                        exec_datafusion_err!(
+                            "Couldn't get the dtype for the underlying Vortex scan"
+                        )
+                    })?;
+                let scan_dtype = scan_projection.dtype().clone();
+
+                let stream_schema = calculate_physical_schema(
+                    &scan_dtype,
+                    &scan_reference_schema,
+                    &session.arrow(),
+                )?;
+
+                let leftover_projection = leftover_projection
+                    .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
+                let residual_filter = residual_filter
+                    .map(|expr| reassign_expr_columns(expr, &stream_schema))
+                    .transpose()?;
+                let projector = leftover_projection.make_projector(&stream_schema)?;
+
+                Ok(FileExpressions {
+                    native_filter,
+                    residual_filter,
+                    scan_projection,
+                    stream_fields: stream_schema.fields().clone(),
+                    projector,
+                })
             };
-
-            // The schema of the stream returned from the vortex scan.
-            // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection = scan_projection
-                .bind(vxf.dtype())
-                .and_then(|projection| projection.optimize_recursive())
-                .map_err(|_e| {
-                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-                })?;
-            let scan_dtype = scan_projection.dtype().clone();
-
-            let stream_schema =
-                calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
-
-            let leftover_projection = leftover_projection
-                .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
-            let residual_filter = residual_filter
-                .map(|expr| reassign_expr_columns(expr, &stream_schema))
-                .transpose()?;
-            let projector = leftover_projection.make_projector(&stream_schema)?;
+            // Files of one dtype and one set of partition values adapt, convert and bind the
+            // filter and the projection to the same expressions.
+            let key = (vxf.dtype().clone(), file.partition_values.clone());
+            let cached = file_expressions
+                .get(&key)
+                .map(|entry| Arc::clone(entry.value()));
+            let expressions = match cached {
+                Some(expressions) => expressions,
+                None => {
+                    let prepared = Arc::new(prepare()?);
+                    Arc::clone(file_expressions.entry(key).or_insert(prepared).value())
+                }
+            };
+            let FileExpressions {
+                native_filter,
+                residual_filter,
+                scan_projection,
+                stream_fields,
+                projector,
+            } = expressions.as_ref().clone();
 
             let byte_range = file
                 .range
@@ -478,7 +544,7 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
 
-            let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
+            let stream_target_field = Field::new_struct("", stream_fields, false);
             let residual_path = file.path().clone();
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
@@ -1171,6 +1237,7 @@ mod tests {
             chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
+            file_expressions: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
@@ -1624,6 +1691,7 @@ mod tests {
             chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
+            file_expressions: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
@@ -1719,6 +1787,7 @@ mod tests {
             chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
+            file_expressions: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
@@ -1905,6 +1974,7 @@ mod tests {
             chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
+            file_expressions: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
@@ -1973,6 +2043,7 @@ mod tests {
             chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
+            file_expressions: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
@@ -2192,6 +2263,7 @@ mod tests {
             chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
+            file_expressions: Default::default(),
             dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
@@ -2357,6 +2429,45 @@ mod tests {
         assert_eq!(
             batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
             if value == Some(true) { 3 } else { 0 }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_expressions_prepared_once_per_file_dtype() -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let narrow = record_batch!(("a", Int32, vec![1, 2, 3]))?;
+        let wide = record_batch!(("a", Int32, vec![4, 5]), ("b", Int32, vec![6, 7]))?;
+        let mut files = Vec::new();
+        for (path, batch) in [
+            ("first.vortex", narrow.clone()),
+            ("second.vortex", narrow.clone()),
+            ("wide.vortex", wide),
+        ] {
+            let size = write_arrow_to_vortex(Arc::clone(&store), path, batch).await?;
+            files.push(PartitionedFile::new(path, size));
+        }
+        let filter: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            Operator::GtEq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+        ));
+        let opener = make_opener(store, TableSchema::from(narrow.schema()), Some(filter));
+
+        let mut prepared = Vec::new();
+        let mut batches = Vec::new();
+        for file in files {
+            batches.extend(opener.open(file)?.await?.try_collect::<Vec<_>>().await?);
+            prepared.push(opener.file_expressions.len());
+        }
+        // The second file reuses the first file's expressions; the wide file has its own dtype.
+        assert_eq!(prepared, [1, 1, 2]);
+        assert_batches_eq!(
+            [
+                "+---+", "| a |", "+---+", "| 2 |", "| 3 |", "| 2 |", "| 3 |", "| 4 |", "| 5 |",
+                "+---+"
+            ],
+            &batches
         );
         Ok(())
     }
