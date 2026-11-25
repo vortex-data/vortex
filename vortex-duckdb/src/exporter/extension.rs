@@ -6,6 +6,7 @@ use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::extension::datetime::AnyTemporal;
+use vortex::array::extension::datetime::Duration;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -33,6 +34,10 @@ pub(crate) fn new_exporter(
     ext: ExtensionArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    if ext.ext_dtype().is::<Duration>() {
+        vortex_bail!("DuckDB does not support Duration extension type");
+    }
+
     if ext.ext_dtype().is::<AnyTemporal>() {
         return temporal::new_exporter(TemporalArray::try_from(ext)?, ctx);
     }

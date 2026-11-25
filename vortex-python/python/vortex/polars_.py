@@ -422,10 +422,11 @@ def _cast_datetime_literal(node: dict[str, Any]) -> ve.Expr:
     """Fold a Polars cast of a datetime literal into the literal.
 
     Polars 1.x serializes a time zone aware datetime literal as its wall-clock time labelled UTC,
-    cast to a naive datetime, and then given its time zone with ``replace_time_zone``. Vortex does
-    not cast between temporal dtypes, so the cast is applied to the literal here. Like Polars,
-    Arrow changes the time zone without changing the stored value. Unlike Polars, it rejects a
-    change of unit that loses precision, which leaves that predicate to Polars.
+    cast to a naive datetime, and then given its time zone with ``replace_time_zone``. Vortex casts
+    a timestamp only to a finer unit in the same time zone, so Arrow applies the cast to the
+    literal here. Like Polars, Arrow removes the time zone without changing the stored value.
+    Unlike Polars, it rejects a change of unit that loses precision, which leaves that predicate
+    to Polars.
     """
     try:
         value, unit, tz = node["expr"]["Literal"]["Scalar"]["Datetime"]

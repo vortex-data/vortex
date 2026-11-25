@@ -27,7 +27,7 @@ use crate::schemes::temporal;
 /// Delta, with the minimum compression ratio it needs after its decompression penalty.
 ///
 /// `fastlanes.delta` is in the `preview` edition, not `core`, so the session's enabled editions
-/// decide whether the compressor may use it. The CUDA preset excludes it.
+/// decide whether the compressor may use it.
 static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 static ONPAIR_SCHEME: string::OnPairScheme =

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import io
 import math
 import os
 import pickle
@@ -9,6 +10,7 @@ import sys
 import textwrap
 
 import pyarrow as pa
+import pyarrow.fs as pafs
 import pytest
 
 import vortex as vx
@@ -129,16 +131,67 @@ def test_stream_pyarrow(tmpdir_factory) -> None:
 
 @pytest.mark.parametrize("as_reader", [False, True])
 def test_write_reports_unsupported_arrow_type(tmp_path, as_reader: bool) -> None:
-    table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
+    table = pa.table({"elapsed": pa.array([(0, 0, 1)], pa.month_day_nano_interval())})
     source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
 
-    with pytest.raises(ValueError, match="Duration"):
+    with pytest.raises(ValueError, match="Interval"):
         vx.io.write(source, str(tmp_path / "x.vortex"))
 
 
 def test_write_rejects_unsupported_object(tmp_path) -> None:
     with pytest.raises(TypeError, match="converted to an ArrayIterator"):
         vx.io.write(object(), str(tmp_path / "x.vortex"))  # ty: ignore[invalid-argument-type]
+
+
+def test_write_to_bytes_io() -> None:
+    source = pa.table({"id": [1, 2], "embedding": pa.array([[1, 2], [3, 4]], type=pa.list_(pa.float32(), 2))})
+    with io.BytesIO() as output:
+        vx.io.write_to(source.to_reader(max_chunksize=1), output, edition="core2025.10.0")
+        assert vx.open_readable(output).to_arrow(schema=source.schema).read_all().equals(source)
+
+
+def test_write_to_pyarrow_stream(tmp_path) -> None:
+    path = str(tmp_path / "arrow-output.vortex")
+    source = pa.table({"id": [1, 2, 3]})
+    with pafs.LocalFileSystem().open_output_stream(path) as output:
+        vx.io.VortexWriteOptions.compact().with_edition("core2025.10.0").write_to(source, output)
+        assert not output.closed
+    assert vx.open(path).to_arrow().read_all().equals(source)
+
+
+def test_write_to_retries_short_writes_and_flushes() -> None:
+    class ShortWriter:
+        def __init__(self):
+            self.buffer = io.BytesIO()
+            self.flushed = False
+
+        def write(self, data: bytes, /) -> int:
+            return self.buffer.write(data[:8])
+
+        def flush(self) -> None:
+            self.flushed = True
+
+    output = ShortWriter()
+    source = pa.table({"id": [1, 2, 3]})
+    vx.io.write_to(source, output)
+    assert output.flushed
+    assert vx.open_readable(output.buffer).to_arrow().read_all().equals(source)
+
+
+@pytest.mark.parametrize("failure", ["write", "flush"])
+def test_write_to_propagates_output_error(failure: str) -> None:
+    class FailingWriter:
+        def write(self, data: bytes, /) -> int:
+            if failure == "write":
+                raise OSError("output failed")
+            return len(data)
+
+        def flush(self) -> None:
+            if failure == "flush":
+                raise OSError("output failed")
+
+    with pytest.raises(OSError, match="output failed"):
+        vx.io.write_to(pa.table({"id": [1]}), FailingWriter())
 
 
 @pytest.mark.parametrize("with_footer", [False, True])
