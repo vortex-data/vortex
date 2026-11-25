@@ -19,6 +19,10 @@ use crate::plan::PlanRef;
 use crate::plan::PlanSlots;
 use crate::plan::PlanVTable;
 
+mod element_samples;
+
+pub use element_samples::ElementSamples;
+
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
 const VALIDITY: usize = 2;
