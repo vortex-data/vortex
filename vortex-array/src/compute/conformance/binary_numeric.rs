@@ -84,13 +84,14 @@ fn to_vec_of_scalar(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vec<Scalar> {
 /// 2. Tests all binary numeric operators against a constant value of 1
 /// 3. Verifies results match the expected primitive array computation
 /// 4. Tests both array-operator-scalar and scalar-operator-array forms
-/// 5. Gracefully skips operations that would cause overflow/underflow
+/// 5. Verifies that operations that would overflow or divide an integer by zero return an error
 ///
 /// # Panics
 ///
 /// Panics if:
 /// - The array cannot be converted to primitive form
 /// - Results don't match expected values (for operations that don't overflow)
+/// - An overflowing operation does not fail
 fn test_binary_numeric_conformance<T: NativePType + Into<PValue> + Num + Copy>(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,

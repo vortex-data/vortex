@@ -207,9 +207,12 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFn;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::Nullability;
+    use crate::optimizer::ArrayOptimizer;
+    use crate::scalar_fn::builtin::boolean::Boolean;
     use crate::scalar_fn::builtin::is_not_null::IsNotNull;
     use crate::scalar_fn::builtin::operators::BooleanOperator;
 
@@ -262,7 +265,14 @@ mod tests {
 
         let and_result = nullable
             .boolean(non_nullable.clone(), BooleanOperator::And)?
-            .is_not_null()?;
+            .is_not_null()?
+            .optimize_recursive(&SESSION)?;
+        assert_eq!(
+            and_result
+                .as_opt::<ScalarFn>()
+                .and_then(|s| s.scalar_fn().as_opt::<Boolean>().copied()),
+            Some(BooleanOperator::Or),
+        );
         assert_arrays_eq!(
             and_result,
             BoolArray::from_iter([true, true, false, true, true, true]),
@@ -271,7 +281,14 @@ mod tests {
 
         let or_result = nullable
             .boolean(non_nullable, BooleanOperator::Or)?
-            .is_not_null()?;
+            .is_not_null()?
+            .optimize_recursive(&SESSION)?;
+        assert_eq!(
+            or_result
+                .as_opt::<ScalarFn>()
+                .and_then(|s| s.scalar_fn().as_opt::<Boolean>().copied()),
+            Some(BooleanOperator::Or),
+        );
         assert_arrays_eq!(
             or_result,
             BoolArray::from_iter([true, true, true, true, true, false]),
