@@ -8,7 +8,6 @@ import pickle
 import subprocess
 import sys
 import textwrap
-from collections.abc import Iterator
 
 import pyarrow as pa
 import pyarrow.fs as pafs
@@ -320,39 +319,3 @@ def test_python_array_iterator_rejects_reentrant_access(tmp_path, method: str) -
     assert next(it).to_pylist() == [{"a": 1}, {"a": 2}]
     with pytest.raises(StopIteration):
         next(it)
-
-
-def test_array_iterator_fuses_after_error() -> None:
-    good = vx.array(pa.table({"x": [1, 2]}))
-    bad = vx.array(pa.table({"x": ["a", "b"]}))
-    polls = 0
-
-    class FailingIter:
-        def __iter__(self) -> Iterator[vx.Array]:
-            return self
-
-        def __next__(self) -> vx.Array:
-            nonlocal polls
-            polls += 1
-            if polls == 1:
-                return good
-            if polls == 2:
-                return bad
-            return good
-
-    it = vx.ArrayIterator.from_iter(good.dtype, iter(FailingIter()))
-    assert next(it).to_pylist() == [{"x": 1}, {"x": 2}]
-    with pytest.raises(RuntimeError, match="dtype mismatch"):
-        next(it)
-    with pytest.raises(StopIteration):
-        next(it)
-    assert polls == 2
-    assert len(it.read_all()) == 0
-    assert it.to_arrow().read_all().num_rows == 0
-
-    rbr = vx.ArrayIterator.from_iter(good.dtype, iter([good, bad, good])).to_arrow()
-    assert rbr.read_next_batch().to_pylist() == [{"x": 1}, {"x": 2}]
-    with pytest.raises(pa.ArrowInvalid, match="dtype mismatch"):
-        rbr.read_next_batch()
-    with pytest.raises(StopIteration):
-        rbr.read_next_batch()

@@ -420,23 +420,55 @@ def test_shared_file_object_reads_are_serialized(tmp_path: Path) -> None:
 
 
 def test_shared_file_object_concurrent_open_is_serialized(tmp_path: Path) -> None:
-    table = pa.table({"v": [0, 1, 2, 3, 4, 5]})
-    file_path = tmp_path / "small.vortex"
-    vx.io.write(table, str(file_path))
+    values = np.random.default_rng(7).integers(2**62, size=32 * 1024, dtype="int64")
+    file_path = tmp_path / "large.vortex"
+    vx.io.write(pa.table({"v": pa.array(values)}), str(file_path))
 
-    class SlowSeekFile(io.BytesIO):
+    in_read_seek = threading.Event()
+
+    class InterleavingFile(io.BytesIO):
+        def __init__(self, data: bytes) -> None:
+            super().__init__(data)
+            self._lock = threading.Lock()
+            self._in_flight = 0
+            self.armed = False
+            self.size_probe_overlapped = False
+
         def seek(self, offset: int, whence: int = 0) -> int:
             pos = super().seek(offset, whence)
-            time.sleep(0.01)
+            if whence == 0:
+                with self._lock:
+                    self._in_flight += 1
+                if self.armed and not in_read_seek.is_set():
+                    in_read_seek.set()
+                    time.sleep(0.05)
+            elif whence == 2:
+                with self._lock:
+                    if self._in_flight > 0:
+                        self.size_probe_overlapped = True
             return pos
 
-    shared = SlowSeekFile(file_path.read_bytes())
+        def readinto(self, buffer: Buffer) -> int:
+            try:
+                return super().readinto(buffer)
+            finally:
+                with self._lock:
+                    self._in_flight -= 1
 
-    def open_and_read(_: int) -> list[int | None]:
-        vxf = vx.open_readable(shared, without_segment_cache=True)
-        return vxf.to_arrow().read_all()["v"].to_pylist()
+    shared = InterleavingFile(file_path.read_bytes())
+    first = vx.open_readable(shared, without_segment_cache=True)
+    shared.armed = True
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(open_and_read, range(2)))
+    def open_second() -> np.ndarray:
+        assert in_read_seek.wait(timeout=5)
+        second = vx.open_readable(shared, without_segment_cache=True)
+        return second.to_arrow().read_all()["v"].to_numpy()
 
-    assert results == [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(open_second)
+        first_values = first.to_arrow().read_all()["v"].to_numpy()
+        second_values = future.result()
+
+    assert not shared.size_probe_overlapped
+    assert np.array_equal(first_values, values)
+    assert np.array_equal(second_values, values)

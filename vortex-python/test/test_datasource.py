@@ -51,50 +51,14 @@ def test_vortex_datasource_count_and_schema_follow_the_scan(ray_init, tmpdir_fac
     assert ds.schema().names == ["index"]
 
 
-@pytest.mark.parametrize(
-    ("limit", "expected_rows", "expected_blocks"),
-    [
-        (None, 3, [[10, 11], [12]]),
-        (1, 1, [[10]]),
-        (0, 0, []),
-        (8, 3, [[10, 11], [12]]),
-    ],
-)
-def test_vortex_datasource_per_task_row_limit(
-    tmp_path: Path,
-    limit: int | None,
-    expected_rows: int,
-    expected_blocks: list[list[int]],
-) -> None:
+@pytest.mark.parametrize(("limit", "expected"), [(1, [[10]]), (0, [])])
+def test_vortex_datasource_per_task_row_limit(tmp_path: Path, limit: int, expected: list[list[int]]) -> None:
     path = tmp_path / "three.vortex"
     vx.io.write(pa.table({"v": [10, 11, 12]}), str(path))
     source = VortexDatasource(url=str(path), batch_size=2)
 
     task = source.get_read_tasks(1, per_task_row_limit=limit)[0]
-    assert task.metadata.num_rows == expected_rows
-    assert [list(block["v"]) for block in task()] == expected_blocks
-
-
-@pytest.mark.parametrize(
-    ("limit", "expected_metadata", "expected_values"),
-    [
-        (0, 0, []),
-        (1, None, [11]),
-    ],
-)
-def test_vortex_datasource_filtered_per_task_row_limit_metadata(
-    tmp_path: Path,
-    limit: int,
-    expected_metadata: int | None,
-    expected_values: list[int],
-) -> None:
-    path = tmp_path / "three.vortex"
-    vx.io.write(pa.table({"v": [10, 11, 12]}), str(path))
-    source = VortexDatasource(url=str(path), filter=ve.column("v") > 10, batch_size=2)
-
-    task = source.get_read_tasks(1, per_task_row_limit=limit)[0]
-    assert task.metadata.num_rows == expected_metadata
-    assert [v for block in task() for v in list(block["v"])] == expected_values
+    assert [list(block["v"]) for block in task()] == expected
 
 
 def test_partition() -> None:

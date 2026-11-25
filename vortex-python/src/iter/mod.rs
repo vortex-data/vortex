@@ -133,20 +133,12 @@ impl PyArrayIterator {
     fn __next__(&self, py: Python) -> PyVortexResult<Option<PyArrayRef>> {
         py.detach(|| {
             let mut guard = self.lock_iter()?;
-            let Some(iter) = guard.guard.as_mut() else {
-                return Ok(None);
-            };
-            match iter.next() {
-                Some(Ok(array)) => Ok(Some(PyArrayRef::from(array))),
-                Some(Err(err)) => {
-                    guard.guard.take();
-                    Err(err.into())
-                }
-                None => {
-                    guard.guard.take();
-                    Ok(None)
-                }
-            }
+            Ok(guard
+                .guard
+                .as_mut()
+                .and_then(|iter| iter.next())
+                .transpose()?
+                .map(PyArrayRef::from))
         })
     }
 

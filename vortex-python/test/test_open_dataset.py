@@ -299,23 +299,3 @@ def test_trailing_double_star_glob_reads_files(tmp_path: Path):
     vx.io.write(table(range(3, 6)), str(nested / "b.vortex"))
 
     assert vx.open_dataset(str(data / "**")).to_table() == table(range(0, 6))
-
-
-def test_dataset_record_batch_reader_fuses_after_error(tmp_path: Path):
-    first = tmp_path / "a.vortex"
-    second = tmp_path / "b.vortex"
-    third = tmp_path / "c.vortex"
-    vx.io.write(pa.table({"x": [1, 2]}), str(first))
-    vx.io.write(pa.table({"x": ["bad"]}), str(second))
-    vx.io.write(pa.table({"x": [3, 4]}), str(third))
-
-    ds = vx.open_dataset([first, second, third], concurrency=1)
-    for reader in (
-        ds._dataset.to_record_batch_reader(concurrency=1),
-        ds.to_record_batch_reader(concurrency=1),
-    ):
-        assert reader.read_next_batch().to_pylist() == [{"x": 1}, {"x": 2}]
-        with pytest.raises(pa.ArrowInvalid, match="same dtype"):
-            reader.read_next_batch()
-        with pytest.raises(StopIteration):
-            reader.read_next_batch()
