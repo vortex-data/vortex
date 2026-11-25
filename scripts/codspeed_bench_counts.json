@@ -31,8 +31,6 @@
     "dict_compress": 31,
     "dict_mask": 16,
     "dict_unreferenced_mask": 10,
-    "expr_large_struct_pack": 4,
-    "expr_optimize": 1,
     "filter_bool": 51,
     "filter_fixed_width": 30,
     "filter_fsl": 4,
@@ -43,7 +41,8 @@
     "listview_rebuild": 9,
     "patches_lookup": 10,
     "piecewise_sequence_take_primitive": 10,
-    "probe": 6,
+    "primitive_majority_candidate": 3,
+    "probe": 43,
     "row_fn_bool_retry": 0,
     "row_fn_output": 0,
     "row_fn_utf8_input": 0,
@@ -108,13 +107,18 @@
   "vortex-elias-fano": {
     "unary": 20
   },
+  "vortex-expr": {
+    "expr_large_struct_pack": 4,
+    "expr_optimize": 1
+  },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
     "bitpack_blocked_decompress": 0,
     "bitpack_compare": 2,
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
-    "bitpacking_take": 41,
+    "bitpacking_list_contains": 5,
+    "bitpacking_take": 45,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "chunked_fsl_take": 2,
@@ -139,9 +143,10 @@
     "bool_zip": 2,
     "case_when": 28,
     "like": 7,
-    "list_contains_set": 9,
+    "list_contains_set": 10,
     "list_length": 6,
-    "list_sum": 11,
+    "list_sum": 20,
+    "list_transform": 9,
     "listview_zip": 2,
     "primitive_zip": 2,
     "varbinview_zip": 2,
@@ -161,6 +166,9 @@
   },
   "vortex-onpair": {
     "decode": 9
+  },
+  "vortex-parquet-variant": {
+    "parquet_variant_probe": 12
   },
   "vortex-pco": {
     "scalar": 4

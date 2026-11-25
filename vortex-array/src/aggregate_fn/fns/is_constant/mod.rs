@@ -45,12 +45,12 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
 
 /// Check if two arrays of the same length have equal values at every position (null-safe).
 ///
@@ -77,7 +77,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
-    let eq_result = a.binary(b.clone(), Operator::Eq)?;
+    let eq_result = a.compare(b.clone(), CompareOperator::Eq)?;
     let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
@@ -518,8 +518,8 @@ mod tests {
     use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::stats::Stat;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -788,6 +788,59 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::leading_unused_elements(
+        // [1, 2], [1, 2], after two elements that no list uses
+        vec![Some(9i32), Some(9), Some(1), Some(2), Some(1), Some(2)],
+        vec![2u32, 4, 6],
+        true
+    )]
+    #[case::difference_in_last_element(
+        // [1, 2], [1, 2], [1, 3]
+        vec![Some(1i32), Some(2), Some(1), Some(2), Some(1), Some(3)],
+        vec![0u32, 2, 4, 6],
+        false
+    )]
+    #[case::rotated_elements(
+        // [1, 2], [2, 1]
+        vec![Some(1i32), Some(2), Some(2), Some(1)],
+        vec![0u32, 2, 4],
+        false
+    )]
+    fn test_list_is_constant_compares_shifted_elements(
+        #[case] elements: Vec<Option<i32>>,
+        #[case] offsets: Vec<u32>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list_array = ListArray::try_new(
+            PrimitiveArray::from_option_iter(elements).into_array(),
+            PrimitiveArray::from_iter(offsets).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+
+        assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_view_that_is_not_packed_compares_every_list() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // [1, 2], [1, 2], [2, 3]
+        let list_view = ListViewArray::try_new(
+            buffer![1i32, 2, 3, 1, 2].into_array(),
+            buffer![0i32, 3, 1].into_array(),
+            buffer![2i32, 2, 2].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        assert!(!list_view.is_zero_copy_to_list());
+
+        assert!(!is_constant(&list_view.into_array(), &mut ctx)?);
         Ok(())
     }
 

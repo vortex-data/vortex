@@ -246,7 +246,7 @@ Lance, DuckDB native).
 Before running SQL benchmarks, test data must be generated:
 
 ```bash
-uv run --project bench-orchestrator vx-bench prepare-data <benchmark> --format parquet,vortex
+uv run --project benchmarks/bench-orchestrator vx-bench prepare-data <benchmark> --format parquet,vortex
 ```
 
 The data generator creates base Parquet data and converts it to each requested format. Scale
@@ -272,17 +272,17 @@ cargo run --release --bin duckdb-bench -- <benchmark>
 The `bench-orchestrator` is a Python CLI tool (`vx-bench`) that coordinates running SQL
 benchmarks across multiple engines, stores results, and provides comparison tooling.
 
-See [`bench-orchestrator/README.md`](https://github.com/vortex-data/vortex/blob/develop/bench-orchestrator/README.md) for installation,
+See [`benchmarks/bench-orchestrator/README.md`](https://github.com/vortex-data/vortex/blob/develop/benchmarks/bench-orchestrator/README.md) for installation,
 commands, and example workflows.
 
 For CI, the reusable SQL workflow now drives `vx-bench` directly:
 
 ```bash
-uv run --project bench-orchestrator vx-bench prepare-data tpch \
+uv run --project benchmarks/bench-orchestrator vx-bench prepare-data tpch \
   --formats-json '["parquet","vortex","vortex-compact"]' \
   --opt scale-factor=1.0
 
-uv run --project bench-orchestrator vx-bench run tpch \
+uv run --project benchmarks/bench-orchestrator vx-bench run tpch \
   --targets-json '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"vortex"}]' \
   --output results.json \
   --no-build
@@ -290,10 +290,16 @@ uv run --project bench-orchestrator vx-bench run tpch \
 
 ## CI Benchmarks
 
-Benchmarks run automatically on all commits to `develop` and can be run on-demand for PRs:
+Benchmarks run automatically on `develop` and can be run on-demand for PRs:
 
-- **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on every
-  commit to `develop`, with results uploaded for historical tracking.
+- **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on
+  `develop` at most every three hours, benchmarking its HEAD whenever new commits have landed, with
+  results uploaded for historical tracking. One run covers every commit since the previous one.
+- **Post-commit for one PR** -- `action/bench-on-merge` runs the post-commit benchmarks on the
+  PR's own merge commit once it merges, so its effect is not mixed with other commits'. Unlike the
+  other labels, it stays on the PR, and it can also be added after the merge. `action/bench-all`,
+  `action/bench-sql`, `action/bench-sql-compact`, and `action/bench-sql-extended` add it to PRs
+  from this repository.
 - **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
 - **Random access (S3)** -- `action/bench-random-access-s3` runs the random-access benchmark
   against data uploaded to S3 instead of local disk.

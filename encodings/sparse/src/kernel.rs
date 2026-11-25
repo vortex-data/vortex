@@ -5,13 +5,12 @@ use vortex_array::ArrayVTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
-use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::builtin::binary::Binary;
-use vortex_array::scalar_fn::builtin::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::compare::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::builtin::fill_null::FillNull;
 use vortex_array::scalar_fn::builtin::fill_null::FillNullExecuteAdaptor;
 use vortex_functions::between::Between;
@@ -21,14 +20,17 @@ use vortex_functions::like::LikeExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::Sparse;
+use crate::rules::SlicedSparseCodes;
+use crate::rules::SparseCodes;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Between.id(), Sparse, BetweenExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Binary.id(), Sparse, CompareExecuteAdaptor(Sparse));
+    kernels.register_execute_parent_kernel(Compare.id(), Sparse, CompareExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(FillNull.id(), Sparse, FillNullExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Like.id(), Sparse, LikeExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Filter.id(), Sparse, FilterExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Slice.id(), Sparse, SliceExecuteAdaptor(Sparse));
-    kernels.register_execute_parent_kernel(Dict.id(), Sparse, TakeExecuteAdaptor(Sparse));
+    kernels.register_execute_parent_kernel(Dict.id(), Sparse, SparseCodes);
+    kernels.register_execute_parent_kernel(Dict.id(), Slice, SlicedSparseCodes);
 }

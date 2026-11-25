@@ -16,7 +16,7 @@ use futures::StreamExt;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
-use vortex::array::expr::stats::Precision;
+use vortex::array::stats::Precision;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
@@ -108,6 +108,7 @@ pub enum vx_scan_selection_include {
 pub struct vx_scan_selection {
     /// Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
     /// If set, must point to an array of len "idx_len" row_indices.
+    /// May be NULL when idx_len is 0.
     pub idx: *const u64,
     /// Used only when "include" is not VX_SELECTION_INCLUDE_ALL
     pub idx_len: usize,
@@ -157,6 +158,15 @@ pub struct vx_estimate {
     pub estimate: u64,
 }
 
+fn selection_indices(selection: &vx_scan_selection) -> VortexResult<StrictSortedBuffer<u64>> {
+    if selection.idx_len == 0 {
+        return StrictSortedBuffer::try_new(Buffer::empty());
+    }
+    vortex_ensure!(!selection.idx.is_null());
+    let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
+    StrictSortedBuffer::try_new(Buffer::copy_from(buf))
+}
+
 fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     if opts.is_null() {
         return Ok(ScanRequest::default());
@@ -179,16 +189,10 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     let selection = match selection.include {
         vx_scan_selection_include::VX_SELECTION_INCLUDE_ALL => Selection::All,
         vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE => {
-            vortex_ensure!(!selection.idx.is_null());
-            let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
-            let buf = Buffer::copy_from(buf);
-            Selection::IncludeByIndex(StrictSortedBuffer::try_new(buf)?)
+            Selection::IncludeByIndex(selection_indices(selection)?)
         }
         vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE => {
-            vortex_ensure!(!selection.idx.is_null());
-            let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
-            let buf = Buffer::copy_from(buf);
-            Selection::ExcludeByIndex(StrictSortedBuffer::try_new(buf)?)
+            Selection::ExcludeByIndex(selection_indices(selection)?)
         }
     };
 
@@ -455,6 +459,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+    use rstest::rstest;
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
@@ -463,6 +468,8 @@ mod tests {
     use vortex::array::arrays::VarBinView;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::validity::Validity;
+    use vortex::error::VortexResult;
+    use vortex::scan::selection::Selection;
     use vortex::session::SessionExt;
     use vortex::session::SessionVar;
     use vortex::session::VortexSession;
@@ -813,6 +820,30 @@ mod tests {
         let expected = expected_rows(&source, &[0, 50, 100, 150, 199]);
         assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
         unsafe { vx_array_free(array) };
+    }
+
+    #[rstest]
+    #[case(vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE, true)]
+    #[case(vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE, false)]
+    fn test_empty_selection_with_null_pointer(
+        #[case] include: vx_scan_selection_include,
+        #[case] expect_include: bool,
+    ) -> VortexResult<()> {
+        let opts = vx_scan_options {
+            selection: vx_scan_selection {
+                idx: ptr::null(),
+                idx_len: 0,
+                include,
+            },
+            ..Default::default()
+        };
+        let request = super::scan_request(&raw const opts)?;
+        match (expect_include, request.selection) {
+            (true, Selection::IncludeByIndex(indices))
+            | (false, Selection::ExcludeByIndex(indices)) => assert!(indices.is_empty()),
+            (_, other) => panic!("unexpected selection: {other:?}"),
+        }
+        Ok(())
     }
 
     #[test]

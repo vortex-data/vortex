@@ -26,17 +26,6 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::Lambda;
-use vortex_array::expr::checked_add;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::is_not_null;
-use vortex_array::expr::lit;
-use vortex_array::expr::proto::ExprSerializeProtoExt;
-use vortex_array::expr::root;
-use vortex_array::expr::var;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -44,6 +33,19 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::Expression;
+use vortex_expr::Lambda;
+use vortex_expr::checked_add;
+use vortex_expr::col;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::is_not_null;
+use vortex_expr::lit;
+use vortex_expr::proto::ExprSerializeProtoExt;
+use vortex_expr::root;
+use vortex_expr::transform::replace;
+use vortex_expr::var;
 use vortex_session::VortexSession;
 
 use super::ListTransform;
@@ -630,5 +632,88 @@ fn lambdas_are_not_serializable_yet() -> VortexResult<()> {
         .serialize_proto()
         .expect_err("lambdas are not serializable");
     assert!(error.to_string().contains("is not serializable"), "{error}");
+    Ok(())
+}
+
+#[test]
+fn a_transform_of_a_transform_is_one_transform() -> VortexResult<()> {
+    let input = rows(lists()?)?;
+    let plus_two = Lambda::new(["y"], checked_add(var("y"), lit(2_i32)))?;
+    let expr = list_transform(list_transform(col("l"), plus_one()?), plus_two);
+    let bound = expr.bind(input.dtype())?;
+    let optimized = bound.optimize_recursive()?;
+    assert_eq!(
+        optimized.to_string(),
+        "vortex.list.transform($.l, (x) -> (($.x + 1i32) + 2i32))"
+    );
+    assert_eq!(optimized.dtype(), bound.dtype());
+
+    // The null list's `i32::MAX` would overflow, so it must not reach the composed lambda.
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(4_i32), Some(5), Some(6), None]).into_array(),
+    )?;
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(input.clone().apply_bound(&optimized)?, expected, &mut ctx);
+    assert_arrays_eq!(input.apply_bound(&bound)?, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn a_composed_lambda_takes_the_dtype_of_the_inner_body() -> VortexResult<()> {
+    let input = rows(lists()?)?;
+    let is_three = Lambda::new(["x"], eq(var("x"), lit(3_i32)))?;
+    let is_true = Lambda::new(["x"], eq(var("x"), lit(true)))?;
+    let optimized = list_transform(list_transform(col("l"), is_three), is_true)
+        .bind(input.dtype())?
+        .optimize_recursive()?;
+    assert_eq!(optimized.children(), [col("l").bind(input.dtype())?]);
+    let expected = transformed(
+        BoolArray::from_iter([Some(false), Some(false), Some(true), None]).into_array(),
+    )?;
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(input.apply_bound(&optimized)?, expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+// Composing would compute the inner body once per read.
+#[case::an_outer_lambda_that_reads_its_parameter_twice(checked_add(var("y"), var("y")))]
+// Composing would drop the inner lambda, and its overflow with it.
+#[case::an_outer_lambda_that_ignores_a_fallible_inner_one(lit(0_i32))]
+fn transforms_that_stay_apart(#[case] outer: Expression) -> VortexResult<()> {
+    let dtype = rows(lists()?)?.dtype().clone();
+    let expr = list_transform(
+        list_transform(col("l"), plus_one()?),
+        Lambda::new(["y"], outer)?,
+    );
+    let bound = expr.bind(&dtype)?;
+    assert_eq!(bound.optimize_recursive()?, bound);
+    Ok(())
+}
+
+#[test]
+fn a_constant_transform_drops_an_infallible_inner_one() -> VortexResult<()> {
+    let input = rows(lists()?)?;
+    let is_three = Lambda::new(["x"], eq(var("x"), lit(3_i32)))?;
+    let zero = Lambda::new(["y"], lit(0_i32))?;
+    let optimized = list_transform(list_transform(col("l"), is_three), zero)
+        .bind(input.dtype())?
+        .optimize_recursive()?;
+    assert_eq!(
+        optimized.to_string(),
+        "vortex.list.transform($.l, (x) -> 0i32)"
+    );
+    Ok(())
+}
+
+#[test]
+fn replace_leaves_a_lambda_alone() -> VortexResult<()> {
+    // The lambda is in `list_transform`'s options, not among its children.
+    let expr = list_transform(col("l"), Lambda::new(["x"], checked_add(var("x"), lit(1)))?);
+    assert_eq!(replace(expr.clone(), &var("x"), lit(0)), expr);
+    assert_eq!(
+        replace(expr, &root(), col("s")).to_string(),
+        "vortex.list.transform($.s.l, (x) -> (@x + 1i32))"
+    );
     Ok(())
 }

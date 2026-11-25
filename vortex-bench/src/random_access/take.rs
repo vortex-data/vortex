@@ -39,6 +39,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Format;
 use crate::SESSION;
@@ -163,14 +164,14 @@ impl VortexRandomAccessor {
     /// Open a Vortex file stored in an object store and return a ready-to-use accessor.
     pub async fn open_object_store(
         remote: &RemoteDataDir,
-        path: &Path,
+        relative_path: &str,
         name: impl Into<String>,
         format: Format,
     ) -> anyhow::Result<Self> {
         let file = SESSION
             .open_options()
             .with_layout_reader_cache()
-            .open_object_store(remote.store(), remote.key(path)?)
+            .open_object_store(remote.store(), remote.key(relative_path))
             .await?;
         Ok(Self {
             name: name.into(),
@@ -194,7 +195,12 @@ impl RandomAccessor for VortexRandomAccessor {
         let indices = StrictSortedBuffer::try_new(Buffer::from(indices.to_vec()))?;
         let scan =
             ScanBuilder::new(SESSION.clone(), self.file.scan_file()).with_row_indices(indices);
-        let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+        let stream = ScanDriver::new(
+            SESSION.handle(),
+            4 * get_available_parallelism().unwrap_or(1),
+            true,
+        )
+        .run(scan);
         let array = ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
             .read_all()
             .await?;
@@ -251,11 +257,11 @@ impl ParquetRandomAccessor {
     /// Open a Parquet file stored in an object store and return a ready-to-use accessor.
     pub async fn open_object_store(
         remote: &RemoteDataDir,
-        path: &Path,
+        relative_path: &str,
         name: impl Into<String>,
     ) -> anyhow::Result<Self> {
         Self::open_reader(
-            ObjectReader::new(Arc::clone(remote.store()), remote.key(path)?),
+            ObjectReader::new(Arc::clone(remote.store()), remote.key(relative_path)),
             name,
         )
         .await
@@ -300,7 +306,10 @@ async fn load_metadata<T: AsyncFileReader + Send>(
     let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
     let metadata = ArrowReaderMetadata::load_async(reader, options).await?;
     anyhow::ensure!(
-        metadata.metadata().offset_index().is_some(),
+        metadata
+            .metadata()
+            .page_index()
+            .is_some_and(|index| index.has_offset_indexes()),
         "the Parquet file has no offset index; write it with `random_access_writer_properties`"
     );
     Ok(metadata)

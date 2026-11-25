@@ -26,6 +26,7 @@ use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
+use arrow_schema::Metadata;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
@@ -67,14 +68,18 @@ use vortex::dtype::session::DTypeSessionExt;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::expr::ArrayExprExt;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::extension::datetime::TimeUnit;
 use vortex::functions::between::BetweenOptions;
 use vortex::functions::between::StrictComparison;
 use vortex::functions::list_contains::ListContains;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::builtin::cast::Cast;
+use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::numeric::Numeric;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::Id;
 use vortex_array::assert_arrays_eq;
@@ -630,8 +635,9 @@ fn test_in_list_unsupported_input(
 
 #[test]
 fn test_in_list_unsupported_type() -> DFResult<()> {
-    let value: Arc<dyn PhysicalExpr> =
-        Arc::new(df_expr::Literal::new(ScalarValue::DurationSecond(Some(1))));
+    let value: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Literal::new(
+        ScalarValue::IntervalYearMonth(Some(1)),
+    ));
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
         Arc::clone(&value),
         vec![value],
@@ -673,21 +679,21 @@ fn test_in_list_malformed_literal() -> DFResult<()> {
 }
 
 #[rstest]
-#[case::eq(DFOperator::Eq, Operator::Eq)]
-#[case::not_eq(DFOperator::NotEq, Operator::NotEq)]
-#[case::lt(DFOperator::Lt, Operator::Lt)]
-#[case::lte(DFOperator::LtEq, Operator::Lte)]
-#[case::gt(DFOperator::Gt, Operator::Gt)]
-#[case::gte(DFOperator::GtEq, Operator::Gte)]
-#[case::and(DFOperator::And, Operator::And)]
-#[case::or(DFOperator::Or, Operator::Or)]
-#[case::plus(DFOperator::Plus, Operator::Add)]
-#[case::plus(DFOperator::Minus, Operator::Sub)]
-#[case::plus(DFOperator::Multiply, Operator::Mul)]
-#[case::plus(DFOperator::Divide, Operator::Div)]
+#[case::eq(DFOperator::Eq, BinaryOperator::Compare(CompareOperator::Eq))]
+#[case::not_eq(DFOperator::NotEq, BinaryOperator::Compare(CompareOperator::NotEq))]
+#[case::lt(DFOperator::Lt, BinaryOperator::Compare(CompareOperator::Lt))]
+#[case::lte(DFOperator::LtEq, BinaryOperator::Compare(CompareOperator::Lte))]
+#[case::gt(DFOperator::Gt, BinaryOperator::Compare(CompareOperator::Gt))]
+#[case::gte(DFOperator::GtEq, BinaryOperator::Compare(CompareOperator::Gte))]
+#[case::and(DFOperator::And, BinaryOperator::Boolean(BooleanOperator::And))]
+#[case::or(DFOperator::Or, BinaryOperator::Boolean(BooleanOperator::Or))]
+#[case::plus(DFOperator::Plus, BinaryOperator::Numeric(NumericOperator::Add))]
+#[case::plus(DFOperator::Minus, BinaryOperator::Numeric(NumericOperator::Sub))]
+#[case::plus(DFOperator::Multiply, BinaryOperator::Numeric(NumericOperator::Mul))]
+#[case::plus(DFOperator::Divide, BinaryOperator::Numeric(NumericOperator::Div))]
 fn test_operator_conversion_supported(
     #[case] df_op: DFOperator,
-    #[case] expected_vortex_op: Operator,
+    #[case] expected_vortex_op: BinaryOperator,
 ) {
     assert_eq!(try_operator_from_df(&df_op), Some(expected_vortex_op));
 }
@@ -916,13 +922,10 @@ fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
     session
         .arrow()
         .register_importer(Arc::new(ValueRejectingImporter));
-    let field = Field::new("v", DataType::Int32, false).with_metadata(
-        [(
-            EXTENSION_TYPE_NAME_KEY.to_string(),
-            REJECT_VALUE_EXTENSION_NAME.to_string(),
-        )]
-        .into(),
-    );
+    let field = Field::new("v", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+        EXTENSION_TYPE_NAME_KEY.to_string(),
+        REJECT_VALUE_EXTENSION_NAME.to_string(),
+    )]));
     let literal = Arc::new(df_expr::Literal::new_with_metadata(
         ScalarValue::Int32(Some(1)),
         Some(FieldMetadata::new_from_field(&field)),
@@ -931,6 +934,90 @@ fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
     let converted =
         DefaultExpressionConverter::new(session).try_convert(&literal, &Schema::empty())?;
     assert!(converted.is_none());
+    Ok(())
+}
+
+const ABSOLUTE_EXTENSION_NAME: &str = "test.absolute";
+static ABSOLUTE_ID: CachedId = CachedId::new(ABSOLUTE_EXTENSION_NAME);
+
+/// An Arrow importer that imports every `Int32` as its absolute value, so two Arrow values can
+/// import as one Vortex value.
+#[derive(Debug)]
+struct AbsoluteValueImporter;
+
+impl ArrowImportVTable for AbsoluteValueImporter {
+    fn arrow_ext_id(&self) -> Id {
+        *ABSOLUTE_ID
+    }
+
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
+        session
+            .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            .map(Some)
+    }
+
+    fn from_arrow_array(
+        &self,
+        array: ArrowArrayRef,
+        field: &Field,
+        _dtype: &DType,
+        session: &ArrowSession,
+    ) -> VortexResult<ArrowImport> {
+        let Some(values) = array.as_any().downcast_ref::<Int32Array>() else {
+            vortex_bail!(
+                "{ABSOLUTE_EXTENSION_NAME} imports Int32, got {}",
+                array.data_type()
+            );
+        };
+        let absolute: Int32Array = values.unary(i32::wrapping_abs);
+
+        session
+            .from_arrow_array(Arc::new(absolute), field.is_nullable())
+            .map(ArrowImport::Imported)
+    }
+}
+
+/// A literal with an importer converts only if it exports back to its own Arrow value.
+///
+/// DataFusion distinguishes `1` from `-1`, but both import as `1`, including in a struct child.
+#[rstest]
+#[case::keeps_value(1, true)]
+#[case::changes_value(-1, false)]
+fn test_literal_importer_must_round_trip(
+    #[case] value: i32,
+    #[case] expect_native: bool,
+    #[values(false, true)] nested: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session
+        .arrow()
+        .register_importer(Arc::new(AbsoluteValueImporter));
+    let field = Field::new("v", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+        EXTENSION_TYPE_NAME_KEY.to_string(),
+        ABSOLUTE_EXTENSION_NAME.to_string(),
+    )]));
+    let literal = if nested {
+        let structure = StructArray::try_new(
+            vec![field].into(),
+            vec![Arc::new(Int32Array::from(vec![value]))],
+            None,
+        )?;
+        df_expr::Literal::new(ScalarValue::Struct(Arc::new(structure)))
+    } else {
+        df_expr::Literal::new_with_metadata(
+            ScalarValue::Int32(Some(value)),
+            Some(FieldMetadata::new_from_field(&field)),
+        )
+    };
+    let literal: Arc<dyn PhysicalExpr> = Arc::new(literal);
+
+    let converted =
+        DefaultExpressionConverter::new(session).try_convert(&literal, &Schema::empty())?;
+    assert_eq!(converted.is_some(), expect_native);
     Ok(())
 }
 
@@ -948,10 +1035,9 @@ fn test_comparison_literal_metadata_is_not_replaced(
         value.clone(),
         Some(FieldMetadata::new_from_field(&field)),
     )) as Arc<dyn PhysicalExpr>;
-    field.metadata_mut().insert(
-        "ARROW:extension:name".into(),
-        "unregistered.extension".into(),
-    );
+    field
+        .metadata_mut()
+        .insert("ARROW:extension:name", "unregistered.extension");
     let invalid = Arc::new(df_expr::Literal::new_with_metadata(
         value,
         Some(FieldMetadata::new_from_field(&field)),
@@ -986,10 +1072,9 @@ fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> 
 
     let mut literal_field = field;
     literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
-    literal_field.metadata_mut().insert(
-        EXTENSION_TYPE_METADATA_KEY.into(),
-        "unrelated payload".into(),
-    );
+    literal_field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_METADATA_KEY, "unrelated payload");
     let literal = df_expr::Literal::new_with_metadata(
         ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
         Some(FieldMetadata::new_from_field(&literal_field)),
@@ -1037,7 +1122,7 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     )?;
 
     assert_snapshot!(result.display_tree().to_string(), @r"
-    vortex.binary(=)
+    vortex.compare(=)
     ├── lhs: vortex.get_item(left)
     │   └── input: vortex.root()
     └── rhs: vortex.literal(42i32)
@@ -1224,7 +1309,6 @@ fn test_can_be_pushed_down_column_supported(test_schema: Schema) -> DFResult<()>
 }
 
 #[rstest]
-#[case::duration(DataType::Duration(ArrowTimeUnit::Second))]
 #[case::interval(DataType::Interval(IntervalUnit::YearMonth))]
 #[case::fixed_size_binary(DataType::FixedSizeBinary(16))]
 #[case::decimal32(DataType::Decimal32(1, 2))]
@@ -1252,7 +1336,7 @@ fn test_unsupported_field_is_declined_only_when_referenced(
         ));
         assert_eq!(
             convert(expr, &schema)?,
-            Binary.new_expr(Operator::Eq, [get_item("id", root()), lit(42i32)]),
+            Compare.new_expr(CompareOperator::Eq, [get_item("id", root()), lit(42i32)]),
         );
     }
     Ok(())
@@ -1276,7 +1360,7 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         Field::new("a", DataType::Int32, false),
         Field::new(
             "unsupported",
-            DataType::Duration(ArrowTimeUnit::Second),
+            DataType::Interval(IntervalUnit::YearMonth),
             true,
         ),
         Field::new("b", DataType::Int32, false),
@@ -1306,9 +1390,9 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         pack(
             [(
                 "sum",
-                Binary.new_expr(
-                    Operator::Add,
-                    [b.clone(), Binary.new_expr(Operator::Add, [a, b])]
+                Numeric.new_expr(
+                    NumericOperator::Add,
+                    [b.clone(), Numeric.new_expr(NumericOperator::Add, [a, b])]
                 )
             )],
             Nullability::NonNullable,
@@ -1375,8 +1459,6 @@ fn test_can_be_pushed_down_literal_supported(test_schema: Schema) -> DFResult<()
 }
 
 #[rstest]
-#[case::duration(ScalarValue::DurationSecond(Some(42)))]
-#[case::null_duration(ScalarValue::DurationSecond(None))]
 #[case::interval(ScalarValue::IntervalYearMonth(Some(1)))]
 #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1, 2, 3, 4, 5])))]
 #[case::null_fixed_size_binary(ScalarValue::FixedSizeBinary(5, None))]
@@ -2705,15 +2787,15 @@ fn test_get_field_reads_extension_storage(
 ///
 /// The converter cannot know that before the export runs, so it treats the plugin as opaque.
 #[derive(Debug)]
-struct DecliningPointExporter;
+struct DecliningExporter(Id);
 
-impl ArrowExportVTable for DecliningPointExporter {
+impl ArrowExportVTable for DecliningExporter {
     fn arrow_ext_id(&self) -> Id {
-        *ANY_STORAGE_ID
+        self.0
     }
 
     fn vortex_id(&self) -> Id {
-        *ANY_STORAGE_ID
+        self.0
     }
 
     fn to_arrow_field(
@@ -2748,7 +2830,7 @@ fn test_get_field_on_plugin_export_stays_in_datafusion(
     let batch = point_batch(&session)?;
     session
         .arrow()
-        .register_exporter(Arc::new(DecliningPointExporter));
+        .register_exporter(Arc::new(DecliningExporter(*ANY_STORAGE_ID)));
 
     // The plugin leaves the inferred field as it is, so the field alone does not show the plugin.
     let schema = batch.schema();
@@ -2760,6 +2842,51 @@ fn test_get_field_on_plugin_export_stays_in_datafusion(
 
     let source = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
     let expr = get_field_expr(source, path, &schema)?;
+    let converter = DefaultExpressionConverter::new(session);
+    assert!(converter.try_convert(&expr, &schema)?.is_none());
+    Ok(())
+}
+
+static RAW_CHILD_EXPORTER_ID: CachedId = CachedId::new("test.raw_child_exporter");
+
+#[rstest]
+#[case::extension_child(true)]
+#[case::plain_child(false)]
+fn test_get_field_leaves_plugin_exported_child_in_datafusion(
+    #[case] extension_child: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session.dtypes().register(AnyStorage);
+
+    let child = if extension_child {
+        let mut child = Field::new("child", DataType::FixedSizeBinary(16), false);
+        child.try_with_extension_type(ArrowUuid)?;
+        child
+    } else {
+        session
+            .arrow()
+            .register_exporter(Arc::new(DecliningExporter(*RAW_CHILD_EXPORTER_ID)));
+        Field::new("child", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            RAW_CHILD_EXPORTER_ID.to_string(),
+        )]))
+    };
+    let child_dtype = session.arrow().from_arrow_field(&child)?;
+    let storage = DType::struct_([("child", child_dtype)], Nullability::NonNullable);
+    let holder = DType::Extension(AnyStorage::dtype(storage)?);
+    let holder_field = session
+        .arrow()
+        .to_arrow_field("holder", &holder)?
+        .with_data_type(DataType::Struct(vec![child].into()));
+    assert!(
+        session
+            .arrow()
+            .exports_extension_storage(holder.as_extension(), &holder_field)
+    );
+    let schema = Schema::new(vec![holder_field]);
+
+    let source = Arc::new(df_expr::Column::new("holder", 0));
+    let expr = get_field_expr(source, &["child"], &schema)?;
     let converter = DefaultExpressionConverter::new(session);
     assert!(converter.try_convert(&expr, &schema)?.is_none());
     Ok(())
@@ -3255,5 +3382,73 @@ fn test_fallible_boolean_rhs_is_residual(
     // DataFusion selects the one row that needs RHS evaluation at this selectivity.
     expr.evaluate(&batch)?;
     assert!(!converts(&expr, &batch.schema())?);
+    Ok(())
+}
+
+fn timestamp_ms(zone: Option<&str>) -> DataType {
+    DataType::Timestamp(ArrowTimeUnit::Millisecond, zone.map(Into::into))
+}
+
+fn ts_to_ms() -> Expression {
+    change_time_unit(
+        get_item("ts", root()),
+        TimeUnit::Milliseconds,
+        TemporalRounding::TowardZero,
+    )
+}
+
+#[rstest]
+#[case::raw_count(DataType::Int64, Some(ext_storage(get_item("ts", root()))))]
+#[case::coarser_unit(timestamp_ms(Some("UTC")), Some(ts_to_ms()))]
+#[case::coarser_unit_other_zone(timestamp_ms(Some("+01:00")), None)]
+#[case::coarser_unit_no_zone(timestamp_ms(None), None)]
+#[case::finer_unit(DataType::Timestamp(ArrowTimeUnit::Nanosecond, Some("UTC".into())), None)]
+#[case::same_type(
+    DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("UTC".into())),
+    Some(get_item("ts", root())),
+)]
+#[case::other_integer(DataType::Int32, None)]
+fn test_timestamp_cast_pushdown(
+    #[case] target: DataType,
+    #[case] expected: Option<Expression>,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("UTC".into())),
+        true,
+    )]);
+    // SQL plans a `CAST` as `CastExpr::new`, which keeps the nullability of the column.
+    let cast: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        target,
+        None,
+    ));
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&cast, &schema)?,
+        expected
+    );
+    Ok(())
+}
+
+/// DataFusion's schema adapter casts a file column to the table's field, which can be nullable
+/// over a non-nullable file column. The conversion keeps the nullability of the column.
+#[test]
+fn test_timestamp_cast_from_schema_adapter() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("UTC".into())),
+        false,
+    )]);
+    let cast: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new_with_target_field(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        Arc::new(Field::new("ts", timestamp_ms(Some("UTC")), true)),
+        None,
+    ));
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&cast, &schema)?,
+        Some(ts_to_ms())
+    );
     Ok(())
 }

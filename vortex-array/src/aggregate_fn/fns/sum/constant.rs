@@ -110,9 +110,9 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::Stat;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::stats::Stat;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

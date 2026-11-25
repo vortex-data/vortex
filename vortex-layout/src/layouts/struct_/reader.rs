@@ -17,27 +17,26 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::is_not_null;
-use vortex_array::expr::bound::mask;
-use vortex_array::expr::bound::not;
-use vortex_array::expr::bound::pack;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::builtin::operators::Operator;
-use vortex_array::scalar_fn::builtin::select::Select;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_expr::analysis::AnnotationFn;
-use vortex_expr::make_bound_free_field_annotator;
+use vortex_expr::bound::get_item;
+use vortex_expr::bound::is_not_null;
+use vortex_expr::bound::mask;
+use vortex_expr::bound::not;
+use vortex_expr::bound::pack;
 use vortex_expr::transform::partition_bound;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
+use vortex_functions::is_null::IsNull;
+use vortex_functions::select::Select;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -49,6 +48,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::analysis::make_bound_free_field_annotator;
 use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
@@ -578,8 +578,8 @@ impl LayoutReader for StructReader {
                 // Only split after single-field delegation so field readers see whole predicates.
                 // AND/OR compose conservative "may match" masks, even for nullable predicates;
                 // other multi-field operators cannot generally combine these masks (e.g. NOT).
-                let Some(operator @ (Operator::And | Operator::Or)) =
-                    expr.as_opt::<Binary>().copied()
+                let Some(operator @ (BooleanOperator::And | BooleanOperator::Or)) =
+                    expr.as_opt::<Boolean>().copied()
                 else {
                     return Ok(MaskFuture::ready(mask));
                 };
@@ -587,7 +587,7 @@ impl LayoutReader for StructReader {
                 let rhs = self.pruning_evaluation(row_range, &expr.children()[1], mask.clone())?;
                 Ok(MaskFuture::new(mask.len(), async move {
                     let (lhs, rhs) = try_join!(lhs, rhs)?;
-                    let combined = if operator == Operator::And {
+                    let combined = if operator == BooleanOperator::And {
                         &lhs & &rhs
                     } else {
                         &lhs | &rhs
@@ -704,28 +704,28 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::and;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::mask;
-    use vortex_array::expr::not;
-    use vortex_array::expr::or;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
-    use vortex_array::expr::select_exclude;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_expr::Expression;
+    use vortex_expr::and;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::mask;
+    use vortex_expr::not;
+    use vortex_expr::or;
+    use vortex_expr::pack;
+    use vortex_expr::root;
+    use vortex_functions::expr::is_null;
+    use vortex_functions::expr::select;
+    use vortex_functions::expr::select_exclude;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;

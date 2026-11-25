@@ -19,6 +19,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::metadata::FieldMetadata;
 use datafusion_common::tree_node::Transformed as DFTransformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
@@ -49,8 +50,11 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
+use vortex::expr::ScalarFnExprExt;
+use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::change_time_unit;
 use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
@@ -69,16 +73,20 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::extension::datetime::TemporalRounding;
+use vortex::extension::datetime::Timestamp;
 use vortex::functions::like::Like;
 use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
+use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::binary::Binary;
 use vortex::scalar_fn::builtin::get_item::GetItem;
-use vortex::scalar_fn::builtin::operators::Operator;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::row_index::RowIndex;
 
@@ -267,8 +275,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
 /// are accepted for both filters and projections.
-/// Field access through an extension can run natively when Arrow exposes its Vortex storage and no
-/// plugin exports the selected field.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage and
+/// the selected field exports without plugins.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -380,7 +388,7 @@ impl DefaultExpressionConverter {
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
-            let boolean_operator = matches!(operator, Operator::And | Operator::Or);
+            let boolean_operator = matches!(operator, BinaryOperator::Boolean(_));
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
             if boolean_operator {
@@ -417,7 +425,7 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
-            return Ok(Binary.new_expr(operator, [left, right]));
+            return Ok(binary(operator, left, right));
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -474,6 +482,9 @@ impl DefaultExpressionConverter {
                         return Err(Unconverted::Unsupported);
                     }
                     Ok(cast(child, cast_dtype))
+                }
+                CastPushdown::FromTimestamp => {
+                    convert_timestamp_cast(child, &child_dtype, &cast_dtype)
                 }
             };
         }
@@ -535,11 +546,11 @@ impl DefaultExpressionConverter {
         &self,
         expr: &Arc<dyn PhysicalExpr>,
         other: &Arc<dyn PhysicalExpr>,
-        operator: Operator,
+        operator: BinaryOperator,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        if operator.is_comparison()
+        if matches!(operator, BinaryOperator::Compare(_))
             && let Some(literal) = expr.downcast_ref::<df_expr::Literal>()
         {
             let field = other.return_field(schema)?;
@@ -572,7 +583,7 @@ impl DefaultExpressionConverter {
         for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
             field.metadata_mut().remove(key);
             if let Some(value) = operand_field.metadata().get(key) {
-                field.metadata_mut().insert(key.into(), value.clone());
+                field.metadata_mut().insert(key, value.clone());
             }
         }
 
@@ -583,6 +594,10 @@ impl DefaultExpressionConverter {
     ///
     /// A literal that the plugins reject stays in DataFusion, including when a plugin accepts the
     /// field but rejects the value.
+    ///
+    /// Check that literals with extension metadata or a nested importer export back to the same
+    /// Arrow value. An importer can map several Arrow values to one Vortex value, such as every
+    /// non-zero `arrow.bool8` to true. DataFusion still distinguishes the original values.
     fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
         let array = literal.value().to_array()?;
         if array.len() != 1 {
@@ -595,16 +610,31 @@ impl DefaultExpressionConverter {
 
         self.arrow_dtype(field)?;
 
-        self.session
+        let mut ctx = self.session.create_execution_ctx();
+        let imported = self
+            .session
             .arrow()
-            .from_arrow_array(array, field)
-            .map_err(|_| Unconverted::Unsupported)?
-            .execute_scalar(0, &mut self.session.create_execution_ctx())
-            .map_err(|error| {
-                Unconverted::Failed(DataFusionError::External(Box::new(
-                    error.with_context(format!("Failed to convert literal {literal}")),
-                )))
-            })
+            .from_arrow_array(Arc::clone(&array), field)
+            .map_err(|_| Unconverted::Unsupported)?;
+
+        if field.extension_type_name().is_some()
+            || !self.session.arrow().imports_without_plugins(field)
+        {
+            let exported = imported
+                .clone()
+                .execute_arrow(Some(field), &mut ctx)
+                .map_err(|_| Unconverted::Unsupported)?;
+
+            if exported.to_data() != array.to_data() {
+                return Err(Unconverted::Unsupported);
+            }
+        }
+
+        imported.execute_scalar(0, &mut ctx).map_err(|error| {
+            Unconverted::Failed(DataFusionError::External(Box::new(
+                error.with_context(format!("Failed to convert literal {literal}")),
+            )))
+        })
     }
 
     /// Converts a string argument of a string function.
@@ -658,17 +688,33 @@ impl DefaultExpressionConverter {
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
         // converts through Arrow, so equal values with equal metadata are converted once.
-        let elements = in_list
+        let literals = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let literal = element
+                element
                     .downcast_ref::<df_expr::Literal>()
-                    .ok_or(Unconverted::Unsupported)?;
-
-                self.import_literal_for_operand(literal, &value_field, schema)
+                    .cloned()
+                    .ok_or(Unconverted::Unsupported)
             })
+            .collect::<Conversion<Vec<_>>>()?;
+        let signed_zero_partners = literals
+            .iter()
+            .filter_map(|literal| {
+                let partner = signed_zero_partner(literal.value())?;
+                Some(literal.return_field(schema).map(|field| {
+                    df_expr::Literal::new_with_metadata(
+                        partner,
+                        Some(FieldMetadata::new_from_field(&field)),
+                    )
+                }))
+            })
+            .collect::<DFResult<Vec<_>>>()?;
+        let elements = literals
+            .into_iter()
+            .chain(signed_zero_partners)
+            .unique()
+            .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
         // An element of another type than the value declines the pushdown: no implicit casts.
@@ -805,6 +851,11 @@ impl DefaultExpressionConverter {
     /// sides read the same values only when Vortex exports the parent as exactly its storage, which
     /// [`exports_extension_storage`] checks.
     ///
+    /// A plugin can choose how to export the selected field. Keep that read in DataFusion when
+    /// traversing extension storage. Two exporters can preserve order within their own outputs
+    /// and still encode equal values differently. Raw exporters of plain values can also change
+    /// their order.
+    ///
     /// [`exports_extension_storage`]: vortex_arrow::ArrowSession::exports_extension_storage
     fn convert_get_field(
         &self,
@@ -861,12 +912,6 @@ impl DefaultExpressionConverter {
             read = get_item(name, read);
         }
 
-        // A plugin exporter decides which Arrow data DataFusion sees for the selected field, so
-        // Vortex and DataFusion agree on that field only if the export keeps values. Columns and
-        // plain struct fields already assume this, and the check skips them so that their pushdown
-        // stays the same.
-        // TODO(connor): Drop this check once the Arrow plugin contract requires exports to keep
-        // values.
         if reads_extension_storage && !self.session.arrow().exports_without_plugins(field) {
             return Err(Unconverted::Unsupported);
         }
@@ -979,6 +1024,26 @@ impl ExpressionConverter for DefaultExpressionConverter {
     }
 }
 
+/// The other signed zero, for a float zero.
+///
+/// DataFusion's `IN` treats `0.0` and `-0.0` as equal but otherwise compares floats by their bits,
+/// so a NaN matches only the same NaN. Vortex's set lookup compares bits, so a converted list holds
+/// both zeros whenever DataFusion's list holds either.
+fn signed_zero_partner(value: &ScalarValue) -> Option<ScalarValue> {
+    match value {
+        ScalarValue::Float16(Some(zero)) if zero.to_f32() == 0.0 => {
+            Some(ScalarValue::Float16(Some(-*zero)))
+        }
+        ScalarValue::Float32(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float32(Some(-*zero)))
+        }
+        ScalarValue::Float64(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float64(Some(-*zero)))
+        }
+        _ => None,
+    }
+}
+
 /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
 pub(crate) fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
@@ -1025,6 +1090,9 @@ enum CastPushdown {
     Drop,
     /// The cast becomes a Vortex `cast`.
     Keep,
+    /// The cast starts from a timestamp, and [`convert_timestamp_cast`] picks the conversion from
+    /// the Vortex dtypes, which carry the units and time zones.
+    FromTimestamp,
 }
 
 /// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
@@ -1034,7 +1102,15 @@ fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPu
         return Err(Unconverted::Unsupported);
     }
     let source = cast.expr().data_type(schema)?;
-    classify_cast_types(&source, cast.cast_type())
+    let target = cast.cast_type();
+    // A timestamp cast to the same type takes `classify_cast_types`, which drops it.
+    if matches!(source, DataType::Timestamp(..))
+        && matches!(target, DataType::Int64 | DataType::Timestamp(..))
+        && source != *target
+    {
+        return Ok(CastPushdown::FromTimestamp);
+    }
+    classify_cast_types(&source, target)
 }
 
 fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastPushdown> {
@@ -1083,20 +1159,64 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     })
 }
 
-fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
+/// Converts a cast from a timestamp into the temporal function that returns the same values as
+/// Arrow's cast. Any other cast stays in DataFusion.
+///
+/// The Vortex dtypes decide, because matching Arrow types do not imply matching Vortex dtypes.
+/// The result keeps the nullability of `child` when DataFusion declares the cast nullable over a
+/// non-nullable column, as the [`CastPushdown::Drop`] arm does. DataFusion's schema adapter
+/// declares such a cast when a table field is nullable but the file column is not.
+fn convert_timestamp_cast(
+    child: Expression,
+    child_dtype: &DType,
+    cast_dtype: &DType,
+) -> Conversion<Expression> {
+    let Some(source) = child_dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Timestamp>())
+    else {
+        return Err(Unconverted::Unsupported);
+    };
+
+    // Arrow's cast to `Int64` returns the stored count without scaling it.
+    if matches!(cast_dtype, DType::Primitive(PType::I64, _)) {
+        return Ok(ext_storage(child));
+    }
+
+    let Some(target) = cast_dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Timestamp>())
+    else {
+        return Err(Unconverted::Unsupported);
+    };
+
+    // Arrow truncates the count toward zero when it casts to a coarser unit in the same zone. The
+    // Vortex `TimeUnit` orders units from `Nanoseconds` to `Days`, so a coarser unit is greater.
+    if source.tz == target.tz && target.unit > source.unit {
+        return Ok(change_time_unit(
+            child,
+            target.unit,
+            TemporalRounding::TowardZero,
+        ));
+    }
+
+    Err(Unconverted::Unsupported)
+}
+
+fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
     match value {
-        DFOperator::Eq => Some(Operator::Eq),
-        DFOperator::NotEq => Some(Operator::NotEq),
-        DFOperator::Lt => Some(Operator::Lt),
-        DFOperator::LtEq => Some(Operator::Lte),
-        DFOperator::Gt => Some(Operator::Gt),
-        DFOperator::GtEq => Some(Operator::Gte),
-        DFOperator::And => Some(Operator::And),
-        DFOperator::Or => Some(Operator::Or),
-        DFOperator::Plus => Some(Operator::Add),
-        DFOperator::Minus => Some(Operator::Sub),
-        DFOperator::Multiply => Some(Operator::Mul),
-        DFOperator::Divide => Some(Operator::Div),
+        DFOperator::Eq => Some(BinaryOperator::Compare(CompareOperator::Eq)),
+        DFOperator::NotEq => Some(BinaryOperator::Compare(CompareOperator::NotEq)),
+        DFOperator::Lt => Some(BinaryOperator::Compare(CompareOperator::Lt)),
+        DFOperator::LtEq => Some(BinaryOperator::Compare(CompareOperator::Lte)),
+        DFOperator::Gt => Some(BinaryOperator::Compare(CompareOperator::Gt)),
+        DFOperator::GtEq => Some(BinaryOperator::Compare(CompareOperator::Gte)),
+        DFOperator::And => Some(BinaryOperator::Boolean(BooleanOperator::And)),
+        DFOperator::Or => Some(BinaryOperator::Boolean(BooleanOperator::Or)),
+        DFOperator::Plus => Some(BinaryOperator::Numeric(NumericOperator::Add)),
+        DFOperator::Minus => Some(BinaryOperator::Numeric(NumericOperator::Sub)),
+        DFOperator::Multiply => Some(BinaryOperator::Numeric(NumericOperator::Mul)),
+        DFOperator::Divide => Some(BinaryOperator::Numeric(NumericOperator::Div)),
         DFOperator::IsDistinctFrom
         | DFOperator::IsNotDistinctFrom
         | DFOperator::RegexMatch
@@ -1154,7 +1274,7 @@ fn supported_data_types(dt: &DataType) -> bool {
         || dt.is_string()
         || matches!(
             dt,
-            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_)
+            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_) | Duration(_)
         );
 
     if !is_supported {

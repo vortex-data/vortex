@@ -38,8 +38,7 @@ use itertools::Itertools;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::stats::Precision;
+use vortex_array::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -48,6 +47,7 @@ use vortex_error::SharedVortexResult;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::DataSource;
@@ -212,10 +212,10 @@ impl MultiLayoutDataSource {
 
     /// Sets the concurrency for opening deferred readers.
     ///
-    /// Controls how many file opens run in parallel via `buffer_unordered`.
-    /// Defaults to the number of available CPU cores.
+    /// Controls how many file opens run in parallel via `buffered` or `buffer_unordered`.
+    /// Values less than 1 are clamped to 1. Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency;
+        self.concurrency = concurrency.max(1);
         self
     }
 }
@@ -373,7 +373,8 @@ impl BoundScanRequest {
                 .map(|expr| expr.bind(dtype)?.optimize_recursive())
                 .transpose()
                 .map_err(Arc::new),
-            row_range,
+            // A range that starts after it ends selects no rows.
+            row_range: row_range.map(|range| range.start..range.end.max(range.start)),
             selection,
             partition_selection,
             partition_range,
@@ -410,10 +411,10 @@ impl DataSourceScan for MultiLayoutScan {
 
     fn partition_count(&self) -> Precision<usize> {
         let count = self.ready.len() + self.deferred.len();
-        if self.deferred.is_empty() {
-            Precision::exact(count)
-        } else {
+        if !self.deferred.is_empty() || matches!(self.request.filter, Ok(Some(_))) {
             Precision::inexact(count)
+        } else {
+            Precision::exact(count)
         }
     }
 
@@ -625,18 +626,20 @@ impl Partition for MultiLayoutPartition {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use async_trait::async_trait;
     use futures::TryStreamExt;
     use rstest::rstest;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::eq;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_scan::DataSource;
     use vortex_scan::ScanRequest;
     use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -769,6 +772,33 @@ mod tests {
         Ok((values, in_flight.peak()))
     }
 
+    #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "the inverted range is the input"
+    )]
+    fn inverted_row_range_selects_no_rows() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(8));
+        let source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        // The filter reaches the pruning check in `reader_partition`, which needs the range's
+        // length.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            row_range: Some(5..3),
+            ..Default::default()
+        }))?;
+        let mut values = Vec::new();
+        for partition in runtime.block_on(scan.partitions().try_collect::<Vec<_>>())? {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        assert!(values.is_empty(), "{values:?}");
+        Ok(())
+    }
+
     /// A per-worker concurrency set after the bound leaves the bound in place.
     #[test]
     fn a_later_per_worker_concurrency_keeps_the_bound() {
@@ -796,6 +826,53 @@ mod tests {
             default_peak > max,
             "the default read {default_peak} at once"
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::ordered(true)]
+    #[case::unordered(false)]
+    #[tokio::test]
+    async fn deferred_scan_completes_with_zero_concurrency(
+        #[case] ordered: bool,
+    ) -> VortexResult<()> {
+        let session = session_with_handle(TokioRuntime::current());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(3));
+        let source = MultiLayoutDataSource::new_deferred(
+            reader.dtype().clone(),
+            vec![Arc::new(StaticReaderFactory { reader })],
+            vec![],
+            &session,
+        )
+        .with_concurrency(0);
+
+        let scan = source
+            .scan(ScanRequest {
+                ordered,
+                ..Default::default()
+            })
+            .await?;
+        let partitions = tokio::time::timeout(
+            Duration::from_secs(5),
+            scan.partitions().try_collect::<Vec<_>>(),
+        )
+        .await
+        .expect("scan stalled")?;
+        assert_eq!(partitions.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn partition_count_is_inexact_with_filter() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(3));
+        let opened = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        let scan = runtime.block_on(opened.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            ..Default::default()
+        }))?;
+        assert_eq!(scan.partition_count(), Precision::inexact(1usize));
         Ok(())
     }
 

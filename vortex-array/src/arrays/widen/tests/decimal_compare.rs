@@ -29,9 +29,9 @@ use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::compare::CompareKernel;
 use crate::scalar_fn::builtin::fill_null::FillNullReduce;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Returns a `Widen` of the `parent` dtype over `values`, with the nullability of `values`.
 fn widen(values: impl IntoArray, parent: DecimalDType) -> VortexResult<WidenArray> {
@@ -77,14 +77,14 @@ fn test_compare_constant(
     #[values(18, 76)] parent_precision: u8,
     #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
     #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
     )]
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let parent = DecimalDType::new(parent_precision, 2);
@@ -107,7 +107,7 @@ fn test_compare_constant(
     let constant = ConstantArray::new(constant, array.len()).into_array();
 
     let compared = array
-        .binary(constant.clone(), operator)?
+        .compare(constant.clone(), operator)?
         .execute::<ArrayRef>(&mut ctx)?;
     assert_eq!(compared.dtype(), &DType::Bool(Nullability::Nullable));
     assert_eq!(compared.len(), array.len());
@@ -182,20 +182,20 @@ fn test_compare_two_widen(
     #[case] lhs: DecimalArray,
     #[case] rhs: DecimalArray,
     #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
     )]
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let parent = DecimalDType::new(18, 2);
     let lhs = widen(lhs, parent)?;
     let rhs = widen(rhs, parent)?.into_array();
-    let compared = Widen::compare(lhs.as_view(), &rhs, operator.try_into()?, &mut ctx)?
+    let compared = Widen::compare(lhs.as_view(), &rhs, operator, &mut ctx)?
         .vortex_expect("Widen compares decimal children at their common precision");
 
     for (index, nullability) in [Nullability::NonNullable, Nullability::Nullable]

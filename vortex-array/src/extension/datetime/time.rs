@@ -46,6 +46,18 @@ impl Time {
     }
 }
 
+/// Check that a count of `unit` lies within one day, as every [`Time`] value must.
+///
+/// An array does not check the values of its rows, so a conversion that reads or produces a time
+/// of day checks each count itself.
+pub fn check_time_of_day(value: i64, unit: TimeUnit) -> VortexResult<()> {
+    vortex_ensure!(
+        (0..unit.units_per_day()).contains(&value),
+        "Expected a time of day in {unit}, got {value}"
+    );
+    Ok(())
+}
+
 /// Unpacked value of a [`Time`] extension scalar.
 pub enum TimeValue {
     /// Seconds since midnight.

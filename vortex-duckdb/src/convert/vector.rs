@@ -269,6 +269,13 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                     .into_array(),
             )
         }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS => {
+            let arr = vector_mapped(vector, len, |duckdb_timestamp_ns { nanos }| *nanos);
+            Ok(
+                TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, Some("UTC".into()))
+                    .into_array(),
+            )
+        }
         DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
             let arr = vector_mapped(vector, len, |duckdb_date { days }| *days);
             Ok(TemporalArray::new_date(arr, TimeUnit::Days).into_array())

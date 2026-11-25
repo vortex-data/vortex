@@ -30,12 +30,12 @@ use crate::builders::ListBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.

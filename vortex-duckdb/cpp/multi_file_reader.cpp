@@ -443,7 +443,8 @@ unique_ptr<BaseStatistics> to_duckdb_statistics(duckdb_column_statistics &statis
     case TIMESTAMP_MS:
     case TIMESTAMP:
     case TIMESTAMP_NS:
-    case TIMESTAMP_TZ: {
+    case TIMESTAMP_TZ:
+    case TIMESTAMP_TZ_NS: {
         return numeric_stats(statistics, *type);
     }
     case VARCHAR:

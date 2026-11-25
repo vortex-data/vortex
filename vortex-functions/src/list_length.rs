@@ -20,6 +20,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -27,7 +28,6 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -165,7 +165,7 @@ fn list_length_from_offsets(list: ArrayView<'_, List>) -> VortexResult<ArrayRef>
 
     offsets
         .slice(1..offsets.len())?
-        .binary(offsets.slice(0..n)?, Operator::Sub)
+        .numeric(offsets.slice(0..n)?, NumericOperator::Sub)
 }
 
 /// Matches an `Array<List>`, `Array<ListView>`, or `Array<FixedSizeList>`
@@ -201,12 +201,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::cast;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::list_length;

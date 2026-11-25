@@ -24,6 +24,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::PType;
     use vortex_array::extension::datetime::Date;
+    use vortex_array::extension::datetime::Duration;
     use vortex_array::extension::datetime::Time;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
@@ -33,14 +34,13 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::test_harness::StorageCase;
-    use crate::test_harness::check_arrow;
-    use crate::test_harness::check_canonical_field;
     use crate::test_harness::check_generated;
     use crate::test_harness::generate::draw_validity;
 
     #[derive(Clone, Copy, Debug)]
     enum TemporalKind {
         Date,
+        Duration,
         Time,
         Timestamp,
     }
@@ -67,11 +67,13 @@ mod tests {
         ]));
         let kind = tc.draw(gs::sampled_from(&[
             TemporalKind::Date,
+            TemporalKind::Duration,
             TemporalKind::Time,
             TemporalKind::Timestamp,
         ]));
         let dtype = match kind {
             TemporalKind::Date => Date::try_new(date_unit, nullability)?.erased(),
+            TemporalKind::Duration => Duration::try_new(time_unit, nullability)?.erased(),
             TemporalKind::Time => Time::try_new(time_unit, nullability)?.erased(),
             TemporalKind::Timestamp => {
                 Timestamp::try_new_with_tz(time_unit, timezone.map(Into::into), nullability)?
@@ -93,6 +95,7 @@ mod tests {
                     DataType::Date64
                 }
             }
+            TemporalKind::Duration => DataType::Duration(unit),
             TemporalKind::Time => {
                 if matches!(time_unit, TimeUnit::Seconds | TimeUnit::Milliseconds) {
                     DataType::Time32(unit)
@@ -114,6 +117,7 @@ mod tests {
                 };
                 (-365 * 7_000 * day, 365 * 7_000 * day)
             }
+            TemporalKind::Duration => (i64::MIN, i64::MAX),
             TemporalKind::Time => (0, 86_400 * units_per_second - 1),
             TemporalKind::Timestamp => (
                 -365 * 50 * 86_400 * units_per_second,
@@ -154,10 +158,7 @@ mod tests {
         );
         let field = Field::new("value", arrow_dtype, dtype.is_nullable());
         let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
-        check_arrow(array.clone(), &field, expected, &mut ctx)?;
-        check_canonical_field(&array, &field, &mut ctx)?;
-
-        check_generated(tc, array, &mut ctx)
+        check_generated(tc, array, &field, expected, &mut ctx)
     }
 
     #[hegel::test(test_cases = 100, print_blob = true)]

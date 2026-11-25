@@ -20,9 +20,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -30,6 +29,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::DataSource;
@@ -214,7 +214,10 @@ impl DataSource for LayoutReaderDataSource {
             .ok_or_else(|| vortex_err!("split_max_row_count must be greater than zero"))?;
         let total_rows = self.reader.row_count();
         let row_range = match scan_request.row_range {
-            Some(range) => range.start.min(total_rows)..range.end.min(total_rows),
+            Some(range) => {
+                let start = range.start.min(total_rows);
+                start..range.end.clamp(start, total_rows)
+            }
             None => 0..total_rows,
         };
 
@@ -622,13 +625,15 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
-    use vortex_array::expr::stats::Precision;
+    use vortex_array::stats::Precision;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_expr::Expression;
+    use vortex_expr::eq;
+    use vortex_expr::lit;
+    use vortex_expr::pack;
+    use vortex_expr::root;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_metrics::DefaultMetricsRegistry;
@@ -695,6 +700,31 @@ mod tests {
                 expected.map(|count| count * execution)
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "the inverted range is the input"
+    )]
+    fn inverted_row_range_selects_no_rows() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let source = LayoutReaderDataSource::new(Arc::new(TestLayoutReader::new(8)), session);
+        // The filter reaches the pruning check, which needs the range's length.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            row_range: Some(5..3),
+            ..Default::default()
+        }))?;
+        let mut values = Vec::new();
+        for partition in runtime.block_on(scan.partitions().try_collect::<Vec<_>>())? {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        assert!(values.is_empty(), "{values:?}");
         Ok(())
     }
 

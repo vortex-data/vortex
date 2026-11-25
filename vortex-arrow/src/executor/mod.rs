@@ -43,11 +43,12 @@ use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
-use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::root;
 use vortex_functions::expr::ext_storage;
 use vortex_session::registry::Id;
 
@@ -67,6 +68,7 @@ use crate::executor::primitive::to_arrow_primitive;
 use crate::executor::run_end::to_arrow_run_end;
 use crate::executor::struct_::to_arrow_struct;
 use crate::executor::temporal::to_arrow_date;
+use crate::executor::temporal::to_arrow_duration;
 use crate::executor::temporal::to_arrow_time;
 use crate::executor::temporal::to_arrow_timestamp;
 use crate::session::ArrowSessionExt;
@@ -483,13 +485,11 @@ pub(crate) fn execute_arrow_naive(
         dt @ (DataType::Date32 | DataType::Date64) => to_arrow_date(array, dt, ctx),
         dt @ (DataType::Time32(_) | DataType::Time64(_)) => to_arrow_time(array, dt, ctx),
         dt @ DataType::Timestamp(..) => to_arrow_timestamp(array, dt, ctx),
+        dt @ DataType::Duration(_) => to_arrow_duration(array, dt, ctx),
         DataType::Map(entries_field, keys_sorted) => {
             to_arrow_map(array, entries_field, *keys_sorted, options, ctx)
         }
-        DataType::FixedSizeBinary(_)
-        | DataType::Duration(_)
-        | DataType::Interval(_)
-        | DataType::Union(..) => {
+        DataType::FixedSizeBinary(_) | DataType::Interval(_) | DataType::Union(..) => {
             vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
         }
     }?;
@@ -600,12 +600,13 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::root;
     use vortex_array::extension::datetime::TimeUnit as VortexTimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::root;
     use vortex_functions::expr::ext_storage;
     use vortex_session::VortexSession;
 

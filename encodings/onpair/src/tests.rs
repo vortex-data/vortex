@@ -20,13 +20,14 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -219,7 +220,7 @@ fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
 
     // Equality compare drives CodesWindow over the u64 codes_offsets.
     let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
-    let eq = wide.into_array().binary(needle, Operator::Eq)?;
+    let eq = wide.into_array().compare(needle, CompareOperator::Eq)?;
     assert_arrays_eq!(
         &eq,
         &BoolArray::from_iter([true, false, false, false, true]),
@@ -607,6 +608,39 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let arr = compress_onpair(&take_input().into_array(), &mut ctx)?;
     test_take_conformance(&arr.into_array(), &mut ctx);
+    Ok(())
+}
+
+/// A repeated probe reads each row's codes boundaries and decoded length through the children's
+/// own probes, so it must match the input in any order, also from a slice.
+#[test]
+fn test_onpair_probe_consistency() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = take_input().into_array();
+    let encoded = compress_onpair(&input, &mut ctx)?.into_array();
+
+    for (array, expected) in [
+        (encoded.clone(), input.clone()),
+        (
+            encoded.slice(7..1_500)?.optimize_ctx(&SESSION)?,
+            input.slice(7..1_500)?,
+        ),
+    ] {
+        assert!(array.is::<OnPair>());
+
+        let mut probe = array.repeated_probe();
+        let order = (0..array.len()).rev().chain((0..array.len()).step_by(13));
+        for index in order {
+            assert_eq!(
+                probe.execute_scalar(index, &mut ctx)?,
+                expected.execute_scalar(index, &mut ctx)?,
+                "row {index}"
+            );
+        }
+
+        test_array_consistency(&array, &mut ctx);
+    }
+
     Ok(())
 }
 
