@@ -92,6 +92,11 @@ impl LayoutStrategy for ConstantStrategy {
                 .await;
         }
 
+        // A constant column compresses to almost nothing. Record this, so that the compression
+        // ratio of the write includes the column. The write uses that ratio for the input that it
+        // did not split into columns yet, which also holds the values of this column.
+        let size_scope = ctx.size_scope().child();
+
         let mut exec_ctx = session.create_execution_ctx();
         let mut run: Option<ConstantRun> = None;
         let mut mismatch = None;
@@ -116,6 +121,7 @@ impl LayoutStrategy for ConstantStrategy {
 
             match run.as_mut() {
                 None => {
+                    size_scope.record(chunk.nbytes(), 0);
                     run = Some(ConstantRun {
                         sequence_id,
                         scalar,
@@ -123,6 +129,7 @@ impl LayoutStrategy for ConstantStrategy {
                     });
                 }
                 Some(current) if current.scalar == scalar => {
+                    size_scope.record(chunk.nbytes(), 0);
                     // Replacing the sequence ID drops the earlier one.
                     current.sequence_id = sequence_id;
                     current.len += chunk.len();

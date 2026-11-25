@@ -266,6 +266,56 @@ mod tests {
         Ok(())
     }
 
+    /// A batch of a table with a column of random floats and a constant string column.
+    fn constant_column_batch(index: usize) -> VortexResult<ArrayRef> {
+        let mut state = (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+
+        let padding = "x".repeat(100);
+        let values = PrimitiveArray::from_iter(
+            (0..BATCH_ROWS).map(|_| (next() >> 11) as f64 / (1u64 << 53) as f64),
+        );
+        let paddings = VarBinViewArray::from_iter_str((0..BATCH_ROWS).map(|_| padding.as_str()));
+
+        Ok(StructArray::from_fields(&[
+            ("value", values.into_array()),
+            ("padding", paddings.into_array()),
+        ])?
+        .into_array())
+    }
+
+    /// A constant column compresses to almost nothing. The input that the write did not split into
+    /// columns yet holds the values of the constant column too, so the ratio for that input must
+    /// include the constant column.
+    #[rstest]
+    #[case::before_the_first_block(8)]
+    #[case::after_the_first_block(24)]
+    #[tokio::test]
+    async fn estimate_is_close_for_constant_columns(#[case] batches: usize) -> VortexResult<()> {
+        let mut buf = ByteBufferMut::empty();
+        let mut writer = SESSION
+            .write_options()
+            .writer(&mut buf, constant_column_batch(0)?.dtype().clone());
+        for index in 0..batches {
+            writer.push(constant_column_batch(index)?).await?;
+        }
+
+        let estimate = writer.estimated_size() as f64;
+        let size = writer.finish().await?.size() as f64;
+
+        let error = (estimate - size).abs() / size;
+        assert!(
+            error <= 0.2,
+            "estimate {estimate} is not within 20% of the size {size}"
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn estimate_does_not_drop_sharply_and_ends_at_the_size() -> VortexResult<()> {
         let options = write_options();
