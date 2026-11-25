@@ -13,6 +13,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Duration;
 use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
@@ -358,7 +359,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             len,
             ctx,
         )?,
-        DType::Duration(unit, ..) => execute_sparse_duration(*unit, patches, &fill_value, ctx)?,
+        DType::Duration(unit, ..) => execute_sparse_duration(*unit, patches, &fill_value)?,
         DType::Union(..) => vortex_bail!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
             vortex_bail!("Sparse canonicalization does not support Variant")
@@ -731,16 +732,14 @@ fn execute_sparse_duration(
     unit: DurationUnit,
     patches: Patches,
     fill_value: &Scalar,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let patches =
-        patches.map_values(|values| Ok(values.execute::<DurationArray>(ctx)?.counts().clone()))?;
+    let patches = patches.map_values(|values| Ok(values.as_::<Duration>().counts().clone()))?;
     let fill_count = Scalar::try_new(
         DType::Primitive(PType::I64, fill_value.dtype().nullability()),
         fill_value.value().cloned(),
     )?;
-    let counts = execute_sparse_primitives::<i64>(&patches, &fill_count, ctx)?;
-    Ok(DurationArray::try_new(unit, counts)?.into_array())
+    let counts = Sparse::try_new_from_patches(patches, fill_count)?;
+    Ok(DurationArray::try_new(unit, counts.into_array())?.into_array())
 }
 
 fn execute_sparse_struct(
@@ -908,6 +907,7 @@ mod test {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::chunked::ChunkedArrayExt;
+    use vortex_array::arrays::duration::DurationArraySlotsExt;
     use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
@@ -1015,7 +1015,10 @@ mod test {
         let expected_counts =
             PrimitiveArray::from_option_iter([fill, Some(-7), None, fill, Some(9)]);
         let expected = DurationArray::try_new(unit, expected_counts.into_array())?;
-        assert_arrays_eq!(sparse.slice(1..6)?, expected, &mut ctx);
+        let sliced = sparse.slice(1..6)?;
+        let canonical = sliced.clone().execute::<DurationArray>(&mut ctx)?;
+        assert!(canonical.counts().is::<Sparse>());
+        assert_arrays_eq!(sliced, expected, &mut ctx);
         Ok(())
     }
 
