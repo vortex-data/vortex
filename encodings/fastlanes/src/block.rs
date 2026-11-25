@@ -9,7 +9,6 @@
 //! source too, unpacking with FastLanes' fused unpack-and-add ([`FoRStrategy`]). FoR over any
 //! other child adds its references to each block ([`AddReference`], [`AddReferences`]).
 
-use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use fastlanes::FoR as FastLanesFoR;
@@ -33,10 +32,8 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
-use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::BitPacked;
@@ -49,7 +46,6 @@ use crate::FoRArraySlotsExt;
 use crate::FoRReferences;
 use crate::unpack_iter::BitPackingStrategy;
 use crate::unpack_iter::UnpackStrategy;
-use crate::unpack_iter::unpack_chunk_into;
 use crate::unpack_iter::validate_packed;
 
 /// BitPacked's block source, for arrays with one global bit width.
@@ -160,10 +156,12 @@ struct PackedSource<T: PhysicalPType, S> {
 impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
     /// Unpack chunk `chunk` into `buf` and return its values.
     fn unpack<'o>(&self, chunk: usize, buf: &'o mut BlockBuf) -> &'o mut [T] {
-        let out = <&mut [MaybeUninit<T>; FL_CHUNK_SIZE]>::try_from(buf.out::<T>(FL_CHUNK_SIZE))
-            .ok()
-            .vortex_expect("a block holds one FastLanes chunk");
-        unpack_chunk_into(&self.strategy, &self.packed, self.bit_width, chunk, out)
+        let elems_per_chunk = 128 * self.bit_width / size_of::<T>();
+        let packed = &self.packed[chunk * elems_per_chunk..][..elems_per_chunk];
+        let dst = buf.values_mut::<T::Physical>(FL_CHUNK_SIZE);
+        // SAFETY: `packed` holds exactly one chunk at `bit_width`, and `dst` exactly one chunk.
+        unsafe { self.strategy.unpack_chunk(self.bit_width, packed, dst) };
+        buf.values_mut::<T>(FL_CHUNK_SIZE)
     }
 }
 
@@ -171,7 +169,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
-        scratch: &'s mut BlockBuf,
+        scratch: &mut BlockBuf,
         validity: &mut BlockValidity<'_>,
     ) -> VortexResult<SourceBlock<'s>> {
         let (first, end) = (self.offset + rows.start, self.offset + rows.end);
@@ -188,8 +186,10 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
         if let Some(patches) = &mut self.patches {
             patches.apply(rows.start, block, validity);
         }
-        // SAFETY: the unpacked chunk holds the `rows.len()` values from `offset`.
-        Ok(unsafe { SourceBlock::scratch(offset, rows.len()) })
+        Ok(SourceBlock::Scratch {
+            offset,
+            len: rows.len(),
+        })
     }
 
     fn block_offset(&self) -> usize {
@@ -234,22 +234,19 @@ impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
         // A block may straddle a FoR chunk boundary, so add each chunk's reference to its rows.
         match block.values {
             Values::Copy { input, mut out } => {
-                let (input, values) = (input.as_slice::<T>(), out.as_uninit::<T>());
+                let input = input.as_slice::<T>();
                 self.for_each_chunk(start, input.len(), |rows, reference| {
-                    input[rows.clone()].map_into(&mut values[rows], |v| v.wrapping_add(&reference));
+                    out.push_map(&input[rows], |v| v.wrapping_add(&reference));
                 });
-                // SAFETY: the chunk runs cover the block, and each run's values were written.
-                Ok(unsafe { Written::assume_init(out) })
+                out.finish()
             }
             Values::InPlace(mut block) => {
                 let values = block.as_mut_slice::<T>();
                 self.for_each_chunk(start, values.len(), |rows, reference| {
                     values[rows].map_into_in_place(|v| v.wrapping_add(&reference));
                 });
-                // SAFETY: the chunk runs cover the block, and each run's values were overwritten.
-                Ok(unsafe { block.assume_written() })
+                Ok(block.written())
             }
-            _ => vortex_bail!("FoR adds per-chunk references to copied or in-place blocks only"),
         }
     }
 }
