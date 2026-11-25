@@ -205,12 +205,12 @@ mod tests {
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
-    use crate::test::SESSION;
+    use crate::tests::SESSION;
 
-    fn write_and_read(expected: &ArrayRef) {
+    fn write_and_read(expected: &ArrayRef) -> VortexResult<()> {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::new(SESSION.clone());
-        for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
+        for buf in encoder.encode(EncoderMessage::Array(expected))? {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
@@ -218,32 +218,78 @@ mod tests {
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
-        let (array_parts, ctx, row_count) = match decoder.read_next(&mut buffer).unwrap() {
+        let (array_parts, ctx, row_count) = match decoder.read_next(&mut buffer)? {
             PollRead::Some(DecoderMessage::Array(array_parts)) => array_parts,
             otherwise => vortex_panic!("Expected an array, got {:?}", otherwise),
         };
 
         // Decode the array parts with the context
-        let actual = array_parts
-            .decode(expected.dtype(), row_count, &ctx, &SESSION)
-            .unwrap();
+        let actual = array_parts.decode(expected.dtype(), row_count, &ctx, &SESSION)?;
 
         assert_eq!(expected.len(), actual.len());
         assert_eq!(expected.encoding_id(), actual.encoding_id());
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]
-    fn array_ipc() {
-        write_and_read(&buffer![0i32, 1, 2, 3].into_array());
+    fn array_ipc() -> VortexResult<()> {
+        write_and_read(&buffer![0i32, 1, 2, 3].into_array())
     }
 
     #[test]
-    fn array_constant_single_buffer() {
+    fn array_constant_single_buffer() -> VortexResult<()> {
         // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
-        write_and_read(&array.into_array());
+        write_and_read(&array.into_array())
+    }
+
+    #[test]
+    fn buffer_message_roundtrip_preserves_alignment() -> VortexResult<()> {
+        let payload = [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+
+        for align in [1, 8, 64, 4096] {
+            let alignment = Alignment::new(align);
+            for expected in [
+                ByteBuffer::copy_from_aligned(payload, alignment),
+                ByteBuffer::empty_aligned(alignment),
+            ] {
+                let mut ipc_bytes = BytesMut::new();
+                for buf in encoder.encode(EncoderMessage::Buffer(&expected))? {
+                    ipc_bytes.extend_from_slice(buf.as_ref());
+                }
+
+                let mut decoder = MessageDecoder::default();
+                let PollRead::Some(DecoderMessage::Buffer(actual)) =
+                    decoder.read_next(&mut ipc_bytes)?
+                else {
+                    vortex_panic!("expected a buffer message");
+                };
+
+                assert_eq!(actual.as_slice(), expected.as_slice());
+                assert_eq!(actual.alignment(), alignment);
+                assert!(alignment.is_ptr_aligned(actual.as_ptr()));
+                assert!(ipc_bytes.is_empty());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn buffer_message_rejects_untrusted_alignment() -> VortexResult<()> {
+        let excessive = ByteBuffer::empty_aligned(Alignment::from_exponent(17));
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        let mut ipc_bytes = BytesMut::new();
+        for buf in encoder.encode(EncoderMessage::Buffer(&excessive))? {
+            ipc_bytes.extend_from_slice(buf.as_ref());
+        }
+
+        let mut decoder = MessageDecoder::default();
+        assert!(decoder.read_next(&mut ipc_bytes).is_err());
+        Ok(())
     }
 
     #[test]
