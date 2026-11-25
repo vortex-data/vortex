@@ -221,6 +221,9 @@ jobs:
         env:
           # required to make sure docs build for features
           RUSTDOCFLAGS: "-D warnings --cfg docsrs"
+          # Document each crate into its own directory. Merging them into one is what makes
+          # `cargo doc` slow, and nothing here uses the merged output. See the script for details.
+          RUSTDOC: ${{ github.workspace }}/.github/scripts/rustdoc-unmerged.sh
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
