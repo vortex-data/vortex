@@ -46,7 +46,7 @@ https://github.com/vortex-data/vortex/actions/runs/123456/artifacts/789012
 
 
 def test_manual_multiline_command_and_tgz_attachment():
-    body = """
+    body = r"""
 [oom.tgz](https://github.com/user-attachments/files/35422130/oom.tgz)
 [fuzz_local.log](https://github.com/user-attachments/files/35422457/fuzz_local.log)
 
