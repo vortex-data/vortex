@@ -130,12 +130,12 @@ def test_stream_pyarrow(tmpdir_factory) -> None:
 
 
 @pytest.mark.parametrize("as_reader", [False, True])
-def test_write_reports_unsupported_arrow_type(tmp_path, as_reader: bool) -> None:
+def test_write_rejects_duration_when_edition_disallows_it(tmp_path, as_reader: bool) -> None:
     table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
     source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
 
-    with pytest.raises(ValueError, match="Duration"):
-        vx.io.write(source, str(tmp_path / "x.vortex"))
+    with pytest.raises(RuntimeError, match="Duration dtype not permitted"):
+        vx.io.write(source, str(tmp_path / "x.vortex"), edition="core2025.10.0")
 
 
 def test_write_rejects_unsupported_object(tmp_path) -> None:

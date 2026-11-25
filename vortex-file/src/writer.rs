@@ -593,41 +593,54 @@ fn edition_filter(session: &VortexSession, kind: ComponentKind) -> HashSet<Id> {
 
 /// Validate edition-gated dtypes nested in the file schema.
 fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResult<()> {
-    fn validate(session: &VortexSession, dtype: &DType, allowed: &HashSet<Id>) -> VortexResult<()> {
+    fn validate(
+        dtype: &DType,
+        allowed_extension_dtypes: &HashSet<Id>,
+        allowed_array_encodings: &HashSet<Id>,
+    ) -> VortexResult<()> {
         match dtype {
             DType::List(element, _) | DType::FixedSizeList(element, ..) => {
-                validate(session, element, allowed)
+                validate(element, allowed_extension_dtypes, allowed_array_encodings)
             }
             DType::Map(map, _) => {
-                validate(session, &map.key_dtype(), allowed)?;
-                validate(session, &map.value_dtype(), allowed)
+                validate(
+                    &map.key_dtype(),
+                    allowed_extension_dtypes,
+                    allowed_array_encodings,
+                )?;
+                validate(
+                    &map.value_dtype(),
+                    allowed_extension_dtypes,
+                    allowed_array_encodings,
+                )
             }
             DType::Struct(fields, _) => {
                 for field in fields.fields() {
-                    validate(session, &field, allowed)?;
+                    validate(&field, allowed_extension_dtypes, allowed_array_encodings)?;
                 }
                 Ok(())
             }
             DType::Union(variants, _) => {
                 for variant in variants.variants() {
-                    validate(session, &variant, allowed)?;
+                    validate(&variant, allowed_extension_dtypes, allowed_array_encodings)?;
                 }
                 Ok(())
             }
             DType::Extension(extension) => {
-                if !allowed.contains(&extension.id()) {
+                if !allowed_extension_dtypes.contains(&extension.id()) {
                     vortex_bail!(
                         "Extension DType {} not permitted by enabled editions",
                         extension.id()
                     );
                 }
-                validate(session, extension.storage_dtype(), allowed)
+                validate(
+                    extension.storage_dtype(),
+                    allowed_extension_dtypes,
+                    allowed_array_encodings,
+                )
             }
             DType::Duration(..) => {
-                if !session
-                    .enabled_component_ids(ComponentKind::Array)
-                    .contains(&Duration.id())
-                {
+                if !allowed_array_encodings.contains(&Duration.id()) {
                     vortex_bail!("Duration dtype not permitted by enabled editions");
                 }
                 Ok(())
@@ -642,8 +655,9 @@ fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResu
         }
     }
 
-    let allowed = edition_filter(session, ComponentKind::DType);
-    validate(session, dtype, &allowed)
+    let allowed_extension_dtypes = edition_filter(session, ComponentKind::DType);
+    let allowed_array_encodings = edition_filter(session, ComponentKind::Array);
+    validate(dtype, &allowed_extension_dtypes, &allowed_array_encodings)
 }
 
 /// The context every layout in the file is interned through.
