@@ -132,7 +132,7 @@ pub fn nested_case_when(
 /// Returns an error if `when_then_pairs` is empty or has more than `u32::MAX` pairs.
 ///
 /// ```rust
-/// # use vortex_array::expr::lit;
+/// # use vortex_expr::lit;
 /// # use vortex_functions::expr::try_nested_case_when;
 /// assert!(try_nested_case_when(vec![(lit(true), lit(1_i32))], Some(lit(0_i32))).is_ok());
 /// assert!(try_nested_case_when(vec![], Some(lit(0_i32))).is_err());
