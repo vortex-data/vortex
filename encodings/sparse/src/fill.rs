@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Choosing the fill value of a sparse array: the valid value filling more than half of the valid
-//! rows when there is one, otherwise some valid value.
+//! rows when there is one, otherwise some valid value. Strings only take a fill short enough to be
+//! inlined in a view.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -26,16 +27,20 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-/// Returns the dominant valid value of `array`, whose validity is `mask`.
+/// Returns the dominant valid value of `array`, whose validity is `mask`, or `None` when the array
+/// should not be made sparse.
 ///
-/// That is the value filling more than half of the valid positions whenever there is one, found
-/// by a Boyer–Moore vote. Otherwise it is some valid value, which still makes a correct, if poorly
-/// compressed, fill. At least one value must be valid.
+/// The dominant value is the one filling more than half of the valid positions whenever there is
+/// one, found by a Boyer–Moore vote. Otherwise it is some valid value, which still makes a correct,
+/// if poorly compressed, fill. At least one value must be valid.
+///
+/// For strings, the result is `None` when the vote's winner is too long to inline in a view: such
+/// a fill would be stored out of line, and finding the exact value would mean comparing bytes.
 pub(crate) fn dominant_value(
     array: &ArrayRef,
     mask: &Mask,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Scalar> {
+) -> VortexResult<Option<Scalar>> {
     let nullability = array.dtype().nullability();
     match array.dtype() {
         DType::Primitive(..) => {
@@ -47,7 +52,7 @@ pub(crate) fn dominant_value(
                     .vortex_expect("array has a valid value")
                     .into()
             });
-            Ok(Scalar::primitive_value(top, top.ptype(), nullability))
+            Ok(Some(Scalar::primitive_value(top, top.ptype(), nullability)))
         }
         DType::Bool(_) => {
             let bools = array.clone().execute::<BoolArray>(ctx)?;
@@ -57,7 +62,7 @@ pub(crate) fn dominant_value(
                 AllOr::Some(validity) => (&bools.to_bit_buffer() & validity).true_count(),
             };
             let valid_false = mask.true_count() - valid_true;
-            Ok(Scalar::bool(valid_true > valid_false, nullability))
+            Ok(Some(Scalar::bool(valid_true > valid_false, nullability)))
         }
         DType::Decimal(..) => {
             let decimal = array.clone().execute::<DecimalArray>(ctx)?;
@@ -67,12 +72,14 @@ pub(crate) fn dominant_value(
                     majority_candidate(&values, mask).vortex_expect("array has a valid value");
                 first_valid_index_of(&values, mask, top)
             });
-            decimal.into_array().execute_scalar(index, ctx)
+            decimal.into_array().execute_scalar(index, ctx).map(Some)
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let bytes = array.clone().execute::<VarBinViewArray>(ctx)?;
-            let index = view_vote_index(&bytes, mask);
-            bytes.into_array().execute_scalar(index, ctx)
+            let Some(index) = inline_vote_index(&bytes, mask) else {
+                return Ok(None);
+            };
+            bytes.into_array().execute_scalar(index, ctx).map(Some)
         }
         dtype => vortex_bail!(
             "cannot choose a fill value for a {dtype} array, so one must be given explicitly"
@@ -100,38 +107,22 @@ impl MajorityKey for ViewGroup {
     }
 }
 
-/// Returns a valid index holding the dominant value of `bytes`.
+/// Returns a valid index holding the dominant value of `bytes`, or `None` if the vote's winner is
+/// too long to inline.
 ///
-/// The vectorized vote over [`ViewGroup`]s finds the majority value's group. An inline group is a
-/// single value. A group of longer values shares a length and prefix, and a scalar vote over its
-/// members, comparing their bytes, finds the majority within it, which is the majority overall.
-fn view_vote_index(bytes: &VarBinViewArray, mask: &Mask) -> usize {
-    let resolved = bytes.resolved_views();
-    let views = resolved.views();
+/// The vectorized vote over [`ViewGroup`]s needs no string bytes. Long values are grouped by length
+/// and prefix, so a long value filling most of the array still wins as a group, and the array is
+/// left as it is rather than given a short fill that a minority holds.
+fn inline_vote_index(bytes: &VarBinViewArray, mask: &Mask) -> Option<usize> {
+    let views = bytes.views();
     // SAFETY: `ViewGroup` is a transparent wrapper around `BinaryView`.
     let groups: &[ViewGroup] =
         unsafe { std::slice::from_raw_parts(views.as_ptr().cast(), views.len()) };
     let group = majority_candidate(groups, mask).vortex_expect("array has a valid value");
-    if group.0.is_inlined() {
-        return first_valid_index_of(groups, mask, group);
-    }
-
-    let value = |index: usize| resolved.bytes(index);
-    let mut candidate = None;
-    let mut surplus = 0usize;
-    let members =
-        (0..views.len()).filter(|&index| mask.value(index) && groups[index].key_eq(group));
-    for index in members {
-        match candidate {
-            Some(current) if value(current) == value(index) => surplus += 1,
-            _ if surplus == 0 => {
-                candidate = Some(index);
-                surplus = 1;
-            }
-            _ => surplus -= 1,
-        }
-    }
-    candidate.vortex_expect("the group has a valid member")
+    group
+        .0
+        .is_inlined()
+        .then(|| first_valid_index_of(groups, mask, group))
 }
 
 /// Returns the first valid index holding `value`, which must occur at one.
@@ -166,6 +157,7 @@ mod tests {
     });
 
     const LONG: &str = "a string too long to inline in a view";
+    const SHORT: &str = "inline";
 
     /// Nulls fill most rows, but the fill is the most common valid value.
     fn nullable_bools() -> ArrayRef {
@@ -180,7 +172,8 @@ mod tests {
     fn nullable_strings() -> ArrayRef {
         VarBinViewArray::from_iter_nullable_str((0..100).map(|index| match index % 10 {
             0 => Some("rare"),
-            1..4 => Some(LONG),
+            1..4 => Some(SHORT),
+            4 => Some(LONG),
             _ => None,
         }))
         .into_array()
@@ -201,7 +194,7 @@ mod tests {
 
     #[rstest]
     #[case::bool(nullable_bools(), Scalar::bool(true, Nullability::Nullable))]
-    #[case::utf8(nullable_strings(), Scalar::utf8(LONG, Nullability::Nullable))]
+    #[case::utf8(nullable_strings(), Scalar::utf8(SHORT, Nullability::Nullable))]
     #[case::binary(binary(), Scalar::binary(b"x".to_vec(), Nullability::NonNullable))]
     #[case::decimal(
         decimals(),
@@ -225,16 +218,14 @@ mod tests {
         Ok(())
     }
 
-    /// Long strings that share a length and prefix fall in one view group, which the vote finds
-    /// before comparing bytes. Without a majority, any valid fill still encodes correctly.
+    /// A long string's group wins the vote, so the array is left as it is. Copies of one long
+    /// value sit at different offsets, so the vote must group them to see them as a majority.
     #[rstest]
-    #[case::majority_in_group(55, 30, Some("same-prefix-value-AAAA"))]
-    #[case::group_without_majority(40, 35, None)]
-    #[case::no_majority_group(20, 20, None)]
-    fn long_strings_sharing_a_head(
+    #[case::one_long_value(55, 0)]
+    #[case::long_values_sharing_a_head(40, 35)]
+    fn long_string_majority_stays_unencoded(
         #[case] first_percent: usize,
         #[case] second_percent: usize,
-        #[case] expected: Option<&str>,
     ) -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str((0..100).map(|index| {
             if index < first_percent {
@@ -242,21 +233,13 @@ mod tests {
             } else if index < first_percent + second_percent {
                 "same-prefix-value-BBBB".to_string()
             } else {
-                format!("other-{index}")
+                format!("v{index}")
             }
         }))
         .into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let encoded = Sparse::encode(&array, None, &mut ctx)?;
-        let sparse = encoded
-            .as_opt::<Sparse>()
-            .vortex_expect("the input has values other than the fill");
-        if let Some(expected) = expected {
-            assert_eq!(
-                sparse.fill_scalar(),
-                &Scalar::utf8(expected, Nullability::NonNullable)
-            );
-        }
+        assert!(encoded.as_opt::<Sparse>().is_none());
         assert_arrays_eq!(encoded, array, &mut ctx);
         Ok(())
     }
