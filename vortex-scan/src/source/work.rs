@@ -3,8 +3,8 @@
 
 //! The work an opened scan's streams share: its parts, claimed a few column chunks at a time.
 //!
-//! A stream takes a part from the queue and claims its rows from the front, a few column chunks
-//! at a time. A stream that finds the queue empty steals instead: it cuts the unclaimed rest of
+//! A stream takes a part from the queue and claims its rows from the front, the fewest whole
+//! column chunks that hold [`CLAIM_SURVIVING_ROWS`] rows the static conjuncts keep. A stream that finds the queue empty steals instead: it cuts the unclaimed rest of
 //! the running part with the most surviving rows at the column chunk boundary nearest its middle
 //! and runs the back half as a part of its own, which others may steal from in turn. Work that a
 //! few parts hold, such as a selective filter's rows, is so shared out among the streams while it
@@ -16,6 +16,7 @@
 use std::cmp::Reverse;
 use std::collections::VecDeque;
 use std::ops::Range;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -24,6 +25,11 @@ use parking_lot::Mutex;
 use crate::stream::Claims;
 use crate::stream::ExhaustedFlag;
 
+/// The rows that survive the static conjuncts that a claim holds at least, unless its part has
+/// fewer left: few enough that a part's rest is left to steal while it runs, enough that a claim's
+/// planning is small beside its work.
+pub(super) const CLAIM_SURVIVING_ROWS: u64 = 32 * 1024;
+
 /// The work of an opened scan, which every stream of it claims rows from.
 pub(super) struct Work {
     state: Mutex<State>,
@@ -31,8 +37,11 @@ pub(super) struct Work {
     boundaries: Vec<u64>,
     /// The sorted rows the filter's static conjuncts keep, or `None` when they keep every row.
     surviving: Option<Vec<Range<u64>>>,
-    /// The rows a claim covers at least, unless its part has fewer left.
-    claim_rows: u64,
+    /// The surviving rows a claim holds at least, unless its part has fewer left.
+    claim_surviving: u64,
+    /// Set once a stream found the queue empty and had to steal, after which no stream claims
+    /// ahead of its need.
+    stealing: AtomicBool,
     /// The parts the queue started with.
     total: usize,
     /// The parts streams have taken from the queue.
@@ -70,12 +79,13 @@ pub(super) struct Owned(usize);
 impl Work {
     /// The work of `parts`, cut only at `boundaries`, the sorted chunk boundaries of the columns
     /// the scan reads, and weighed for stealing by `surviving`, the sorted rows the static
-    /// conjuncts keep. Each claim covers at least `claim_rows` rows where the part has them.
+    /// conjuncts keep. Each claim holds at least `claim_surviving` surviving rows where the part
+    /// has them.
     pub(super) fn new(
         parts: Vec<Range<u64>>,
         boundaries: Vec<u64>,
         surviving: Option<Vec<Range<u64>>>,
-        claim_rows: u64,
+        claim_surviving: u64,
         exhausted: ExhaustedFlag,
     ) -> Self {
         let total = parts.len();
@@ -89,7 +99,8 @@ impl Work {
             }),
             boundaries,
             surviving,
-            claim_rows: claim_rows.max(1),
+            claim_surviving: claim_surviving.max(1),
+            stealing: AtomicBool::new(false),
             total,
             taken: AtomicUsize::new(0),
             exhausted,
@@ -120,6 +131,7 @@ impl Work {
             state.running.push(self.remainder(part));
             state.running.len() - 1
         } else {
+            self.stealing.store(true, Ordering::Relaxed);
             let stolen = self.steal(state)?;
             state.running.push(stolen);
             state.running.len() - 1
@@ -128,8 +140,8 @@ impl Work {
         self.claim_front(state, index)
     }
 
-    /// Claims rows from the front of the running part at `index`, up to the first cut at least
-    /// [`claim_rows`](Self::claim_rows) on, or to its end.
+    /// Claims rows from the front of the running part at `index`, up to the first cut before
+    /// which at least [`claim_surviving`](Self::claim_surviving) rows survive, or to its end.
     fn claim_front(&self, state: &mut State, index: usize) -> Option<Range<u64>> {
         let rest = &mut state.running[index];
         let start = *rest.cuts.first()?;
@@ -138,7 +150,7 @@ impl Work {
         }
         let at = rest.cuts[1..]
             .iter()
-            .position(|&cut| cut - start >= self.claim_rows)
+            .position(|&cut| self.weight(start..cut) >= self.claim_surviving)
             .map_or(rest.cuts.len() - 1, |offset| offset + 1);
         let end = rest.cuts[at];
         rest.cuts.drain(..at);
@@ -172,11 +184,17 @@ impl Work {
         Some(Remainder { cuts: back })
     }
 
-    /// Whether a stealing stream may cut `rest`: it has a boundary to cut at, more rows than one
-    /// claim, and rows that survive.
+    /// Whether a stealing stream may cut `rest`: it has a boundary to cut at, and more surviving
+    /// rows than one claim holds.
     fn stealable(&self, rest: &Remainder) -> bool {
-        let rows = rest.rows();
-        rest.cuts.len() > 2 && rows.end - rows.start > self.claim_rows && self.weight(rows) > 0
+        rest.cuts.len() > 2 && self.weight(rest.rows()) > self.claim_surviving
+    }
+
+    /// Whether a stream has found the queue empty and had to steal. From then on there are more
+    /// streams than parts, so a stream claims only once it has run out, leaving the rest of its
+    /// part to steal, rather than ahead to overlap reads.
+    pub(super) fn stealing(&self) -> bool {
+        self.stealing.load(Ordering::Relaxed)
     }
 
     /// The unclaimed rows of a part just taken, with the chunk boundaries inside it.
@@ -324,17 +342,39 @@ mod tests {
             vec![0..1_000],
             (0..1_000).step_by(50).skip(1).collect(),
             Some(vec![800..1_000]),
-            100,
+            50,
             ExhaustedFlag::new(),
         );
-        let (mut first, mut second) = (None, None);
-        assert_eq!(work.claim(&mut first), Some(0..100));
-        assert_eq!(work.claim(&mut second), Some(900..1_000));
-        // Of the owner's rest, 100..900, only 800..900 survives: the next thief takes its back
-        // half, and then the last of it, rather than the pruned rows in front.
-        let (mut third, mut fourth) = (None, None);
-        assert_eq!(work.claim(&mut third), Some(850..900));
-        assert_eq!(work.claim(&mut fourth), Some(800..850));
+        let (mut first, mut second, mut third, mut fourth) = (None, None, None, None);
+        // The owner's first claim runs through the pruned rows to the first 50 that survive.
+        assert_eq!(work.claim(&mut first), Some(0..850));
+        // Thieves take the back of the rest, nearest the middle of its surviving rows.
+        assert_eq!(work.claim(&mut second), Some(950..1_000));
+        assert_eq!(work.claim(&mut third), Some(900..950));
+        // The owner's rest, 850..900, holds one claim's surviving rows, too few to cut.
+        assert_eq!(work.claim(&mut fourth), None);
+        assert_eq!(work.claim(&mut first), Some(850..900));
+    }
+
+    #[test]
+    fn dense_parts_are_stolen_from_when_a_stream_goes_idle() {
+        let work = Work::new(
+            vec![0..100_000],
+            (0..100_000).step_by(1_000).skip(1).collect(),
+            None,
+            2_000,
+            ExhaustedFlag::new(),
+        );
+        let (mut owner, mut idle) = (None, None);
+        assert_eq!(work.claim(&mut owner), Some(0..2_000));
+        assert!(!work.stealing());
+        // The second stream finds no part left, steals the back half of the owner's rest, and
+        // from then on no stream claims ahead.
+        assert_eq!(work.claim(&mut idle), Some(51_000..53_000));
+        assert!(work.stealing());
+        assert_eq!(work.claim(&mut owner), Some(2_000..4_000));
+        assert_eq!(work.claim(&mut idle), Some(53_000..55_000));
+        assert!(!work.exhausted.is_set());
     }
 
     #[test]

@@ -11,14 +11,14 @@
 //! at least as many parts as pieces and deals them out to the pieces.
 //!
 //! Every stream of an opened scan shares one [`Work`]: it takes a part from the queue and claims
-//! its rows a few column chunks at a time, and once the queue is empty it steals the back half of
+//! its rows a few column chunks at a time, sized by the rows the static conjuncts keep, and once the queue is empty it steals the back half of
 //! the unclaimed rest of another stream's part, cut at a column chunk boundary. The scan is
 //! exhausted once nothing is left to take or steal. Claimed rows are planned when a stream claims
 //! them, over the rows the static conjuncts kept: with a dynamic conjunct, they are first pruned
 //! against the zone maps, applying the conjunct as it stands then, such as the bound a top-N
 //! pushes down. Each stream owns a [`Run`], driven on the task that polls the stream: a claim's
-//! chunks run side by side, so one chunk's reads overlap another's compute, the next claim is
-//! admitted while the last chunk of the one before runs, batches are returned as they are
+//! chunks run side by side, so one chunk's reads overlap another's compute, until a stream has
+//! had to steal, the next claim is admitted while the last chunk of the one before runs, batches are returned as they are
 //! produced, and reads are awaited with [`Run::poll_completion`]. Nothing is spawned, so a host
 //! that polls a stream with `block_on` runs the scan's compute on its own thread.
 //!
@@ -41,6 +41,7 @@ use vortex_io::request::IoService;
 use vortex_mask::Mask;
 
 use super::plan::ScanState;
+use super::work::CLAIM_SURVIVING_ROWS;
 use super::work::Owned;
 use super::work::Work;
 use crate::execution::chunk_boundaries;
@@ -178,7 +179,7 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
         planned.parts,
         prepared.boundaries.clone(),
         surviving,
-        (CLAIM_CHUNKS * prepared.scan.chunk_rows) as u64,
+        CLAIM_SURVIVING_ROWS,
         exhausted.clone(),
     ));
     let progress = Arc::clone(&work);
@@ -206,10 +207,6 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
     .with_batch_cuts(session)
 }
 
-/// The scan chunks of rows a stream claims at a time, at least: two, so that a stealing stream
-/// finds work to cut off a part with as few as three chunks left.
-const CLAIM_CHUNKS: usize = 2;
-
 /// One stream's worker: a run of its own, fed rows claimed from the scan's work, and driven on
 /// the task that polls the stream.
 struct Worker {
@@ -227,9 +224,11 @@ impl Worker {
     /// The worker's next array, or `None` once the scan has no more work for it.
     async fn next_array(&mut self) -> VortexResult<Option<ArrayRef>> {
         loop {
-            // The next claim is admitted while the last chunk of the one before runs, so that
-            // its reads overlap that chunk's compute.
-            if self.run.live_roots() <= 1 && !self.admit_claim() && self.run.live_roots() == 0 {
+            // Until a stream has had to steal, the next claim is admitted while the last chunk of
+            // the one before runs, so that its reads overlap that chunk's compute. Once one has,
+            // a claim waits for the last to finish, leaving the rest of the part to steal.
+            let ahead = if self.work.stealing() { 0 } else { 1 };
+            if self.run.live_roots() <= ahead && !self.admit_claim() && self.run.live_roots() == 0 {
                 return Ok(None);
             }
             match self.run.advance()? {
