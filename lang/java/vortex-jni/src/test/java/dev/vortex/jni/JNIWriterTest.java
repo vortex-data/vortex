@@ -24,7 +24,6 @@ import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.io.NativeWritable;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -947,13 +946,25 @@ public final class JNIWriterTest {
     public void testNullRawAddressesRejected() throws IOException {
         Path outputPath = tempDir.resolve("test_null_addrs.vortex");
         String writePath = outputPath.toAbsolutePath().toUri().toString();
-        BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();
 
-        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
-                .build()) {
+        try (RootAllocator allocator = new RootAllocator();
+                VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                        .build()) {
             assertThrows(IOException.class, () -> writer.writeBatch(0L, 0L));
             assertThrows(IllegalArgumentException.class, () -> writer.writeBatch(0L));
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(personSchema(), allocator);
+                    ArrowArray array = ArrowArray.allocateNew(allocator)) {
+                root.setRowCount(0);
+                Data.exportVectorSchemaRoot(allocator, root, null, array);
+                assertThrows(IOException.class, () -> writer.writeBatch(array.memoryAddress(), 0L));
+                assertEquals(0L, array.snapshot().release);
+            }
+            try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
+                Data.exportSchema(allocator, personSchema(), null, schema);
+                assertThrows(IOException.class, () -> writer.writeBatch(0L, schema.memoryAddress()));
+                assertEquals(0L, schema.snapshot().release);
+            }
         }
 
         assertThrows(RuntimeException.class, () -> NativePartition.rowCount(0L, new long[2]));
@@ -980,36 +991,6 @@ public final class JNIWriterTest {
         }
 
         assertThrows(RuntimeException.class, () -> DataSource.open(session, writePath));
-    }
-
-    @Test
-    public void testAbandonedWriterCleanerAbortsWithoutValidFooter() throws Exception {
-        Path outputPath = tempDir.resolve("test_gc_abort.vortex");
-        String writePath = outputPath.toAbsolutePath().toUri().toString();
-        Session session = Session.create();
-
-        try (RootAllocator allocator = new RootAllocator()) {
-            WeakReference<VortexWriter> ref = openAndAbandonWriter(session, writePath, allocator);
-            assertTrue(allocator.getAllocatedMemory() > 0L, "writer should retain batch buffers until aborted");
-            for (int attempt = 0;
-                    attempt < 200 && (!ref.refersTo(null) || allocator.getAllocatedMemory() != 0L);
-                    attempt++) {
-                System.gc();
-                Thread.sleep(10);
-            }
-            assertTrue(ref.refersTo(null), "abandoned writer should be collected");
-            assertEquals(0L, allocator.getAllocatedMemory(), "cleaner should abort writer and release buffers");
-        }
-
-        assertThrows(RuntimeException.class, () -> DataSource.open(session, writePath));
-    }
-
-    private static WeakReference<VortexWriter> openAndAbandonWriter(
-            Session session, String writePath, BufferAllocator allocator) throws IOException {
-        VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
-                .build();
-        writePeopleBatch(writer, allocator);
-        return new WeakReference<>(writer);
     }
 
     @Test

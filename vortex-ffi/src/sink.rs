@@ -440,6 +440,8 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_sink_null_pointers() {
+        // SAFETY: `session` and `dtype` stay live until freed below, and the sink entry points
+        // accept null pointers and report them through `error_out`.
         unsafe {
             let session = vx_session_new();
             let temp_file = NamedTempFile::new().unwrap();

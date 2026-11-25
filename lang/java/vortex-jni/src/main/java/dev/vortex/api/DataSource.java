@@ -80,12 +80,8 @@ public final class DataSource implements AutoCloseable {
         if (!Arrays.stream(uriArray).allMatch(Objects::nonNull)) {
             throw new IllegalArgumentException("uris must not contain null values");
         }
-        long pointer;
-        try {
-            pointer = NativeDataSource.open(session.nativePointer(), uriArray, properties);
-        } finally {
-            Reference.reachabilityFence(session);
-        }
+        long sessionPointer = session.nativePointer();
+        long pointer = NativeDataSource.open(sessionPointer, uriArray, properties);
         return new DataSource(session, pointer);
     }
 
@@ -139,13 +135,8 @@ public final class DataSource implements AutoCloseable {
                 throw new IllegalArgumentException(String.format("readable for %s reported negative length", names[i]));
             }
         }
-        long pointer;
-        try {
-            pointer =
-                    NativeDataSource.openFiles(session.nativePointer(), readableArray, names, lengths, readConcurrency);
-        } finally {
-            Reference.reachabilityFence(session);
-        }
+        long pointer =
+                NativeDataSource.openFiles(session.nativePointer(), readableArray, names, lengths, readConcurrency);
         return new DataSource(session, pointer);
     }
 
@@ -158,7 +149,7 @@ public final class DataSource implements AutoCloseable {
             NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
         } finally {
-            Reference.reachabilityFence(session);
+            Reference.reachabilityFence(this);
         }
     }
 

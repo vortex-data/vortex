@@ -95,7 +95,6 @@ public final class Partition {
             }
         } finally {
             cleanable.clean();
-            Reference.reachabilityFence(session);
             Reference.reachabilityFence(this);
         }
     }

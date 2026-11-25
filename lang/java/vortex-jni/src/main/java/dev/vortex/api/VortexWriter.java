@@ -9,7 +9,6 @@ import dev.vortex.jni.NativeBuffers;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
 import java.lang.ref.Cleaner;
-import java.lang.ref.Reference;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -187,8 +186,6 @@ public final class VortexWriter implements AutoCloseable {
                     // Native failures arrive as RuntimeException. Wrap them so callers can handle every
                     // failure to open a writer as an IOException, as writeBatch and finish already do.
                     throw new IOException("failed to create writer for " + destination(), e);
-                } finally {
-                    Reference.reachabilityFence(session);
                 }
                 if (pointer <= 0) {
                     throw new IOException("failed to create writer for " + destination() + " (ptr=" + pointer + ")");

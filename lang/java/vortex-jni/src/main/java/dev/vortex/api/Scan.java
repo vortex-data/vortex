@@ -69,7 +69,7 @@ public final class Scan implements Iterator<Partition>, AutoCloseable {
             NativeScan.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
         } finally {
-            Reference.reachabilityFence(session);
+            Reference.reachabilityFence(this);
         }
     }
 

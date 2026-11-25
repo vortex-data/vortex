@@ -266,11 +266,13 @@ impl NativeWriter {
         RUNTIME.block_on(handle)
     }
 
-    /// Cancel the write task without writing a footer or flushing the sink, and wait until the
-    /// task drops its in-flight buffers and sink handle.
+    /// Cancel the write task without writing a footer or flushing the sink, and wait for the
+    /// write task to exit. Any already-dispatched layout or compression subtasks release their
+    /// buffers once they finish or are polled out of the executor.
     fn abort(mut self) {
         drop(self.abort_tx.take());
-        self.sender.disconnect();
+        // Keep `self.sender` connected until the write task exits so the layout task cannot
+        // observe EOF and finalize the file before cancellation takes effect.
         if let Some(mut handle) = self.handle.take() {
             drop(RUNTIME.block_on(std::future::poll_fn(|cx| handle.poll_join(cx))));
         }
@@ -426,20 +428,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
     }
 
     try_or_throw(&mut env, |_env| {
-        if arrow_array_addr == 0 {
-            throw_runtime!("null arrow array address");
-        }
-        if arrow_schema_addr == 0 {
-            throw_runtime!("null arrow schema address");
-        }
-        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
-
-        let ffi_array =
-            unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
+        // Take ownership of whichever non-null FFI structs were passed before validating so a
+        // mixed-null call still releases the valid export as documented by `VortexWriter.writeBatch`.
+        let ffi_array = (arrow_array_addr != 0)
+            .then(|| unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) });
         // Take the schema as well as the array. As the consumer, native code must release both, and dropping the
         // owned schema does that; borrowing it would leak the exporter's copy on every batch.
-        let ffi_schema =
-            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let ffi_schema = (arrow_schema_addr != 0).then(|| unsafe {
+            FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema)
+        });
+        let Some(ffi_array) = ffi_array else {
+            throw_runtime!("null arrow array address");
+        };
+        let Some(ffi_schema) = ffi_schema else {
+            throw_runtime!("null arrow schema address");
+        };
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
 
         let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, &ffi_schema) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
@@ -692,6 +696,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_abort(
     if writer_ptr <= 0 {
         return;
     }
+    // SAFETY: `writer_ptr` was returned by `NativeWriter::into_raw` and has not yet been consumed
+    // by `close`, `finish`, or a previous `abort`.
     let writer = unsafe { NativeWriter::from_raw(writer_ptr) };
     try_or_throw(&mut env, |_env| {
         writer.abort();
