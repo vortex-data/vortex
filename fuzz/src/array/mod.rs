@@ -521,6 +521,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             Compress, Slice, Take, Filter, Compare, MinMax, FillNull, Mask, ScalarAt,
         ]
         .into(),
+        // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {
             // Extension types delegate to storage dtype, support most operations
