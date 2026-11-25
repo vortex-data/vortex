@@ -47,7 +47,7 @@ pub enum TemporalMetadata<'a> {
     Date(&'a <Date as ExtVTable>::Metadata),
     /// Metadata for Time dtypes
     Time(&'a <Time as ExtVTable>::Metadata),
-    /// Metadata for Duration dtypes
+    /// Metadata for [`Duration`] dtypes.
     Duration(&'a <Duration as ExtVTable>::Metadata),
 }
 

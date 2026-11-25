@@ -112,9 +112,11 @@ pub(super) fn to_arrow_duration(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     validate_temporal_extension(&array, target)?;
+
     let DataType::Duration(unit) = target else {
         unreachable!("to_arrow_duration called with non-Duration type {target}");
     };
+
     Ok(match unit {
         ArrowTimeUnit::Second => Arc::new(to_temporal_primitive::<DurationSecondType>(array, ctx)?),
         ArrowTimeUnit::Millisecond => Arc::new(to_temporal_primitive::<DurationMillisecondType>(
@@ -223,6 +225,7 @@ fn validate_temporal_extension(array: &ArrayRef, target: &DataType) -> VortexRes
                     "Cannot convert Duration({unit}) to Arrow Duration({arrow_unit:?}): unit mismatch"
                 );
             }
+
             Ok(())
         }
         (temporal, target) => vortex_bail!(

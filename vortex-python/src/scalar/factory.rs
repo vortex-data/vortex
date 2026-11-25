@@ -55,10 +55,10 @@ use crate::scalar::bool;
 ///     :class:`vortex.Scalar`.
 /// dtype : :class:`vortex.DType`, optional
 ///     The data type of the result. When given, it also guides the conversion: the unit of a
-///     date, time, timestamp or duration type, the scale of a decimal type, and the element and
+///     date, time, timestamp, or duration type, the scale of a decimal type, and the element and
 ///     field types of list and struct types. Without it, :class:`int` becomes a 64-bit integer,
 ///     :class:`float` a 64-bit float, :class:`decimal.Decimal` a decimal with the value's own
-///     precision and scale, dates use days, and times, timestamps and durations use microseconds.
+///     precision and scale, dates use days, and times, timestamps, and durations use microseconds.
 ///
 /// Returns
 /// -------
@@ -699,8 +699,10 @@ fn duration_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexR
         .copied()
         .unwrap_or(TimeUnit::Microseconds);
     let ext = Duration::try_new(unit, Nullability::NonNullable)?;
+
     let total_micros = timedelta_micros(value)?;
     let raw = micros_to_unit(total_micros, unit)?;
+
     Ok(Scalar::try_new(
         DType::Extension(ext.erased()),
         Some(ScalarValue::from(raw)),
@@ -713,9 +715,9 @@ fn timedelta_micros(value: &Bound<'_, PyAny>) -> PyResult<i64> {
     let days: i64 = value.getattr(intern!(py, "days"))?.extract()?;
     let seconds: i64 = value.getattr(intern!(py, "seconds"))?.extract()?;
     let microseconds: i64 = value.getattr(intern!(py, "microseconds"))?.extract()?;
-    let overflow = || PyValueError::new_err("timedelta overflows i64 microseconds");
+
     days.checked_mul(MICROS_PER_DAY)
         .and_then(|d| d.checked_add(seconds.checked_mul(MICROS_PER_SECOND)?))
         .and_then(|d| d.checked_add(microseconds))
-        .ok_or_else(overflow)
+        .ok_or_else(|| PyValueError::new_err("timedelta overflows i64 microseconds"))
 }

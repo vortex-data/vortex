@@ -41,7 +41,8 @@ impl Duration {
     ///
     /// Panics if `time_unit` is [`TimeUnit::Days`].
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
-        Self::try_new(time_unit, nullability).vortex_expect("duration time unit must be valid")
+        Self::try_new(time_unit, nullability)
+            .vortex_expect("duration time unit must be finer than days")
     }
 }
 
@@ -92,6 +93,7 @@ impl ExtVTable for Duration {
 
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(!data.is_empty(), "Duration metadata must not be empty");
+
         let tag = data[0];
         TimeUnit::try_from(tag)
     }
@@ -128,7 +130,9 @@ impl ExtVTable for Duration {
             TimeUnit::Microseconds => DurationValue::Microseconds(value),
             TimeUnit::Milliseconds => DurationValue::Milliseconds(value),
             TimeUnit::Seconds => DurationValue::Seconds(value),
-            TimeUnit::Days => vortex_bail!("Duration does not support Days time unit"),
+            TimeUnit::Days => {
+                vortex_bail!("Duration time unit must be finer than days, got days")
+            }
         })
     }
 }

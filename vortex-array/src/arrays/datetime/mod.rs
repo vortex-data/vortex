@@ -126,8 +126,8 @@ impl TemporalData {
     ///
     /// # Panics
     ///
-    /// Panics if `array` does not have primitive i64 storage, or if
-    /// [`Duration::try_new`] rejects the unit.
+    /// Panics if `array` does not have primitive `i64` storage, or if [`Duration::try_new`]
+    /// rejects the unit.
     pub fn new_duration(array: ArrayRef, time_unit: TimeUnit) -> Self {
         Self {
             ext: ExtensionArray::new(
