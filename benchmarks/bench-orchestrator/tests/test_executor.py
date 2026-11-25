@@ -4,6 +4,7 @@
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -156,6 +157,79 @@ def test_run_streams_logs_without_counting_them(tmp_path: Path) -> None:
 
     assert results == ['{"engine":"duckdb","format":"parquet","query":0}']
     assert streamed == results
+
+
+def test_run_terminates_and_reaps_child_when_on_result_raises(tmp_path: Path) -> None:
+    marker = tmp_path / "after-callback"
+    script = tmp_path / "slow-bench.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            from pathlib import Path
+            import time
+
+            print('{{"query":0}}', flush=True)
+            time.sleep(0.5)
+            Path({str(marker)!r}).touch()
+            """
+        )
+    )
+    script.chmod(0o755)
+
+    def fail(_line: str) -> None:
+        raise OSError("output stream closed")
+
+    executor = BenchmarkExecutor(script, Engine.DATAFUSION)
+    with pytest.raises(OSError, match="output stream closed"):
+        executor.run(
+            benchmark=Benchmark.TPCH,
+            formats=[Format.VORTEX],
+            iterations=1,
+            on_result=fail,
+        )
+
+    time.sleep(0.6)
+    assert not marker.exists()
+
+
+def test_run_separates_stderr_and_delivers_batched_stdout_lines_immediately(tmp_path: Path) -> None:
+    script = tmp_path / "batched-bench.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import os
+            import sys
+            import time
+
+            os.write(2, b'{{"level":"info","msg":"stderr json"}}\\n')
+            os.write(1, b'{{"query":1}}\\n{{"query":2}}\\n')
+            time.sleep(0.4)
+            """
+        )
+    )
+    script.chmod(0o755)
+
+    executor = BenchmarkExecutor(script, Engine.DATAFUSION)
+    arrival_times: list[float] = []
+    streamed: list[str] = []
+
+    def record(line: str) -> None:
+        arrival_times.append(time.monotonic())
+        streamed.append(line)
+
+    results = executor.run(
+        benchmark=Benchmark.TPCH,
+        formats=[Format.VORTEX],
+        iterations=1,
+        on_result=record,
+    )
+
+    assert results == ['{"query":1}', '{"query":2}']
+    assert streamed == results
+    # Both lines from the single write must arrive together without stalling behind a read buffer.
+    assert arrival_times[1] - arrival_times[0] < 0.1
 
 
 def test_datasource_integration_registers_vortex_table() -> None:

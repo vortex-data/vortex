@@ -8,10 +8,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering as AtomicOrdering;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -263,27 +259,35 @@ fn decide_on_retry(current: usize, now_ms: u64, last_halve_ms: u64) -> Option<us
 /// Per-download lifecycle reuses a single slot bar by swapping its style between an
 /// idle placeholder and the active progress-bar / spinner variants. A
 /// [`tokio::sync::Semaphore`] gates how many slots can be in use at any instant, which
-/// lets a future controller adjust concurrency at runtime via
-/// [`BatchProgress::set_max_in_flight`] without ever touching the MP layout.
+/// lets the concurrency controller adjust in-flight downloads at runtime via
+/// [`BatchInner::apply_limit`] without ever touching the MP layout.
 #[derive(Clone)]
 struct BatchProgress {
     inner: Arc<BatchInner>,
+}
+
+struct ConcurrencyController {
+    /// Current concurrency limit — the source of truth read and updated under
+    /// `controller` via [`BatchInner::apply_limit`].
+    limit: usize,
+    /// Excess permits that must be retired (forgotten on drop instead of returned to
+    /// `in_flight`) as active downloads finish. Invariant:
+    /// `held_permits + available_permits == limit + pending_shrink <= num_slots`.
+    pending_shrink: usize,
+    /// Controller state: are we still in slow-start (double on success) or have we
+    /// dropped into additive-increase (`+=1` on success) after the first retry?
+    in_slow_start: bool,
+    /// Millis since [`BatchInner::created_at`] of the most recent halve event, used to
+    /// debounce bursts of retries from a single upstream hiccup.
+    last_halve_at_ms: u64,
 }
 
 struct BatchInner {
     shards_bar: ProgressBar,
     free: Mutex<Vec<ProgressBar>>,
     in_flight: Arc<Semaphore>,
-    /// Current concurrency limit — the source of truth read by the controller and
-    /// written via [`BatchProgress::set_max_in_flight`].
-    current_in_flight: AtomicUsize,
+    controller: Mutex<ConcurrencyController>,
     num_slots: usize,
-    /// Controller state: are we still in slow-start (double on success) or have we
-    /// dropped into additive-increase (`+=1` on success) after the first retry?
-    in_slow_start: AtomicBool,
-    /// Millis since [`BatchInner::created_at`] of the most recent halve event, used to
-    /// debounce bursts of retries from a single upstream hiccup.
-    last_halve_at_ms: AtomicU64,
     created_at: Instant,
     // The MP is kept alive alongside the Arc so bars stay registered and rendered.
     // Once the last BatchProgress clone drops, the MP drops and clears the block.
@@ -295,11 +299,45 @@ impl BatchInner {
         u64::try_from(self.created_at.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
+    /// Apply a new concurrency limit while holding `controller`, keeping
+    /// `held_permits + available_permits == limit + pending_shrink <= num_slots`.
+    fn apply_limit(&self, state: &mut ConcurrencyController, target: usize) {
+        let target = target.min(self.num_slots);
+        match target.cmp(&state.limit) {
+            Ordering::Greater => {
+                let delta = target - state.limit;
+                let cancel = delta.min(state.pending_shrink);
+                state.pending_shrink -= cancel;
+                let to_add = delta - cancel;
+                if to_add > 0 {
+                    self.in_flight.add_permits(to_add);
+                }
+                state.limit = target;
+            }
+            Ordering::Less => {
+                let delta = state.limit - target;
+                let mut absorbed = 0;
+                while absorbed < delta {
+                    match self.in_flight.try_acquire() {
+                        Ok(permit) => {
+                            permit.forget();
+                            absorbed += 1;
+                        }
+                        Err(_) => break,
+                    }
+                }
+                state.pending_shrink += delta - absorbed;
+                state.limit = target;
+            }
+            Ordering::Equal => {}
+        }
+    }
+
     /// Refresh the shards bar message to reflect the current in-flight count. Called on
-    /// every slot acquire / release and from `set_max_in_flight`.
+    /// every slot acquire / release and when the concurrency limit changes.
     fn refresh_shards_message(&self) {
         let active = self.num_slots - self.free.lock().len();
-        let limit = self.current_in_flight.load(AtomicOrdering::Relaxed);
+        let limit = self.controller.lock().limit;
         self.shards_bar
             .set_message(format!("({active} active, limit {limit})"));
     }
@@ -328,10 +366,13 @@ impl BatchProgress {
             shards_bar,
             free: Mutex::new(slots),
             in_flight: Arc::new(Semaphore::new(initial_in_flight)),
-            current_in_flight: AtomicUsize::new(initial_in_flight),
+            controller: Mutex::new(ConcurrencyController {
+                limit: initial_in_flight,
+                pending_shrink: 0,
+                in_slow_start: true,
+                last_halve_at_ms: 0,
+            }),
             num_slots,
-            in_slow_start: AtomicBool::new(true),
-            last_halve_at_ms: AtomicU64::new(0),
             created_at: Instant::now(),
             _mp: mp,
         };
@@ -364,7 +405,7 @@ impl BatchProgress {
         SlotGuard {
             bar,
             owner: Arc::clone(&self.inner),
-            _permit: permit,
+            permit: Some(permit),
         }
     }
 
@@ -379,10 +420,17 @@ impl BatchProgress {
     /// Called when a download completed on its first attempt (no retries). Drives the
     /// slow-start / additive-increase side of AIMD.
     fn report_clean_success(&self) {
-        let current = self.inner.current_in_flight.load(AtomicOrdering::Relaxed);
-        let in_slow_start = self.inner.in_slow_start.load(AtomicOrdering::Relaxed);
-        if let Some(new) = decide_on_success(current, in_slow_start) {
-            self.set_max_in_flight(new);
+        let changed = {
+            let mut state = self.inner.controller.lock();
+            if let Some(new) = decide_on_success(state.limit, state.in_slow_start) {
+                self.inner.apply_limit(&mut state, new);
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            self.inner.refresh_shards_message();
         }
     }
 
@@ -391,45 +439,20 @@ impl BatchProgress {
     /// halves the limit at most once.
     fn report_retry(&self) {
         let now_ms = self.inner.elapsed_ms();
-        let current = self.inner.current_in_flight.load(AtomicOrdering::Relaxed);
-        let last_halve_ms = self.inner.last_halve_at_ms.load(AtomicOrdering::Relaxed);
-        if let Some(new) = decide_on_retry(current, now_ms, last_halve_ms) {
-            self.inner
-                .in_slow_start
-                .store(false, AtomicOrdering::Relaxed);
-            self.inner
-                .last_halve_at_ms
-                .store(now_ms, AtomicOrdering::Relaxed);
-            self.set_max_in_flight(new);
-        }
-    }
-
-    /// Adjust how many downloads may run concurrently. Clamped to the pre-allocated
-    /// slot count. Raising the limit returns immediately; lowering spawns a background
-    /// task that acquires and forgets the delta so the limit takes effect as active
-    /// downloads complete naturally, never interrupting an in-flight transfer.
-    fn set_max_in_flight(&self, target: usize) {
-        let target = target.min(self.inner.num_slots);
-        let prev = self
-            .inner
-            .current_in_flight
-            .swap(target, AtomicOrdering::Relaxed);
-        match target.cmp(&prev) {
-            Ordering::Greater => {
-                self.inner.in_flight.add_permits(target - prev);
+        let changed = {
+            let mut state = self.inner.controller.lock();
+            if let Some(new) = decide_on_retry(state.limit, now_ms, state.last_halve_at_ms) {
+                state.in_slow_start = false;
+                state.last_halve_at_ms = now_ms;
+                self.inner.apply_limit(&mut state, new);
+                true
+            } else {
+                false
             }
-            Ordering::Less => {
-                let delta = u32::try_from(prev - target).expect("delta fits in u32");
-                let sem = Arc::clone(&self.inner.in_flight);
-                tokio::spawn(async move {
-                    if let Ok(permit) = sem.acquire_many_owned(delta).await {
-                        permit.forget();
-                    }
-                });
-            }
-            Ordering::Equal => {}
+        };
+        if changed {
+            self.inner.refresh_shards_message();
         }
-        self.inner.refresh_shards_message();
     }
 }
 
@@ -438,7 +461,7 @@ impl BatchProgress {
 struct SlotGuard {
     bar: ProgressBar,
     owner: Arc<BatchInner>,
-    _permit: OwnedSemaphorePermit,
+    permit: Option<OwnedSemaphorePermit>,
 }
 
 impl SlotGuard {
@@ -478,6 +501,15 @@ impl Drop for SlotGuard {
         bar.set_length(0);
         bar.reset();
         self.owner.free.lock().push(bar);
+        if let Some(permit) = self.permit.take() {
+            let mut state = self.owner.controller.lock();
+            if state.pending_shrink > 0 {
+                state.pending_shrink -= 1;
+                permit.forget();
+            } else {
+                drop(permit);
+            }
+        }
         self.owner.refresh_shards_message();
     }
 }
@@ -527,12 +559,13 @@ async fn retry_get(
         }
         match single_attempt(client, url, tmp_path, &progress).await {
             Ok(()) => {
+                progress.finalize();
+                drop(progress);
                 if attempt == 0
                     && let Some(b) = batch
                 {
                     b.report_clean_success();
                 }
-                progress.finalize();
                 return Ok(());
             }
             Err(e) => {
@@ -755,5 +788,60 @@ mod tests {
         assert_eq!(decide_on_success(MAX_IN_FLIGHT, true), None);
         // Additive at the cap is also a no-op.
         assert_eq!(decide_on_success(MAX_IN_FLIGHT, false), None);
+    }
+
+    #[tokio::test]
+    async fn shrink_then_grow_while_slots_full_never_exceeds_slots() {
+        let batch = BatchProgress::new(10, 4, 4);
+        let mut guards = Vec::new();
+        for i in 0..4 {
+            guards.push(batch.acquire(&format!("shard-{i}")).await);
+        }
+        assert_eq!(batch.inner.in_flight.available_permits(), 0);
+        assert_eq!(batch.inner.free.lock().len(), 0);
+
+        // Halve while all 4 slots are active, then grow before any SlotGuard drops.
+        {
+            let mut state = batch.inner.controller.lock();
+            state.in_slow_start = false;
+            batch.inner.apply_limit(&mut state, 2);
+        }
+        batch.report_clean_success();
+
+        // Limit is now 3, but 4 slots are still held, so no 5th permit may be added.
+        assert_eq!(batch.inner.controller.lock().limit, 3);
+        assert_eq!(batch.inner.controller.lock().pending_shrink, 1);
+        assert_eq!(batch.inner.in_flight.available_permits(), 0);
+
+        // First drop pays off pending_shrink instead of releasing a permit.
+        drop(guards.pop());
+        assert_eq!(batch.inner.controller.lock().pending_shrink, 0);
+        assert_eq!(batch.inner.in_flight.available_permits(), 0);
+
+        // Second drop brings active count below limit (3) and releases one permit.
+        drop(guards.pop());
+        assert_eq!(batch.inner.in_flight.available_permits(), 1);
+
+        let next = batch.acquire("shard-next").await;
+        drop(next);
+        guards.clear();
+        assert_eq!(batch.inner.in_flight.available_permits(), 3);
+        assert_eq!(batch.inner.free.lock().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn shrink_absorbs_idle_permits_immediately() {
+        let batch = BatchProgress::new(10, 4, 4);
+        let guard = batch.acquire("shard-0").await;
+        assert_eq!(batch.inner.in_flight.available_permits(), 3);
+
+        let mut state = batch.inner.controller.lock();
+        batch.inner.apply_limit(&mut state, 1);
+        drop(state);
+        assert_eq!(batch.inner.in_flight.available_permits(), 0);
+        assert_eq!(batch.inner.controller.lock().pending_shrink, 0);
+
+        drop(guard);
+        assert_eq!(batch.inner.in_flight.available_permits(), 1);
     }
 }
