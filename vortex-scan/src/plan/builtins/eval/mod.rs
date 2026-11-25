@@ -6,11 +6,15 @@ pub(crate) mod execute;
 use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::pack::Pack;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -43,6 +47,74 @@ pub struct Eval;
 #[derive(Clone, Debug)]
 pub struct EvalData {
     expression: BoundExpression,
+    /// Set when `expression` only picks fields of the child struct.
+    projection: Option<Projection>,
+}
+
+/// An expression that packs fields taken unchanged from its root struct, as `SELECT *` or a
+/// column list does.
+///
+/// Batches of such an expression are assembled as a struct of the input's field arrays,
+/// instead of a lazy `pack(get_item(..), ..)` tree that every batch would build, validate and
+/// optimize again. All batches share `fields`, so consumers that index fields by name build
+/// that index once per scan.
+#[derive(Clone, Debug)]
+pub(crate) struct Projection {
+    /// The output fields: the expression's own dtype.
+    fields: StructFields,
+    /// The input field each output field is.
+    indices: Arc<[usize]>,
+    validity: Validity,
+}
+
+impl Projection {
+    /// The projection `expression` is, over a root of `root` dtype.
+    fn of(expression: &BoundExpression, root: &DType) -> Option<Self> {
+        let pack = expression.as_opt::<Pack>()?;
+        // A field of a nullable struct is masked by the struct's validity, so it is not the
+        // field array unchanged.
+        let DType::Struct(input, Nullability::NonNullable) = root else {
+            return None;
+        };
+        let fields = expression.dtype().as_struct_fields_opt()?.clone();
+        if expression.children().len() != fields.nfields() {
+            return None;
+        }
+        let indices = expression
+            .children()
+            .iter()
+            .zip(fields.fields())
+            .map(|(child, dtype)| {
+                let name = child.as_opt::<GetItem>()?;
+                let [root] = child.children() else {
+                    return None;
+                };
+                let index = input.find(name)?;
+                (root.is_root() && input.field_by_index(index)? == dtype).then_some(index)
+            })
+            .collect::<Option<Arc<[usize]>>>()?;
+        let validity = match pack.nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        };
+        Some(Self {
+            fields,
+            indices,
+            validity,
+        })
+    }
+
+    pub(crate) fn fields(&self) -> &StructFields {
+        &self.fields
+    }
+
+    pub(crate) fn indices(&self) -> &[usize] {
+        &self.indices
+    }
+
+    pub(crate) fn validity(&self) -> &Validity {
+        &self.validity
+    }
 }
 
 /// A plan that applies an expression to its child.
@@ -63,12 +135,16 @@ impl EvalPlan {
     ///
     /// Every scope root in `expression` must have the same dtype as `child`.
     pub unsafe fn new_unchecked(expression: BoundExpression, child: PlanRef) -> Self {
+        let projection = Projection::of(&expression, child.dtype());
         PlanParts {
             vtable: Eval,
             dtype: expression.dtype().clone(),
             row_count: child.row_count(),
             slots: [child].into(),
-            data: EvalData { expression },
+            data: EvalData {
+                expression,
+                projection,
+            },
         }
         .into_typed()
     }
@@ -76,6 +152,11 @@ impl EvalPlan {
     /// Returns the expression evaluated by this plan.
     pub fn expression(&self) -> &BoundExpression {
         &self.data().expression
+    }
+
+    /// Whether the expression only packs fields of the child struct unchanged.
+    pub(crate) fn projection(&self) -> Option<&Projection> {
+        self.data().projection.as_ref()
     }
 
     /// Returns the child plan supplying the expression root.
@@ -135,7 +216,12 @@ impl PlanVTable for Eval {
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
         let chain = compiler.compile(&plan.child_plan()?, rows, mask)?;
-        Ok(chain.map(|chain| chain.with(EvalStage::new(plan.expression().clone()))))
+        Ok(chain.map(|chain| {
+            chain.with(EvalStage::new(
+                plan.expression().clone(),
+                plan.projection().cloned(),
+            ))
+        }))
     }
 }
 

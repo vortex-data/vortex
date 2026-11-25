@@ -13,6 +13,7 @@ use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Struct;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
@@ -38,6 +39,7 @@ use crate::execution::operator::Source;
 use crate::execution::operator::SourceBlocked;
 use crate::execution::operator::SourceReady;
 use crate::execution::operator::Step;
+use crate::plan::Eval;
 use crate::plan::PlanRef;
 use crate::source::SegmentId;
 
@@ -607,6 +609,9 @@ pub struct Scan {
     active: Vec<Option<Active>>,
     live: usize,
     outputs: VecDeque<(usize, ArrayRef)>,
+    /// Whether output structs come from a projection, which assembles them from fields it has
+    /// already optimized.
+    projected: bool,
 }
 
 impl fmt::Debug for Scan {
@@ -640,6 +645,9 @@ impl Scan {
                 plan.row_count()
             );
         }
+        let projected = plan
+            .as_opt::<Eval>()
+            .is_some_and(|eval| eval.projection().is_some());
         let root = Root::Plan(plan);
         let mut core = Core::new(session, 0);
         core.dirty_flags = vec![false; 1];
@@ -652,6 +660,7 @@ impl Scan {
             active: vec![None],
             live: 0,
             outputs: VecDeque::new(),
+            projected,
         })
     }
 
@@ -703,7 +712,13 @@ impl Scan {
     pub fn step(&mut self) -> VortexResult<Turn> {
         loop {
             if let Some((split, array)) = self.outputs.pop_front() {
-                let array = array.optimize_ctx(&self.core.exec)?;
+                // A projection optimized its struct's fields; one that fell back to a lazy
+                // expression tree is not a struct and is optimized here.
+                let array = if self.projected && array.is::<Struct>() {
+                    array
+                } else {
+                    array.optimize_ctx(&self.core.exec)?
+                };
                 return Ok(Turn::Output(split, array));
             }
             if let Some(read) = self.core.new_reads.pop_front() {
