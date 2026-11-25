@@ -11,8 +11,11 @@ use vortex_array::ArraySerialization;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::assert_arrays_eq;
+use vortex_array::extension::datetime::Duration;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBufferMut;
@@ -126,5 +129,40 @@ async fn external_format_requires_opt_in_and_round_trips_with_its_original_id() 
         .read_all()
         .await?;
     assert_arrays_eq!(array, actual, &mut reader.create_execution_ctx());
+    Ok(())
+}
+
+#[tokio::test]
+async fn duration_file_round_trip() -> VortexResult<()> {
+    let session = VortexSession::default();
+    let values = buffer![i64::MIN, -9i64, 42i64, i64::MAX].into_array();
+    let dtype = Duration::try_new(TimeUnit::Microseconds, values.dtype().nullability())?.erased();
+    let duration = ExtensionArray::try_new(dtype, values)?.into_array();
+    let mut bytes = ByteBufferMut::empty();
+
+    let error = session
+        .write_options()
+        .write(&mut bytes, duration.clone().to_array_stream())
+        .await
+        .err()
+        .ok_or_else(|| vortex_err!("Duration should require an edition opt-in"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Extension DType vortex.duration not permitted"),
+        "{error}"
+    );
+
+    session.enable_edition(UNSTABLE)?;
+    let mut bytes = ByteBufferMut::empty();
+    session
+        .write_options()
+        .write(&mut bytes, duration.clone().to_array_stream())
+        .await?;
+    let file = session.open_options().open_buffer(bytes)?;
+    assert_eq!(file.dtype(), duration.dtype());
+
+    let actual = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(actual, duration, &mut session.create_execution_ctx());
     Ok(())
 }

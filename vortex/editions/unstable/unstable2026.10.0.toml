@@ -14,7 +14,9 @@ immutable = false
 [added]
 arrays = []
 layouts = []
-dtypes = []
+dtypes = [
+    "vortex.duration",
+]
 aggregates = []
 
 # The edition's full membership: the members above, plus every member of earlier
@@ -22,5 +24,7 @@ aggregates = []
 [components]
 arrays = []
 layouts = []
-dtypes = []
+dtypes = [
+    "vortex.duration",
+]
 aggregates = []
