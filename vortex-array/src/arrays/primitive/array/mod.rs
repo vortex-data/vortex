@@ -434,9 +434,10 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let len = handle.len() / ptype.byte_width();
         let slots = PrimitiveData::make_slots(&validity, len);
-        // SAFETY: `Array::try_from_parts` runs `Primitive::validate`, checking buffer layout,
-        // length, and validity before returning the array.
-        let data = unsafe { PrimitiveData::new_unchecked_from_handle(handle, ptype, validity) };
+        let data = PrimitiveData {
+            ptype,
+            buffer: handle,
+        };
         Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data, slots))
     }
 
