@@ -487,8 +487,9 @@ impl SparseData {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    /// Without one, the fill is the most common valid value, which requires a boolean, primitive,
-    /// decimal, UTF-8 or binary array.
+    /// Without one, the fill is the valid value that fills more than half of the valid positions if
+    /// there is one, and some valid value otherwise. That requires a boolean, primitive, decimal,
+    /// UTF-8 or binary array.
     pub fn encode(
         array: &ArrayRef,
         fill_value: Option<Scalar>,
@@ -551,7 +552,7 @@ impl SparseData {
         let fill = if let Some(fill) = fill_value {
             fill.cast(array.dtype())?
         } else {
-            fill::most_common_value(array, &mask, ctx)?
+            fill::dominant_value(array, &mask, ctx)?
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
