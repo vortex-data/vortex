@@ -47,6 +47,8 @@ use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::fns::approx_distinct::ApproxDistinct;
+use vortex::aggregate_fn::fns::approx_distinct::ApproxDistinctOptions;
 use vortex::aggregate_fn::fns::is_constant::IsConstant;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
@@ -63,6 +65,7 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::layouts::file_stats::AggregateStats;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
@@ -701,8 +704,16 @@ impl FileFormat for VortexFormat {
                 let null_count = stats_set
                     .get_as::<usize>(Stat::NullCount, &PType::U64.into())
                     .to_df();
-                let distinct_count =
-                    constant_distinct_count(stats_set, stats_dtype, &null_count, &min, &max);
+                let distinct_count = match constant_distinct_count(
+                    stats_set,
+                    stats_dtype,
+                    &null_count,
+                    &min,
+                    &max,
+                ) {
+                    DFPrecision::Absent => approx_distinct_count(aggregates),
+                    known => known,
+                };
 
                 column_statistics.push(ColumnStatistics {
                     null_count,
@@ -775,6 +786,16 @@ impl FileFormat for VortexFormat {
         }
         Arc::new(source) as _
     }
+}
+
+/// The stored `ApproxDistinct` estimate, inexact because it comes from a sketch.
+fn approx_distinct_count(aggregates: &AggregateStats) -> DFPrecision<usize> {
+    aggregates
+        .get(&ApproxDistinct.bind(ApproxDistinctOptions::default()))
+        .as_exact()
+        .and_then(|estimate| estimate.as_primitive().typed_value::<u64>())
+        .and_then(|estimate| usize::try_from(estimate).ok())
+        .map_or(DFPrecision::Absent, DFPrecision::Inexact)
 }
 
 fn scalar_stat_to_df(

@@ -16,6 +16,8 @@ use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinct;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinctOptions;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -481,12 +483,15 @@ fn default_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
     };
 
     // `Sum` is left out until the footer records the overflow-aware `SumV2`.
+    // `ApproxDistinct` is in no edition yet, and with no legacy `Stat` slot it is only stored with
+    // nested statistics.
     vec![
         max,
         min,
         NullCount.bind(EmptyOptions),
         NanCount.bind(EmptyOptions),
         UncompressedSizeInBytes.bind(EmptyOptions),
+        ApproxDistinct.bind(ApproxDistinctOptions::default()),
     ]
 }
 
@@ -853,7 +858,14 @@ impl FileStatsAccumulator {
         let root = StatsNode::build_root(
             dtype,
             &selection,
-            &accumulates,
+            &|aggregate_fn| {
+                Self::computes(
+                    writer_ctx,
+                    write_nested_stats,
+                    write_legacy_stats,
+                    aggregate_fn,
+                )
+            },
             write_nested_stats,
             write_legacy_stats,
         );
@@ -875,7 +887,7 @@ impl FileStatsAccumulator {
             &self.dtype,
             &self.selection,
             &|aggregate_fn| {
-                Self::accumulates(
+                Self::computes(
                     &self.writer_ctx,
                     self.write_nested_stats,
                     self.write_legacy_stats,
@@ -907,6 +919,24 @@ impl FileStatsAccumulator {
 
         writer_ctx.allows_aggregate(&aggregate_fn.id())
             || (legacy_only && fills_legacy_stat_slot(aggregate_fn))
+    }
+
+    /// Returns whether a new accumulator tree computes `aggregate_fn`.
+    ///
+    /// Like [`accumulates`](Self::accumulates), except that a footer with only the legacy layout
+    /// also skips aggregates that fill no stat slot, since it has nowhere to store them.
+    fn computes(
+        writer_ctx: &LayoutWriterContext,
+        write_nested_stats: bool,
+        write_legacy_stats: bool,
+        aggregate_fn: &AggregateFnRef,
+    ) -> bool {
+        Self::accumulates(
+            writer_ctx,
+            write_nested_stats,
+            write_legacy_stats,
+            aggregate_fn,
+        ) && (write_nested_stats || fills_legacy_stat_slot(aggregate_fn))
     }
 
     /// Merges the stats of the chunk that follows all chunks merged so far.
@@ -982,6 +1012,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
@@ -1090,6 +1121,66 @@ mod tests {
                 .any(|(f, _)| f.is::<UncompressedSizeInBytes>())
         );
         assert!(acc.aggregates.iter().any(|(f, _)| f.is::<Max>()));
+    }
+
+    #[rstest]
+    #[case::primitive(i32_dtype(), true)]
+    #[case::utf8(DType::Utf8(Nullability::Nullable), true)]
+    #[case::bool(DType::Bool(Nullability::NonNullable), true)]
+    #[case::decimal_unsupported(
+        DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable),
+        false
+    )]
+    fn default_stats_include_approx_distinct_where_supported(
+        #[case] dtype: DType,
+        #[case] expected: bool,
+    ) {
+        let acc = StatsAccumulator::new(&dtype, None, &|_| true);
+        assert_eq!(
+            acc.aggregates.iter().any(|(f, _)| f.is::<ApproxDistinct>()),
+            expected
+        );
+        assert!(acc.aggregates.iter().any(|(f, _)| f.is::<NullCount>()));
+    }
+
+    #[test]
+    fn default_approx_distinct_is_dropped_when_not_allowed() {
+        // How the writer's edition check drops it.
+        let acc = StatsAccumulator::new(&i32_dtype(), None, &|f| !f.is::<ApproxDistinct>());
+        assert!(!acc.aggregates.iter().any(|(f, _)| f.is::<ApproxDistinct>()));
+        assert!(acc.aggregates.iter().any(|(f, _)| f.is::<NullCount>()));
+    }
+
+    #[test]
+    fn approx_distinct_merges_across_chunks() -> VortexResult<()> {
+        // Values repeat across chunks, so there are 5 distinct values, not 8.
+        let mut ctx = SESSION.create_execution_ctx();
+        let approx_distinct = ApproxDistinct.bind(ApproxDistinctOptions::default());
+        let requested = std::slice::from_ref(&approx_distinct);
+        let chunks = [buffer![1i32, 2, 3], buffer![3i32, 4], buffer![1i32, 5, 5]];
+        let expected = Precision::exact(Scalar::primitive(5u64, Nullability::NonNullable));
+
+        let mut sequential = StatsAccumulator::new(&i32_dtype(), Some(requested), &|_| true);
+        for chunk in chunks.clone() {
+            sequential.push_chunk(&chunk.into_array(), &mut ctx)?;
+        }
+        assert_eq!(
+            sequential.aggregate_stats(|_| true)?.get(&approx_distinct),
+            expected
+        );
+
+        // The writer computes each chunk's stats separately and merges them afterwards.
+        let mut merged = StatsAccumulator::new(&i32_dtype(), Some(requested), &|_| true);
+        for chunk in chunks {
+            let mut chunk_acc = StatsAccumulator::new(&i32_dtype(), Some(requested), &|_| true);
+            chunk_acc.push_chunk(&chunk.into_array(), &mut ctx)?;
+            merged.merge_from(&mut chunk_acc)?;
+        }
+        assert_eq!(
+            merged.aggregate_stats(|_| true)?.get(&approx_distinct),
+            expected
+        );
+        Ok(())
     }
 
     #[test]
@@ -1399,6 +1490,34 @@ mod tests {
             stats_sets[1].get(Stat::NullCount).as_exact(),
             Some(ScalarValue::Primitive(PValue::U64(1)))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_only_stats_skip_aggregates_without_a_legacy_slot() -> VortexResult<()> {
+        // The legacy layout can't store ApproxDistinct, so computing it would be wasted work.
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
+        let acc = FileStatsAccumulator::try_new(
+            &dtype,
+            FileStatsSelection::new(),
+            false,
+            true,
+            &LayoutWriterContext::new(ArrayContext::empty()),
+        )?;
+        let root = acc.root.lock();
+        let StatsNode::Container { children, .. } = &*root else {
+            vortex_panic!("a struct root has children");
+        };
+        let StatsNode::LegacyOnly(field) = &children[0].1 else {
+            vortex_panic!("a legacy-only field accumulates legacy stats");
+        };
+        assert!(
+            !field
+                .aggregates
+                .iter()
+                .any(|(f, _)| f.is::<ApproxDistinct>())
+        );
+        assert!(field.aggregates.iter().any(|(f, _)| f.is::<NullCount>()));
         Ok(())
     }
 
