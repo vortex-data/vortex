@@ -19,6 +19,7 @@ members = [
     "vortex-row",
     "vortex-tensor",
     "vortex-json",
+    "vortex-file-ref",
     "vortex-compressor",
     "vortex-btrblocks",
     "vortex-layout",

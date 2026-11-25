@@ -11836,6 +11836,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-file-ref"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 60.2.0",
+ "arrow-buffer 60.2.0",
+ "arrow-schema 60.2.0",
+ "prost 0.14.4",
+ "rstest",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-edition",
+ "vortex-error",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [

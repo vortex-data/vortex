@@ -1,0 +1,33 @@
+[package]
+name = "vortex-file-ref"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex file reference extension type, matching the Parquet FILE logical type"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true, default-features = false }
+vortex-arrow = { workspace = true }
+vortex-edition = { workspace = true }
+vortex-error = { workspace = true, default-features = false }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+arrow-buffer = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, default-features = false, features = [
+    "_test-harness",
+] }
