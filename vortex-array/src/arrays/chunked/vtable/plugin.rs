@@ -99,6 +99,7 @@ impl ArrayPlugin for Chunked {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
+        // A bad offset can follow valid spans, so check the whole array before decoding any chunk.
         validate_chunk_offsets(&chunk_offsets_usize, child_count, len)?;
 
         let mut slots = SmallVec::with_capacity(child_count);
@@ -109,9 +110,7 @@ impl ArrayPlugin for Chunked {
             .tuple_windows()
             .enumerate()
         {
-            let chunk_len = end.checked_sub(start).ok_or_else(|| {
-                vortex_err!("ChunkedArray chunk {idx} has reversed offsets {start}..{end}")
-            })?;
+            let chunk_len = end - start;
             slots.push(Some(children.get(
                 idx + ChunkedSlots::CHUNKS_OFFSET,
                 dtype,

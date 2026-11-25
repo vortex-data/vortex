@@ -57,24 +57,25 @@ pub struct Chunked;
 
 fn validate_chunk_offsets(
     offsets: &[usize],
-    expected_count: usize,
-    len: usize,
+    expected_offset_count: usize,
+    array_len: usize,
 ) -> VortexResult<()> {
+    let Some((&first, &last)) = offsets.first().zip(offsets.last()) else {
+        vortex_bail!("ChunkedArray must have at least one chunk offset, got 0");
+    };
+
     vortex_ensure_eq!(
         offsets.len(),
-        expected_count,
+        expected_offset_count,
         "ChunkedArray must have one more chunk offset than chunks",
     );
-    let first = offsets.first().copied();
-    let last = offsets.last().copied();
-    vortex_ensure!(
-        first == Some(0),
-        "ChunkedArray offsets must start at zero, got {first:?}",
+    vortex_ensure_eq!(first, 0, "ChunkedArray offsets must start at zero");
+    vortex_ensure_eq!(
+        last,
+        array_len,
+        "ChunkedArray offsets must end at the array length",
     );
-    vortex_ensure!(
-        last == Some(len),
-        "ChunkedArray offsets must end at the array length {len}, got {last:?}",
-    );
+
     for (idx, (start, end)) in offsets.iter().copied().tuple_windows().enumerate() {
         vortex_ensure!(
             start <= end,
@@ -157,6 +158,7 @@ impl VTable for Chunked {
                 "ChunkedArray chunk {idx} len does not match offsets span",
             );
         }
+
         Ok(())
     }
 
