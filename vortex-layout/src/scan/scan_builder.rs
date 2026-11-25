@@ -43,6 +43,7 @@ use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanUsage;
+use crate::scan::repeated_scan::DEFAULT_SPLITS_PER_THREAD;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::repeated_scan::ScanTasks;
 use crate::scan::repeated_scan::SplitConcurrency;
@@ -106,10 +107,8 @@ impl ScanBuilder<ArrayRef> {
             selection: Default::default(),
             split_by: SplitBy::default(),
             natural_splits: None,
-            // We default to four tasks per worker thread, which allows for some I/O lookahead
-            // without too much impact on work-stealing.
             concurrency: SplitConcurrency {
-                per_worker: 4,
+                per_worker: DEFAULT_SPLITS_PER_THREAD,
                 max: None,
             },
             map_fn: Arc::new(Ok),

@@ -11218,6 +11218,7 @@ dependencies = [
  "vortex-expr",
  "vortex-fsst",
  "vortex-functions",
+ "vortex-io",
  "vortex-mask",
  "vortex-onpair",
  "vortex-scan",

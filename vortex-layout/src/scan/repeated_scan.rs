@@ -33,6 +33,7 @@ use vortex_error::vortex_ensure;
 use vortex_expr::BoundExpression;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::limit::limit_rows;
 use vortex_scan::row_mask::RowMask;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -200,7 +201,8 @@ impl<A: 'static + Send> RepeatedScan<A> {
         })
     }
 
-    fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
+    /// The row ranges of the scan's natural splits within `row_range`, in row order.
+    pub(crate) fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -396,43 +398,6 @@ fn map_split<A: 'static + Send>(
         .boxed()
 }
 
-/// Trim arrays to the budget and drop upstream work as soon as it is exhausted.
-fn limit_rows(
-    arrays: BoxStream<'static, VortexResult<ArrayRef>>,
-    limit: RowLimit,
-) -> BoxStream<'static, VortexResult<ArrayRef>> {
-    let mut arrays = Some(arrays);
-    stream::poll_fn(move |cx| {
-        loop {
-            if limit.is_exhausted() {
-                arrays = None;
-            }
-            let Some(stream) = arrays.as_mut() else {
-                return Poll::Ready(None);
-            };
-            let array = match ready!(stream.poll_next_unpin(cx)) {
-                Some(Ok(array)) => array,
-                end => {
-                    arrays = None;
-                    return Poll::Ready(end);
-                }
-            };
-            let granted = limit.take(array.len());
-            if limit.is_exhausted() {
-                arrays = None;
-            }
-            if granted != 0 {
-                return Poll::Ready(Some(if granted < array.len() {
-                    array.slice(0..granted)
-                } else {
-                    Ok(array)
-                }));
-            }
-        }
-    })
-    .boxed()
-}
-
 /// Yield the first error and drop upstream without polling it again.
 fn stop_on_error<T: Send + 'static>(
     stream: BoxStream<'static, VortexResult<T>>,
@@ -450,6 +415,10 @@ fn stop_on_error<T: Send + 'static>(
     })
     .boxed()
 }
+
+/// The splits a scan keeps in flight for each worker thread by default, which allows for some I/O
+/// lookahead without too much impact on work-stealing.
+pub(crate) const DEFAULT_SPLITS_PER_THREAD: usize = 4;
 
 /// How many splits a scan makes progress on at once: `per_worker` for each worker thread, as
 /// [`get_available_parallelism`] counts them, and at most `max` in all when that is set.
@@ -513,9 +482,9 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_scan::limit::limit_rows;
 
     use super::SplitConcurrency;
-    use super::limit_rows;
     use super::stop_on_error;
     use crate::scan::limit::RowLimit;
 
