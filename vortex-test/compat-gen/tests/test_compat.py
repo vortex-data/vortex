@@ -104,15 +104,17 @@ def test_cmd_check_runs_all_versions_and_reports_all_failures(compat, monkeypatc
     store_dir = tmp_path / "store"
     _write_version_store(
         store_dir,
-        ["0.59.0", "0.60.0", "0.61.0", "0.62.0"],
+        ["0.58.0", "0.59.0", "0.60.0", "0.61.0", "0.62.0"],
         {
+            "0.58.0": ["ignored.vortex"],
             "0.59.0": ["ignored.vortex"],
             "0.60.0": ["a.vortex", "b.vortex"],
             "0.61.0": ["missing_file.vortex", "c.vortex"],
             "0.62.0": ["d.vortex"],
         },
     )
-    # Corrupt one manifest and remove one fixture file to verify both continue.
+    # Use a non-object JSON manifest, a malformed manifest, and a missing file to verify all continue.
+    (store_dir / "v0.58.0" / "arrays" / "manifest.json").write_text("[]")
     (store_dir / "v0.59.0" / "arrays" / "manifest.json").write_text("{not-json")
     (store_dir / "v0.61.0" / "arrays" / "missing_file.vortex").unlink()
 
@@ -152,6 +154,7 @@ def test_cmd_check_runs_all_versions_and_reports_all_failures(compat, monkeypatc
     assert checked_versions == [["a.vortex", "b.vortex"], ["c.vortex"], ["d.vortex"]]
 
     stderr = capsys.readouterr().err
+    assert "v0.58.0/(manifest):" in stderr
     assert "v0.59.0/(manifest):" in stderr
     assert "v0.60.0/a.vortex: err a" in stderr
     assert "v0.60.0/b.vortex: err b" in stderr

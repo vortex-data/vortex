@@ -337,7 +337,12 @@ def _read_manifest(store: Store, version: str) -> dict | None:
     manifest = json.loads(data)
 
     # Upgrade legacy format: flat list of filenames -> new object format.
-    if isinstance(manifest.get("fixtures"), list) and manifest["fixtures"] and isinstance(manifest["fixtures"][0], str):
+    if (
+        isinstance(manifest, dict)
+        and isinstance(manifest.get("fixtures"), list)
+        and manifest["fixtures"]
+        and isinstance(manifest["fixtures"][0], str)
+    ):
         _info(f"  upgrading legacy manifest format for v{version}")
         manifest["fixtures"] = [{"name": n, "description": "", "sha256": ""} for n in manifest["fixtures"]]
 
