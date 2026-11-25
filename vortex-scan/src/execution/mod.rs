@@ -44,6 +44,7 @@ pub use self::chunk::ChunkPlanner;
 pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
 #[cfg(test)]
 pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
+pub(crate) use self::chunk::chunk_rows;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
@@ -54,6 +55,7 @@ pub use self::filter::FilterPlans;
 pub use self::filter::FilterPrep;
 pub use self::filter::SharedFilterPrep;
 pub(crate) use self::parts::part_planner;
+pub(crate) use self::parts::static_kept;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
@@ -105,8 +107,6 @@ pub struct PreparedScan {
     pub(crate) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(crate) chunk_rows: usize,
-    /// The target rows of a part of the scan, from [`split::part_rows`](crate::split::part_rows).
-    pub(crate) part_rows: u64,
 }
 
 impl PreparedScan {
@@ -127,15 +127,22 @@ impl PreparedScan {
 
     /// The points at which the scan's rows are cut into parts, into at least `min_parts` where
     /// they hold enough blocks: [`split::split_points`](crate::split::split_points) over the
-    /// chunk boundaries of the columns the scan reads, with parts of
-    /// [`split::part_rows`](crate::split::part_rows). Reads nothing.
-    pub fn part_points(&self, min_parts: usize) -> VortexResult<Vec<u64>> {
+    /// chunk boundaries of the columns the scan reads, each part measured by its rows in `kept`,
+    /// the rows of the scan its static conjuncts keep. Reads nothing.
+    pub fn part_points(&self, min_parts: usize, kept: Option<&Mask>) -> VortexResult<Vec<u64>> {
+        let surviving = kept.map(|kept| crate::split::kept_ranges(&self.rows, kept));
         Ok(crate::split::split_points(
             self.rows.clone(),
             &parts::chunk_boundaries(self)?,
-            self.part_rows,
+            surviving.as_deref(),
             min_parts,
         ))
+    }
+
+    /// The rows of the scan its filter's static conjuncts keep, by the zones their pruning plans
+    /// keep, or `None` when no static conjunct has a pruning plan. Reads the zone maps.
+    pub async fn static_kept(self: &Arc<Self>) -> VortexResult<Option<Mask>> {
+        static_kept(self, &self.io()).await
     }
 
     /// The service a driver takes IO sessions from: every read a planner of the scan requests is

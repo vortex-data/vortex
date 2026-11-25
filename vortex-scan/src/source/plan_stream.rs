@@ -4,16 +4,16 @@
 //! An opened [`PlanDataSource`](super::PlanDataSource) scan: V2's planners and [`Run`] driver
 //! behind [`ScanExec`] and its [`ScanStream`](crate::stream::ScanStream)s.
 //!
-//! When a scan is made, it prepares its child once and cuts the child's rows into parts with
-//! [`split_points`](crate::split::split_points), which the V1 executor shares. That reads nothing:
-//! the child's zone maps are read by the parts, each over its own rows.
-//! [`split`](crate::DataSourceScan::split) deals the parts out to the pieces, cutting the scan
-//! into at least as many parts as pieces when a host has more threads than the scan has parts.
+//! When a scan is made, it prepares its child once, prunes the child's rows by the zone maps of
+//! its filter's static conjuncts, and cuts the rows into parts with
+//! [`split_points`](crate::split::split_points), which the V1 executor shares, measuring each
+//! part by the rows that survive. [`split`](crate::DataSourceScan::split) cuts the scan again into
+//! at least as many parts as pieces and deals them out to the pieces.
 //!
 //! Every stream of an opened scan takes parts from the one queue, and the scan is exhausted once
-//! the last part is taken. A part is planned when a stream takes it: with a filter, it first
-//! prunes its rows against the zone maps, applying each dynamic conjunct as it stands then, such
-//! as the bound a top-N pushes down. Each stream owns a [`Run`], driven on the task that polls the
+//! the last part is taken. A part is planned when a stream takes it, over the rows the static
+//! conjuncts kept: with a dynamic conjunct, it first prunes them against the zone maps, applying
+//! the conjunct as it stands then, such as the bound a top-N pushes down. Each stream owns a [`Run`], driven on the task that polls the
 //! stream, and runs one part on it at a time: the part's chunks run side by side, so one chunk's
 //! reads overlap another's compute, batches are returned as they are produced, and reads are
 //! awaited with [`Run::poll_completion`]. Nothing is spawned, so a host that polls a stream with
@@ -39,9 +39,11 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_io::request::IoService;
+use vortex_mask::Mask;
 
 use super::plan::ScanState;
 use crate::execution::part_planner;
+use crate::execution::static_kept;
 use crate::limit::RowLimit;
 use crate::limit::limit_rows;
 use crate::planning::driver::Progress;
@@ -65,24 +67,41 @@ pub(super) struct Planned {
     whole: bool,
 }
 
-/// A child's prepared scan and the I/O its parts read through.
+/// A child's prepared scan, the I/O its parts read through, and the rows of the scan its
+/// filter's static conjuncts keep.
 struct Prepared {
     scan: Arc<PreparedScan>,
     io: Arc<dyn IoService>,
+    kept: Option<Mask>,
+}
+
+impl Prepared {
+    /// The rows of `part` the static conjuncts keep, over the part.
+    fn kept(&self, part: &Range<u64>) -> Option<Mask> {
+        let start = self.scan.rows().start;
+        self.kept.as_ref().map(|kept| {
+            let offset = |row: u64| usize::try_from(row - start).unwrap_or(usize::MAX);
+            kept.slice(offset(part.start)..offset(part.end))
+        })
+    }
 }
 
 impl Planned {
-    /// Prepares the scan of `rows` of the child, if it reads any, and cuts them into parts.
-    /// Reads nothing.
-    pub(super) fn new(state: &ScanState, rows: Option<Range<u64>>) -> VortexResult<Self> {
+    /// Prepares the scan of `rows` of the child, if it reads any, prunes them by the zone maps of
+    /// the filter's static conjuncts, and cuts them into parts.
+    pub(super) async fn new(state: &ScanState, rows: Option<Range<u64>>) -> VortexResult<Self> {
         let Some(rows) = rows.filter(|rows| !rows.is_empty()) else {
             return Ok(Self::empty());
         };
         let scan = Arc::new(state.builder(rows).prepare()?);
-        let parts = parts_between(&scan.part_points(1)?);
         let io = scan.io();
+        let kept = static_kept(&scan, &io).await?;
+        if kept.as_ref().is_some_and(Mask::all_false) {
+            return Ok(Self::empty());
+        }
+        let parts = parts_between(&scan.part_points(1, kept.as_ref())?);
         Ok(Self {
-            prepared: Some(Arc::new(Prepared { scan, io })),
+            prepared: Some(Arc::new(Prepared { scan, io, kept })),
             parts,
             whole: true,
         })
@@ -101,15 +120,14 @@ impl Planned {
         self.parts.len()
     }
 
-    /// Deals the parts out to at most `n` pieces of contiguous parts. A whole scan with fewer
-    /// than `n` parts is cut again into at least `n` first, where its rows hold enough blocks.
-    /// Never empty.
+    /// Deals the parts out to at most `n` pieces of contiguous parts. A whole scan is cut again
+    /// first, into at least `n` parts where its surviving rows and blocks allow. Never empty.
     pub(super) fn split(self, n: usize) -> VortexResult<Vec<Self>> {
         let Some(prepared) = self.prepared else {
             return Ok(vec![Self::empty()]);
         };
-        let parts = if self.whole && self.parts.len() < n {
-            parts_between(&prepared.scan.part_points(n)?)
+        let parts = if self.whole {
+            parts_between(&prepared.scan.part_points(n, prepared.kept.as_ref())?)
         } else {
             self.parts
         };
@@ -128,6 +146,7 @@ impl Planned {
 pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
     let dtype = state.dtype.clone();
     let limit = state.limit.clone();
+    let session = state.session.clone();
     let exhausted = ExhaustedFlag::new();
     let queue = Arc::new(Queue {
         total: planned.parts.len(),
@@ -140,7 +159,7 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
         exhausted.set();
         return ScanExec::new(dtype, exhausted, || stream::empty().boxed())
             .with_progress(move || progress.claims())
-            .with_batch_cuts();
+            .with_batch_cuts(state.session.clone());
     };
     ScanExec::new(dtype, exhausted, move || {
         let worker = Worker {
@@ -161,7 +180,7 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
         limited(arrays, limit.clone())
     })
     .with_progress(move || progress.claims())
-    .with_batch_cuts()
+    .with_batch_cuts(session)
 }
 
 /// The queue of a scan, which every stream of it takes from.
@@ -220,7 +239,8 @@ impl Worker {
                 let Some(part) = self.queue.take() else {
                     return Ok(None);
                 };
-                let planner = part_planner(&self.prepared.scan, part.clone());
+                let kept = self.prepared.kept(&part);
+                let planner = part_planner(&self.prepared.scan, part.clone(), kept);
                 let scope = WorkScope {
                     file_ordinal: 0,
                     rows: part,

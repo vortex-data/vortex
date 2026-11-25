@@ -53,7 +53,6 @@ use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::WorkScope;
 use crate::prepare::ScanBuilder;
 use crate::source::ScanInput;
-use crate::split::part_rows;
 use crate::strict_sorted_buffer::StrictSortedBuffer;
 use crate::test::SESSION;
 use crate::test::Store;
@@ -273,8 +272,8 @@ fn filtered_chunk_sizing(
     let array = table_chunk(0)?;
     let dtype = array.dtype();
     assert_eq!(
-        part_rows(dtype, &projection.bind(dtype)?, Some(&filter.bind(dtype)?))?,
-        expected,
+        chunk_rows(dtype, &projection.bind(dtype)?, Some(&filter.bind(dtype)?))?,
+        usize::try_from(expected)?,
     );
     Ok(())
 }

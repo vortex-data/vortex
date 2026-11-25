@@ -7,6 +7,8 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
@@ -17,6 +19,7 @@ use vortex_mask::Mask;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use crate::analysis::referenced_field_paths;
 use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
@@ -26,11 +29,42 @@ use crate::split;
 
 /// The row grid every chunk boundary lies on: [`split::ROW_BLOCK_SIZE`].
 pub(crate) const ROW_BLOCK_SIZE: usize = split::ROW_BLOCK_SIZE;
-/// The rows of a projection chunk: [`split::MAX_ROWS_PER_CHUNK`].
-pub(crate) const MAX_ROWS_PER_CHUNK: usize = split::MAX_ROWS_PER_CHUNK;
-/// The rows of a filtered chunk: [`split::FILTERED_ROWS_PER_CHUNK`].
-pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = split::FILTERED_ROWS_PER_CHUNK;
+/// The rows of a projection chunk.
+pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
+/// The rows of a filtered chunk, balancing the setup of its conjuncts against parallelism.
+pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * ROW_BLOCK_SIZE;
+/// The rows of a filtered chunk that reads one fixed-width field.
+const NARROW_FILTERED_ROWS_PER_CHUNK: usize = 128 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
+
+/// The rows of a chunk of a scan of `dtype` with `projection` and `filter`, both bound against
+/// `dtype`.
+///
+/// A filtered scan's chunks are larger, because each chunk sets up every conjunct. A filtered
+/// scan that reads one fixed-width field is cheap enough per row that smaller chunks mainly add
+/// setup, so its chunks are larger still.
+pub(crate) fn chunk_rows(
+    dtype: &DType,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+) -> VortexResult<usize> {
+    let Some(filter) = filter else {
+        return Ok(MAX_ROWS_PER_CHUNK);
+    };
+    let mut fields = referenced_field_paths(projection)?;
+    fields.extend(referenced_field_paths(filter)?);
+    let mut fields = fields.into_iter();
+    let first = fields.next();
+    let narrow = fields.next().is_none()
+        && first
+            .and_then(|field| field.resolve(dtype.clone()))
+            .is_some_and(|dtype| matches!(dtype, DType::Primitive(..) | DType::Bool(..)));
+    Ok(if narrow {
+        NARROW_FILTERED_ROWS_PER_CHUNK
+    } else {
+        FILTERED_ROWS_PER_CHUNK
+    })
+}
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
 pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {

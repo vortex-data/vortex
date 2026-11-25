@@ -29,10 +29,12 @@ use vortex_functions::between::find_between;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
-use vortex_scan::split::part_rows;
+use vortex_scan::split::kept_ranges;
 use vortex_scan::split::split_points;
+use vortex_scan::split::static_conjuncts;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
@@ -81,6 +83,8 @@ pub struct ScanBuilder<A> {
     /// Precomputed full-file natural split boundaries; when set, [`prepare`](Self::prepare)
     /// uses them instead of walking the layout.
     natural_splits: Option<Arc<[u64]>>,
+    /// The rows a [`SplitBy::Parts`] split measures its parts by, if not all of them.
+    surviving_rows: Option<Arc<[Range<u64>]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
@@ -110,6 +114,7 @@ impl ScanBuilder<ArrayRef> {
             selection: Default::default(),
             split_by: SplitBy::default(),
             natural_splits: None,
+            surviving_rows: None,
             concurrency: SplitConcurrency {
                 per_worker: DEFAULT_SPLITS_PER_THREAD,
                 max: None,
@@ -221,6 +226,32 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Measure the parts of a [`SplitBy::Parts`] split by their rows in `rows`, sorted, disjoint
+    /// ranges such as those the zone pruning of the filter's static conjuncts keeps, rather than
+    /// by all their rows; see [`split_points`](vortex_scan::split::split_points).
+    pub fn with_surviving_rows(mut self, rows: Arc<[Range<u64>]>) -> Self {
+        self.surviving_rows = Some(rows);
+        self
+    }
+
+    /// Measure the parts of a [`SplitBy::Parts`] split by the rows of the scan the zone pruning of
+    /// its filter's static conjuncts keeps, as a scan split into parts does. Reads the zone maps.
+    pub async fn with_static_pruning(self) -> VortexResult<Self> {
+        let Some(filter) = &self.filter else {
+            return Ok(self);
+        };
+        let rows = self
+            .row_range
+            .clone()
+            .unwrap_or_else(|| 0..self.layout_reader.row_count());
+        Ok(
+            match static_survivors(self.layout_reader.as_ref(), &rows, filter).await? {
+                Some(surviving) => self.with_surviving_rows(surviving.into()),
+                None => self,
+            },
+        )
+    }
+
     /// Compute the full-file natural split boundaries for the fields referenced by this scan's
     /// projection and filter, ignoring any configured row range.
     ///
@@ -234,6 +265,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             &self.projection,
             self.filter.as_ref(),
             &(0..self.layout_reader.row_count()),
+            self.surviving_rows.as_deref(),
         )
     }
 
@@ -249,6 +281,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 .row_range
                 .clone()
                 .unwrap_or_else(|| 0..self.layout_reader.row_count()),
+            self.surviving_rows.as_deref(),
         )
     }
 
@@ -367,6 +400,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             selection: self.selection,
             split_by: self.split_by,
             natural_splits: self.natural_splits,
+            surviving_rows: self.surviving_rows,
             concurrency: self.concurrency,
             usage: self.usage,
             metrics: self.metrics,
@@ -430,6 +464,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
                         &bound_projection,
                         bound_filter.as_ref(),
                         &split_range,
+                        self.surviving_rows.as_deref(),
                     )?
                     .into(),
                 )
@@ -531,26 +566,49 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
 }
 
 /// The split boundaries of a scan of `row_range` of `layout_reader` with `projection` and
-/// `filter`, by `split_by`.
+/// `filter`, by `split_by`. A [`SplitBy::Parts`] split measures its parts by their rows in
+/// `surviving`, when given.
 fn natural_splits(
     split_by: SplitBy,
     layout_reader: &dyn LayoutReader,
     projection: &BoundExpression,
     filter: Option<&BoundExpression>,
     row_range: &Range<u64>,
+    surviving: Option<&[Range<u64>]>,
 ) -> VortexResult<Vec<u64>> {
     let field_mask = referenced_field_masks(projection, filter)?;
     let SplitBy::Parts { min_parts } = split_by else {
         return split_by.splits(layout_reader, row_range, &field_mask);
     };
     let boundaries = layout_boundaries(layout_reader, row_range, &field_mask)?;
-    let target = part_rows(layout_reader.dtype(), projection, filter)?;
     Ok(split_points(
         row_range.clone(),
         &boundaries,
-        target,
+        surviving,
         min_parts,
     ))
+}
+
+/// The rows of `rows` the static conjuncts of `filter` keep, by `reader`'s zone pruning, as the
+/// planner-driven executor measures its parts; see
+/// [`static_conjuncts`](vortex_scan::split::static_conjuncts). `None` for a filter without one.
+pub(crate) async fn static_survivors(
+    reader: &dyn LayoutReader,
+    rows: &Range<u64>,
+    filter: &BoundExpression,
+) -> VortexResult<Option<Vec<Range<u64>>>> {
+    let conjuncts = static_conjuncts(filter);
+    if conjuncts.is_empty() || rows.is_empty() {
+        return Ok(None);
+    }
+    let mut kept = Mask::new_true(usize::try_from(rows.end - rows.start)?);
+    for conjunct in &conjuncts {
+        kept = reader.pruning_evaluation(rows, conjunct, kept)?.await?;
+        if kept.all_false() {
+            break;
+        }
+    }
+    Ok(Some(kept_ranges(rows, &kept)))
 }
 
 /// Compute masks of field paths referenced by the projection and filter in the scan.

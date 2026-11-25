@@ -54,6 +54,7 @@ use crate::scan::metrics::ScanRecorder;
 use crate::scan::options::LayoutScanOptions;
 use crate::scan::repeated_scan::DEFAULT_SPLITS_PER_THREAD;
 use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::scan_builder::static_survivors;
 use crate::scan::split_by::SplitBy;
 use crate::scan::split_queue::SplitQueue;
 
@@ -332,12 +333,22 @@ impl DataSource for LayoutReaderDataSource {
             .then(|| scan_request.limit.map(RowLimit::new))
             .flatten();
 
+        let surviving = match (&self.split_by, &filter) {
+            (Some(SplitBy::Parts { .. }), Some(filter)) => {
+                static_survivors(self.reader.as_ref(), &row_range, filter)
+                    .await?
+                    .map(Arc::from)
+            }
+            _ => None,
+        };
+
         Ok(Box::new(LayoutReaderScan {
             reader: Arc::clone(&self.reader),
             session: self.session.clone(),
             dtype,
             projection,
             filter,
+            surviving,
             remaining_limit: scan_request.limit,
             row_limit,
             selection: scan_request.selection,
@@ -361,6 +372,9 @@ struct LayoutReaderScan {
     dtype: DType,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
+    /// The rows of the scan the zone pruning of its filter's static conjuncts keeps, which a scan
+    /// split by [`SplitBy::Parts`] measures its parts by.
+    surviving: Option<Arc<[Range<u64>]>>,
     /// Limit rows not yet covered by the splits produced so far in this request; production stops
     /// at zero. Decremented only for filterless scans, where each split's output is exactly its
     /// selected row count. Applies per scan request, so replaying a single partition applies that
@@ -392,6 +406,10 @@ impl LayoutReaderScan {
             .with_some_max_splits_in_flight(self.split_concurrency);
         let builder = match self.split_by {
             Some(split_by) => builder.with_split_by(split_by),
+            None => builder,
+        };
+        let builder = match &self.surviving {
+            Some(surviving) => builder.with_surviving_rows(Arc::clone(surviving)),
             None => builder,
         };
         match &self.cuts {
@@ -452,6 +470,7 @@ impl LayoutReaderScan {
             dtype: self.dtype.clone(),
             projection: self.projection.clone(),
             filter: self.filter.clone(),
+            surviving: self.surviving.clone(),
             remaining_limit: None,
             row_limit: None,
             ordered: self.ordered,
@@ -529,10 +548,11 @@ impl DataSourceScan for LayoutReaderScan {
             exhausted.clone(),
         ));
         let progress = Arc::clone(&queue);
+        let session = self.session.clone();
         let exec = ScanExec::new(self.dtype, exhausted, move || Arc::clone(&queue).worker())
             .with_progress(move || progress.claims());
         Ok(match parts {
-            true => exec.with_batch_cuts(),
+            true => exec.with_batch_cuts(session),
             false => exec,
         })
     }
@@ -617,6 +637,7 @@ impl Stream for LayoutReaderScan {
             ordered: this.ordered,
             split_concurrency: this.split_concurrency,
             split_by: this.split_by,
+            surviving: this.surviving.clone(),
             row_range,
             selection: this.selection.clone(),
             metrics: this.metrics.clone(),
@@ -657,6 +678,9 @@ struct LayoutReaderSplit {
     ordered: bool,
     split_concurrency: Option<NonZeroUsize>,
     split_by: Option<SplitBy>,
+    /// The scan's rows its static conjuncts keep, which a [`SplitBy::Parts`] split measures its
+    /// parts by.
+    surviving: Option<Arc<[Range<u64>]>>,
     row_range: Range<u64>,
     selection: Selection,
     metrics: Option<ScanMetrics>,
@@ -698,6 +722,10 @@ impl Partition for LayoutReaderSplit {
             .with_some_max_splits_in_flight(self.split_concurrency);
         let builder = match self.split_by {
             Some(split_by) => builder.with_split_by(split_by),
+            None => builder,
+        };
+        let builder = match self.surviving {
+            Some(surviving) => builder.with_surviving_rows(surviving),
             None => builder,
         };
         let builder = match self.row_limit {

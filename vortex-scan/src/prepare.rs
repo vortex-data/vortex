@@ -21,13 +21,13 @@ pub use crate::execution::SegmentLocation;
 pub use crate::execution::SharedFilterPrep;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
+use crate::execution::chunk_rows;
 use crate::execution::io::segment_ranges;
 use crate::execution::rows_per_chunk;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
 use crate::source::ScanInput;
-use crate::split::part_rows;
 use crate::strict_sorted_buffer::StrictSortedBuffer;
 
 /// Prepares a scan on the planner-driven executor.
@@ -139,7 +139,7 @@ impl ScanBuilder {
             None => cache.insert_root(file.root.get()?.clone()),
         };
         let row_count = root.row_count();
-        let part_rows = part_rows(root.dtype(), &self.projection, self.filter.as_ref())?;
+        let filtered_rows = chunk_rows(root.dtype(), &self.projection, self.filter.as_ref())?;
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
@@ -176,12 +176,11 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        // A part is one chunk, except that an identity projection's chunks are also bounded by
-        // their bytes, which only this engine knows, so its parts can hold several chunks.
+        // An identity projection's chunks are bounded by their bytes instead.
         let chunk_rows = if identity && filter.is_none() {
             rows_per_chunk(row_count, &file.locations)
         } else {
-            usize::try_from(part_rows)?
+            filtered_rows
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
@@ -201,7 +200,6 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
-            part_rows,
         })
     }
 }

@@ -50,10 +50,10 @@ pub enum SplitBy {
     /// Splits every n rows.
     RowCount(usize),
     /// Splits into the parts the planner-driven executor cuts, so both executors split a scan
-    /// alike: parts of [`part_rows`](vortex_scan::split::part_rows), sized from the scan's
-    /// projection and filter, at least `min_parts` of them where the rows hold enough blocks, each
-    /// cut snapped to a chunk boundary of the fields the scan reads where one is near. See
-    /// [`split_points`](vortex_scan::split::split_points).
+    /// alike: the rows are cut at the chunk boundaries of the fields the scan reads and joined
+    /// into parts of up to [`MAX_PART_ROWS`](vortex_scan::split::MAX_PART_ROWS) surviving rows,
+    /// and a chunk is cut inside only to make at least `min_parts` of them where the rows hold
+    /// enough blocks. See [`split_points`](vortex_scan::split::split_points).
     ///
     /// Its parts depend on the scan's projection and filter, so only a
     /// [`ScanBuilder`](crate::scan::scan_builder::ScanBuilder) computes them.

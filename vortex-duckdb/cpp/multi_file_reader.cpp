@@ -172,6 +172,13 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         }
     }
 
+    const vector<OpenFileInfo> files = bind_data.file_list->GetAllFiles();
+    vector<const char *> file_paths;
+    file_paths.reserve(files.size());
+    for (const OpenFileInfo &file : files) {
+        file_paths.push_back(file.path.c_str());
+    }
+
     void *const ffi_bind = bind.ffi_bind_data->DataPtr();
     duckdb_vx_tfunc_init_input ffi_input = {
         .bind_data = ffi_bind,
@@ -182,7 +189,8 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
         .client_context = reinterpret_cast<duckdb_client_context>(&context),
         .max_threads = static_cast<idx_t>(TaskScheduler::GetScheduler(context).NumberOfThreads()),
-        .file_count = bind_data.file_list->GetTotalFileCount(),
+        .file_count = file_paths.size(),
+        .file_paths = file_paths.data(),
     };
 
     duckdb_vx_error error_out = nullptr;

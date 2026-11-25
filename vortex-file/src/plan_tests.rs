@@ -50,9 +50,8 @@ use vortex_layout::session::LayoutSession;
 use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::prepare::ScanBuilder as PreparedScanBuilder;
-use vortex_scan::split::MAX_ROWS_PER_CHUNK;
+use vortex_scan::split::MAX_PART_ROWS;
 use vortex_scan::split::MIN_BATCH_ROWS;
-use vortex_scan::split::split_points;
 use vortex_scan::stream::ScanExec;
 use vortex_scan::stream::ScanStream;
 use vortex_session::VortexSession;
@@ -245,7 +244,7 @@ async fn split_pieces_read_every_row_once(
 #[cfg_attr(miri, ignore)]
 async fn open_returns_batches_within_parts() -> VortexResult<()> {
     let file = open_one_file().await?;
-    let (_, parts) = part_points(&file, &n(), None, None, 1)?;
+    let (_, parts) = part_points(&file, &n(), None, None, 1).await?;
     // One worker takes the parts in row order and finishes each before the next.
     let scan = file.plan_data_source().scan(request()).await?;
     let arrays: Vec<ArrayRef> = scan.open()?.stream().try_collect().await?;
@@ -346,8 +345,9 @@ async fn chunked_strings() -> VortexResult<VortexFile> {
     SESSION.open_options().open_buffer(buf.freeze())
 }
 
-/// The points at which each executor cuts a scan of `file` into at least `min_parts` parts.
-fn part_points(
+/// The points at which each executor cuts a scan of `file` into at least `min_parts` parts, each
+/// measuring the parts by the rows its own zone pruning of the filter's static conjuncts keeps.
+async fn part_points(
     file: &VortexFile,
     projection: &Expression,
     filter: Option<&Expression>,
@@ -371,50 +371,118 @@ fn part_points(
         Some(rows) => (v1.with_row_range(rows.clone()), v2.with_row_range(rows)),
         None => (v1, v2),
     };
-    Ok((v1.split_points()?, v2.prepare()?.part_points(min_parts)?))
+    let v1 = v1.with_static_pruning().await?;
+    let v2 = Arc::new(v2.prepare()?);
+    let kept = v2.static_kept().await?;
+    Ok((
+        v1.split_points()?,
+        v2.part_points(min_parts, kept.as_ref())?,
+    ))
 }
 
 /// Both executors cut a scan into the same parts, so comparing them compares their execution.
+/// A scan whose zones prune few rows has at least as many parts as its floor asks for, where its
+/// rows hold the blocks; [`parts_share_a_selective_filters_rows`] covers the selective filter's.
 #[rstest]
-#[case::projection(get_item("s", root()), None)]
-#[case::identity(root(), None)]
+#[case::projection(get_item("s", root()), None, true)]
+#[case::identity(root(), None, true)]
 #[case::filter_on_two_fields(
     get_item("n", root()),
-    Some(gt(get_item("s", root()), lit(format!("{:0>40}", 2500))))
+    Some(gt(get_item("s", root()), lit(format!("{:0>40}", 2500)))),
+    true
 )]
 #[case::filter_on_one_narrow_field(
     get_item("n", root()),
-    Some(gt(get_item("n", root()), lit(10u64)))
+    Some(gt(get_item("n", root()), lit(10u64))),
+    true
+)]
+#[case::selective_filter(
+    get_item("s", root()),
+    Some(gt(get_item("n", root()), lit(SELECTED_FROM))),
+    false
 )]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn executors_cut_the_same_parts(
     #[case] projection: Expression,
     #[case] filter: Option<Expression>,
+    #[case] keeps_most_rows: bool,
     #[values(None, Some(1000..350_123))] rows: Option<Range<u64>>,
     #[values(1, 18, 64)] min_parts: usize,
 ) -> VortexResult<()> {
     let file = chunked_strings().await?;
-    let (v1, v2) = part_points(&file, &projection, filter.as_ref(), rows.clone(), min_parts)?;
+    let (v1, v2) =
+        part_points(&file, &projection, filter.as_ref(), rows.clone(), min_parts).await?;
     assert_eq!(v1, v2);
     let rows = rows.unwrap_or(0..STRING_ROWS);
     assert_eq!(v2.first(), Some(&rows.start));
     assert_eq!(v2.last(), Some(&rows.end));
-    let blocks = usize::try_from((rows.end - rows.start).div_ceil(8192))?;
-    assert!(v2.len() > min_parts.min(blocks));
+    if keeps_most_rows {
+        let blocks = usize::try_from((rows.end - rows.start).div_ceil(8192))?;
+        assert!(v2.len() > min_parts.min(blocks));
+    }
     Ok(())
 }
 
-/// A part ends where a chunk of a column the scan reads ends, where one is near, rather than
-/// where the row grid alone would cut it.
+/// The first row a selective filter on [`chunked_strings`] keeps: its zones prune all rows before
+/// it, about nine tenths of the file.
+const SELECTED_FROM: u64 = 360_000;
+
+/// A scan of fewer rows than [`MAX_PART_ROWS`] with no floor on its parts is one part: its chunks
+/// are joined rather than cut on the row grid.
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn parts_end_at_column_chunks() -> VortexResult<()> {
+async fn small_scans_are_one_part() -> VortexResult<()> {
     let file = chunked_strings().await?;
-    let (_, points) = part_points(&file, &get_item("s", root()), None, None, 1)?;
-    let grid = split_points(0..STRING_ROWS, &[], MAX_ROWS_PER_CHUNK as u64, 1);
-    assert_eq!(points.len(), grid.len());
-    assert_ne!(points, grid);
+    const { assert!(STRING_ROWS < MAX_PART_ROWS) };
+    for projection in [get_item("s", root()), root()] {
+        let (v1, v2) = part_points(&file, &projection, None, None, 1).await?;
+        assert_eq!(v1, vec![0, STRING_ROWS]);
+        assert_eq!(v2, vec![0, STRING_ROWS]);
+    }
+    Ok(())
+}
+
+/// A selective filter's parts hold about equal surviving rows, so the rows its zones keep are
+/// spread over a host's threads rather than left in the last part, and the rows its zones prune
+/// are not cut at all.
+#[rstest]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn parts_share_a_selective_filters_rows(
+    #[values(4, 8)] min_parts: usize,
+) -> VortexResult<()> {
+    let file = chunked_strings().await?;
+    let filter = gt(get_item("n", root()), lit(SELECTED_FROM));
+    let (_, points) = part_points(
+        &file,
+        &get_item("s", root()),
+        Some(&filter),
+        None,
+        min_parts,
+    )
+    .await?;
+    // The zones of `n` hold 8192 rows, so the first kept zone is the one that holds the first
+    // selected row.
+    let kept_from = SELECTED_FROM / 8192 * 8192;
+    let kept_blocks = usize::try_from((STRING_ROWS - kept_from).div_ceil(8192))?;
+    assert!(
+        points[1..points.len() - 1]
+            .iter()
+            .all(|&point| point > kept_from),
+        "{points:?}"
+    );
+    assert!(points.len() > min_parts.min(kept_blocks), "{points:?}");
+    let surviving: Vec<u64> = points
+        .windows(2)
+        .map(|pair| pair[1] - pair[0].max(kept_from))
+        .collect();
+    let (least, most) = (surviving.iter().min(), surviving.iter().max());
+    assert!(
+        most.zip(least)
+            .is_some_and(|(most, least)| most - least <= 2 * 8192),
+        "{points:?}"
+    );
     Ok(())
 }
 

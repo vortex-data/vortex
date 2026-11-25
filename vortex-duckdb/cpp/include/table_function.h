@@ -61,6 +61,11 @@ typedef struct {
      * The number of files the scan reads.
      */
     idx_t file_count;
+
+    /**
+     * The paths of the files the scan reads, file_count of them.
+     */
+    const char *const *file_paths;
 } duckdb_vx_tfunc_init_input;
 
 // Result data returned from the cardinality callback.

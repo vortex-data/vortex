@@ -206,7 +206,7 @@ impl DataSource for PlanDataSource {
             selection: request.selection,
             limit: request.limit.map(RowLimit::new),
         };
-        let planned = Planned::new(&state, rows)?;
+        let planned = Planned::new(&state, rows).await?;
         Ok(Box::new(PlanScan {
             state: Arc::new(state),
             planned,

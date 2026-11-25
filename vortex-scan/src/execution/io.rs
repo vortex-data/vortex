@@ -616,7 +616,6 @@ mod tests {
             row_offset: 0,
             values,
             chunk_rows: 1,
-            part_rows: 1,
         });
 
         struct ParentPlanner(VecDeque<(WorkScope, Box<dyn Planner>)>);

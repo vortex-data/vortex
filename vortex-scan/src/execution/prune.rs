@@ -68,15 +68,21 @@ impl PrunePlanner {
         Self::with_plans(scan, rows, pruning, next)
     }
 
-    /// The planner of one part of `scan` over its `rows`, which runs every conjunct's pruning
-    /// plan whatever the part's size; see [`FilterPlans::pruning_for_part`](super::FilterPlans::pruning_for_part).
-    pub(crate) fn for_part(scan: Arc<PreparedScan>, rows: Range<u64>, next: PruneNext) -> Self {
-        let pruning: Vec<_> = scan
-            .filter
-            .iter()
-            .flat_map(|filter| filter.pruning_for_part().cloned())
-            .collect();
-        Self::with_plans(scan, rows, pruning, next)
+    /// The planner of `pruning` over `rows` of `scan`, starting from the rows `kept` already
+    /// keeps over them, or from all of them when that is `None`.
+    pub(crate) fn over_kept(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        pruning: Vec<PlanRef>,
+        kept: Option<Mask>,
+        next: PruneNext,
+    ) -> Self {
+        let mut planner = Self::with_plans(scan, rows, pruning, next);
+        if let Some(kept) = kept {
+            planner.mask = kept;
+            planner.pruned = true;
+        }
+        planner
     }
 
     fn with_plans(

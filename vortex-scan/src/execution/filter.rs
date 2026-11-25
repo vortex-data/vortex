@@ -200,13 +200,25 @@ impl FilterPlans {
             .filter_map(|(_, plan)| plan.as_ref())
     }
 
-    /// The pruning plans a part of a scan runs over its own rows: every conjunct's, dynamic ones
-    /// included whatever the part's size, so a part taken after a dynamic filter tightens skips
-    /// the zones it now rules out.
-    pub(crate) fn pruning_for_part(&self) -> impl Iterator<Item = &PlanRef> {
+    /// The pruning plans of the conjuncts without a dynamic expression: those of
+    /// [`static_conjuncts`](crate::split::static_conjuncts). A scan runs them once over its rows
+    /// when it is made, and cuts its parts by the rows they keep.
+    pub(crate) fn static_pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning
             .iter()
             .enumerate()
+            .filter(|(idx, _)| self.expression.dynamic_updates(*idx).is_none())
+            .filter_map(|(_, plan)| plan.as_ref())
+    }
+
+    /// The pruning plans of the dynamic conjuncts that are switched on, which a part of a scan
+    /// runs over its own rows when it is taken, whatever its size, so a part taken after a
+    /// dynamic filter tightens skips the zones it now rules out.
+    pub(crate) fn dynamic_pruning(&self) -> impl Iterator<Item = &PlanRef> {
+        self.pruning
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| self.expression.dynamic_updates(*idx).is_some())
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
             .filter_map(|(_, plan)| plan.as_ref())
     }

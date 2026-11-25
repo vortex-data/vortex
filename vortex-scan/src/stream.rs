@@ -23,6 +23,7 @@ use vortex_array::dtype::DType;
 use vortex_array::stats::Precision;
 use vortex_array::stream::ArrayStream;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::DataSourceScanRef;
 use crate::split::batch_pieces;
@@ -90,7 +91,7 @@ pub struct ScanExec {
     exhausted: ExhaustedFlag,
     new_worker: Arc<NewWorker>,
     progress: Option<Arc<ReadProgress>>,
-    batch_cuts: bool,
+    batch_cuts: Option<VortexSession>,
 }
 
 impl ScanExec {
@@ -110,15 +111,16 @@ impl ScanExec {
             exhausted,
             new_worker: Arc::new(new_worker),
             progress: None,
-            batch_cuts: false,
+            batch_cuts: None,
         }
     }
 
     /// This scan, with each batch its streams return cut at the chunk boundaries of its columns
     /// by [`batch_pieces`](crate::split::batch_pieces), so a column of a batch holds one encoding
     /// where its chunks are not too narrow.
-    pub fn with_batch_cuts(mut self) -> Self {
-        self.batch_cuts = true;
+    /// Partial chunks are sliced with `session`'s reduce rules.
+    pub fn with_batch_cuts(mut self, session: VortexSession) -> Self {
+        self.batch_cuts = Some(session);
         self
     }
 
@@ -191,18 +193,21 @@ impl ScanExec {
         let worker = (self.new_worker)();
         ScanStream {
             dtype: self.dtype.clone(),
-            worker: if self.batch_cuts {
-                worker
-                    .flat_map(|batch| {
-                        let pieces = match batch {
-                            Ok(batch) => batch_pieces(batch).into_iter().map(Ok).collect(),
-                            Err(err) => vec![Err(err)],
-                        };
-                        stream::iter(pieces)
-                    })
-                    .boxed()
-            } else {
-                worker
+            worker: match &self.batch_cuts {
+                Some(session) => {
+                    let session = session.clone();
+                    worker
+                        .flat_map(move |batch| {
+                            let pieces = match batch.and_then(|batch| batch_pieces(batch, &session))
+                            {
+                                Ok(pieces) => pieces.into_iter().map(Ok).collect(),
+                                Err(err) => vec![Err(err)],
+                            };
+                            stream::iter(pieces)
+                        })
+                        .boxed()
+                }
+                None => worker,
             },
         }
     }

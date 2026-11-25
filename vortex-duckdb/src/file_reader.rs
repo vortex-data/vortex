@@ -20,6 +20,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
+use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
@@ -153,11 +154,17 @@ impl FileScanState {
     }
 }
 
+/// Opens the file at `path`, from the cache of opened files where an earlier open of it is
+/// still held.
+pub(crate) async fn open_file(path: &str) -> VortexResult<VortexFile> {
+    let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(path)?)?;
+    let source = fs.open_read(&fs_path).await?;
+    open_cached(&SESSION, Some(path), source, None, &|options| options).await
+}
+
 impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
-        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
-        let source = fs.open_read(&fs_path).await?;
-        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
+        let file = open_file(&path).await?;
         // The engine is chosen here, once per file. Everything after reads the file through the
         // Scan API, the same way for either executor.
         let (source, split) = if crate::scan_v2() {
