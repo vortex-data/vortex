@@ -72,14 +72,6 @@ impl VortexSink {
     }
 }
 
-struct WrittenFile {
-    path: Path,
-    summary: WriteSummary,
-    /// Kept open until `demux_task` succeeds so an upstream failure drops and aborts every
-    /// multipart upload instead of publishing partial output files.
-    writer: CountingVortexWrite<ObjectStoreWrite>,
-}
-
 impl std::fmt::Debug for VortexSink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VortexSink").finish()
@@ -119,6 +111,19 @@ impl DataSink for VortexSink {
     ) -> DFResult<u64> {
         FileSink::write_all(self, data, context).await
     }
+}
+
+struct WrittenFile {
+    path: Path,
+    summary: WriteSummary,
+    /// Kept open until `demux_task` succeeds so an upstream failure drops and aborts every
+    /// multipart upload instead of publishing partial output files.
+    ///
+    /// Trade-off: each completed output file retains its open `ObjectStoreWrite` handle (and its
+    /// untracked `BytesMut` tail buffer of at least 16 MiB capacity) until the full input stream
+    /// is consumed, so a `COPY` that rolls over into many files holds memory and upload handles
+    /// proportional to the total number of output files rather than just active writers.
+    writer: CountingVortexWrite<ObjectStoreWrite>,
 }
 
 #[async_trait]
@@ -217,6 +222,8 @@ impl FileSink for VortexSink {
             .await
             .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
 
+        // Multi-file publication is not atomic: if one `shutdown()` fails after a sibling
+        // completes, already-published files remain because object stores lack a commit protocol.
         let published = try_join_all(written_files.into_iter().map(
             |WrittenFile {
                  path,
