@@ -53,11 +53,18 @@ use crate::unpack_iter::BitPackingStrategy;
 use crate::unpack_iter::BitUnpackedChunks;
 
 const FULL_ARRAY_DECODE_RATIO: usize = 8;
-/// Full-decode crossover for chunk-local patched takes (1/16 = 6.25%): above this selectivity,
-/// unpacking the full array once and gathering beats per-chunk scratch decode + patching.
+/// Full-decode crossover for chunk-local or lightly patched takes (1/16 = 6.25%): above this
+/// selectivity, unpacking the full array once and gathering beats per-chunk decode + patching.
 const PATCHED_CHUNK_DECODE_RATIO: usize = 16;
-/// Full-decode crossover for scattered or non-chunk-aligned patched takes (~0.8%).
-const PATCHED_SCATTERED_DECODE_RATIO: usize = 128;
+/// Full-decode crossover when chunk-aligned patching is unavailable (~0.8%), where `Patches::take`
+/// must hash or binary-search the full patch list per index.
+const PATCHED_FALLBACK_DECODE_RATIO: usize = 128;
+/// Minimum patch density (1/200 = 0.5%, ~5 patches per 1,024-value chunk) before scattered
+/// takes switch to full-array decode below `PATCHED_CHUNK_DECODE_RATIO`.
+const HEAVY_PATCH_DENSITY_RATIO: usize = 200;
+/// Scattered-take full-decode threshold in unpacked output bytes per index for heavily patched
+/// chunk-aligned arrays (256 B/index => ~0.8% for 2-byte values, ~1.6% for 4-byte, ~3.1% for 8-byte).
+const SCATTERED_HEAVY_PATCH_BYTES_PER_INDEX: usize = 256;
 const CHUNK_LOCALITY_SAMPLE_PAIRS: usize = 32;
 
 impl TakeExecute for BitPacked {
@@ -192,14 +199,24 @@ fn should_decode_full_for_patches(
     if array_len == 0 || num_indices == 0 {
         return Ok(false);
     }
-    let ratio = if can_use_chunk_aligned_patches(array, patches)?
-        && indices_are_chunk_local(indices, usize::from(array.offset()))
+    if num_indices.saturating_mul(PATCHED_CHUNK_DECODE_RATIO) > array_len {
+        return Ok(true);
+    }
+    if patches
+        .num_patches()
+        .saturating_mul(HEAVY_PATCH_DENSITY_RATIO)
+        <= array_len
     {
-        PATCHED_CHUNK_DECODE_RATIO
-    } else {
-        PATCHED_SCATTERED_DECODE_RATIO
-    };
-    Ok(num_indices.saturating_mul(ratio) > array_len)
+        return Ok(false);
+    }
+    if !can_use_chunk_aligned_patches(array, patches)? {
+        return Ok(num_indices.saturating_mul(PATCHED_FALLBACK_DECODE_RATIO) > array_len);
+    }
+    if indices_are_chunk_local(indices, usize::from(array.offset())) {
+        return Ok(false);
+    }
+    let full_decode_bytes = array_len.saturating_mul(array.dtype().as_ptype().byte_width());
+    Ok(num_indices.saturating_mul(SCATTERED_HEAVY_PATCH_BYTES_PER_INDEX) > full_decode_bytes)
 }
 
 fn contiguous_ranges(
@@ -1734,6 +1751,84 @@ mod tests {
             .execute::<PrimitiveArray>(&mut ctx)?
             .into_array();
         assert_arrays_eq!(packed.take(indices)?, values.take(expanded)?, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_should_decode_full_for_patches_scattered_cutoff() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 64 * FL_CHUNK_SIZE;
+        let one_pct = len / 100;
+        let ten_pct = len / 10;
+
+        let scattered_1pct =
+            PrimitiveArray::from_iter((0..one_pct).map(|i| ((i * 7_919) % len) as u32));
+        let sorted_1pct = PrimitiveArray::from_iter((0..one_pct).map(|i| (i * 100) as u32));
+        let scattered_10pct =
+            PrimitiveArray::from_iter((0..ten_pct).map(|i| ((i * 7_919) % len) as u32));
+
+        // Lightly patched i16 (~0.05% patches): 1% scattered stays on chunk-aligned sparse take,
+        // while 10% scattered decodes the full array.
+        let light_i16_values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx % 2_000 == 0 {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let light_i16 = BitPackedData::encode(&light_i16_values, 6, &mut ctx)?;
+        let light_patches = light_i16.patches().expect("lightly patched");
+        assert!(!should_decode_full_for_patches(
+            light_i16.as_view(),
+            &scattered_1pct,
+            &light_patches,
+        )?);
+        assert!(should_decode_full_for_patches(
+            light_i16.as_view(),
+            &scattered_10pct,
+            &light_patches,
+        )?);
+
+        // Heavily patched i16 (~1% patches): 1% scattered decodes full array, 1% sorted does not.
+        let heavy_i16_values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx % 97 == 0 {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let heavy_i16 = BitPackedData::encode(&heavy_i16_values, 6, &mut ctx)?;
+        let heavy_i16_patches = heavy_i16.patches().expect("heavily patched i16");
+        assert!(should_decode_full_for_patches(
+            heavy_i16.as_view(),
+            &scattered_1pct,
+            &heavy_i16_patches,
+        )?);
+        assert!(!should_decode_full_for_patches(
+            heavy_i16.as_view(),
+            &sorted_1pct,
+            &heavy_i16_patches,
+        )?);
+
+        // Heavily patched i64 (~1% patches): 1% scattered stays on chunk-aligned sparse take
+        // because full-decoding 8-byte elements costs 4x more output bandwidth than i16.
+        let heavy_i64_values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx % 97 == 0 {
+                999i64
+            } else {
+                (idx % 64) as i64
+            }
+        }))
+        .into_array();
+        let heavy_i64 = BitPackedData::encode(&heavy_i64_values, 6, &mut ctx)?;
+        let heavy_i64_patches = heavy_i64.patches().expect("heavily patched i64");
+        assert!(!should_decode_full_for_patches(
+            heavy_i64.as_view(),
+            &scattered_1pct,
+            &heavy_i64_patches,
+        )?);
         Ok(())
     }
 }
