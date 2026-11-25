@@ -47,7 +47,6 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 Before changing files in a subtree, read the closest nested `AGENTS.md`. In particular:
 
 - `.github/AGENTS.md` covers workflows and other GitHub configuration.
-- `docs/AGENTS.md` covers Sphinx documentation.
 
 ## Verification
 
@@ -203,7 +202,7 @@ These CI checks are the ones most often missed when adding files rather than edi
 
 ## Tests
 
-- Strongly consider `rstest` cases when parameterizing repetitive test logic.
+- Prefer writing small tests without parametrisation
 - Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
 - Prefer test module names `tests`, not `test`.
 - Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions. Put the
@@ -352,3 +351,24 @@ Use `git commit --signoff` to add this line.
 - Check that every commit on the branch is signed off before pushing;
   `git rebase --signoff <base>` adds missing sign-offs to commits on a branch you created.
 - Agent attribution belongs in a `Co-Authored-By:` trailer, never in `Signed-off-by:`.
+
+## General guidance on writing changes
+
+- Keep the diff small. Most changes should fit under 300 lines. Before
+  producing a final diff, check if it can be altered to satisfy the threshold.
+- Before writing tests, observe the properties of the objects you want to test
+  and test these, not the implementation. Write property tests using "hegeltest"
+  and, if needed, some corner case tests. Don't write many tests. If your change
+  adds more than 20 test cases, it's wrong - either most of the tests are
+  redundant, or the change should be split into multiple changes.
+- Never document function's implementation or its usages in function's comment.
+  Document only the contract and make it short. You almost never need to write a
+  comment longer than 2 lines.
+- Don't write comments for small functions or functions in tests module.
+- Prefer explicit function signatures taking least type that's needed. For
+  example, if you're operating on a PrimitiveArray, take PrimitiveArray and not
+  an ArrayRef. If your function operates on a primitive scalar, take the
+  primitive, not the Scalar, unless the function has many callers and code would
+  become bloated.
+- Never touch .md/.rst files in docs/ or README.md's - this should be only changed
+  by humans.
