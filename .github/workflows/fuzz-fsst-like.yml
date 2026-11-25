@@ -1,0 +1,20 @@
+name: Fuzz fsst_like
+
+# Temporarily disabled: no schedule, manual dispatch only.
+on:
+  workflow_dispatch: { }
+
+jobs:
+  fuzz:
+    name: "FSST LIKE Fuzz"
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: fsst_like
+      jobs: 4
+    secrets: inherit
