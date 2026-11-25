@@ -5,15 +5,15 @@
 //! behind [`ScanExec`] and its [`ScanStream`](crate::stream::ScanStream)s.
 //!
 //! When a scan is made, it prepares its child once, prunes the child's rows by the zone maps of
-//! its filter's static conjuncts, and cuts the rows into parts with
-//! [`split_points`](crate::split::split_points), which the V1 executor shares, measuring each
-//! part by the rows that survive. [`split`](crate::DataSourceScan::split) cuts the scan again into
-//! at least as many parts as pieces and deals them out to the pieces.
+//! its filter's static conjuncts, and cuts the rows into [`units`](crate::split::units) at the
+//! chunk boundaries of the columns it reads, leaving out the units pruning rules out entirely.
+//! [`split`](crate::DataSourceScan::split) deals the same units out to the pieces in contiguous
+//! groups.
 //!
-//! Every stream of an opened scan shares one [`Work`]: it takes a part from the queue and claims
-//! its rows a few column chunks at a time, sized by the rows the static conjuncts keep, and once the queue is empty it steals the back half of
-//! the unclaimed rest of another stream's part, cut at a column chunk boundary. The scan is
-//! exhausted once nothing is left to take or steal. Claimed rows are planned when a stream claims
+//! Every stream of an opened scan shares one [`Work`]: a stream claims one unit at a time from
+//! the front of the units it runs, and once it has none left it steals the back half of another
+//! stream's unclaimed units. The scan is exhausted once no unit is left unclaimed. Claimed rows
+//! are planned when a stream claims
 //! them, over the rows the static conjuncts kept: with a dynamic conjunct, they are first pruned
 //! against the zone maps, applying the conjunct as it stands then, such as the bound a top-N
 //! pushes down. Each stream owns a [`Run`], driven on the task that polls the stream: a claim's
@@ -41,7 +41,6 @@ use vortex_io::request::IoService;
 use vortex_mask::Mask;
 
 use super::plan::ScanState;
-use super::work::CLAIM_SURVIVING_ROWS;
 use super::work::Owned;
 use super::work::Work;
 use crate::execution::chunk_boundaries;
@@ -55,45 +54,41 @@ use crate::planning::planner::WorkScope;
 use crate::prepare::PreparedScan;
 use crate::split::group_parts;
 use crate::split::kept_ranges;
-use crate::split::parts_between;
+use crate::split::units;
 use crate::stream::ExhaustedFlag;
 use crate::stream::ScanExec;
 
-/// The parts of a scan, or of a piece of one, cut when the scan was made.
+/// The units of a scan, or of a piece of one, cut when the scan was made.
 pub(super) struct Planned {
-    /// The child's prepared scan, which every part plans over, or `None` for a scan that reads
+    /// The child's prepared scan, which every unit plans over, or `None` for a scan that reads
     /// nothing.
     prepared: Option<Arc<Prepared>>,
-    /// The parts, in row order.
-    parts: Vec<Range<u64>>,
-    /// Whether the parts cover all of the scan's rows, rather than being a piece of it.
-    whole: bool,
+    /// The units that zone pruning left rows of, in row order.
+    units: Vec<Range<u64>>,
 }
 
-/// A child's prepared scan, the I/O its parts read through, the rows of the scan its filter's
-/// static conjuncts keep, and the chunk boundaries of the columns it reads, where its parts may
-/// be cut while they run.
+/// A child's prepared scan, the I/O its units read through, and the rows of the scan its
+/// filter's static conjuncts keep.
 struct Prepared {
     scan: Arc<PreparedScan>,
     io: Arc<dyn IoService>,
     kept: Option<Mask>,
-    boundaries: Vec<u64>,
 }
 
 impl Prepared {
-    /// The rows of `part` the static conjuncts keep, over the part.
-    fn kept(&self, part: &Range<u64>) -> Option<Mask> {
+    /// The rows of `unit` the static conjuncts keep, over the unit.
+    fn kept(&self, unit: &Range<u64>) -> Option<Mask> {
         let start = self.scan.rows().start;
         self.kept.as_ref().map(|kept| {
             let offset = |row: u64| usize::try_from(row - start).unwrap_or(usize::MAX);
-            kept.slice(offset(part.start)..offset(part.end))
+            kept.slice(offset(unit.start)..offset(unit.end))
         })
     }
 }
 
 impl Planned {
     /// Prepares the scan of `rows` of the child, if it reads any, prunes them by the zone maps of
-    /// the filter's static conjuncts, and cuts them into parts.
+    /// the filter's static conjuncts, and cuts them into units.
     pub(super) async fn new(state: &ScanState, rows: Option<Range<u64>>) -> VortexResult<Self> {
         let Some(rows) = rows.filter(|rows| !rows.is_empty()) else {
             return Ok(Self::empty());
@@ -104,69 +99,53 @@ impl Planned {
         if kept.as_ref().is_some_and(Mask::all_false) {
             return Ok(Self::empty());
         }
-        let parts = parts_between(&scan.part_points(1, kept.as_ref())?);
-        let boundaries = chunk_boundaries(&scan)?;
+        let surviving = kept.as_ref().map(|kept| kept_ranges(scan.rows(), kept));
+        let units = units(
+            scan.rows().clone(),
+            &chunk_boundaries(&scan)?,
+            surviving.as_deref(),
+        );
         Ok(Self {
-            prepared: Some(Arc::new(Prepared {
-                scan,
-                io,
-                kept,
-                boundaries,
-            })),
-            parts,
-            whole: true,
+            prepared: Some(Arc::new(Prepared { scan, io, kept })),
+            units,
         })
     }
 
     fn empty() -> Self {
         Self {
             prepared: None,
-            parts: Vec::new(),
-            whole: true,
+            units: Vec::new(),
         }
     }
 
-    /// The number of parts.
+    /// The number of units.
     pub(super) fn len(&self) -> usize {
-        self.parts.len()
+        self.units.len()
     }
 
-    /// Deals the parts out to at most `n` pieces of contiguous parts. A whole scan is cut again
-    /// first, into at least `n` parts where its surviving rows and blocks allow. Never empty.
-    pub(super) fn split(self, n: usize) -> VortexResult<Vec<Self>> {
+    /// Deals the units out to at most `n` pieces of contiguous units. Never empty.
+    pub(super) fn split(self, n: usize) -> Vec<Self> {
         let Some(prepared) = self.prepared else {
-            return Ok(vec![Self::empty()]);
+            return vec![Self::empty()];
         };
-        let parts = if self.whole {
-            parts_between(&prepared.scan.part_points(n, prepared.kept.as_ref())?)
-        } else {
-            self.parts
-        };
-        Ok(group_parts(parts, n)
+        group_parts(self.units, n)
             .into_iter()
-            .map(|parts| Self {
+            .map(|units| Self {
                 prepared: Some(Arc::clone(&prepared)),
-                parts,
-                whole: false,
+                units,
             })
-            .collect())
+            .collect()
     }
 }
 
-/// Opens a scan onto the parts it `planned`. A scan with no parts opens exhausted.
+/// Opens a scan onto the units it `planned`. A scan with no units opens exhausted.
 pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
     let dtype = state.dtype.clone();
     let limit = state.limit.clone();
     let session = state.session.clone();
     let exhausted = ExhaustedFlag::new();
-    let Some(prepared) = planned.prepared.filter(|_| !planned.parts.is_empty()) else {
-        let work = Arc::new(Work::new(
-            Vec::new(),
-            Vec::new(),
-            None,
-            1,
-            exhausted.clone(),
-        ));
+    let Some(prepared) = planned.prepared.filter(|_| !planned.units.is_empty()) else {
+        let work = Arc::new(Work::new(Vec::new(), None, exhausted.clone()));
         return ScanExec::new(dtype, exhausted, || stream::empty().boxed())
             .with_progress(move || work.claims())
             .with_batch_cuts(session);
@@ -175,13 +154,7 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
         .kept
         .as_ref()
         .map(|kept| kept_ranges(prepared.scan.rows(), kept));
-    let work = Arc::new(Work::new(
-        planned.parts,
-        prepared.boundaries.clone(),
-        surviving,
-        CLAIM_SURVIVING_ROWS,
-        exhausted.clone(),
-    ));
+    let work = Arc::new(Work::new(planned.units, surviving, exhausted.clone()));
     let progress = Arc::clone(&work);
     ScanExec::new(dtype, exhausted, move || {
         let worker = Worker {
@@ -212,7 +185,7 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
 struct Worker {
     prepared: Arc<Prepared>,
     work: Arc<Work>,
-    /// The running part the worker claims rows from.
+    /// The units the worker claims from.
     owned: Option<Owned>,
     /// Set once the worker found nothing left to claim, which stays so.
     drained: bool,

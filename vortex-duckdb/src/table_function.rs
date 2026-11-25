@@ -306,12 +306,12 @@ pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
     agg.active_threads -= 1;
 }
 
-/// The pieces, and so the fewest parts, each file's scan is cut into, given DuckDB's `threads`
+/// The pieces each file's scan is cut into, given DuckDB's `threads`
 /// and the scan's `files`: at least two, and two for each thread shared out over the files.
 ///
-/// Two parts per thread let threads that finish early take parts from the others. A file whose
-/// work is concentrated in a few parts is shared out further while it runs: a thread with no part
-/// left splits the unclaimed rest of a running part at a column chunk boundary.
+/// Each piece holds a contiguous run of the file's units, one per claim, and threads that finish a
+/// piece early move on to another. Within a piece, a thread with no unit left steals the back half
+/// of another thread's unclaimed units.
 fn file_pieces(threads: NonZeroUsize, files: NonZeroUsize) -> NonZeroUsize {
     let pieces = (2 * threads.get()).div_ceil(files.get()).max(2);
     NonZeroUsize::new(pieces).vortex_expect("at least two pieces")

@@ -299,6 +299,48 @@ fn surviving_rows(surviving: &[Range<u64>], range: Range<u64>) -> u64 {
         .sum()
 }
 
+/// The units a scan of `rows` hands out, one per claim, in row order: the spans between the sorted
+/// chunk `boundaries` of the columns the scan reads, leaving out the units of which no row is in `surviving`, the sorted, disjoint rows the
+/// scan's zone pruning keeps (all rows when `None`).
+///
+/// A boundary that leaves a span narrower than [`MIN_BATCH_ROWS`] since the last one kept is
+/// dropped, as is the last one kept where it leaves a span that narrow before `rows.end`, so a
+/// column chunked finer than its neighbours does not cut the scan into slivers.
+///
+/// No unit cuts a chunk, so no two claims decode the same chunk. Unlike the layout reader, a
+/// span wider than its default split is not cut further: a scan of a few narrow columns, whose
+/// chunks are wide, runs fastest with a chunk per claim, and the files of a multi-file scan give
+/// threads units enough.
+pub fn units(
+    rows: Range<u64>,
+    boundaries: &[u64],
+    surviving: Option<&[Range<u64>]>,
+) -> Vec<Range<u64>> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let min = MIN_BATCH_ROWS as u64;
+    let mut kept = vec![rows.start];
+    for &boundary in boundaries
+        .iter()
+        .filter(|&&boundary| boundary > rows.start && boundary < rows.end)
+    {
+        if boundary - kept[kept.len() - 1] >= min {
+            kept.push(boundary);
+        }
+    }
+    if kept.len() > 1 && rows.end - kept[kept.len() - 1] < min {
+        kept.pop();
+    }
+    kept.push(rows.end);
+    kept.windows(2)
+        .map(|pair| pair[0]..pair[1])
+        .filter(|unit| {
+            surviving.is_none_or(|surviving| surviving_rows(surviving, unit.clone()) > 0)
+        })
+        .collect()
+}
+
 /// The conjuncts of `filter` that hold no dynamic expression, such as the bound a top-N or a
 /// join pushes down. The rows their zone pruning keeps when a scan is made hold for the whole
 /// scan, so both engines measure the scan's parts by them.
@@ -492,6 +534,47 @@ mod tests {
             split_points(rows, boundaries, surviving, min_parts),
             expected
         );
+    }
+
+    #[rstest]
+    #[case::empty(0..0, &[], None, vec![])]
+    #[case::one_unit_per_chunk(0..3 * B, &[B, 2 * B], None, vec![0..B, B..2 * B, 2 * B..3 * B])]
+    #[case::slivers_join_the_unit_before(
+        0..3 * B, &[100, B, B + 50, 2 * B], None, vec![0..B, B..2 * B, 2 * B..3 * B]
+    )]
+    #[case::a_short_tail_joins_the_last_unit(
+        0..2 * B + 100, &[B, 2 * B], None, vec![0..B, B..2 * B + 100]
+    )]
+    #[case::wide_chunks_stay_whole(0..250_000, &[], None, vec![0..250_000])]
+    #[allow(clippy::single_range_in_vec_init, reason = "one surviving range")]
+    #[case::pruned_units_are_left_out(
+        0..3 * B, &[B, 2 * B], Some(&[2 * B + 5..2 * B + 6][..]), vec![2 * B..3 * B]
+    )]
+    fn unit_cuts(
+        #[case] rows: Range<u64>,
+        #[case] boundaries: &[u64],
+        #[case] surviving: Option<&[Range<u64>]>,
+        #[case] expected: Vec<Range<u64>>,
+    ) {
+        assert_eq!(units(rows, boundaries, surviving), expected);
+    }
+
+    /// Without pruning, the units cover the rows in order, each non-empty and ending at a chunk
+    /// boundary or the end of the rows.
+    #[rstest]
+    fn units_cover_the_rows(
+        #[values(0..1, 0..B, 7..18 * B + 3, 0..1_000_000, 0..5_000_003)] rows: Range<u64>,
+        #[values(1, 997, 3 * B + 5, 300_007)] chunk: u64,
+    ) {
+        let boundaries: Vec<u64> = (rows.start..rows.end)
+            .step_by(usize::try_from(chunk).unwrap_or(1))
+            .collect();
+        let units = units(rows.clone(), &boundaries, None);
+        assert_eq!(units.first().map(|unit| unit.start), Some(rows.start));
+        assert_eq!(units.last().map(|unit| unit.end), Some(rows.end));
+        assert!(units.windows(2).all(|pair| pair[0].end == pair[1].start));
+        assert!(units.iter().all(|unit| !unit.is_empty()
+            && (unit.end == rows.end || boundaries.binary_search(&unit.end).is_ok())));
     }
 
     /// Every part of every scan is non-empty, the parts cover the rows in order, and they number

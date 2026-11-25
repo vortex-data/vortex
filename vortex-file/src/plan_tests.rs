@@ -208,8 +208,8 @@ async fn open_reads_every_row_once(#[case] filtered: bool) -> VortexResult<()> {
     Ok(())
 }
 
-/// The pieces of a split scan together read every selected row once, whether the scan has
-/// parts enough for every piece or cuts its parts on grid blocks to make them.
+/// The pieces of a split scan together read every selected row once, whether the scan has units
+/// enough for every piece or fewer, when it makes as many pieces as units.
 #[rstest]
 #[case::projection_few_pieces(false, 4)]
 #[case::filter_few_pieces(true, 4)]
@@ -229,8 +229,7 @@ async fn split_pieces_read_every_row_once(
         })
         .await?;
     let pieces = scan.split(NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN))?;
-    // The file has the blocks for every piece, so a host gets one per thread it asked for.
-    assert_eq!(pieces.len(), n);
+    assert!(!pieces.is_empty() && pieces.len() <= n);
     let mut workers = Vec::new();
     for piece in pieces {
         workers.extend(read_stream(piece.open()?, 2).await?);
