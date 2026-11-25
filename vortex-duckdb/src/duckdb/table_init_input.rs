@@ -52,6 +52,14 @@ impl<'a> TableInitInput<'a> {
             .unwrap_or(NonZeroUsize::MIN)
     }
 
+    /// The number of files the scan reads, at least one.
+    pub fn file_count(&self) -> NonZeroUsize {
+        usize::try_from(self.input.file_count)
+            .ok()
+            .and_then(NonZeroUsize::new)
+            .unwrap_or(NonZeroUsize::MIN)
+    }
+
     /// Returns the table filter set for the table function.
     pub fn table_filter_set(&self) -> Option<&TableFilterSetRef> {
         let ptr = self.input.filters;

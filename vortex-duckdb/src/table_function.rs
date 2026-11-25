@@ -185,8 +185,10 @@ pub struct GlobalState {
     /// The projection before binding, which each file's scan binds against the file.
     pub projection_expr: Expression,
     pub filter: Filter,
-    /// The threads DuckDB runs, which a file's scan is split for.
-    pub threads: NonZeroUsize,
+    /// The pieces each file's V2 scan is split into: DuckDB's threads shared out over the scan's
+    /// files, so a scan of fewer files than threads still gives every thread work, and a scan of
+    /// as many files as threads splits none.
+    pub file_pieces: NonZeroUsize,
     /// The scan's request bound to the files' schema, shared by every file's scan.
     pub bind_cache: BindCache,
     pub file_row_number_column_pos: Option<usize>,
@@ -359,7 +361,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     Ok(GlobalState {
         projection_expr: projection,
         filter,
-        threads: init_input.max_threads(),
+        file_pieces: init_input.max_threads().div_ceil(init_input.file_count()),
         bind_cache: BindCache::default(),
         aggregates: bind_data.aggregates.clone(),
         has_count_star,

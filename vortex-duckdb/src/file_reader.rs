@@ -250,13 +250,13 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         ..ScanRequest::default()
     };
     // An unordered scan without a limit opens onto a queue of the file's work, whose streams each
-    // take the next once they have finished their last. A V2 scan is first split for DuckDB's
-    // threads, so that a file of fewer parts than threads is cut on smaller blocks rather than
-    // leaving threads idle. A V1 scan's work is its layout splits already, which splitting would
+    // take the next once they have finished their last. A V2 scan is first split into its share of
+    // DuckDB's threads, so that a scan of fewer parts than threads cuts its files on smaller
+    // blocks rather than leaving threads idle. A V1 scan's work is its layout splits already, which splitting would
     // only regroup. A scan, or a piece, the file's statistics reject opens exhausted.
     let scan = RUNTIME.block_on(state.source.scan(request))?;
     let pieces = if state.split {
-        scan.split(global.threads)?
+        scan.split(global.file_pieces)?
     } else {
         vec![scan]
     };
@@ -572,17 +572,30 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
 
 #[cfg(test)]
 mod tests {
+    use futures::TryStreamExt as _;
     use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::Chunked;
     use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::Struct;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::chunked::ChunkedArrayExt as _;
+    use vortex::array::arrays::struct_::StructArrayExt as _;
     use vortex::buffer::Buffer;
+    use vortex::buffer::ByteBufferMut;
     use vortex::error::VortexResult;
+    use vortex::file::OpenOptionsSessionExt as _;
+    use vortex::file::WriteOptionsSessionExt as _;
+    use vortex::io::runtime::BlockingRuntime as _;
+    use vortex::scan::ScanRequest;
 
     use super::export_pieces;
     use super::vector_cuts;
+    use crate::RUNTIME;
+    use crate::SESSION;
 
     #[rstest]
     #[case::aligned(vec![0, 2048, 4096, 8192], 8192, vec![])]
@@ -629,5 +642,61 @@ mod tests {
             .collect();
         assert_eq!(lens, vec![3000, 1096, 3904]);
         Ok(())
+    }
+
+    /// The boundaries of the chunked fields of a struct `array`, inside it.
+    fn field_bounds(array: &ArrayRef) -> Vec<usize> {
+        array
+            .as_opt::<Struct>()
+            .into_iter()
+            .flat_map(|array| {
+                array
+                    .iter_unmasked_fields()
+                    .filter_map(|field| field.as_opt::<Chunked>())
+                    .flat_map(|field| field.chunk_offset_values().to_vec())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|&bound| bound > 0 && bound < array.len())
+            .collect()
+    }
+
+    /// A V2 scan's batches can join layout chunks of a dictionary-encoded column, and no vector
+    /// of the pieces they are exported in crosses from one chunk to the next.
+    #[test]
+    fn v2_batches_export_without_straddling_dictionaries() -> VortexResult<()> {
+        RUNTIME.block_on(async {
+            const ROWS: usize = 400_000;
+            // Enough distinct values that the column's dictionaries are cut into chunks.
+            let s = VarBinViewArray::from_iter_str(
+                (0..ROWS).map(|row| format!("{:0>40}", (row / 30_000) * 5000 + row % 5000)),
+            )
+            .into_array();
+            let n = Buffer::from_iter(0..ROWS as u64).into_array();
+            let array = StructArray::from_fields(&[("s", s), ("n", n)])?.into_array();
+            let mut buf = ByteBufferMut::empty();
+            SESSION
+                .write_options()
+                .write(&mut buf, array.to_array_stream())
+                .await?;
+            let file = SESSION.open_options().open_buffer(buf.freeze())?;
+            let scan = file.plan_data_source().scan(ScanRequest::default()).await?;
+            let batches: Vec<ArrayRef> = scan.open()?.stream().try_collect().await?;
+
+            let vector = 2048;
+            assert!(
+                batches
+                    .iter()
+                    .any(|batch| field_bounds(batch).iter().any(|bound| bound % vector != 0)),
+                "a batch joins two chunks of a field off a vector boundary"
+            );
+            for batch in batches {
+                for piece in export_pieces(batch, vector) {
+                    for bound in field_bounds(&piece) {
+                        assert_eq!(bound % vector, 0, "a vector straddles a chunk at {bound}");
+                    }
+                }
+            }
+            Ok(())
+        })
     }
 }

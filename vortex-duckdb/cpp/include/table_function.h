@@ -56,6 +56,11 @@ typedef struct {
      * cut its files' work for.
      */
     idx_t max_threads;
+
+    /**
+     * The number of files the scan reads.
+     */
+    idx_t file_count;
 } duckdb_vx_tfunc_init_input;
 
 // Result data returned from the cardinality callback.

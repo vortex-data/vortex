@@ -182,6 +182,7 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
         .client_context = reinterpret_cast<duckdb_client_context>(&context),
         .max_threads = static_cast<idx_t>(TaskScheduler::GetScheduler(context).NumberOfThreads()),
+        .file_count = bind_data.file_list->GetTotalFileCount(),
     };
 
     duckdb_vx_error error_out = nullptr;
