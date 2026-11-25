@@ -7,6 +7,7 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use super::AllNonDistinct;
 use super::all_non_distinct;
@@ -38,6 +39,7 @@ use crate::dtype::MapDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::extension::ForeignExtDType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -1152,6 +1154,112 @@ fn test_variant_map_reordered_object_fields_match_across_canonical_and_constant(
     .into_array();
     let const_distinct =
         ConstantArray::new(Scalar::struct_(pair_dtype, [lhs_map, rhs_map_distinct]), 2)
+            .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let canon_equal = const_equal
+        .clone()
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+    let canon_distinct = const_distinct
+        .clone()
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+
+    assert!(accumulate_all_non_distinct(&[const_equal])?);
+    assert!(accumulate_all_non_distinct(&[canon_equal])?);
+    assert!(!accumulate_all_non_distinct(&[const_distinct])?);
+    assert!(!accumulate_all_non_distinct(&[canon_distinct])?);
+    Ok(())
+}
+
+#[test]
+fn test_variant_repeated_field_names_and_extension_storage() -> VortexResult<()> {
+    let dup_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["a", "a"]),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ],
+        ),
+        Nullability::NonNullable,
+    );
+    let dup_1_2 = Scalar::variant(Scalar::struct_(
+        dup_dtype.clone(),
+        [Scalar::from(1i32), Scalar::from(2i32)],
+    ));
+    let dup_1_1 = Scalar::variant(Scalar::struct_(
+        dup_dtype,
+        [Scalar::from(1i32), Scalar::from(1i32)],
+    ));
+
+    assert!(variant_scalars_equal(&dup_1_2, &dup_1_2));
+    assert!(!variant_scalars_equal(&dup_1_1, &dup_1_2));
+
+    static ID: CachedId = CachedId::new("test.variant_ext");
+    let ext_dtype =
+        ForeignExtDType::from_parts(*ID, Vec::new(), DType::Variant(Nullability::NonNullable))?;
+    let lhs_obj_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        ),
+        Nullability::NonNullable,
+    );
+    let rhs_obj_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["b", "a"]),
+            vec![
+                DType::Utf8(Nullability::NonNullable),
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ],
+        ),
+        Nullability::NonNullable,
+    );
+
+    let lhs_ext = Scalar::extension_ref(
+        ext_dtype.clone(),
+        Scalar::variant(Scalar::struct_(
+            lhs_obj_dtype,
+            [Scalar::from(1i32), Scalar::from("x")],
+        )),
+    );
+    let rhs_ext_equal = Scalar::extension_ref(
+        ext_dtype.clone(),
+        Scalar::variant(Scalar::struct_(
+            rhs_obj_dtype.clone(),
+            [Scalar::from("x"), Scalar::from(1i32)],
+        )),
+    );
+    let rhs_ext_distinct = Scalar::extension_ref(
+        ext_dtype.clone(),
+        Scalar::variant(Scalar::struct_(
+            rhs_obj_dtype,
+            [Scalar::from("y"), Scalar::from(1i32)],
+        )),
+    );
+
+    let pair_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![
+                DType::Extension(ext_dtype.clone()),
+                DType::Extension(ext_dtype),
+            ],
+        ),
+        Nullability::NonNullable,
+    );
+    let const_equal = ConstantArray::new(
+        Scalar::struct_(pair_dtype.clone(), [lhs_ext.clone(), rhs_ext_equal]),
+        2,
+    )
+    .into_array();
+    let const_distinct =
+        ConstantArray::new(Scalar::struct_(pair_dtype, [lhs_ext, rhs_ext_distinct]), 2)
             .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();

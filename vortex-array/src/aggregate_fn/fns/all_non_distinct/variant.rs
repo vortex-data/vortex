@@ -29,15 +29,26 @@ pub fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
             let lhs_struct = lhs.as_struct();
             let rhs_struct = rhs.as_struct();
             let lhs_names = lhs_struct.names();
-            if lhs_names.len() != rhs_struct.names().len() {
+            let rhs_names = rhs_struct.names();
+            if lhs_names.len() != rhs_names.len() {
                 return false;
             }
             let Some(lhs_fields) = lhs_struct.fields_iter() else {
                 return rhs_struct.is_null();
             };
+            let mut rhs_matched = vec![false; rhs_names.len()];
             lhs_names.iter().zip(lhs_fields).all(|(name, lhs_field)| {
+                let Some(rhs_idx) = rhs_names
+                    .iter()
+                    .enumerate()
+                    .find(|&(idx, rhs_name)| !rhs_matched[idx] && rhs_name == name)
+                    .map(|(idx, _)| idx)
+                else {
+                    return false;
+                };
+                rhs_matched[rhs_idx] = true;
                 rhs_struct
-                    .field(name.as_ref())
+                    .field_by_idx(rhs_idx)
                     .is_some_and(|rhs_field| variant_scalars_equal(&lhs_field, &rhs_field))
             })
         }
