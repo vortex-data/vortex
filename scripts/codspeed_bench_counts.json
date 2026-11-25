@@ -19,6 +19,7 @@
     "aggregate_max": 15,
     "aggregate_sum": 14,
     "binary_ops": 7,
+    "block_program": 15,
     "cast_decimal": 8,
     "cast_primitive": 7,
     "chunk_array_builder": 31,
