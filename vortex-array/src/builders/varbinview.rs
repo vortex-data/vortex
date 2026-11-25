@@ -742,6 +742,7 @@ impl VarBinViewBuilder {
             }
         }
 
+        let start_view = self.views_builder.len();
         let start_index = self.completed.len();
         let segments = extend_views(
             &mut self.views_builder,
@@ -752,13 +753,33 @@ impl VarBinViewBuilder {
             len_at,
         );
 
-        let expected_completed_len = start_index as usize + segments.len();
-        self.completed.extend_from_slice_unchecked(&segments);
-        assert_eq!(
-            self.completed.len() as usize,
-            expected_completed_len,
-            "Some buffers already exist",
-        );
+        match &mut self.completed {
+            CompletedBuffers::Default(buffers) => {
+                assert!(
+                    buffers.len() + segments.len() <= u32::MAX as usize,
+                    "Too many blocks"
+                );
+                buffers.extend(segments);
+            }
+            CompletedBuffers::Deduplicated(buffers) => {
+                let actual_indices: Vec<u32> = segments
+                    .into_iter()
+                    .map(|segment| buffers.push(segment))
+                    .collect();
+                let needs_remap = actual_indices
+                    .iter()
+                    .zip(start_index..)
+                    .any(|(&actual, expected)| actual != expected);
+                if needs_remap {
+                    for view in &mut self.views_builder[start_view..] {
+                        if !view.is_inlined() {
+                            let seg_idx = (view.as_view().buffer_index - start_index) as usize;
+                            view.as_view_mut().buffer_index = actual_indices[seg_idx];
+                        }
+                    }
+                }
+            }
+        }
 
         self.nulls.append_validity_mask(validity);
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
@@ -2255,6 +2276,31 @@ mod tests {
         assert_eq!(second.data_buffers().len(), 1);
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(LONG)]);
         assert_arrays_eq!(second, expected, &mut ctx);
+
+        // Appending the same offset-based `VarBinArray` twice after reuse must deduplicate
+        // its byte buffer and remap views instead of panicking.
+        let varbin = crate::arrays::VarBinArray::from_iter(
+            [Some(LONG), Some("another long string > 12 bytes")],
+            DType::Utf8(Nullability::Nullable),
+        );
+        varbin
+            .clone()
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+        varbin
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+        assert_eq!(builder.completed_block_count(), 1);
+
+        let third = builder.finish_into_varbinview();
+        assert_eq!(third.data_buffers().len(), 1);
+        let expected_third = <VarBinViewArray as FromIterator<_>>::from_iter([
+            Some(LONG),
+            Some("another long string > 12 bytes"),
+            Some(LONG),
+            Some("another long string > 12 bytes"),
+        ]);
+        assert_arrays_eq!(third, expected_third, &mut ctx);
         Ok(())
     }
 }

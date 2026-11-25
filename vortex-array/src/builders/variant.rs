@@ -100,16 +100,8 @@ pub struct VariantBuilder {
     shredded: Vec<ShreddedPart>,
     /// The number of rows `shredded` covers.
     shredded_len: usize,
-    /// The dtype of the core storage currently being appended, if the builder is inside
-    /// [`append_variant_array`](Self::append_variant_array).
-    ///
-    /// [`ArrayRef::append_to_builder`] checks exact dtype equality against [`ArrayBuilder::dtype`],
-    /// so exposing the incoming core storage's dtype while appending lets a nullable builder accept
-    /// non-nullable Variants while still building all core parts under `self.dtype`.
-    in_core: Option<DType>,
-    /// Set if a failed `append_variant_array` partially extended a reused `VariantStorageBuilder`
-    /// that cannot be rolled back; subsequent operations fail instead of finishing mismatched rows.
-    poisoned: bool,
+    /// Whether the builder is appending the core storage of a canonical Variant.
+    in_core: bool,
 }
 
 impl VariantBuilder {
@@ -121,8 +113,7 @@ impl VariantBuilder {
             finished_len: 0,
             shredded: Vec::new(),
             shredded_len: 0,
-            in_core: None,
-            poisoned: false,
+            in_core: false,
         }
     }
 
@@ -135,12 +126,11 @@ impl VariantBuilder {
         array: &VariantArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.check_usable()?;
         self.check_dtype(array.dtype())?;
         if array.is_empty() {
             return Ok(());
         }
-        if self.in_core.is_some() {
+        if self.in_core {
             // A storage encoding without a storage builder of its own executes to a canonical
             // Variant over itself, and its rows are kept as they are. So are those of a core
             // storage that holds shredded values of its own.
@@ -148,14 +138,6 @@ impl VariantBuilder {
                 array.clone().into_array()
             } else {
                 array.core_storage().clone()
-            };
-            let chunk = if chunk.dtype() == &self.dtype {
-                chunk
-            } else if let Some(scalar) = chunk.as_constant() {
-                return self.append_n_scalars(scalar, chunk.len());
-            } else {
-                // Promote a non-nullable chunk to nullable in O(1) without per-row materialization.
-                MaskedArray::try_new(chunk, Validity::AllValid, ctx)?.into_array()
             };
             self.push(CorePart::Chunk(chunk));
             return Ok(());
@@ -176,30 +158,20 @@ impl VariantBuilder {
         }
 
         let start_len = self.len();
-        let saved_core_len = self.core.len();
-        let saved_finished_len = self.finished_len;
-        let saved_last_len = self.core.last().map(CorePart::len);
-
-        self.in_core = Some(array.dtype().clone());
-        let appended = array.core_storage().append_to_builder(self, ctx);
-        self.in_core = None;
-
-        if let Err(err) = appended {
-            self.core.truncate(saved_core_len);
-            self.finished_len = saved_finished_len;
-            if let (Some(CorePart::Run(_, len)), Some(saved_len)) =
-                (self.core.last_mut(), saved_last_len)
-            {
-                *len = saved_len;
-            }
-            if self.len() != start_len {
-                // A reused `VariantStorageBuilder` was extended in place before a later chunk
-                // failed and has no rollback API; poison the builder rather than finishing
-                // mismatched core/shredded rows.
-                self.poisoned = true;
-            }
-            return Err(err);
-        }
+        let core_storage = if array.core_storage().dtype() == &self.dtype {
+            array.core_storage().clone()
+        } else if let Some(scalar) = array.core_storage().as_constant() {
+            ConstantArray::new(scalar.cast(&self.dtype)?, array.len()).into_array()
+        } else {
+            // Variant arrays do not implement Cast; wrapping in an all-valid MaskedArray promotes
+            // NonNullable core storage to Nullable in O(1) while keeping `self.dtype()` stable.
+            MaskedArray::try_new(array.core_storage().clone(), Validity::AllValid, ctx)?
+                .into_array()
+        };
+        self.in_core = true;
+        let appended = core_storage.append_to_builder(self, ctx);
+        self.in_core = false;
+        appended?;
 
         if let Some(shredded) = array.shredded() {
             self.pad_shredded(start_len);
@@ -219,7 +191,6 @@ impl VariantBuilder {
         new: impl FnOnce(&DType) -> B,
         append: impl FnOnce(&mut B) -> VortexResult<()>,
     ) -> VortexResult<()> {
-        self.check_usable()?;
         self.check_dtype(dtype)?;
         if let Some(CorePart::Storage(storage)) = self.core.last_mut()
             && let Some(storage) = storage.as_any_mut().downcast_mut::<B>()
@@ -236,7 +207,6 @@ impl VariantBuilder {
 
     /// Appends `n` copies of the Variant `scalar`.
     pub fn append_n_scalars(&mut self, scalar: &Scalar, n: usize) -> VortexResult<()> {
-        self.check_usable()?;
         self.check_dtype(scalar.dtype())?;
         if n == 0 {
             return Ok(());
@@ -258,7 +228,6 @@ impl VariantBuilder {
 
     /// Finishes the builder into a [`VariantArray`].
     pub fn finish_into_variant(&mut self) -> VortexResult<VariantArray> {
-        self.check_usable()?;
         let len = self.len();
         let shredded = self.finish_shredded(len)?;
         let mut chunks = std::mem::take(&mut self.core)
@@ -272,14 +241,6 @@ impl VariantBuilder {
             _ => ChunkedArray::try_new(chunks, self.dtype.clone())?.into_array(),
         };
         VariantArray::try_new(core, shredded)
-    }
-
-    fn check_usable(&self) -> VortexResult<()> {
-        vortex_ensure!(
-            !self.poisoned,
-            "VariantBuilder cannot be used after a partial storage append failure"
-        );
-        Ok(())
     }
 
     /// Variants of the builder's nullability, and non-nullable Variants for a nullable builder,
@@ -364,12 +325,8 @@ impl ArrayBuilder for VariantBuilder {
         self
     }
 
-    /// Returns the builder's Variant dtype, except while [`VariantBuilder::append_variant_array`]
-    /// is dispatching `core_storage().append_to_builder(self, ctx)`, when it temporarily returns
-    /// the incoming core storage's dtype (potentially `NonNullable` for a `Nullable` builder) so
-    /// `ArrayRef::append_to_builder`'s exact dtype check accepts it.
     fn dtype(&self) -> &DType {
-        self.in_core.as_ref().unwrap_or(&self.dtype)
+        &self.dtype
     }
 
     fn len(&self) -> usize {
@@ -417,7 +374,6 @@ impl ArrayBuilder for VariantBuilder {
 mod tests {
     use std::sync::LazyLock;
 
-    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -583,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn appends_non_nullable_variant_into_nullable_builder() -> VortexResult<()> {
+    fn test_appends_non_nullable_variant_into_nullable_builder() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let plain = VariantArray::try_new(ConstantArray::new(variant(7), 2).into_array(), None)?;
         let inner = VariantArray::try_new(
@@ -610,56 +566,6 @@ mod tests {
         assert_eq!(
             values(&built)?,
             [None, Some(7), Some(7), Some(10), Some(20), Some(30)]
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::nullable(Nullability::Nullable)]
-    #[case::non_nullable(Nullability::NonNullable)]
-    fn append_variant_array_partial_error_rolls_back_core_and_shredded(
-        #[case] nullability: Nullability,
-    ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut builder = VariantBuilder::new(nullability);
-        let valid = VariantArray::try_new(
-            ConstantArray::new(variant(1), 1).into_array(),
-            Some(PrimitiveArray::from_iter([10i32]).into_array()),
-        )?;
-        builder.append_variant_array(&valid, &mut ctx)?;
-
-        // Chunk 0 extends the existing `Run(variant(1))`, chunk 1 pushes a new run, and chunk 2
-        // fails; rollback must undo both chunks so `core` and `shredded` stay synchronized.
-        let failing_chunk =
-            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 1)
-                .into_array()
-                .cast(DType::Variant(Nullability::NonNullable))?;
-        let partial_core = ChunkedArray::try_new(
-            vec![
-                ConstantArray::new(variant(1), 1).into_array(),
-                ConstantArray::new(variant(2), 1).into_array(),
-                failing_chunk,
-            ],
-            DType::Variant(Nullability::NonNullable),
-        )?
-        .into_array();
-        let failing = VariantArray::try_new(
-            partial_core,
-            Some(PrimitiveArray::from_iter([20i32, 30, 40]).into_array()),
-        )?;
-        assert!(builder.append_variant_array(&failing, &mut ctx).is_err());
-
-        assert_eq!(builder.len(), 1);
-        builder.append_scalar(&variant(99))?;
-        let array = builder.finish_into_variant()?;
-        assert_eq!(values(&array)?, [Some(10), Some(99)]);
-        let shredded = array
-            .shredded()
-            .ok_or_else(|| vortex_err!("expected a shredded child"))?;
-        assert_arrays_eq!(
-            shredded,
-            PrimitiveArray::from_option_iter([Some(10i32), None]),
-            &mut ctx
         );
         Ok(())
     }

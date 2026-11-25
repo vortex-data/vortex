@@ -135,11 +135,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             "validity length must match values length before creating an uninit range"
         );
 
-        UninitRange {
-            len,
-            builder: self,
-            validity_written: false,
-        }
+        UninitRange { len, builder: self }
     }
 
     /// Finishes the builder directly into a [`PrimitiveArray`].
@@ -255,13 +251,6 @@ pub struct UninitRange<'a, T> {
     /// Since this is a mutable reference, we can guarantee that nothing else can modify the builder
     /// while this `UninitRange` exists.
     builder: &'a mut PrimitiveBuilder<T>,
-
-    /// Whether validity entries for this range have been written into `builder.nulls`.
-    ///
-    /// If the range is dropped without calling [`finish`](Self::finish), [`Drop`] truncates
-    /// `builder.nulls` back to `builder.values.len()` so abandoned ranges never leave values and
-    /// validity out of sync.
-    validity_written: bool,
 }
 
 impl<T> UninitRange<'_, T> {
@@ -291,15 +280,17 @@ impl<T> UninitRange<'_, T> {
 
     /// Append a [`Mask`] to this builder's null buffer.
     ///
+    /// Calling this method again replaces the validity previously written for this range.
+    ///
     /// # Panics
     ///
-    /// Panics if the mask length is not equal to the the length of the current `UninitRange`.
+    /// Panics if the mask length is not equal to the length of the current `UninitRange`.
     ///
     /// # Safety
     ///
     /// - The caller must ensure that they safely initialize `mask.len()` primitive values via
-    ///   [`UninitRange::copy_from_slice`].
-    /// - The caller must also ensure that they only call this method once.
+    ///   [`UninitRange::copy_from_slice`], [`UninitRange::set_value`], or
+    ///   [`UninitRange::slice_uninit_mut`].
     pub unsafe fn append_mask(&mut self, mask: &Mask) {
         assert_eq!(
             mask.len(),
@@ -307,11 +298,10 @@ impl<T> UninitRange<'_, T> {
             "Tried to append a mask to an `UninitRange` that was beyond the allowed range"
         );
 
-        if self.validity_written {
+        if self.builder.nulls.len() != self.builder.values.len() {
             self.builder.nulls.truncate(self.builder.values.len());
         }
         self.builder.nulls.append_validity_mask(mask);
-        self.validity_written = true;
     }
 
     /// Set a validity bit at the given index.
@@ -325,12 +315,11 @@ impl<T> UninitRange<'_, T> {
         if !self.builder.dtype.is_nullable() {
             return;
         }
-        if !self.validity_written {
+        let base_len = self.builder.values.len();
+        if self.builder.nulls.len() == base_len {
             self.builder.nulls.append_n_non_nulls(self.len);
-            self.validity_written = true;
         }
-        let absolute_index = self.builder.values.len() + index;
-        self.builder.nulls.set_bit(absolute_index, v);
+        self.builder.nulls.set_bit(base_len + index, v);
     }
 
     /// Set values from an initialized range.
@@ -390,21 +379,27 @@ impl<T> UninitRange<'_, T> {
     /// [`set_value()`]: UninitRange::set_value
     /// [`set_validity_bit()`]: UninitRange::set_validity_bit
     /// [`append_mask()`]: UninitRange::append_mask
-    pub unsafe fn finish(mut self) {
-        if !self.validity_written {
+    #[inline]
+    pub unsafe fn finish(self) {
+        let base_len = self.builder.values.len();
+        if self.builder.nulls.len() == base_len {
             self.builder.nulls.append_n_non_nulls(self.len);
         }
         // SAFETY: constructor enforces that current length + len does not exceed the capacity of the array.
-        let new_len = self.builder.values.len() + self.len;
-        unsafe { self.builder.values.set_len(new_len) };
-        self.validity_written = false;
+        unsafe { self.builder.values.set_len(base_len + self.len) };
+    }
+    #[cold]
+    #[inline(never)]
+    fn rollback_nulls(&mut self) {
+        self.builder.nulls.truncate(self.builder.values.len());
     }
 }
 
 impl<T> Drop for UninitRange<'_, T> {
+    #[inline]
     fn drop(&mut self) {
-        if self.validity_written {
-            self.builder.nulls.truncate(self.builder.values.len());
+        if self.builder.nulls.len() != self.builder.values.len() {
+            self.rollback_nulls();
         }
     }
 }
