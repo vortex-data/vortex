@@ -133,6 +133,19 @@ pub trait ExpressionConverter: Send + Sync {
         schema: &Schema,
     ) -> DFResult<Option<Expression>>;
 
+    /// Convert an expression in an advisory dynamic-filter context. Recursive
+    /// conversion may also call this for static children of a dynamic predicate.
+    /// Overrides must preserve conservative filtering and avoid introducing value
+    /// errors on rows that the original plan would not evaluate. The default keeps
+    /// the existing conservative, infallible-only conversion.
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(self.try_convert(expr, schema)?.filter(is_infallible))
+    }
+
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
     ///

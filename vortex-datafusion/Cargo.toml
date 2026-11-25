@@ -35,9 +35,9 @@ object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
-vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
-vortex-arrow = { workspace = true }
-vortex-utils = { workspace = true, features = ["dashmap"] }
+vortex = { git = "https://github.com/vortex-data/vortex.git", rev = "c58d6237e5ae89a8fcbe6b4c1827bad4360519a7", features = ["object_store", "tokio", "files"] }
+vortex-arrow = { git = "https://github.com/vortex-data/vortex.git", rev = "c58d6237e5ae89a8fcbe6b4c1827bad4360519a7", default-features = false }
+vortex-utils = { git = "https://github.com/vortex-data/vortex.git", rev = "c58d6237e5ae89a8fcbe6b4c1827bad4360519a7", default-features = false, features = ["dashmap"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -47,9 +47,9 @@ rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
-vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-json = { workspace = true }
-vortex-tensor = { workspace = true }
+vortex-array = { git = "https://github.com/vortex-data/vortex.git", rev = "c58d6237e5ae89a8fcbe6b4c1827bad4360519a7", default-features = false, features = ["_test-harness"] }
+vortex-json = { git = "https://github.com/vortex-data/vortex.git", rev = "c58d6237e5ae89a8fcbe6b4c1827bad4360519a7", default-features = false }
+vortex-tensor = { git = "https://github.com/vortex-data/vortex.git", rev = "c58d6237e5ae89a8fcbe6b4c1827bad4360519a7", default-features = false }
 
 [lints]
 workspace = true
