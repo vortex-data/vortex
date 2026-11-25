@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::mem;
 use std::os::raw::c_int;
+use std::panic::AssertUnwindSafe;
+use std::panic::catch_unwind;
+use std::panic::resume_unwind;
 use std::ptr;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::ArrayRef;
 use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::Task;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
@@ -40,7 +49,8 @@ use crate::vx_cuda_scan_options;
 /// Dictionary-preserving CUDA scan with an owned Arrow schema per batch.
 ///
 /// Logical dtype and CUDA device are fixed; physical schemas, dictionary values, and index widths
-/// may vary. Uses `DictionaryExport::Preserve`; plain batches remain plain.
+/// may vary. Uses `DictionaryExport::Preserve`; plain batches remain plain. Each call starts
+/// exporting the following batch, so up to two batches are in flight on the device.
 /// Retains runtime/session resources. Use and free only on the creating thread, without concurrent
 /// or reentrant calls. Free with `vx_cuda_device_batches_free`.
 #[allow(non_camel_case_types)]
@@ -53,9 +63,47 @@ pub struct vx_cuda_device_batches {
 }
 
 enum State {
-    Ready,
+    /// No batch has been polled yet.
+    Start,
+    /// The next batch, exporting in the background.
+    Ahead(Task<VortexResult<ExportedBatch>>),
+    /// Polling the next batch failed; reported by the call that would have returned it.
+    Error(VortexError),
+    /// Polling the next batch panicked; re-raised by the call that would have returned it.
+    Panicked(Box<dyn Any + Send>),
     End,
     Failed,
+}
+
+/// An exported batch that releases its device array unless taken, so that a batch exported ahead
+/// is not leaked when the handle is freed or fails before returning it.
+struct ExportedBatch(Option<ArrowDeviceArrayWithSchema>);
+
+// SAFETY: The batch uniquely owns its export. `ArrowArray` is already `Send`; the only other raw
+// pointer is the CUDA sync event, which the driver lets any thread wait on or destroy.
+unsafe impl Send for ExportedBatch {}
+
+impl ExportedBatch {
+    fn get(&self) -> &ArrowDeviceArrayWithSchema {
+        self.0
+            .as_ref()
+            .vortex_expect("exported batch is taken only once")
+    }
+
+    fn take(mut self) -> ArrowDeviceArrayWithSchema {
+        self.0
+            .take()
+            .vortex_expect("exported batch is taken only once")
+    }
+}
+
+impl Drop for ExportedBatch {
+    fn drop(&mut self) {
+        if let Some(exported) = &mut self.0 {
+            // The schema releases itself on drop; the array needs explicit release.
+            release_device_array(&mut exported.array);
+        }
+    }
 }
 
 impl vx_cuda_device_batches {
@@ -72,7 +120,7 @@ impl vx_cuda_device_batches {
             ctx,
             runtime: runtime.clone(),
             dtype,
-            state: State::Ready,
+            state: State::Start,
         })
     }
 
@@ -91,19 +139,48 @@ impl vx_cuda_device_batches {
     }
 
     fn next(&mut self) -> VortexResult<ArrowDeviceArrayWithSchema> {
-        vortex_ensure!(
-            !matches!(self.state, State::Failed),
-            "CUDA device batches are terminal after an earlier scan or export error"
-        );
-        if matches!(self.state, State::End) {
-            return Ok(self.eos());
-        }
-
         // Poison before polling/exporting so a failure or caught panic cannot skip a batch on retry.
-        self.state = State::Failed;
+        let current = match mem::replace(&mut self.state, State::Failed) {
+            State::Start => self.poll_ahead(),
+            state => state,
+        };
+        let task = match current {
+            State::Ahead(task) => task,
+            State::End => {
+                self.state = State::End;
+                return Ok(self.eos());
+            }
+            State::Error(error) => return Err(error),
+            State::Panicked(payload) => resume_unwind(payload),
+            State::Start | State::Failed => {
+                vortex_bail!(
+                    "CUDA device batches are terminal after an earlier scan or export error"
+                )
+            }
+        };
+        // Start exporting the following batch before waiting for this one, so its decode fills
+        // the GPU while this export waits on readbacks and while the consumer imports it.
+        let ahead = self.poll_ahead();
+        let exported = self.runtime.block_on(task)?;
+        self.check_device(&exported.get().array)?;
+        self.state = ahead;
+        Ok(exported.take())
+    }
+
+    /// Poll the next batch and start exporting it on its own stream, deferring any failure to
+    /// the call that would have returned the batch.
+    fn poll_ahead(&mut self) -> State {
+        match catch_unwind(AssertUnwindSafe(|| self.spawn_next())) {
+            Ok(Ok(Some(task))) => State::Ahead(task),
+            Ok(Ok(None)) => State::End,
+            Ok(Err(error)) => State::Error(error),
+            Err(payload) => State::Panicked(payload),
+        }
+    }
+
+    fn spawn_next(&mut self) -> VortexResult<Option<Task<VortexResult<ExportedBatch>>>> {
         let Some(array) = self.array_iter.next() else {
-            self.state = State::End;
-            return Ok(self.eos());
+            return Ok(None);
         };
         let array = array?;
         vortex_ensure_eq!(
@@ -111,16 +188,11 @@ impl vx_cuda_device_batches {
             &self.dtype,
             "scan batch logical dtype changed"
         );
-        let mut exported = self
-            .runtime
-            .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
-        if let Err(error) = self.check_device(&exported.array) {
-            // The schema releases itself on drop; the array needs explicit release.
-            release_device_array(&mut exported.array);
-            return Err(error);
-        }
-        self.state = State::Ready;
-        Ok(exported)
+        let mut ctx = self.ctx.fork()?;
+        Ok(Some(self.runtime.handle().spawn(async move {
+            let exported = array.export_device_array_with_schema(&mut ctx).await?;
+            Ok(ExportedBatch(Some(exported)))
+        })))
     }
 
     /// Require exports to use the handle's CUDA device.
