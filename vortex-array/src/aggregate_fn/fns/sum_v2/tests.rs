@@ -39,11 +39,11 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -393,5 +393,85 @@ fn finalize_struct_applies_partial_and_struct_validity(
     let result = SumV2.finalize(dtypes.args(&options), partials)?;
     let expected = PrimitiveArray::from_option_iter(expected).into_array();
     assert_arrays_eq!(&result, &expected, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+/// Grouped `sum_v2` of `elements` over list-view `groups` of `(offset, size)`.
+fn grouped_sum_v2(
+    elements: &ArrayRef,
+    groups: &[(u32, u32)],
+    validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let groups = ListViewArray::try_new(
+        elements.clone(),
+        PrimitiveArray::from_iter(groups.iter().map(|&(offset, _)| offset)).into_array(),
+        PrimitiveArray::from_iter(groups.iter().map(|&(_, size)| size)).into_array(),
+        validity,
+        ctx,
+    )?
+    .into_array();
+    let mut accumulator = GroupedAccumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        elements.dtype().clone(),
+    )?;
+    accumulator.accumulate_list(&groups, ctx)?;
+    accumulator.finish()
+}
+
+/// Scalar `sum_v2` of each group's slice, null for null groups: what the grouped kernels must
+/// match.
+fn reference_sums(
+    elements: &ArrayRef,
+    groups: &[(u32, u32)],
+    validity: &Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let dtype = SumV2
+        .return_dtype(&NumericalAggregateOpts::default(), elements.dtype())
+        .ok_or_else(|| vortex_error::vortex_err!("no sum dtype"))?;
+    let valid = validity.execute_mask(groups.len(), ctx)?;
+    let mut builder =
+        crate::builders::builder_with_capacity_in(&dtype, groups.len(), ctx.allocator());
+    for (group, &(offset, size)) in groups.iter().enumerate() {
+        let sum = if valid.value(group) {
+            let slice = elements.slice(offset as usize..(offset + size) as usize)?;
+            sum_v2(&slice, ctx)?
+        } else {
+            Scalar::null(dtype.clone())
+        };
+        builder.append_scalar(&sum)?;
+    }
+    Ok(builder.finish())
+}
+
+/// Grouped `sum_v2` over bool elements matches summing each group on its own: groups that come
+/// out of order, overlap, are null or empty, or hold only null elements.
+#[rstest]
+#[case::bool(
+    BoolArray::from_iter([Some(true), None, Some(false), Some(true), None, None, Some(true)]).into_array(),
+    vec![(0, 4), (4, 2), (2, 0), (1, 6), (3, 1)],
+    Validity::from_iter([true, true, true, true, false]),
+)]
+#[case::bool_non_nullable(
+    BoolArray::from_iter([true, false, true, true, false]).into_array(),
+    vec![(0, 5), (1, 1), (5, 0), (2, 2)],
+    Validity::NonNullable,
+)]
+#[case::bool_all_null(
+    BoolArray::from_iter([None::<bool>, None, None]).into_array(),
+    vec![(0, 3), (1, 0), (2, 1)],
+    Validity::NonNullable,
+)]
+fn grouped_kernels_match_per_group_sums(
+    #[case] elements: ArrayRef,
+    #[case] groups: Vec<(u32, u32)>,
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let result = grouped_sum_v2(&elements, &groups, validity.clone(), &mut ctx)?;
+    let expected = reference_sums(&elements, &groups, &validity, &mut ctx)?;
+    assert_arrays_eq!(&result, &expected, &mut ctx);
     Ok(())
 }

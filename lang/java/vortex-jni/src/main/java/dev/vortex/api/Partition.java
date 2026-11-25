@@ -3,7 +3,6 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativePartition;
 import java.lang.ref.Reference;
@@ -26,7 +25,9 @@ public final class Partition {
     private final AtomicBoolean consumed = new AtomicBoolean(false);
 
     private Partition(Session session, long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid partition pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid partition pointer");
+        }
         this.session = session;
         this.pointer = pointer;
         AtomicBoolean consumedRef = this.consumed;
@@ -43,7 +44,9 @@ public final class Partition {
 
     /** Estimated row count of the partition. Empty when unknown. */
     public OptionalLong rowCount() {
-        Preconditions.checkState(!consumed.get(), "partition already consumed");
+        if (consumed.get()) {
+            throw new IllegalStateException("partition already consumed");
+        }
         try {
             long[] out = new long[2];
             NativePartition.rowCount(pointer, out);

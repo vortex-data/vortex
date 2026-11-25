@@ -1142,7 +1142,6 @@ impl VortexSessionExecute for VortexSession {
 #[cfg(test)]
 mod tests {
     use static_assertions::assert_impl_all;
-    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -1239,15 +1238,13 @@ mod tests {
             .with_allocator(first.clone());
         let ctx = session.create_execution_ctx();
 
-        session
-            .get_mut::<MemorySession>()
-            .set_allocator(third.clone());
+        let session = session.with_allocator(third.clone());
 
         assert!(session.allocator().ptr_eq(&third));
         assert!(ctx.allocator().ptr_eq(&third));
 
         let ctx = ctx.with_allocator(second.clone());
-        session.get_mut::<MemorySession>().set_allocator(first);
+        let _session = session.with_allocator(first);
 
         assert!(ctx.allocator().ptr_eq(&second));
     }
