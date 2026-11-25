@@ -32,8 +32,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_expr::BoundExpression;
+use vortex_expr::and;
 use vortex_expr::eq;
 use vortex_expr::lit;
+use vortex_expr::not_eq;
 use vortex_expr::root;
 use vortex_functions::expr::like;
 use vortex_mask::Mask;
@@ -310,6 +312,32 @@ async fn exact_index_answers_the_filter_itself() -> VortexResult<()> {
     .await?;
     assert!(excluded.all_false());
 
+    Ok(())
+}
+
+/// A scan evaluates the conjuncts over one column together, as one `AND` that no index claims as
+/// a whole. The conjunct the index claims still prunes the rows the conjunction rejects.
+#[tokio::test]
+async fn conjunction_is_pruned_by_the_conjunct_an_index_claims() -> VortexResult<()> {
+    let session = session_with_exact_index();
+    let (layout, segments) = write(
+        &session,
+        vec![IndexConfig::with_defaults(ExactValueIndex::new_ref())],
+    )
+    .await?;
+    let reader = text_reader(&session, &layout, segments)?;
+    let row_count = reader.row_count();
+    let filter =
+        and(eq(root(), lit(ROWS[2])), not_eq(root(), lit(ROWS[3]))).bind(reader.dtype())?;
+
+    let mask = reader
+        .pruning_evaluation(
+            &(0..row_count),
+            &filter,
+            Mask::new_true(usize::try_from(row_count)?),
+        )?
+        .await?;
+    assert_eq!(mask, Mask::from_iter((0..ROWS.len()).map(|row| row == 2)));
     Ok(())
 }
 
