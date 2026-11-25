@@ -7,7 +7,10 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::Stream;
 use futures::StreamExt as _;
+use futures::future::ready;
+use futures::stream::once;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -49,6 +52,7 @@ use crate::layouts::zoned::legacy_stat_values;
 use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
+use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
 use crate::sequence::SequentialArrayStreamExt;
 use crate::sequence::SequentialStreamAdapter;
@@ -167,23 +171,17 @@ impl LayoutStrategy for ZonedStrategy {
 
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
-        let zones = Arc::new(Mutex::new(ZoneCutter::new(self.options.block_size)));
-        let zones2 = Arc::clone(&zones);
-        let aggregate_fns2 = Arc::clone(&aggregate_fns);
-        let stream = stream
-            .map(move |item| {
-                // Zones are cut here, in stream order, before the chunks spread across tasks.
-                let chunk_zones = zones2.lock().push_item(&item);
-                let aggregate_fns = Arc::clone(&aggregate_fns2);
+        let stream = cut_zones(stream, self.options.block_size)
+            .map(move |(item, zones)| {
+                let aggregate_fns = Arc::clone(&aggregate_fns);
                 let session = compute_session.clone();
                 session.handle().spawn_cpu(move || {
-                    let (sequence_id, chunk) = item?;
                     let mut exec_ctx = session.create_execution_ctx();
-                    let partials = chunk_zones?
+                    let partials = zones?
                         .iter()
                         .map(|zone| aggregate_partials(zone, &aggregate_fns, &mut exec_ctx))
                         .collect::<VortexResult<Vec<_>>>()?;
-                    Ok::<_, VortexError>((sequence_id, chunk, partials))
+                    Ok::<_, VortexError>((item.transpose()?, partials))
                 })
             })
             .buffered(concurrency);
@@ -193,13 +191,16 @@ impl LayoutStrategy for ZonedStrategy {
         let stats_accumulator2 = Arc::clone(&stats_accumulator);
         let stream = SequentialStreamAdapter::new(
             stream_dtype,
-            stream.map(move |item| {
-                let (sequence_id, chunk, partials) = item?;
-                let mut stats_accumulator = stats_accumulator2.lock();
-                for zone_partials in partials {
-                    stats_accumulator.push_partials(zone_partials)?;
-                }
-                Ok((sequence_id, chunk))
+            stream.filter_map(move |item| {
+                let item = item.and_then(|(item, partials)| {
+                    let mut stats_accumulator = stats_accumulator2.lock();
+                    for zone_partials in partials {
+                        stats_accumulator.push_partials(zone_partials)?;
+                    }
+                    Ok(item)
+                });
+                // The end-of-stream item carries the final zone but no chunk.
+                ready(item.transpose())
             }),
         )
         .sendable();
@@ -218,23 +219,6 @@ impl LayoutStrategy for ZonedStrategy {
                 session,
             )
             .await?;
-
-        // The final zone ends with the stream, so it may be short.
-        let final_zone = zones.lock().finish()?;
-        if let Some(zone) = final_zone {
-            let compute_session = session.clone();
-            let partials = session
-                .handle()
-                .spawn_cpu(move || {
-                    aggregate_partials(
-                        &zone,
-                        &aggregate_fns,
-                        &mut compute_session.create_execution_ctx(),
-                    )
-                })
-                .await?;
-            stats_accumulator.lock().push_partials(partials)?;
-        }
 
         let mut exec_ctx = session.create_execution_ctx();
         let Some((stats_array, aggregate_fns)) =
@@ -280,22 +264,17 @@ impl ZonedStrategy {
         let compute_session = session.clone();
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
-        let zones = Arc::new(Mutex::new(ZoneCutter::new(self.options.block_size)));
-        let zones2 = Arc::clone(&zones);
-        let stats2 = Arc::clone(&stats);
-        let stream = stream
-            .map(move |item| {
-                let chunk_zones = zones2.lock().push_item(&item);
-                let stats = Arc::clone(&stats2);
+        let stream = cut_zones(stream, self.options.block_size)
+            .map(move |(item, zones)| {
+                let stats = Arc::clone(&stats);
                 let session = compute_session.clone();
                 session.handle().spawn_cpu(move || {
-                    let (sequence_id, chunk) = item?;
                     let mut exec_ctx = session.create_execution_ctx();
-                    let values = chunk_zones?
+                    let values = zones?
                         .iter()
                         .map(|zone| legacy_stat_values(zone, &stats, &mut exec_ctx))
                         .collect::<VortexResult<Vec<_>>>()?;
-                    Ok::<_, VortexError>((sequence_id, chunk, values))
+                    Ok::<_, VortexError>((item.transpose()?, values))
                 })
             })
             .buffered(concurrency);
@@ -305,13 +284,16 @@ impl ZonedStrategy {
         let stats_accumulator2 = Arc::clone(&stats_accumulator);
         let stream = SequentialStreamAdapter::new(
             stream_dtype,
-            stream.map(move |item| {
-                let (sequence_id, chunk, values) = item?;
-                let mut stats_accumulator = stats_accumulator2.lock();
-                for zone_values in values {
-                    stats_accumulator.push_values(zone_values)?;
-                }
-                Ok((sequence_id, chunk))
+            stream.filter_map(move |item| {
+                let item = item.and_then(|(item, values)| {
+                    let mut stats_accumulator = stats_accumulator2.lock();
+                    for zone_values in values {
+                        stats_accumulator.push_values(zone_values)?;
+                    }
+                    Ok(item)
+                });
+                // The end-of-stream item carries the final zone but no chunk.
+                ready(item.transpose())
             }),
         )
         .sendable();
@@ -328,18 +310,6 @@ impl ZonedStrategy {
                 session,
             )
             .await?;
-
-        let final_zone = zones.lock().finish()?;
-        if let Some(zone) = final_zone {
-            let compute_session = session.clone();
-            let values = session
-                .handle()
-                .spawn_cpu(move || {
-                    legacy_stat_values(&zone, &stats, &mut compute_session.create_execution_ctx())
-                })
-                .await?;
-            stats_accumulator.lock().push_values(values)?;
-        }
 
         let mut exec_ctx = session.create_execution_ctx();
         let Some((stats_array, stats)) = stats_accumulator.lock().as_array(&mut exec_ctx)? else {
@@ -362,6 +332,37 @@ impl ZonedStrategy {
     }
 }
 
+/// A stream item, or `None` for the item after the stream ends, with the zones it completes.
+type ZonedItem = (
+    Option<VortexResult<(SequenceId, ArrayRef)>>,
+    VortexResult<Vec<ArrayRef>>,
+);
+
+/// Pairs each item of `stream` with the zones its chunk completes, then yields one final
+/// `(None, zones)` item holding the short final zone, if there is one.
+///
+/// Zones are cut here, in stream order, before the chunks spread across stats tasks. An errored
+/// item completes no zones and is passed through for the caller to fail on.
+fn cut_zones(
+    stream: SendableSequentialStream,
+    zone_len: NonZeroUsize,
+) -> impl Stream<Item = ZonedItem> + Send {
+    let mut cutter = ZoneCutter::new(zone_len);
+    stream
+        .map(Some)
+        .chain(once(ready(None)))
+        .map(move |item| match item {
+            Some(item) => {
+                let zones = match &item {
+                    Ok((_, chunk)) => cutter.push(chunk),
+                    Err(_) => Ok(Vec::new()),
+                };
+                (Some(item), zones)
+            }
+            None => (None, cutter.finish().map(Vec::from_iter)),
+        })
+}
+
 /// Cuts a stream of chunks into zones of `zone_len` rows, whatever the chunk boundaries.
 ///
 /// A zone within one chunk is a slice of it, and a zone spanning chunks is a [`ChunkedArray`] of
@@ -379,14 +380,6 @@ impl ZoneCutter {
             zone_len: zone_len.get(),
             open_zone: Vec::new(),
             open_len: 0,
-        }
-    }
-
-    /// Like [`Self::push`], passing an errored stream item through untouched.
-    fn push_item<S>(&mut self, item: &VortexResult<(S, ArrayRef)>) -> VortexResult<Vec<ArrayRef>> {
-        match item {
-            Ok((_, chunk)) => self.push(chunk),
-            Err(_) => Ok(Vec::new()),
         }
     }
 
