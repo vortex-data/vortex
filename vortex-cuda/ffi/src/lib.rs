@@ -58,6 +58,10 @@ use vortex_ffi::vx_view;
 
 mod device_batches;
 
+pub use device_batches::destinations::vx_cuda_column_destination;
+pub use device_batches::destinations::vx_cuda_device_batches_primitive;
+pub use device_batches::destinations::vx_cuda_device_batches_set_destinations;
+pub use device_batches::destinations::vx_cuda_device_batches_shape;
 pub use device_batches::vx_cuda_device_batches;
 pub use device_batches::vx_cuda_device_batches_free;
 pub use device_batches::vx_cuda_device_batches_next;
@@ -329,7 +333,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
             )
         };
         let session = session_with_cuda(session);
-        let array_stream = open_cuda_scan(session, path, options, columns)?;
+        let (array_stream, _) = open_cuda_scan(session, path, options, columns)?;
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
 
@@ -344,7 +348,7 @@ fn open_cuda_scan(
     path: &str,
     options: CudaScanOptions,
     columns: FieldNames,
-) -> VortexResult<SendableArrayStream> {
+) -> VortexResult<(SendableArrayStream, u64)> {
     let file = ffi_runtime().block_on(
         session
             .open_options()
@@ -352,9 +356,10 @@ fn open_cuda_scan(
             .with_read_at_options(options.read_at_options)
             .open_path(path),
     )?;
-    Ok(projected_scan(&file, columns, options.batch_rows)?
+    let stream = projected_scan(&file, columns, options.batch_rows)?
         .into_array_stream()?
-        .boxed())
+        .boxed();
+    Ok((stream, file.row_count()))
 }
 
 /// Copy ordered, literal field names, rejecting invalid views and duplicates. Zero selects all.

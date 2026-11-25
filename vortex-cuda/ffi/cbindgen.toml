@@ -23,6 +23,8 @@ header = """
 
 #include "vortex.h"
 
+#define VX_CUDA_DEVICE_BATCH_DESTINATIONS_V1 1
+
 /* Link against the CUDA-enabled FFI library that provides both the base Vortex FFI and these CUDA
  * entry points. Do not pass Vortex handles between independently linked Rust FFI libraries. */
 

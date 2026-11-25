@@ -35,6 +35,7 @@ pub use error::vx_error;
 pub use error::vx_error_free;
 pub use error::vx_error_message;
 pub use log::vx_log_level;
+pub use ptype::vx_ptype;
 pub use scan::vx_partition;
 pub use scan::vx_partition_into_array_stream;
 pub use session::vx_session;

@@ -12,6 +12,8 @@
 
 #include "vortex.h"
 
+#define VX_CUDA_DEVICE_BATCH_DESTINATIONS_V1 1
+
 /* Link against the CUDA-enabled FFI library that provides both the base Vortex FFI and these CUDA
  * entry points. Do not pass Vortex handles between independently linked Rust FFI libraries. */
 
@@ -91,6 +93,24 @@ typedef struct vx_cuda_scan_options {
    */
   size_t batch_rows;
 } vx_cuda_scan_options;
+
+/**
+ * Caller-owned storage for one non-null primitive column of the projected scan.
+ */
+typedef struct vx_cuda_column_destination {
+  /**
+   * Zero-based index in the projected schema, not the file schema.
+   */
+  size_t column;
+  /**
+   * Naturally aligned CUDA device address; may be null for zero capacity and zero rows.
+   */
+  void *data;
+  /**
+   * Writable bytes starting at `data`.
+   */
+  size_t capacity_bytes;
+} vx_cuda_column_destination;
 
 #ifdef __cplusplus
 extern "C" {
@@ -334,6 +354,68 @@ int vx_cuda_device_batches_next(struct vx_cuda_device_batches *handle,
  * Free a live, exclusively owned handle exactly once on its creating thread, without reentrancy.
  */
 void vx_cuda_device_batches_free(struct vx_cuda_device_batches *handle);
+
+/**
+ * Return the exact scan row count and projected column count before the first poll.
+ * A non-struct scan has one column, which cannot be registered as a destination.
+ * Returns 0 on success or 1 on error (outputs unchanged).
+ * As with `next`, a non-null `error_out` receives null on success or an owned error on failure.
+ *
+ * # Safety
+ *
+ * Use the live handle exclusively on its creating thread. Outputs must be disjoint from each
+ * other and the handle. `rows` and `columns` must be writable when non-null and aligned.
+ * Non-null `error_out` must be aligned and writable for one error pointer.
+ */
+int vx_cuda_device_batches_shape(struct vx_cuda_device_batches *handle,
+                                 int64_t *rows,
+                                 size_t *columns,
+                                 vx_error **error_out);
+
+/**
+ * Only non-nullable primitive fields of a top-level non-nullable struct are eligible, regardless
+ * of encoding. Writes `ptype` only if eligible. Out-of-range indices are errors. Timing, status,
+ * and error ownership are the same as for `vx_cuda_device_batches_shape`.
+ *
+ * # Safety
+ *
+ * The handle and output pointers have the same requirements as `vx_cuda_device_batches_shape`.
+ */
+int vx_cuda_device_batches_primitive(struct vx_cuda_device_batches *handle,
+                                     size_t column,
+                                     bool *eligible,
+                                     vx_ptype *ptype,
+                                     vx_error **error_out);
+
+/**
+ * Copy and install a destination plan before the first poll. Even an empty plan requests
+ * cuDF-importable batches. When `preserve_dictionaries` is true, supported top-level dictionaries
+ * are preserved; otherwise all dictionaries are decoded. Registered fields are
+ * returned as batch-length Arrow Null fields; other fields remain in the Arrow output. Writes
+ * append in poll order, after prior work on `consumer_stream`, and are covered by each batch's
+ * sync event. A typed empty scan produces a live empty batch before EOS.
+ *
+ * Returns 0 on success, 1 on error; errors leave the plan unchanged. Error ownership is as for
+ * `vx_cuda_device_batches_shape`.
+ *
+ * # Safety
+ *
+ * Use a live handle exclusively on its creating thread. For nonzero `count`, `destinations` must
+ * reference that many readable, initialized descriptors. Non-null `error_out` must be aligned,
+ * writable, and disjoint from the inputs. The stream must belong to the scan's CUDA context
+ * (null denotes the legacy default stream). Each destination must be exclusively writable device
+ * storage on the scan device, disjoint from scan inputs and other destinations. Keep the stream
+ * and buffers live through the scan. Order allocation, subsequent access, and reclamation on
+ * the consumer stream (or establish equivalent dependencies); do not capture either stream.
+ * If CUDA fails both to fence a submitted write and to synchronize its stream, `next` aborts:
+ * returning control to the owner would allow it to free memory still in use.
+ */
+int vx_cuda_device_batches_set_destinations(struct vx_cuda_device_batches *handle,
+                                            const struct vx_cuda_column_destination *destinations,
+                                            size_t count,
+                                            bool preserve_dictionaries,
+                                            void *consumer_stream,
+                                            vx_error **error_out);
 
 #ifdef __cplusplus
 }  // extern "C"

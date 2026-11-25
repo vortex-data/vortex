@@ -17,6 +17,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Extension;
 use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolDataParts;
@@ -26,8 +27,10 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
+use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -36,14 +39,18 @@ use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaEvent;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::CudaViewMut;
 use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::DeviceSlice;
 use vortex_cuda_driver::LaunchArgs;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::ValidAsZeroBits;
 
+use crate::CudaBufferExt;
 use crate::CudaSession;
 use crate::DictionaryExport;
 use crate::ExportDeviceArray;
+use crate::dynamic_dispatch::try_decode_into;
 use crate::hybrid_dispatch;
 use crate::kernel::DefaultLaunchStrategy;
 use crate::kernel::LaunchStrategy;
@@ -416,6 +423,50 @@ pub(crate) async fn execute_validity_cuda(
     Ok(Validity::Array(
         BoolArray::new_handle(bits, meta.offset(), meta.len(), Validity::NonNullable).into_array(),
     ))
+}
+
+/// Write a non-nullable primitive chunk into its final row range on the GPU.
+///
+/// Copy plain primitives as-is. For encoded chunks, decode directly into `output` if
+/// fully fusable; otherwise execute normally and copy the decoded values into place.
+/// `output` must match the chunk's length and element type and belong to `ctx`'s CUDA
+/// context. On error it may be partially written; success need not mean the copy or
+/// kernel has completed.
+pub async fn decode_into<T: NativePType + DeviceRepr>(
+    array: &ArrayRef,
+    mut output: CudaViewMut<'_, T>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<()> {
+    vortex_ensure_eq!(
+        array.dtype(),
+        &DType::Primitive(T::PTYPE, Nullability::NonNullable)
+    );
+    let values = match array.clone().try_downcast::<Primitive>() {
+        Ok(values) => values,
+        Err(encoded) => {
+            if try_decode_into(&encoded, output.slice_mut(..), ctx).await? {
+                return Ok(());
+            }
+            encoded.execute_cuda(ctx).await?.into_primitive()
+        }
+    };
+    vortex_ensure_eq!(values.len(), output.len());
+    vortex_ensure!(
+        output.stream().context() == ctx.stream().context(),
+        "destination belongs to another CUDA context"
+    );
+    if values.is_empty() {
+        return Ok(());
+    }
+    let buffer = values.buffer_handle();
+    if buffer.is_on_host() {
+        ctx.stream()
+            .memcpy_htod(values.as_slice::<T>(), &mut output)
+    } else {
+        ctx.stream()
+            .memcpy_dtod(&buffer.cuda_view::<T>()?, &mut output)
+    }
+    .map_err(VortexError::external)
 }
 
 /// Extension trait for executing arrays on CUDA.

@@ -12,11 +12,13 @@ use futures::future::join;
 use futures::future::join_all;
 use tracing::error;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayView;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Bool;
 use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
@@ -31,6 +33,7 @@ use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::bool::BoolDataParts;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::arrays::dict::DictOwnedExt;
 use vortex::array::arrays::extension::ExtensionArrayExt;
@@ -45,10 +48,12 @@ use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::match_each_native_ptype;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
+use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fsst::FSST;
@@ -60,6 +65,7 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::OnPair;
@@ -85,6 +91,7 @@ use crate::cub::exclusive_sum_i32;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
 use crate::device_buffer::cuda_aligned_bitmap_view;
 use crate::executor::CudaArrayExt;
+use crate::executor::decode_into;
 use crate::executor::execute_validity_cuda;
 use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
@@ -267,9 +274,36 @@ fn export_array(
             Err(array) => array,
         };
 
+        if ctx.cuda_session().dictionary_export() == DictionaryExport::Decode
+            && let DType::Primitive(ptype, Nullability::NonNullable) = array.dtype()
+            && *ptype != PType::F16
+            && let Some(chunked) = array.as_opt::<Chunked>()
+            && chunked.non_empty_chunks().nth(1).is_some()
+        {
+            return match_each_native_ptype!(ptype, |T| {
+                export_chunked_primitive::<T>(chunked, ctx).await
+            });
+        }
+
         let cuda_array = array.execute_cuda(ctx).await?;
         export_canonical(cuda_array, ctx).await
     })
+}
+
+async fn export_chunked_primitive<T: NativePType + DeviceRepr>(
+    chunked: ArrayView<'_, Chunked>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = chunked.len();
+    let mut values = ctx.stream().device_alloc::<T>(len)?;
+    let mut start = 0;
+    for chunk in chunked.non_empty_chunks() {
+        let end = start + chunk.len();
+        decode_into(chunk, values.slice_mut(start..end), ctx).await?;
+        start = end;
+    }
+    let buffer = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(values)?));
+    export_fixed_size(buffer, len, 0, None, 0, ctx)
 }
 
 /// Export a canonical CUDA array using the Arrow C Device layout for its logical type.
@@ -1466,6 +1500,7 @@ mod tests {
     use vortex::encodings::fsst::FSSTArrayExt;
     use vortex::encodings::fsst::fsst_compress;
     use vortex::encodings::fsst::fsst_train_compressor;
+    use vortex::encodings::sequence::Sequence;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
@@ -1494,6 +1529,7 @@ mod tests {
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
     use crate::device_buffer::test_support::cuda_address;
     use crate::device_buffer::test_support::cuda_backing_allocation;
+    use crate::dynamic_dispatch::DispatchPlan;
     use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
@@ -1939,6 +1975,58 @@ mod tests {
         assert_arrays_eq!(actual, array, ctx.execution_ctx());
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::mixed_dispatch(CudaDispatchMode::Auto)]
+    #[case::copy_fallback(CudaDispatchMode::StandaloneOnly)]
+    #[crate::test]
+    async fn test_export_decoded_mixed_primitive_chunks(
+        #[case] mode: CudaDispatchMode,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?
+            .with_dispatch_mode(mode)
+            .with_dictionary_export(DictionaryExport::Decode);
+        let dictionary = DictArray::try_new(
+            PrimitiveArray::from_iter([1u8, 0, 1, 1]).into_array(),
+            primitive_i32_on_device([42, -11], &mut ctx).await?,
+        )?
+        .into_array();
+        let sequence =
+            Sequence::try_new_typed(100i32, -3i32, Nullability::NonNullable, 3)?.into_array();
+        if mode == CudaDispatchMode::Auto {
+            assert!(matches!(
+                DispatchPlan::new(&dictionary, mode)?,
+                DispatchPlan::Fused(_)
+            ));
+            assert!(matches!(
+                DispatchPlan::new(&sequence, mode)?,
+                DispatchPlan::Standalone
+            ));
+        }
+        let chunks = [
+            PrimitiveArray::from_iter([-3i32, 7]).into_array(),
+            dictionary,
+            PrimitiveArray::from_iter(std::iter::empty::<i32>()).into_array(),
+            sequence,
+            primitive_i32_on_device([5, 1, -9], &mut ctx).await?,
+        ];
+        let array = ChunkedArray::try_new(
+            chunks,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?;
+        let mut exported = array.into_array().export_device_array(&mut ctx).await?;
+        assert_device_metadata(&exported, ctx.stream().context().ordinal() as i64, true);
+        assert_eq!(exported.array.length, 12);
+        assert_eq!(exported.array.null_count, 0);
+        assert!(exported.array.dictionary.is_null());
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array, 1)?,
+            [-3, 7, -11, 42, -11, -11, 100, 97, 94, 5, 1, -9]
+        );
+        // SAFETY: `exported` is live and owns the array from this exporter.
+        unsafe { release_exported_array(&raw mut exported.array) };
         Ok(())
     }
 

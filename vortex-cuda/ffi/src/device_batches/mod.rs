@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub(super) mod destinations;
+mod materialize;
+
 use std::os::raw::c_int;
 use std::ptr;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
@@ -50,6 +55,9 @@ pub struct vx_cuda_device_batches {
     runtime: CurrentThreadRuntime,
     dtype: DType,
     state: State,
+    started: bool,
+    row_count: u64,
+    destinations: Option<destinations::Destinations>,
 }
 
 enum State {
@@ -61,6 +69,7 @@ enum State {
 impl vx_cuda_device_batches {
     fn new(
         stream: SendableArrayStream,
+        row_count: u64,
         session: &VortexSession,
         runtime: &CurrentThreadRuntime,
     ) -> VortexResult<Self> {
@@ -73,6 +82,9 @@ impl vx_cuda_device_batches {
             runtime: runtime.clone(),
             dtype,
             state: State::Ready,
+            started: false,
+            row_count,
+            destinations: None,
         })
     }
 
@@ -101,19 +113,39 @@ impl vx_cuda_device_batches {
 
         // Poison before polling/exporting so a failure or caught panic cannot skip a batch on retry.
         self.state = State::Failed;
-        let Some(array) = self.array_iter.next() else {
-            self.state = State::End;
-            return Ok(self.eos());
+        let first = !std::mem::replace(&mut self.started, true);
+        let array = match self.array_iter.next().transpose()? {
+            Some(array) => array,
+            None if first && self.destinations.is_some() && self.row_count == 0 => {
+                // An owning consumer needs the projected schema even when there are no batches.
+                Canonical::empty(&self.dtype).into_array()
+            }
+            None => {
+                if let Some(plan) = &self.destinations {
+                    vortex_ensure_eq!(
+                        plan.rows_written as u64,
+                        self.row_count,
+                        "incomplete CUDA scan"
+                    );
+                }
+                self.state = State::End;
+                return Ok(self.eos());
+            }
         };
-        let array = array?;
         vortex_ensure_eq!(
             array.dtype(),
             &self.dtype,
             "scan batch logical dtype changed"
         );
-        let mut exported = self
-            .runtime
-            .block_on(array.export_device_array_with_schema(&mut self.ctx))?;
+        let mut exported = match &mut self.destinations {
+            Some(plan) => {
+                self.runtime
+                    .block_on(plan.export(array, self.row_count, &mut self.ctx))?
+            }
+            None => self
+                .runtime
+                .block_on(array.export_device_array_with_schema(&mut self.ctx))?,
+        };
         if let Err(error) = self.check_device(&exported.array) {
             // The schema releases itself on drop; the array needs explicit release.
             release_device_array(&mut exported.array);
@@ -176,9 +208,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_device_batches(
             )
         };
         let session = session_with_cuda(session);
-        let stream = open_cuda_scan(session, path, options, columns)?;
+        let (stream, row_count) = open_cuda_scan(session, path, options, columns)?;
         Ok(Box::into_raw(Box::new(vx_cuda_device_batches::new(
             stream,
+            row_count,
             session,
             ffi_runtime(),
         )?)))

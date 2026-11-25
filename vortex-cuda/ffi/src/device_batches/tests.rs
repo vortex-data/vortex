@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::c_void;
 use std::io::Write;
 use std::mem;
 use std::sync::Arc;
@@ -46,6 +47,8 @@ use vortex_ffi::vx_error_free;
 use vortex_ffi::vx_error_message;
 use vortex_ffi::vx_session_free;
 
+use super::destinations::vx_cuda_column_destination;
+use super::destinations::vx_cuda_device_batches_set_destinations;
 use super::*;
 use crate::scan_export_ctx;
 
@@ -77,7 +80,7 @@ impl Drop for Output {
     }
 }
 
-fn take_error(error: *mut vx_error) -> Option<String> {
+pub(super) fn take_error(error: *mut vx_error) -> Option<String> {
     if error.is_null() {
         return None;
     }
@@ -117,7 +120,7 @@ fn next_into(handle: &mut vx_cuda_device_batches, output: &mut Output) -> Vortex
     Ok(())
 }
 
-fn session() -> VortexResult<VortexSession> {
+pub(super) fn session() -> VortexResult<VortexSession> {
     // Override Decode per handle, rather than relying on the session default being Preserve.
     Ok(VortexSession::default().with_some(
         CudaSession::try_default()?
@@ -127,9 +130,18 @@ fn session() -> VortexResult<VortexSession> {
 }
 
 fn batches(session: &VortexSession, arrays: Vec<ArrayRef>) -> VortexResult<vx_cuda_device_batches> {
-    let dtype = arrays[0].dtype().clone();
+    let rows = arrays.iter().map(|array| array.len() as u64).sum();
+    batches_with_rows(session, arrays[0].dtype().clone(), arrays, rows)
+}
+
+pub(super) fn batches_with_rows(
+    session: &VortexSession,
+    dtype: DType,
+    arrays: Vec<ArrayRef>,
+    rows: u64,
+) -> VortexResult<vx_cuda_device_batches> {
     let stream = ArrayStreamAdapter::new(dtype, stream::iter(arrays.into_iter().map(Ok))).boxed();
-    vx_cuda_device_batches::new(stream, session, ffi_runtime())
+    vx_cuda_device_batches::new(stream, rows, session, ffi_runtime())
 }
 
 /// Build a primitive fixture for a mixed-encoding batch stream.
@@ -470,12 +482,229 @@ fn test_empty_stream_and_fused_eos() -> VortexResult<()> {
     let session = session()?;
     let empty = primitive::<i32>([]);
     let stream = ArrayStreamAdapter::new(empty.dtype().clone(), stream::empty()).boxed();
-    let mut handle = vx_cuda_device_batches::new(stream, &session, ffi_runtime())?;
+    let mut handle = vx_cuda_device_batches::new(stream, 0, &session, ffi_runtime())?;
     let device_id = handle.ctx.stream().context().ordinal() as i64;
     let first_eos = next(&mut handle)?;
     assert_eos(&first_eos, device_id);
     let repeated_eos = next(&mut handle)?;
     assert_eos(&repeated_eos, device_id);
+    Ok(())
+}
+
+#[cuda_test]
+fn test_empty_destination_plan_dictionary_policy() -> VortexResult<()> {
+    let session = session()?;
+    let keys = VarBinViewArray::from_iter_str(["red", "blue"]).into_array();
+    let encoded = DictArray::try_new(primitive([1u16, 0, 1]), keys)?.into_array();
+    for preserve in [false, true] {
+        let mut handle = batches(&session, vec![table(encoded.clone())])?;
+        let mut error = ptr::null_mut();
+        // SAFETY: An empty plan borrows no buffers. Null denotes the legacy default stream.
+        let status = unsafe {
+            vx_cuda_device_batches_set_destinations(
+                &mut handle,
+                ptr::null(),
+                0,
+                preserve,
+                ptr::null_mut(),
+                &raw mut error,
+            )
+        };
+        assert_eq!(take_error(error), None);
+        assert_eq!(status, VX_CUDA_OK);
+        let output = next(&mut handle)?;
+        let schema = Schema::try_from(&output.schema)?;
+        let ty = schema.field(0).data_type();
+        if preserve {
+            assert!(matches!(ty, DataType::Dictionary(_, values) if **values == DataType::Utf8));
+        } else {
+            assert_eq!(ty, &DataType::Utf8);
+        }
+        let _context = synchronize(&output.array)?;
+        assert_eq!(output.array.array.n_children, 1);
+        // SAFETY: The live, synchronized table has a single child with the checked physical type.
+        let actual = unsafe { read_strings(&**output.array.array.children, ty) }?;
+        assert_eq!(
+            actual.iter().map(Option::as_deref).collect::<Vec<_>>(),
+            [Some("blue"), Some("red"), Some("blue")]
+        );
+    }
+    Ok(())
+}
+
+fn destination_table(labels: &[Option<&str>], ids: &[i32]) -> ArrayRef {
+    StructArray::new(
+        ["label", "id"].into(),
+        vec![strings(labels), primitive(ids.iter().copied())],
+        ids.len(),
+        Validity::NonNullable,
+    )
+    .into_array()
+}
+
+/// `data` must provide `bytes` of device storage, ordered on `stream`, through the scan.
+unsafe fn register_ids(
+    handle: &mut vx_cuda_device_batches,
+    data: *mut c_void,
+    bytes: usize,
+    stream: *mut c_void,
+) -> VortexResult<()> {
+    let destination = vx_cuda_column_destination {
+        column: 1,
+        data,
+        capacity_bytes: bytes,
+    };
+    let mut error = ptr::null_mut();
+    // SAFETY: The descriptor is copied during registration. Its GPU resources are caller-owned.
+    let status = unsafe {
+        vx_cuda_device_batches_set_destinations(
+            handle,
+            &raw const destination,
+            1,
+            false,
+            stream,
+            &raw mut error,
+        )
+    };
+    if let Some(error) = take_error(error) {
+        assert_eq!(status, VX_CUDA_ERR);
+        return Err(vortex_err!("{error}"));
+    }
+    assert_eq!(status, VX_CUDA_OK);
+    Ok(())
+}
+
+fn assert_destination_batch(output: &Output, labels: &[Option<&str>]) -> VortexResult<()> {
+    assert!(!output.is_eos());
+    let schema = Schema::try_from(&output.schema)?;
+    assert_eq!(schema.fields().len(), 2);
+    assert_eq!(schema.field(0).name(), "label");
+    assert_eq!(schema.field(0).data_type(), &DataType::Utf8);
+    assert_eq!(schema.field(1).name(), "id");
+    assert_eq!(schema.field(1).data_type(), &DataType::Null);
+    let _context = synchronize(&output.array)?;
+    let array = &output.array.array;
+    assert_eq!(array.length, labels.len() as i64);
+    assert_eq!(array.n_children, 2);
+    assert!(!array.children.is_null());
+    // SAFETY: The live table has two child slots described by the schema above.
+    let text = unsafe { (*array.children).as_ref() }.expect("missing ordinary child");
+    let nulls = unsafe { (*array.children.add(1)).as_ref() }.expect("missing Null placeholder");
+    assert_eq!(nulls.length, array.length);
+    assert_eq!(nulls.null_count, array.length);
+    assert_eq!(text.length, array.length);
+    if !labels.is_empty() {
+        // SAFETY: The synchronized first child is a Utf8 array of the checked length.
+        let actual = unsafe { read_strings(text, &DataType::Utf8) }?;
+        assert_eq!(
+            actual.iter().map(Option::as_deref).collect::<Vec<_>>(),
+            labels
+        );
+    }
+    Ok(())
+}
+
+#[cuda_test]
+fn test_registered_output_appends_alongside_arrow_batches() -> VortexResult<()> {
+    let session = session()?;
+    let first = [Some("red"), None];
+    let second = [Some("blue")];
+    let mut handle = batches(
+        &session,
+        vec![
+            destination_table(&first, &[13, -5]),
+            destination_table(&second, &[8]),
+        ],
+    )?;
+    let consumer = handle
+        .ctx
+        .stream()
+        .context()
+        .new_stream()
+        .map_err(VortexError::external)?;
+    let dst = consumer
+        .clone_htod(&[-1i32; 4])
+        .map_err(VortexError::external)?;
+    // SAFETY: The first three elements are writable on this stream; the fourth is a canary.
+    unsafe {
+        register_ids(
+            &mut handle,
+            dst.device_address() as *mut c_void,
+            3 * size_of::<i32>(),
+            consumer.cu_stream().cast(),
+        )
+    }?;
+    for (labels, expected) in [
+        (&first[..], [13, -5, -1, -1]),
+        (&second[..], [13, -5, 8, -1]),
+    ] {
+        let output = next(&mut handle)?;
+        assert!(!output.array.sync_event.is_null());
+        assert_destination_batch(&output, labels)?;
+        assert_eq!(
+            consumer.clone_dtoh(&dst).map_err(VortexError::external)?,
+            expected
+        );
+    }
+    assert!(next(&mut handle)?.is_eos());
+    drop(handle);
+    Ok(())
+}
+
+#[cuda_test]
+fn test_registered_output_rejects_long_and_short_streams() -> VortexResult<()> {
+    let session = session()?;
+    for declared in [2usize, 4] {
+        let first = destination_table(&[None, Some("a")], &[1, 2]);
+        let second = destination_table(&[Some("b")], &[3]);
+        let mut handle = batches_with_rows(
+            &session,
+            first.dtype().clone(),
+            vec![first, second],
+            declared as u64,
+        )?;
+        let stream = handle.ctx.stream().clone();
+        let dst = stream
+            .clone_htod(&[-1i32; 5])
+            .map_err(VortexError::external)?;
+        // SAFETY: The allocation outlives the handle and includes a canary beyond the plan.
+        unsafe {
+            register_ids(
+                &mut handle,
+                dst.device_address() as *mut c_void,
+                declared * size_of::<i32>(),
+                stream.cu_stream().cast(),
+            )
+        }?;
+        assert_destination_batch(&next(&mut handle)?, &[None, Some("a")])?;
+        if declared == 4 {
+            assert_destination_batch(&next(&mut handle)?, &[Some("b")])?;
+        }
+        // When declared short the second batch cannot fit. When declared long the error is at EOS.
+        let mut output = Output::empty();
+        assert!(next_into(&mut handle, &mut output).is_err());
+        assert!(output.is_eos());
+        assert!(next_into(&mut handle, &mut output).is_err());
+        drop(handle);
+        let expected = [1, 2, if declared == 4 { 3 } else { -1 }, -1, -1];
+        assert_eq!(
+            stream.clone_dtoh(&dst).map_err(VortexError::external)?,
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[cuda_test]
+fn test_registered_empty_stream_synthesizes_one_typed_batch() -> VortexResult<()> {
+    let session = session()?;
+    let dtype = destination_table(&[], &[]).dtype().clone();
+    let mut handle = batches_with_rows(&session, dtype, vec![], 0)?;
+    // SAFETY: No rows need storage; null denotes the legacy default stream.
+    unsafe { register_ids(&mut handle, ptr::null_mut(), 0, ptr::null_mut()) }?;
+    assert_destination_batch(&next(&mut handle)?, &[])?;
+    assert!(next(&mut handle)?.is_eos());
+    assert!(next(&mut handle)?.is_eos());
     Ok(())
 }
 

@@ -20,6 +20,7 @@
 use std::borrow::Borrow;
 use std::mem::size_of;
 
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
@@ -29,24 +30,35 @@ use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::scalar::Scalar;
 use vortex::dtype::DType;
+use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaFunction;
+use vortex_cuda_driver::CudaViewMut;
 use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DevicePtrMut;
 use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::DeviceSlice;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_cuda_driver::SyncOnDrop;
 use vortex_cuda_driver::sys::CUdevice_attribute;
+use vortex_cuda_driver::sys::CUdeviceptr;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::CudaDispatchMode;
 use crate::executor::CudaExecutionCtx;
 
+mod foreign;
 pub(crate) mod plan_builder;
+pub use foreign::ForeignDecodeError;
+pub use foreign::decode_into_foreign;
 pub use plan_builder::DispatchPlan;
 pub use plan_builder::FusedPlan;
 pub use plan_builder::MaterializedPlan;
@@ -163,7 +175,8 @@ pub fn dispatch_kernel(
     shared_mem_bytes: u32,
 ) -> VortexResult<(CudaFunction, u32)> {
     let ranges = u32::try_from(len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
-    let ptype = ptype.to_string();
+    // Kernels store signed and floating-point results through the same-width unsigned type.
+    let ptype = format!("u{}", ptype.bit_width());
     if plan.input_stage_len < LOOP_RANGES_MIN_INPUT_LEN {
         let function = ctx.load_function_with_suffixes("dynamic_dispatch", &[&ptype])?;
         return Ok((function, ranges));
@@ -444,7 +457,50 @@ impl ScalarOp {
     }
 }
 
+/// Decode a fixed-width chunk straight into `output`, which must match its element type and
+/// length and belong to `ctx`'s CUDA context.
+///
+/// Returns `Ok(false)` without touching `output` if the chunk is nullable or not fully fusable.
+/// On error, `output` may be partially written.
+pub async fn try_decode_into<T: NativePType + DeviceRepr>(
+    array: &ArrayRef,
+    output: CudaViewMut<'_, T>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<bool> {
+    vortex_ensure_eq!(output.len(), array.len());
+    let DType::Primitive(ptype, Nullability::NonNullable) = array.dtype() else {
+        return Ok(false);
+    };
+    vortex_ensure_eq!(*ptype, T::PTYPE);
+    vortex_ensure!(
+        output.stream().context() == ctx.stream().context(),
+        "destination belongs to another CUDA context"
+    );
+    if array.is_empty() {
+        return Ok(true);
+    }
+    let Some(plan) = materialize_decode_into(array, ctx).await? else {
+        return Ok(false);
+    };
+    plan.execute_into(output, ctx)?;
+    Ok(true)
+}
+
+async fn materialize_decode_into(
+    array: &ArrayRef,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Option<MaterializedPlan>> {
+    let mode = ctx.dispatch_mode();
+    if mode != CudaDispatchMode::StandaloneOnly
+        && let DispatchPlan::Fused(plan) = DispatchPlan::new(array, mode)?
+    {
+        return plan.materialize(ctx).await.map(Some);
+    }
+    Ok(None)
+}
+
 impl MaterializedPlan {
+    /// Decode `len` elements into a newly allocated device buffer.
     pub fn execute(self, len: usize, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let output_ptype = self.dispatch_plan.output_ptype();
 
@@ -472,6 +528,7 @@ impl MaterializedPlan {
         })
     }
 
+    /// [`Self::execute`] with `T` as the kernel's same-width unsigned element type.
     fn execute_typed<T>(
         self,
         output_ptype: PType,
@@ -479,7 +536,7 @@ impl MaterializedPlan {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical>
     where
-        T: DeviceRepr + vortex::dtype::NativePType,
+        T: DeviceRepr + NativePType,
     {
         let nullability = self.validity.nullability();
 
@@ -490,10 +547,50 @@ impl MaterializedPlan {
         }
 
         let mut output = ctx.device_alloc::<T>(len.next_multiple_of(1024))?;
+        self.execute_into(output.slice_mut(..len), ctx)?;
+        let output = CudaDeviceBuffer::new(output)?;
+        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_device(output.slice_typed::<T>(0..len)),
+            output_ptype,
+            self.validity,
+        )))
+    }
 
+    /// Launch the kernel to write `output.len()` decoded elements into `output`.
+    fn execute_into<T: DeviceRepr + NativePType>(
+        &self,
+        mut output: CudaViewMut<'_, T>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<()> {
+        let len = output.len();
+        let stream = ctx.stream().clone();
+        vortex_ensure_eq!(
+            self.dispatch_plan.output_ptype().byte_width(),
+            T::PTYPE.byte_width()
+        );
+        let (ptr, write) = output
+            .device_ptr_mut(&stream)
+            .map_err(|e| vortex_err!("dynamic dispatch output pointer: {e}"))?;
+        // SAFETY: The typed view covers `len` elements of the kernel's output width. The guard
+        // orders prior accesses and records this write even if launch tracking fails.
+        let launch = unsafe { self.launch_into(ptr, len, ctx) };
+        let finished = write
+            .finish()
+            .map_err(|e| vortex_err!("dynamic dispatch output tracking: {e}"));
+        launch.and(finished)
+    }
+
+    /// `output` must be aligned and writable for `len` elements of the plan's output type,
+    /// disjoint from inputs. The caller must order all accesses and the free after this launch.
+    unsafe fn launch_into(
+        &self,
+        output: CUdeviceptr,
+        len: usize,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<()> {
         let (cuda_function, num_blocks) = dispatch_kernel(
             ctx,
-            T::PTYPE,
+            self.dispatch_plan.output_ptype(),
             &self.dispatch_plan,
             len,
             self.shared_mem_bytes,
@@ -526,7 +623,7 @@ impl MaterializedPlan {
         let array_len_u64 = len as u64;
 
         let launch_result = ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-            args.arg(&mut output);
+            args.arg(&output);
             args.arg(&array_len_u64);
             args.arg(self.dispatch_plan.kernel_param());
         });
@@ -538,14 +635,7 @@ impl MaterializedPlan {
                 tracing::error!(%error, "Failed to track dynamic dispatch buffers after launch failure");
             }
         })?;
-        finish_result?;
-
-        let output = CudaDeviceBuffer::new(output)?;
-        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_device(output.slice_typed::<T>(0..len)),
-            output_ptype,
-            self.validity,
-        )))
+        finish_result
     }
 }
 
@@ -591,6 +681,7 @@ mod tests {
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::sequence::Sequence;
     use vortex::encodings::zigzag::ZigZag;
+    use vortex::error::VortexError;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
@@ -1898,6 +1989,63 @@ mod tests {
             matches!(plan, DispatchPlan::Fused(_)),
             "expected F64 primitive to be classified as Fused"
         );
+    }
+
+    #[crate::test]
+    async fn test_decode_into_adjacent_ranges() -> VortexResult<()> {
+        let mut cpu = SESSION.create_execution_ctx();
+        let owner = CudaSession::create_execution_ctx(&cuda_session())?;
+        let mut ctx = owner.fork()?;
+        let values: Vec<i64> = (0..1030).map(|i| i % 13).collect();
+        let mut expected = vec![-1.0; values.len() + 2];
+        let mut output = owner
+            .stream()
+            .clone_htod(&expected)
+            .map_err(VortexError::external)?;
+
+        // Write the tail first so an overrun by the partial FastLanes block cannot be hidden.
+        for range in [1025..1030, 0..1025] {
+            let ints =
+                PrimitiveArray::from_iter(values[range.clone()].iter().copied()).into_array();
+            let packed = BitPacked::encode(&ints, 4, &mut cpu)?;
+            let chunk =
+                ALP::try_new(packed.into_array(), Exponents { e: 0, f: 0 }, None)?.into_array();
+            let target = output.slice_mut(1 + range.start..1 + range.end);
+            assert!(try_decode_into(&chunk, target, &mut ctx).await?);
+        }
+        for (row, value) in values.into_iter().enumerate() {
+            expected[row + 1] = value as f64;
+        }
+        let actual = owner
+            .stream()
+            .clone_dtoh(&output)
+            .map_err(VortexError::external)?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_decode_into_declined_or_wrong_size_leaves_output_alone() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let mut output = ctx
+            .stream()
+            .clone_htod(&[42u32])
+            .map_err(VortexError::external)?;
+        let nullable = PrimitiveArray::from_option_iter([None::<u32>]).into_array();
+        assert!(!try_decode_into(&nullable, output.as_view_mut(), &mut ctx).await?);
+        let plain = PrimitiveArray::from_iter([1u32, 2]).into_array();
+        assert!(
+            try_decode_into(&plain, output.as_view_mut(), &mut ctx)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            ctx.stream()
+                .clone_dtoh(&output)
+                .map_err(VortexError::external)?,
+            [42]
+        );
+        Ok(())
     }
 
     #[crate::test]
