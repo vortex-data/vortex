@@ -107,7 +107,9 @@ pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 pub mod expr {
     //! Expression trees, their optimizer, and the analyses and rewrites built on them.
+    #[doc(no_inline)]
     pub use vortex_expr::*;
+    #[doc(no_inline)]
     pub use vortex_functions::expr::*;
 
     /// Statistics, stat expressions, and statistics-based pruning rewrites.
@@ -130,12 +132,15 @@ pub mod expr {
         pub use vortex_array::stats::Sum;
         pub use vortex_array::stats::UncompressedSizeInBytes;
         pub use vortex_array::stats::UpperBound;
+        #[doc(no_inline)]
         pub use vortex_expr::stats::*;
     }
 
     /// Constructors for expressions whose children have already been bound and type-checked.
     pub mod bound {
+        #[doc(no_inline)]
         pub use vortex_expr::bound::*;
+        #[doc(no_inline)]
         pub use vortex_functions::expr::bound::*;
     }
 }
@@ -151,11 +156,14 @@ use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
-// We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
+// Glob re-exports are marked `#[doc(no_inline)]` so rustdoc links to each subcrate's own docs
+// instead of rendering a second copy of it here, which roughly doubled the size of the workspace
+// docs (and, through `vortex_array`'s `pub use smallvec`, copied the whole `alloc` crate).
 
 /// Core array APIs, canonical arrays, expressions, scalar functions, statistics, and Arrow
 /// conversion.
 pub mod array {
+    #[doc(no_inline)]
     pub use vortex_array::*;
 
     // TODO(connor): We should probably manually pull up everything we need besides these 3 modules.
@@ -166,11 +174,13 @@ pub mod array {
 /// Arrow interoperability: conversion between Vortex and Apache Arrow arrays, types, and
 /// schemas.
 pub mod arrow {
+    #[doc(no_inline)]
     pub use vortex_arrow::*;
 }
 
 /// Aligned buffers and byte buffers used by arrays, layouts, IPC, and file IO.
 pub mod buffer {
+    #[doc(no_inline)]
     pub use vortex_buffer::*;
 }
 
@@ -188,22 +198,26 @@ pub mod compressor {
 pub mod editions;
 
 pub mod dtype {
+    #[doc(no_inline)]
     pub use vortex_array::dtype::*;
 }
 
 /// Error and result types shared across Vortex crates.
 pub mod error {
+    #[doc(no_inline)]
     pub use vortex_error::*;
 }
 
 /// Built-in temporal extension dtypes.
 pub mod extension {
+    #[doc(no_inline)]
     pub use vortex_array::extension::*;
 }
 
 #[cfg(feature = "files")]
 /// Vortex file readers, writers, open options, write options, and file-format footer APIs.
 pub mod file {
+    #[doc(no_inline)]
     pub use vortex_file::*;
 }
 
@@ -213,62 +227,74 @@ pub mod file {
 /// Bindings for the other schemas live alongside the types they describe, in
 /// `layout::flatbuffers`, `file::flatbuffers` and `ipc::flatbuffers`.
 pub mod flatbuffers {
+    #[doc(no_inline)]
     pub use vortex_array::flatbuffers::*;
 }
 
 /// Async and blocking IO abstractions used by file readers and writers.
 pub mod io {
+    #[doc(no_inline)]
     pub use vortex_io::*;
 }
 
 /// Cloud object store integration: URL resolution and OpenDAL-backed services.
 #[cfg(feature = "object_store_registry")]
 pub mod cloud {
+    #[doc(no_inline)]
     pub use vortex_cloud::*;
 }
 
 /// IPC serialization helpers for Vortex arrays.
 pub mod ipc {
+    #[doc(no_inline)]
     pub use vortex_ipc::*;
 }
 
 /// Serialized layout trees, layout readers, scan builders, and segment sources/sinks.
 pub mod layout {
+    #[doc(no_inline)]
     pub use vortex_layout::*;
 }
 
 /// Selection masks used by array and scan operations.
 pub mod mask {
+    #[doc(no_inline)]
     pub use vortex_mask::*;
 }
 
 /// Metrics traits and default metrics registry implementations.
 pub mod metrics {
+    #[doc(no_inline)]
     pub use vortex_metrics::*;
 }
 
 /// Generated protocol buffer bindings used by Vortex metadata.
 pub mod proto {
+    #[doc(no_inline)]
     pub use vortex_array::proto::*;
 }
 
 /// Scalar values and typed scalar views.
 pub mod scalar {
+    #[doc(no_inline)]
     pub use vortex_array::scalar::*;
 }
 
 /// Data-source abstractions for scan integrations.
 pub mod scan {
+    #[doc(no_inline)]
     pub use vortex_scan::*;
 }
 
 /// Session registries and session extension traits.
 pub mod session {
+    #[doc(no_inline)]
     pub use vortex_session::*;
 }
 
 /// Small utility types used across Vortex crates.
 pub mod utils {
+    #[doc(no_inline)]
     pub use vortex_utils::*;
 }
 
@@ -276,78 +302,93 @@ pub mod utils {
 pub mod encodings {
     /// Adaptive Lossless floating-point encodings.
     pub mod alp {
+        #[doc(no_inline)]
         pub use vortex_alp::*;
     }
 
     /// Byte-per-value boolean encoding.
     pub mod bytebool {
+        #[doc(no_inline)]
         pub use vortex_bytebool::*;
     }
 
     /// Date/time decomposition encodings.
     pub mod datetime_parts {
+        #[doc(no_inline)]
         pub use vortex_datetime_parts::*;
     }
 
     /// Decimal byte-part decomposition encodings.
     pub mod decimal_byte_parts {
+        #[doc(no_inline)]
         pub use vortex_decimal_byte_parts::*;
     }
 
     /// Elias-Fano and unary integer encodings.
     pub mod elias_fano {
+        #[doc(no_inline)]
         pub use vortex_elias_fano::*;
     }
 
     /// FastLanes integer encodings: bit-packing, delta, frame-of-reference, and RLE.
     pub mod fastlanes {
+        #[doc(no_inline)]
         pub use vortex_fastlanes::*;
     }
 
     /// Fast Static Symbol Table string encoding.
     pub mod fsst {
+        #[doc(no_inline)]
         pub use vortex_fsst::*;
     }
 
     #[cfg(feature = "parquet-variant")]
     /// Parquet Variant array encoding.
     pub mod parquet_variant {
+        #[doc(no_inline)]
         pub use vortex_parquet_variant::*;
     }
 
     /// Pco numeric compression encoding.
     pub mod pco {
+        #[doc(no_inline)]
         pub use vortex_pco::*;
     }
 
     /// Arrow-compatible run-end encoding.
     pub mod runend {
+        #[doc(no_inline)]
         pub use vortex_array::arrays::runend::*;
     }
 
     /// Fixed-step sequence encoding.
     pub mod sequence {
+        #[doc(no_inline)]
         pub use vortex_sequence::*;
     }
 
     /// Sparse fill-value-plus-patches encoding.
     pub mod sparse {
+        #[doc(no_inline)]
         pub use vortex_sparse::*;
     }
 
     /// UUID extension dtype, with Arrow canonical `arrow.uuid` interoperability.
     pub mod uuid {
+        #[doc(no_inline)]
         pub use vortex_uuid::*;
     }
 
     /// Zig-zag integer transform encoding.
     pub mod zigzag {
+        #[doc(no_inline)]
         pub use vortex_zigzag::*;
     }
 
     #[cfg(feature = "zstd")]
     /// Zstd-backed binary/string compression encodings.
     pub mod zstd {
+        #[doc(no_inline)]
         pub use vortex_zstd::*;
     }
 }

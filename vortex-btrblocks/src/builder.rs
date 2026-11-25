@@ -70,13 +70,10 @@ impl CompressionMode {
                 // Keep ALP-RD, which has a CUDA decoder; FSST, which has a CUDA decoder and direct
                 // Arrow offset-based export; and string dictionaries, which the CUDA dictionary
                 // gather decodes into views over the decoded values. Other string fragmentation
-                // schemes and binary dictionaries still require unsupported decode paths. Delta has
-                // a CUDA decode kernel, but stays excluded until GPU delta decode is benchmarked
-                // against the schemes it would displace.
+                // schemes and binary dictionaries still require unsupported decode paths.
                 excluded.extend([
                     boolean::BoolRunEndScheme.id(),
                     boolean::BoolSparseScheme.id(),
-                    integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
                     float::FloatRLEScheme.id(),
@@ -279,6 +276,12 @@ mod tests {
     use vortex_array::arrays::VarBin;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+    use vortex_edition::EDITION_DECLARATIONS;
+    use vortex_edition::EDITION_FAMILIES;
+    use vortex_edition::EditionSessionExt;
+    use vortex_edition::declarations::core::CORE_2026_08_3;
+    use vortex_edition::declarations::preview::PREVIEW_2026_11_0;
+    use vortex_error::VortexResult;
     use vortex_fastlanes::bitpacked_v1_id;
     use vortex_fastlanes::bitpacked_v2_id;
     use vortex_fastlanes::for_v1_id;
@@ -359,18 +362,36 @@ mod tests {
         assert_eq!(!builder.allowed_schemes().is_empty(), retained);
     }
 
-    #[test]
-    fn delta_is_excluded_only_by_cuda() {
-        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
-        let has_delta = |builder: BtrBlocksCompressorBuilder| {
-            builder
-                .allowed_schemes()
-                .iter()
-                .any(|s| s.id() == integer::DeltaScheme::default().id())
-        };
-        assert!(has_delta(builder.clone()));
-        assert!(has_delta(builder.clone().with_compact()));
-        assert!(!has_delta(builder.only_cuda_compatible()));
+    #[rstest]
+    #[case::core(false)]
+    #[case::preview(true)]
+    fn delta_follows_editions_in_all_writer_presets(#[case] preview: bool) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        vortex_fastlanes::initialize(&session);
+        for family in EDITION_FAMILIES {
+            session.editions().declare_family(family)?;
+        }
+        for declaration in EDITION_DECLARATIONS {
+            session.register_edition(declaration)?;
+        }
+        session.enable_edition(CORE_2026_08_3)?;
+        if preview {
+            session.enable_edition(PREVIEW_2026_11_0)?;
+        }
+
+        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        let delta = integer::DeltaScheme::default().id();
+        for preset in [
+            builder.clone(),
+            builder.clone().with_compact(),
+            builder.only_cuda_compatible(),
+        ] {
+            assert_eq!(
+                preset.allowed_schemes().iter().any(|s| s.id() == delta),
+                preview
+            );
+        }
+        Ok(())
     }
 
     #[test]

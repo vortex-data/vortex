@@ -110,7 +110,7 @@ jobs:
               scripts/tests/test_refresh_bench_site.py \
               scripts/tests/test_codspeed_shards.py \
               scripts/tests/test_sample_file_trees.py \
-              scripts/tests/test_triage.py \
+              scripts/tests/test_triage_*.py \
               vortex-test/compat-gen/tests/test_compat.py
 
       # bench-orchestrator does not depend on vortex-data, so this needs no Rust build.

@@ -36,6 +36,11 @@ on:
         type: number
         default: 256
         description: "Most bench jobs to run at once; each one launches its own host"
+      commit_sha:
+        required: false
+        type: string
+        default: ""
+        description: "Commit to benchmark outside pr mode; empty uses the run's commit"
 
 jobs:
   resolve-matrix:
@@ -49,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
-          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
           persist-credentials: false
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -104,7 +109,7 @@ jobs:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
       - parallel:
           - uses: ./.github/actions/assert-cpu
             if: github.repository == 'vortex-data/vortex'
@@ -169,7 +174,7 @@ jobs:
           - uses: runs-on/action@v2
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
       - name: Download binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
@@ -223,7 +228,7 @@ jobs:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
               fetch-depth: ${{ inputs.mode == 'pr' && '0' || '1' }}
       # Everything data generation needs is independent, so install it all at once.
       - parallel:
@@ -293,7 +298,7 @@ jobs:
             continue-on-error: true
             with:
               polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
+              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }};benchmark=${{ matrix.id }}"
               project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
               job_name: "${{ matrix.id }}"
               profiling_frequency: 199
@@ -370,7 +375,7 @@ jobs:
                 vortex-bench/data \
                 --benchmark ${{ matrix.subcommand }} \
                 --dataset-dir ${{ matrix.dataset_dir }} \
-                --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+                --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }} \
                 -o sizes.json \
                 --ingest-jsonl sizes.ingest.jsonl
               cat sizes.json >> results.json
@@ -387,7 +392,7 @@ jobs:
               uv run --no-project scripts/sample-file-trees.py \
                 vortex-bench/data/${{ matrix.dataset_dir }} \
                 --vx target/release_debug/vx \
-                --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+                --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }} \
                 -o file-trees
 
       - name: Upload sampled file trees
@@ -452,7 +457,7 @@ jobs:
           uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
             scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
-            --commit-sha "${{ github.sha }}" \
+            --commit-sha "${{ inputs.commit_sha || github.sha }}" \
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
