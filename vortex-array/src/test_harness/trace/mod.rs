@@ -660,13 +660,9 @@ pub(crate) fn record_execute_slot(slot_idx: usize, parent: &ArrayRef, child: &Ar
     });
 }
 
-/// Record that a block program ran `ops` ops over `len` rows, into a builder or not.
-pub(crate) fn record_block_drive(ops: usize, len: usize, into_builder: bool) {
-    record(TraceEvent::BlockDrive {
-        ops,
-        len,
-        into_builder,
-    });
+/// Record that a block program ran `ops` ops over `len` rows.
+pub(crate) fn record_block_drive(ops: usize, len: usize) {
+    record(TraceEvent::BlockDrive { ops, len });
 }
 
 /// Record how a block program ran one op, for its first block only: every later block runs the
@@ -942,7 +938,6 @@ enum TraceEvent {
     BlockDrive {
         ops: usize,
         len: usize,
-        into_builder: bool,
     },
     BlockOp {
         op_idx: usize,
@@ -1197,17 +1192,7 @@ impl TraceEvent {
             } => {
                 write!(f, "builder {action} {subject}={array}")
             }
-            TraceEvent::BlockDrive {
-                ops,
-                len,
-                into_builder,
-            } => {
-                write!(f, "drive ops={ops} len={len}")?;
-                if *into_builder {
-                    write!(f, " into=builder")?;
-                }
-                Ok(())
-            }
+            TraceEvent::BlockDrive { ops, len } => write!(f, "drive ops={ops} len={len}"),
             TraceEvent::BlockOp {
                 op_idx,
                 shape,
