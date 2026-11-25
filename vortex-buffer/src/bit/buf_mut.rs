@@ -327,12 +327,12 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
-    #[inline]
     pub fn new_set(len: usize) -> Self {
         let mut buffer = buffer_mut![0xFF; len.div_ceil(8)];
-        if !len.is_multiple_of(8) {
-            let keep = (1u8 << (len % 8)) - 1;
-            buffer.as_mut_slice()[len / 8] = keep;
+        if !len.is_multiple_of(8)
+            && let Some(last) = buffer.as_mut_slice().last_mut()
+        {
+            *last = (1u8 << (len % 8)) - 1;
         }
         Self {
             buffer,
@@ -646,9 +646,10 @@ impl BitBufferMut {
         let end_bit = self.offset + self.len;
         let needed_bytes = end_bit.div_ceil(8);
         self.buffer.truncate(needed_bytes);
-        if !end_bit.is_multiple_of(8) {
-            let keep = (1u8 << (end_bit % 8)) - 1;
-            self.buffer.as_mut_slice()[needed_bytes - 1] &= keep;
+        if !end_bit.is_multiple_of(8)
+            && let Some(last) = self.buffer.as_mut_slice().last_mut()
+        {
+            *last &= (1u8 << (end_bit % 8)) - 1;
         }
     }
 
