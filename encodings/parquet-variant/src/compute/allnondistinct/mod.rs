@@ -1,0 +1,182 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+#[cfg(test)]
+mod tests;
+
+use std::fmt::Debug;
+
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
+use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
+
+use crate::ParquetVariant;
+use crate::ParquetVariantArraySlotsExt;
+
+/// Lets `AllNonDistinct` compare two `ParquetVariant` arrays without canonicalizing them.
+///
+/// `AllNonDistinct` accumulates over a `Struct{lhs, rhs}` batch, so this kernel is registered for
+/// the struct encoding and inspects the two children. When both are `ParquetVariant` with matching
+/// shredding layouts and child dtypes, it checks batch and outer variant validity, then compares
+/// `typed_value` and `value` children directly when `metadata` dictionaries match (or are unused
+/// for fully shredded leaf values). When `metadata` is needed and differs, it compares active rows
+/// directly via `ParquetVariant` scalars so raw-only nested fields are preserved.
+#[derive(Debug)]
+pub struct AllNonDistinctParquetVariant;
+
+impl DynAggregateKernel for AllNonDistinctParquetVariant {
+    fn aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<AllNonDistinct>() {
+            return Ok(None);
+        }
+
+        let Some(batch) = batch.as_opt::<Struct>() else {
+            return Ok(None);
+        };
+        if batch.is_empty() {
+            return Ok(Some(Scalar::bool(true, Nullability::NonNullable)));
+        }
+
+        let lhs_arr = batch.unmasked_field(0);
+        let rhs_arr = batch.unmasked_field(1);
+        let (Some(lhs), Some(rhs)) = (
+            lhs_arr.as_opt::<ParquetVariant>(),
+            rhs_arr.as_opt::<ParquetVariant>(),
+        ) else {
+            return Ok(None);
+        };
+
+        // Check cheap layout and dtype compatibility before comparing metadata or children.
+        let typed_pair = match (lhs.typed_value(), rhs.typed_value()) {
+            (Some(lhs_typed), Some(rhs_typed)) if lhs_typed.dtype() == rhs_typed.dtype() => {
+                Some((lhs_typed, rhs_typed))
+            }
+            (None, None) => None,
+            // Mixed shredding layouts or differing typed_value dtypes: let the generic canonical
+            // path handle it.
+            _ => return Ok(None),
+        };
+
+        let value_pair = match (lhs.value(), rhs.value()) {
+            (Some(lhs_value), Some(rhs_value)) if lhs_value.dtype() == rhs_value.dtype() => {
+                Some((lhs_value, rhs_value))
+            }
+            (None, None) => None,
+            // Mixed shredding layouts or value children that differ in nullability: let the
+            // generic canonical path handle it.
+            _ => return Ok(None),
+        };
+
+        // Respect both the batch struct mask (rows masked out by the caller) and each side's
+        // outer variant validity. A valid batch row where only one side is null is distinct, and
+        // rows that are null on both sides must be excluded before comparing physical children.
+        let batch_validity = batch.validity()?;
+        let lhs_validity = lhs.validity()?;
+        let rhs_validity = rhs.validity()?;
+        let active_mask = if batch_validity.definitely_no_nulls()
+            && lhs_validity.definitely_no_nulls()
+            && rhs_validity.definitely_no_nulls()
+        {
+            None
+        } else {
+            let batch_mask = batch_validity.execute_mask(batch.len(), ctx)?;
+            if batch_mask.true_count() == 0 {
+                return Ok(Some(Scalar::bool(true, Nullability::NonNullable)));
+            }
+
+            let lhs_mask = &batch_mask & &lhs_validity.execute_mask(lhs.len(), ctx)?;
+            let rhs_mask = &batch_mask & &rhs_validity.execute_mask(rhs.len(), ctx)?;
+            if lhs_mask != rhs_mask {
+                return Ok(Some(Scalar::bool(false, Nullability::NonNullable)));
+            }
+            if lhs_mask.true_count() == 0 {
+                return Ok(Some(Scalar::bool(true, Nullability::NonNullable)));
+            }
+            (lhs_mask.true_count() < batch.len()).then_some(lhs_mask)
+        };
+
+        let filter_child = |child: &ArrayRef| -> VortexResult<ArrayRef> {
+            match &active_mask {
+                Some(mask) => child.filter(mask.clone()),
+                None => Ok(child.clone()),
+            }
+        };
+
+        // Metadata dictionaries only affect decoding when raw `value` bytes exist at the root or
+        // may exist inside nested shredded struct/list wrappers. Fully shredded leaf values do not
+        // read `metadata` and can always use bulk child comparison.
+        let needs_metadata = value_pair.is_some()
+            || typed_pair.is_some_and(|(lhs_typed, _)| {
+                matches!(lhs_typed.dtype(), DType::Struct(..) | DType::List(..))
+            });
+
+        if needs_metadata {
+            let lhs_metadata = filter_child(lhs.metadata())?;
+            let rhs_metadata = filter_child(rhs.metadata())?;
+            if !all_non_distinct(&lhs_metadata, &rhs_metadata, ctx)? {
+                // Compare directly via ParquetVariant scalars rather than declining to
+                // Canonical::Variant, which omits raw-only nested field wrappers.
+                let equal = compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?;
+                return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
+            }
+        }
+
+        if let Some((lhs_typed, rhs_typed)) = typed_pair {
+            let lhs_typed = filter_child(lhs_typed)?;
+            let rhs_typed = filter_child(rhs_typed)?;
+            if !all_non_distinct(&lhs_typed, &rhs_typed, ctx)? {
+                return Ok(Some(Scalar::bool(false, Nullability::NonNullable)));
+            }
+        }
+
+        if let Some((lhs_value, rhs_value)) = value_pair {
+            let lhs_value = filter_child(lhs_value)?;
+            let rhs_value = filter_child(rhs_value)?;
+            if !all_non_distinct(&lhs_value, &rhs_value, ctx)? {
+                return Ok(Some(Scalar::bool(false, Nullability::NonNullable)));
+            }
+        }
+
+        Ok(Some(Scalar::bool(true, Nullability::NonNullable)))
+    }
+}
+
+fn compare_active_scalars(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    active_mask: Option<&Mask>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    match active_mask {
+        Some(mask) => {
+            for idx in mask.to_bit_buffer().set_indices() {
+                if lhs.execute_scalar(idx, ctx)? != rhs.execute_scalar(idx, ctx)? {
+                    return Ok(false);
+                }
+            }
+        }
+        None => {
+            for idx in 0..lhs.len() {
+                if lhs.execute_scalar(idx, ctx)? != rhs.execute_scalar(idx, ctx)? {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    Ok(true)
+}
