@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use session::CachedFile;
 pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
@@ -239,7 +240,9 @@ async fn open_file(
 }
 
 /// Open a Vortex file and cache its footer on the session.
-/// Subsequent calls to this function will reuse the footer from cache.
+/// Subsequent calls to this function will reuse the footer from cache. When the options include
+/// user-defined metadata, the metadata is cached too, and later opens that include it do not
+/// read it again.
 ///
 /// "key" is the optional cache key provided by user. If it's not found,
 /// source.uri() is probed. If there's no uri(), open_cached errors.
@@ -263,14 +266,38 @@ pub async fn open_cached(
         options = options.with_file_size(size);
     }
 
-    {
-        if let Some(footer) = session.multi_file().get_footer(key) {
-            options = options.with_footer(footer);
-        }
+    let wants_metadata = options.includes_metadata();
+    let cached = session.multi_file().get_file(key);
+    let Some(cached) = cached else {
+        let file = options.open(source).await?;
+        session.multi_file().put_file(
+            key,
+            CachedFile {
+                footer: file.footer().clone(),
+                metadata: wants_metadata.then(|| Arc::clone(file.metadata())),
+            },
+        );
+        return Ok(file);
+    };
+
+    options = options.with_footer(cached.footer.clone());
+    if !wants_metadata {
+        return options.open(source).await;
+    }
+
+    if let Some(metadata) = cached.metadata {
+        let file = options.with_include_metadata(false).open(source).await?;
+        return Ok(file.with_metadata(metadata));
     }
 
     let file = options.open(source).await?;
-    session.multi_file().put_footer(key, file.footer().clone());
+    session.multi_file().put_file(
+        key,
+        CachedFile {
+            footer: cached.footer,
+            metadata: Some(Arc::clone(file.metadata())),
+        },
+    );
     Ok(file)
 }
 
@@ -301,11 +328,16 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 mod tests {
     use std::fmt;
     use std::ops::Range;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::future::BoxFuture;
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::Nullability;
     use vortex_array::stats::Precision;
+    use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -407,6 +439,100 @@ mod tests {
     #[tokio::test]
     async fn test_cached_footer_metadata_then_default_is_order_independent() -> VortexResult<()> {
         assert_cached_footer_metadata_order(false).await
+    }
+
+    /// Counts the bytes read through it.
+    #[derive(Clone)]
+    struct CountingRead {
+        inner: ByteBuffer,
+        bytes_read: Arc<AtomicUsize>,
+    }
+
+    impl VortexReadAt for CountingRead {
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            self.inner.size()
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.bytes_read.fetch_add(length, Ordering::Relaxed);
+            self.inner.read_at(offset, length, alignment)
+        }
+
+        fn concurrency(&self) -> usize {
+            self.inner.concurrency()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cached_metadata_is_read_once() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let expected = ByteBuffer::copy_from(b"cached metadata");
+        let mut output = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("key", expected.clone())
+            .write(&mut output, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let bytes = ByteBuffer::from(output);
+        let bytes_read = Arc::new(AtomicUsize::new(0));
+        let reader = CountingRead {
+            inner: bytes.clone(),
+            bytes_read: Arc::clone(&bytes_read),
+        };
+        let size = Some(bytes.len() as u64);
+        let default_options = |options: VortexOpenOptions| options;
+        let metadata_options = |options: VortexOpenOptions| options.include_metadata();
+
+        // The first open caches the footer only, so the first metadata open must read the
+        // metadata segment.
+        open_cached(
+            &session,
+            Some("file"),
+            Arc::new(reader.clone()),
+            size,
+            &default_options,
+        )
+        .await?;
+        let first = open_cached(
+            &session,
+            Some("file"),
+            Arc::new(reader.clone()),
+            size,
+            &metadata_options,
+        )
+        .await?;
+        assert_eq!(
+            first.metadata_segment("key").map(ByteBuffer::as_slice),
+            Some(expected.as_slice())
+        );
+
+        let before = bytes_read.load(Ordering::Relaxed);
+        let second = open_cached(
+            &session,
+            Some("file"),
+            Arc::new(reader),
+            size,
+            &metadata_options,
+        )
+        .await?;
+        assert_eq!(
+            second.metadata_segment("key").map(ByteBuffer::as_slice),
+            Some(expected.as_slice())
+        );
+        assert_eq!(bytes_read.load(Ordering::Relaxed), before);
+
+        Ok(())
     }
 
     struct TwoFileSystem {

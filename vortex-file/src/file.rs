@@ -155,6 +155,11 @@ impl VortexFile {
         self.footer.statistics()
     }
 
+    /// The user-defined metadata segments loaded for this file.
+    pub(crate) fn metadata(&self) -> &Arc<HashMap<String, ByteBuffer>> {
+        &self.metadata
+    }
+
     /// Returns the user-defined metadata segments loaded for this file.
     ///
     /// Metadata is only loaded when requested during open. Iteration order is unspecified.

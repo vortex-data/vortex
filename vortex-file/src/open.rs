@@ -204,6 +204,11 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Whether opening the file loads its user-defined metadata segments.
+    pub(crate) fn includes_metadata(&self) -> bool {
+        self.include_metadata
+    }
+
     /// Configure a custom [`MetricsRegistry`] implementation.
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics);
