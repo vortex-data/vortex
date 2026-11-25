@@ -26,6 +26,7 @@ pub(crate) mod stats;
 pub use exprs::DefaultExpressionConverter;
 pub use exprs::ExpressionConverter;
 pub use exprs::ProcessedProjection;
+pub use exprs::convertible::*;
 pub use scalars::scalar_from_df;
 
 /// Convert a scan chunk using the non-nullable struct field for its projected Arrow columns.
