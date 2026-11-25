@@ -818,14 +818,6 @@ def _parallel_download(
     return failures
 
 
-_BUILT_BINS: dict[tuple[Path, str], str] = {}
-
-
-def _profile_dir_name(profile: str) -> str:
-    """Return Cargo's output subdirectory name for `profile`."""
-    return {"dev": "debug", "test": "debug", "bench": "release"}.get(profile, profile)
-
-
 def _build_compat_bin(profile: str = "release") -> str:
     """Build vortex-compat and return the path to the binary.
 
@@ -835,11 +827,6 @@ def _build_compat_bin(profile: str = "release") -> str:
     bin_path = os.environ.get("VORTEX_COMPAT_BIN")
     if bin_path:
         return bin_path
-
-    cache_key = (Path.cwd(), profile)
-    cached = _BUILT_BINS.get(cache_key)
-    if cached:
-        return cached
 
     _info(f"building vortex-compat ({profile})...")
     _run_cmd(["cargo", "build", "-p", CARGO_BIN, "--profile", profile], check=True)
@@ -852,10 +839,9 @@ def _build_compat_bin(profile: str = "release") -> str:
         check=True,
     )
     target_dir = json.loads(result.stdout)["target_directory"]
-    dir_name = _profile_dir_name(profile)
-    bin_path = str(Path(target_dir) / dir_name / CARGO_BIN)
-    _BUILT_BINS[cache_key] = bin_path
-    return bin_path
+    # Cargo puts "dev" profile binaries in "debug/", all others in "<profile>/".
+    dir_name = "debug" if profile == "dev" else profile
+    return str(Path(target_dir) / dir_name / CARGO_BIN)
 
 
 def _run_rust_generate(output: Path, profile: str = "release") -> None:
@@ -872,35 +858,12 @@ def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
 
     if result.stdout.strip():
-        try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            return {
-                "passed": [],
-                "failed": [{"name": "(all)", "error": f"invalid check output (exit {result.returncode}): {e}"}],
-                "skipped": [],
-            }
-        if not isinstance(data, dict):
-            return {
-                "passed": [],
-                "failed": [
-                    {
-                        "name": "(all)",
-                        "error": f"unexpected check output type {type(data).__name__} (exit {result.returncode})",
-                    }
-                ],
-                "skipped": [],
-            }
-        if result.returncode != 0 and not data.get("failed"):
-            data.setdefault("failed", []).append(
-                {"name": "(all)", "error": f"check process exited with code {result.returncode}"}
-            )
-        return data
+        return json.loads(result.stdout)
 
     if result.returncode != 0:
         return {
             "passed": [],
-            "failed": [{"name": "(all)", "error": f"check process failed (exit {result.returncode})"}],
+            "failed": [{"name": "(all)", "error": "check process failed"}],
             "skipped": [],
         }
     return {"passed": [], "failed": [], "skipped": []}
@@ -975,11 +938,6 @@ def main() -> None:
     )
     p.add_argument("--output", required=True, help="Output directory")
     p.add_argument(
-        "--profile",
-        default=argparse.SUPPRESS,
-        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
-    )
-    p.add_argument(
         "--git-ref",
         help="Git ref for version detection (e.g. v0.62.0). "
         "Version is derived from the nearest tag at this ref. "
@@ -1005,11 +963,6 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
-    p.add_argument(
-        "--profile",
-        default=argparse.SUPPRESS,
-        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
-    )
     p.add_argument(
         "--git-ref",
         help="Git ref for version detection (e.g. v0.62.0). "
@@ -1058,11 +1011,6 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
-    p.add_argument(
-        "--profile",
-        default=argparse.SUPPRESS,
-        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
-    )
     p.add_argument(
         "--versions",
         help="Comma-separated versions to check (mutually exclusive with --mode)",

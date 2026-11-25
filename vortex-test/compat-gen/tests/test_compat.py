@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -42,62 +41,6 @@ def _write_version_store(root: Path, versions: list[str], fixtures_by_version: d
         (arrays_dir / "manifest.json").write_text(json.dumps(manifest))
         for name in names:
             (arrays_dir / name).write_bytes(b"stub")
-
-
-@pytest.mark.parametrize(
-    ("profile", "expected_dir"),
-    [
-        ("release", "release"),
-        ("ci", "ci"),
-        ("dev", "debug"),
-        ("test", "debug"),
-        ("bench", "release"),
-    ],
-)
-def test_profile_dir_name_and_build_path(compat, monkeypatch, tmp_path, profile: str, expected_dir: str):
-    assert compat._profile_dir_name(profile) == expected_dir
-
-    compat._BUILT_BINS.clear()
-    monkeypatch.delenv("VORTEX_COMPAT_BIN", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    build_calls: list[list[str]] = []
-
-    def fake_run_cmd(cmd: list[str], check: bool = False, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-        build_calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    def fake_subprocess_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(cmd, 0, json.dumps({"target_directory": str(tmp_path / "target")}), "")
-
-    monkeypatch.setattr(compat, "_run_cmd", fake_run_cmd)
-    monkeypatch.setattr(compat.subprocess, "run", fake_subprocess_run)
-
-    bin_path = compat._build_compat_bin(profile)
-    assert bin_path == str(tmp_path / "target" / expected_dir / compat.CARGO_BIN)
-    assert build_calls == [["cargo", "build", "-p", compat.CARGO_BIN, "--profile", profile]]
-
-    # Second lookup in the same working directory reuses the built binary.
-    assert compat._build_compat_bin(profile) == bin_path
-    assert len(build_calls) == 1
-
-
-def test_cli_accepts_profile_before_or_after_subcommand(compat, monkeypatch):
-    seen_profiles: list[str] = []
-
-    def fake_check(args: argparse.Namespace) -> None:
-        seen_profiles.append(args.profile)
-
-    monkeypatch.setattr(compat, "cmd_check", fake_check)
-
-    for argv in [
-        ["compat.py", "--profile", "ci", "check", "--mode", "all"],
-        ["compat.py", "check", "--profile", "ci", "--mode", "all"],
-    ]:
-        monkeypatch.setattr(sys, "argv", argv)
-        compat.main()
-
-    assert seen_profiles == ["ci", "ci"]
 
 
 def test_cmd_check_runs_all_versions_and_reports_all_failures(compat, monkeypatch, tmp_path, capsys):
@@ -178,34 +121,3 @@ def test_parallel_download_collects_io_errors(compat, tmp_path):
 
     assert failures == [("boom.vortex", "download failed: network timeout")]
     assert (tmp_path / "good.vortex").read_bytes() == b"ok"
-
-
-def test_run_rust_check_handles_malformed_or_nonzero_output(compat, monkeypatch, tmp_path):
-    monkeypatch.setattr(compat, "_build_compat_bin", lambda _profile="release": "fake-bin")
-
-    monkeypatch.setattr(
-        compat.subprocess,
-        "run",
-        lambda *_a, **_kw: subprocess.CompletedProcess(["fake-bin"], 1, "not-json", ""),
-    )
-    bad_json = compat._run_rust_check(tmp_path)
-    assert bad_json["failed"][0]["name"] == "(all)"
-    assert "invalid check output" in bad_json["failed"][0]["error"]
-
-    monkeypatch.setattr(
-        compat.subprocess,
-        "run",
-        lambda *_a, **_kw: subprocess.CompletedProcess(["fake-bin"], 1, "[]", ""),
-    )
-    non_dict = compat._run_rust_check(tmp_path)
-    assert non_dict["failed"][0]["name"] == "(all)"
-    assert "unexpected check output type list" in non_dict["failed"][0]["error"]
-
-    empty_ok = json.dumps({"passed": [], "failed": [], "skipped": []})
-    monkeypatch.setattr(
-        compat.subprocess,
-        "run",
-        lambda *_a, **_kw: subprocess.CompletedProcess(["fake-bin"], 2, empty_ok, ""),
-    )
-    nonzero_empty_fail = compat._run_rust_check(tmp_path)
-    assert nonzero_empty_fail["failed"] == [{"name": "(all)", "error": "check process exited with code 2"}]

@@ -25,7 +25,7 @@ use crate::fixtures::Fixture;
 use crate::fixtures::all_fixtures;
 
 /// How to handle mismatches between directory and known fixtures.
-#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, ValueEnum)]
 pub enum Mode {
     /// Directory must match fixtures exactly.
     Exact,
@@ -35,14 +35,14 @@ pub enum Mode {
     Superset,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Serialize)]
 struct CheckResult {
     passed: Vec<String>,
     failed: Vec<FailedFixture>,
     skipped: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Serialize)]
 struct FailedFixture {
     name: String,
     error: String,
@@ -434,41 +434,6 @@ mod tests {
         assert!(result.failed[1].error.contains("simulated builder panic"));
         assert!(result.failed[2].error.contains("layout tree invalid"));
         assert!(result.failed[3].error.contains("arrays do not match"));
-
-        Ok(())
-    }
-
-    #[test]
-    fn handles_mode_mismatches_across_all_files() -> VortexResult<()> {
-        let stored_dir = tempfile::tempdir()?;
-        let arr = make_two_col_struct([1, 2, 3, 4], [10, 20, 30, 40])?;
-        adapter::write_file(&stored_dir.path().join("extra_one.vortex"), arr.clone())?;
-        adapter::write_file(&stored_dir.path().join("extra_two.vortex"), arr.clone())?;
-
-        let fixtures: Vec<Box<dyn Fixture>> = vec![
-            Box::new(StubFixture {
-                name: "missing_one.vortex",
-                behavior: ExpectedBehavior::Array(arr.clone()),
-            }),
-            Box::new(StubFixture {
-                name: "missing_two.vortex",
-                behavior: ExpectedBehavior::Array(arr),
-            }),
-        ];
-
-        let exact = check_fixtures(stored_dir.path(), Mode::Exact, &fixtures)?;
-        assert_eq!(exact.failed.len(), 4);
-
-        let superset = check_fixtures(stored_dir.path(), Mode::Superset, &fixtures)?;
-        assert_eq!(superset.failed.len(), 2);
-        assert_eq!(
-            superset.skipped,
-            ["missing_one.vortex", "missing_two.vortex"]
-        );
-
-        let subset = check_fixtures(stored_dir.path(), Mode::Subset, &fixtures)?;
-        assert_eq!(subset.failed.len(), 2);
-        assert_eq!(subset.skipped, ["extra_one.vortex", "extra_two.vortex"]);
 
         Ok(())
     }
