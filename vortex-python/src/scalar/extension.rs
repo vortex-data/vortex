@@ -27,7 +27,7 @@ impl ScalarSubclass for PyExtensionScalar {
 impl PyExtensionScalar {
     /// Return the Python value of the underlying storage scalar.
     ///
-    /// Unlike :meth:`as_py`, this returns the raw storage value, for example the integer count of a
+    /// Unlike :meth:`~vortex.Scalar.as_py`, this returns the raw storage value, for example the integer count of a
     /// timestamp in its unit.
     pub fn storage(self_: PyRef<'_, Self>) -> PyResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
