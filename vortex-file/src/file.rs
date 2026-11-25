@@ -304,7 +304,9 @@ impl VortexFile {
 
     /// Return the file's natural row splits as root-coordinate ranges.
     ///
-    /// These are the ranges that the default [`SplitBy`] would use for an all-fields scan.
+    /// These are the ranges that the default [`SplitBy`] would use for an all-fields scan. Like
+    /// [`Self::splits_for`], the result holds one range for each split, so its size follows the row
+    /// count of the file.
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
         self.splits_for(&[FieldMask::All])
     }
@@ -314,6 +316,8 @@ impl VortexFile {
     /// These are the ranges that the default [`SplitBy`] would use for a scan of those fields. Only
     /// the layouts of the selected fields are read, so this is much cheaper than [`Self::splits`]
     /// for a scan of a few columns of a wide file.
+    ///
+    /// The result holds one range for each split, so its size follows the row count of the file.
     pub fn splits_for(&self, field_mask: &[FieldMask]) -> VortexResult<Vec<Range<u64>>> {
         let reader = self.layout_reader()?;
         Ok(SplitBy::default()

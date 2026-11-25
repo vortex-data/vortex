@@ -94,8 +94,22 @@ impl SplitBy {
         row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<u64>> {
-        Ok(self
-            .natural_splits(layout_reader, row_range, field_mask)?
+        let (boundaries, subdivision) =
+            self.boundaries_and_subdivision(layout_reader, row_range, field_mask)?;
+
+        // Fast path: return the collected boundaries without converting to `Arc<[u64]>` and
+        // re-collecting when no span needs subdivision.
+        match subdivision {
+            Subdivision::Whole => return Ok(boundaries),
+            Subdivision::Even(max_rows)
+                if boundaries.windows(2).all(|w| w[1] - w[0] <= max_rows.get()) =>
+            {
+                return Ok(boundaries);
+            }
+            Subdivision::Even(_) | Subdivision::Every(_) => {}
+        }
+
+        Ok(NaturalSplits::new(boundaries.into(), subdivision)
             .points()
             .collect())
     }
@@ -107,6 +121,19 @@ impl SplitBy {
         row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<NaturalSplits> {
+        let (boundaries, subdivision) =
+            self.boundaries_and_subdivision(layout_reader, row_range, field_mask)?;
+
+        Ok(NaturalSplits::new(boundaries.into(), subdivision))
+    }
+
+    /// Collect the sorted, deduplicated boundaries and how each span between them is divided.
+    fn boundaries_and_subdivision(
+        &self,
+        layout_reader: &dyn LayoutReader,
+        row_range: &Range<u64>,
+        field_mask: &[FieldMask],
+    ) -> VortexResult<(Vec<u64>, Subdivision)> {
         let subdivision = self.subdivision()?;
         let boundaries = match *self {
             SplitBy::Layout => layout_boundaries(layout_reader, row_range, field_mask)?,
@@ -129,7 +156,8 @@ impl SplitBy {
             SplitBy::RowCount(_) if row_range.is_empty() => vec![row_range.end],
             SplitBy::RowCount(_) => vec![row_range.start, row_range.end],
         };
-        Ok(NaturalSplits::new(boundaries.into(), subdivision))
+
+        Ok((boundaries, subdivision))
     }
 }
 

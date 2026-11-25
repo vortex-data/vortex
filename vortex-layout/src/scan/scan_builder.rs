@@ -227,6 +227,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// These are the boundaries [`prepare`](Self::prepare) derives for a whole-file scan; hand
     /// them back via [`with_natural_splits`](Self::with_natural_splits) to skip the layout walk
     /// in `prepare`.
+    ///
+    /// The result holds one boundary for each split, so its size follows the row count of the
+    /// file.
     pub fn full_file_splits(&self) -> VortexResult<Vec<u64>> {
         let field_mask = referenced_field_masks(&self.projection, self.filter.as_ref())?;
         self.split_by.splits(
@@ -535,6 +538,7 @@ pub fn referenced_field_masks(
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroUsize;
     use std::ops::Range;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -594,6 +598,7 @@ mod test {
     use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::limit::RowLimit;
+    use crate::scan::repeated_scan::SPLIT_LOOKAHEAD;
     use crate::scan::split_by::SplitBy;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
@@ -998,6 +1003,37 @@ mod test {
         projection_started
             .map_err(|_| vortex_err!("stream construction did not begin in the background"))?;
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        Ok(())
+    }
+
+    /// The work of a scan before its first batch does not follow its number of splits.
+    #[test]
+    fn scan_prepares_a_bounded_window_of_splits() -> VortexResult<()> {
+        const ROWS: i32 = 100_000;
+
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let prepared = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(
+            TestLayoutReader::new(ROWS as u64).with_prepared_projections(Arc::clone(&prepared)),
+        );
+
+        // One split in flight keeps the first batch from taking half of the window, which would
+        // start a refill.
+        let stream = ScanBuilder::new(session, reader)
+            .with_split_by(SplitBy::RowCount(10))
+            .with_some_max_splits_in_flight(NonZeroUsize::new(1))
+            .into_stream()?;
+        let mut batches = runtime.block_on_stream(stream);
+
+        let first = collect_scan_values(batches.next())?;
+        assert_eq!(first, (0..10).collect::<Vec<_>>());
+        assert_eq!(prepared.load(Ordering::Relaxed), SPLIT_LOOKAHEAD);
+
+        let rest = collect_scan_values(batches)?;
+        assert_eq!(rest, (10..ROWS).collect::<Vec<_>>());
+        assert_eq!(prepared.load(Ordering::Relaxed), 10_000);
 
         Ok(())
     }
