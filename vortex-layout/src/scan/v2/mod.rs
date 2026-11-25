@@ -7,9 +7,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;

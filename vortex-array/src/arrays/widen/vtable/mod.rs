@@ -13,6 +13,7 @@ pub use plugin::WidenPlugin;
 
 mod validity;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -146,7 +147,11 @@ fn copy_decimal_values<T: NativeDecimalType>(
     decimal_dtype: DecimalDType,
 ) -> VortexResult<DecimalArray> {
     let validity = values.validity()?;
-    let buffer = widened_buffer::<T>(&values);
+    let buffer = if values.is_empty() {
+        Buffer::<T>::from_iter(std::iter::empty())
+    } else {
+        widened_buffer::<T>(&values)
+    };
 
     // The wider precision holds every value of the child's native type, at the same scale.
     DecimalArray::try_new_handle_from_trusted_values(

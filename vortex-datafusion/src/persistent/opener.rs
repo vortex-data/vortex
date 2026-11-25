@@ -568,7 +568,7 @@ impl FileOpener for VortexOpener {
                 {
                     scan_builder = scan_builder.with_limit(limit);
                 }
-                // V1 requires positive concurrency; V2 also accepts zero.
+                // In V1, 0 means use the default concurrency rather than clamping to 1; V2 also accepts zero.
                 if let Some(concurrency) = scan_concurrency.filter(|&concurrency| concurrency > 0) {
                     scan_builder = scan_builder.with_concurrency(concurrency);
                 }

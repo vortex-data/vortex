@@ -3,8 +3,9 @@
 
 //! Applying an expression to each batch.
 
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::BoundExpression;
 
 use crate::execution::operator::Cx;
 use crate::execution::operator::Input;
