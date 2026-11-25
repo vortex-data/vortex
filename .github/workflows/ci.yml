@@ -314,25 +314,12 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - name: Install nextest
-        if: github.repository != 'vortex-data/vortex'
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
-        with:
-          tool: nextest
       - name: Rust Tests
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
           command: "cargo test --profile ci --locked --workspace --all-features --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
-
-      - name: Alert incident.io
-        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
-        uses: ./.github/actions/alert-incident-io
-        with:
-          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
-          alert-title: "Rust tests (linux-x64) failed on develop"
-          deduplication-key: ci-rust-test-linux-x64-failure
 
   java-changes:
     name: "Detect Java changes"
