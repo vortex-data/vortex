@@ -35,7 +35,8 @@ impl ZipKernel for Chunked {
             mask.slice(pair.pos)?.zip(pair.left, pair.right)
         });
         chunks.process_results(|chunks| {
-            // SAFETY: each zipped chunk has dtype `zip_return_dtype(if_true.dtype(), if_false.dtype())`.
+            // SAFETY: each zipped chunk has dtype
+            // `zip_return_dtype(if_true.dtype(), if_false.dtype())`.
             Some(unsafe {
                 ChunkedArray::new_unchecked_sized(
                     chunks,
