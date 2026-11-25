@@ -49,6 +49,13 @@
 //            (widen_inplace). The smem region is pre-allocated at
 //            max(source_width, T) bytes per element by the Rust plan
 //            builder, so the widen never overflows.
+//
+// ## Delta output
+//
+// The `_delta` kernels run a plan for the deltas of a FastLanes Delta array.
+// The output stage stages each 1024-element chunk of deltas in shared memory
+// instead of storing it, undoes the delta there, seeded by that chunk's bases,
+// and stores the chunk in natural order. The deltas never reach global memory.
 
 #include <assert.h>
 #include <cuda.h>
@@ -513,6 +520,59 @@ __device__ inline void source_op(T *out,
 // batched read.  LOAD, SEQUENCE, and RUNEND need no smem scratch and
 // process the full block in a single outer iteration, tiled by tile_idx.
 
+/// Undo FastLanes delta for one chunk staged in shared memory, then store it in natural order.
+///
+/// `tile` holds the chunk's deltas in the transposed layout, followed by `BLOCK_SIZE` scratch
+/// elements for partial sums. `base` holds the chunk's `FL_LANES<T>` lane bases. Each lane is a
+/// running sum down its column. Long lanes are split into slices that are summed independently
+/// and then seeded with the sums of the slices before them, so that every thread scans.
+/// Mirrors `fastlanes::Delta::undelta` followed by `Transpose::untranspose`, like `delta.cu`.
+/// The caller must synchronize before reusing `tile`.
+template <typename T>
+__device__ inline void undelta_chunk(T *__restrict tile, const T *__restrict base, T *__restrict out) {
+    constexpr uint32_t LANES = FL_LANES<T>;
+    constexpr uint32_t ROWS = FL_CHUNK / LANES;
+    constexpr uint32_t SLICES = BLOCK_SIZE > LANES ? BLOCK_SIZE / LANES : 1;
+    constexpr uint32_t SLICE_ROWS = ROWS / SLICES;
+    static_assert(ROWS % SLICES == 0);
+    static_assert(LANES * SLICES <= BLOCK_SIZE || SLICES == 1);
+    T *const partials = tile + FL_CHUNK;
+
+    if constexpr (SLICES > 1) {
+        for (uint32_t work = threadIdx.x; work < LANES * SLICES; work += blockDim.x) {
+            const uint32_t lane = work % LANES;
+            const uint32_t first_row = (work / LANES) * SLICE_ROWS;
+            T sum = 0;
+            for (uint32_t row = first_row; row < first_row + SLICE_ROWS; ++row) {
+                sum = static_cast<T>(sum + tile[INDEX(row, lane)]);
+            }
+            partials[work] = sum;
+        }
+        __syncthreads();
+    }
+
+    for (uint32_t work = threadIdx.x; work < LANES * SLICES; work += blockDim.x) {
+        const uint32_t lane = work % LANES;
+        const uint32_t slice = work / LANES;
+        T running = base[lane];
+        for (uint32_t earlier = 0; earlier < slice; ++earlier) {
+            running = static_cast<T>(running + partials[earlier * LANES + lane]);
+        }
+        for (uint32_t row = slice * SLICE_ROWS; row < (slice + 1) * SLICE_ROWS; ++row) {
+            const uint32_t idx = INDEX(row, lane);
+            running = static_cast<T>(running + tile[idx]);
+            tile[idx] = running;
+        }
+    }
+    __syncthreads();
+
+    // Natural position `o` comes from transposed index `transpose^-1(o)`; FL_ORDER is its own
+    // inverse. Iterating over `o` keeps the global stores coalesced.
+    for (uint32_t o = threadIdx.x; o < FL_CHUNK; o += blockDim.x) {
+        __stcs(&out[o], tile[(o % 8) * 128 + FL_ORDER[(o / 8) % 8] * 16 + o / 64]);
+    }
+}
+
 /// How many elements to process in this BITUNPACK tile iteration.
 /// The first tile may be shorter due to `element_offset` alignment;
 /// the last tile may be shorter because we've reached `block_len`.
@@ -524,12 +584,17 @@ __device__ inline uint32_t bitunpack_tile_len(const Stage &stage, uint32_t block
 /// Process the final / output stage: decode source → apply scalar ops →
 /// streaming-store to global memory. Handles the full block, tiling through
 /// smem scratch for BITUNPACK.
-template <typename T>
+///
+/// With `DELTA`, the stage produces deltas: each FastLanes chunk is staged in
+/// the shared memory after the scratch tile and undeltaed with `bases` before
+/// it is stored. The plan builder guarantees chunk-aligned tiles.
+template <typename T, bool DELTA>
 __device__ void execute_output_stage(T *__restrict output,
                                      const Stage &stage,
                                      char *__restrict smem,
                                      uint64_t block_start,
-                                     uint32_t block_len) {
+                                     uint32_t block_len,
+                                     const T *__restrict bases) {
     // Cap at 4 values per thread per tile to minimise register pressure.
     constexpr uint32_t VALUES_PER_TILE = (32 / sizeof(T)) < 4 ? (32 / sizeof(T)) : 4;
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
@@ -537,6 +602,7 @@ __device__ void execute_output_stage(T *__restrict output,
     const auto &src = stage.source;
     const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
     const PTypeTag ptype = stage.source_ptype;
+    T *const delta_tile = reinterpret_cast<T *>(smem + stage.smem_byte_offset) + SMEM_TILE_SIZE;
 
     if (src.op_code == SourceOp::RUNEND) {
         const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
@@ -561,7 +627,7 @@ __device__ void execute_output_stage(T *__restrict output,
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
             smem_src = scratch + align;
         } else {
-            chunk_len = block_len;
+            chunk_len = DELTA ? min(FL_CHUNK, block_len - elem_idx) : block_len;
         }
 
         const uint32_t tile_count = chunk_len / tile_size;
@@ -584,13 +650,17 @@ __device__ void execute_output_stage(T *__restrict output,
 
 #pragma unroll
             for (uint32_t j = 0; j < VALUES_PER_TILE; ++j) {
-                // st.cs (cache streaming): marks this line for earliest
-                // eviction in L1 and L2. Output data is written once and
-                // never read again by this kernel, so keeping it cached
-                // would only compete with the packed input buffers and
-                // smem-resident dict/runend data that the next tiles still
-                // need to read. Evict-first lets those stay resident.
-                __stcs(&output[tile_start + j * blockDim.x + threadIdx.x], values[j]);
+                if constexpr (DELTA) {
+                    delta_tile[tile_idx * tile_size + j * blockDim.x + threadIdx.x] = values[j];
+                } else {
+                    // st.cs (cache streaming): marks this line for earliest
+                    // eviction in L1 and L2. Output data is written once and
+                    // never read again by this kernel, so keeping it cached
+                    // would only compete with the packed input buffers and
+                    // smem-resident dict/runend data that the next tiles still
+                    // need to read. Evict-first lets those stay resident.
+                    __stcs(&output[tile_start + j * blockDim.x + threadIdx.x], values[j]);
+                }
             }
         }
 
@@ -603,18 +673,32 @@ __device__ void execute_output_stage(T *__restrict output,
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
                 scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
             }
-            __stcs(&output[gpos], val);
+            if constexpr (DELTA) {
+                delta_tile[i] = val;
+            } else {
+                __stcs(&output[gpos], val);
+            }
         }
 
-        if (src.op_code == SourceOp::BITUNPACK) {
-            // Read barrier: all threads finished reading scratch, safe to
-            // overwrite it with the next chunk's bitunpack.
+        if constexpr (DELTA) {
+            const uint64_t chunk_start = block_start + elem_idx;
+            __syncthreads();
+            undelta_chunk<T>(delta_tile,
+                             bases + (chunk_start / FL_CHUNK) * FL_LANES<T>,
+                             output + chunk_start);
+        }
+        if (DELTA || src.op_code == SourceOp::BITUNPACK) {
+            // Read barrier: all threads finished reading scratch and the
+            // delta tile, safe to overwrite them with the next chunk.
             __syncthreads();
         }
         elem_idx += chunk_len;
     }
 
-    scatter_scalar_patches<T>(stage, output, block_start, block_len);
+    if constexpr (!DELTA) {
+        // Delta plans carry no scalar-op patches; the plan builder rejects them.
+        scatter_scalar_patches<T>(stage, output, block_start, block_len);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -695,9 +779,11 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 /// With `LOOP_RANGES`, each block loops over several ranges so that it decodes
 /// the input stages once for all of them. It is a separate kernel because the
 /// loop slows down plans that don't need it.
-template <typename T, bool LOOP_RANGES>
-__device__ void
-dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
+template <typename T, bool LOOP_RANGES, bool DELTA>
+__device__ void dynamic_dispatch(T *__restrict output,
+                                 uint64_t array_len,
+                                 const uint8_t *__restrict packed_plan,
+                                 const T *__restrict bases) {
     extern __shared__ char smem[];
 
     const auto *hdr = reinterpret_cast<const struct PlanHeader *>(packed_plan);
@@ -713,11 +799,12 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     if constexpr (!LOOP_RANGES) {
         const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
         const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
-        execute_output_stage<T>(output,
-                                output_stage,
-                                smem,
-                                block_start,
-                                static_cast<uint32_t>(block_end - block_start));
+        execute_output_stage<T, DELTA>(output,
+                                       output_stage,
+                                       smem,
+                                       block_start,
+                                       static_cast<uint32_t>(block_end - block_start),
+                                       bases);
     } else {
         const uint64_t grid_stride = static_cast<uint64_t>(gridDim.x) * ELEMENTS_PER_BLOCK;
         // The loop bounds are uniform across the block, so every thread reaches the same barriers.
@@ -725,11 +812,12 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
              block_start < array_len;
              block_start += grid_stride) {
             const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
-            execute_output_stage<T>(output,
-                                    output_stage,
-                                    smem,
-                                    block_start,
-                                    static_cast<uint32_t>(block_end - block_start));
+            execute_output_stage<T, DELTA>(output,
+                                           output_stage,
+                                           smem,
+                                           block_start,
+                                           static_cast<uint32_t>(block_end - block_start),
+                                           bases);
         }
     }
 }
@@ -746,13 +834,27 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
                                   uint64_t array_len,                                                        \
                                   const __grid_constant__ struct DispatchPlanParam plan) {                   \
-        dynamic_dispatch<Type, false>(output, array_len, plan.bytes);                                        \
+        dynamic_dispatch<Type, false, false>(output, array_len, plan.bytes, nullptr);                        \
     }                                                                                                        \
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix##_loop_ranges(Type *__restrict output,                                     \
                                                 uint64_t array_len,                                          \
                                                 const __grid_constant__ struct DispatchPlanParam plan) {     \
-        dynamic_dispatch<Type, true>(output, array_len, plan.bytes);                                         \
+        dynamic_dispatch<Type, true, false>(output, array_len, plan.bytes, nullptr);                         \
+    }                                                                                                        \
+    extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
+        dynamic_dispatch_##suffix##_delta(Type *__restrict output,                                           \
+                                          uint64_t array_len,                                                \
+                                          const __grid_constant__ struct DispatchPlanParam plan,             \
+                                          const Type *__restrict bases) {                                    \
+        dynamic_dispatch<Type, false, true>(output, array_len, plan.bytes, bases);                           \
+    }                                                                                                        \
+    extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
+        dynamic_dispatch_##suffix##_delta_loop_ranges(Type *__restrict output,                               \
+                                                      uint64_t array_len,                                    \
+                                                      const __grid_constant__ struct DispatchPlanParam plan, \
+                                                      const Type *__restrict bases) {                        \
+        dynamic_dispatch<Type, true, true>(output, array_len, plan.bytes, bases);                            \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)

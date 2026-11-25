@@ -19,6 +19,7 @@
 
 use std::borrow::Borrow;
 use std::mem::size_of;
+use std::sync::Arc;
 
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -33,6 +34,8 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::DevicePtr;
@@ -162,14 +165,31 @@ pub fn dispatch_kernel(
     len: usize,
     shared_mem_bytes: u32,
 ) -> VortexResult<(CudaFunction, u32)> {
+    select_kernel(ctx, ptype, plan, len, shared_mem_bytes, false)
+}
+
+/// [`dispatch_kernel`], or with `delta` its variant that undeltas the plan's output.
+fn select_kernel(
+    ctx: &CudaExecutionCtx,
+    ptype: PType,
+    plan: &CudaDispatchPlan,
+    len: usize,
+    shared_mem_bytes: u32,
+    delta: bool,
+) -> VortexResult<(CudaFunction, u32)> {
     let ranges = u32::try_from(len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
     let ptype = ptype.to_string();
+    let mut suffixes = vec![ptype.as_str()];
+    if delta {
+        suffixes.push("delta");
+    }
     if plan.input_stage_len < LOOP_RANGES_MIN_INPUT_LEN {
-        let function = ctx.load_function_with_suffixes("dynamic_dispatch", &[&ptype])?;
+        let function = ctx.load_function_with_suffixes("dynamic_dispatch", &suffixes)?;
         return Ok((function, ranges));
     }
 
-    let function = ctx.load_function_with_suffixes("dynamic_dispatch", &[&ptype, "loop_ranges"])?;
+    suffixes.push("loop_ranges");
+    let function = ctx.load_function_with_suffixes("dynamic_dispatch", &suffixes)?;
     let blocks_per_multiprocessor = function
         .max_active_blocks_per_multiprocessor(BLOCK_SIZE, shared_mem_bytes)
         .map_err(|e| vortex_err!("dynamic dispatch occupancy: {e}"))?;
@@ -489,14 +509,64 @@ impl MaterializedPlan {
             )));
         }
 
+        let output = self.launch::<T>(len, None, ctx)?;
+        let output = CudaDeviceBuffer::new(output)?;
+        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_device(output.slice_typed::<T>(0..len)),
+            output_ptype,
+            self.validity,
+        )))
+    }
+
+    /// Run a plan for the `len` deltas of a FastLanes Delta array and undo the delta in-kernel,
+    /// returning the decoded values as unsigned `T`.
+    ///
+    /// `len` must be a whole number of FastLanes chunks, and `bases` must hold `FL_LANES<T>`
+    /// bases per chunk. Only plans accepted by [`FusedPlan::supports_delta_output`] may run.
+    pub(crate) fn execute_delta<T>(
+        mut self,
+        bases: &BufferHandle,
+        len: usize,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<BufferHandle>
+    where
+        T: DeviceRepr + vortex::dtype::NativePType,
+    {
+        vortex_ensure!(
+            len.is_multiple_of(SMEM_TILE_SIZE as usize),
+            "delta plans decode whole chunks, got {len} deltas"
+        );
+        vortex_ensure_eq!(
+            self.dispatch_plan.output_ptype().byte_width(),
+            size_of::<T>()
+        );
+        self.shared_mem_bytes += FusedPlan::delta_tile_bytes(size_of::<T>() as u32);
+        let output = self.launch::<T>(len, Some(bases), ctx)?;
+        Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+            output,
+        )?)))
+    }
+
+    /// Launch the plan over `len` elements into a new output, passing `bases` to the delta
+    /// kernel variant when given.
+    fn launch<T>(
+        &self,
+        len: usize,
+        bases: Option<&BufferHandle>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<vortex_cuda_driver::CudaSlice<T>>
+    where
+        T: DeviceRepr + vortex::dtype::NativePType,
+    {
         let mut output = ctx.device_alloc::<T>(len.next_multiple_of(1024))?;
 
-        let (cuda_function, num_blocks) = dispatch_kernel(
+        let (cuda_function, num_blocks) = select_kernel(
             ctx,
             T::PTYPE,
             &self.dispatch_plan,
             len,
             self.shared_mem_bytes,
+            bases.is_some(),
         )?;
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
@@ -522,6 +592,7 @@ impl MaterializedPlan {
                     .map_err(|e| vortex_err!("dynamic dispatch input pointer: {e}"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
+        let bases = bases.map(|bases| bases.cuda_view::<T>()).transpose()?;
 
         let array_len_u64 = len as u64;
 
@@ -529,6 +600,9 @@ impl MaterializedPlan {
             args.arg(&mut output);
             args.arg(&array_len_u64);
             args.arg(self.dispatch_plan.kernel_param());
+            if let Some(bases) = &bases {
+                args.arg(bases);
+            }
         });
 
         let finish_result = SyncOnDrop::finish_all(device_buffer_read_records)
@@ -539,13 +613,7 @@ impl MaterializedPlan {
             }
         })?;
         finish_result?;
-
-        let output = CudaDeviceBuffer::new(output)?;
-        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_device(output.slice_typed::<T>(0..len)),
-            output_ptype,
-            self.validity,
-        )))
+        Ok(output)
     }
 }
 
