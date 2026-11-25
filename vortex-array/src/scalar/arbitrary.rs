@@ -14,6 +14,7 @@ use arbitrary::Unstructured;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -39,11 +40,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     }
 
     Ok(match dtype {
-        #[expect(
-            clippy::todo,
-            reason = "FixedSizeBinary support lands in follow-up changes"
-        )]
-        DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Scalar::null(dtype.clone()),
         DType::Bool(_) => Scalar::try_new(dtype.clone(), Some(ScalarValue::Bool(u.arbitrary()?)))
             .vortex_expect("unable to construct random `Scalar`_"),

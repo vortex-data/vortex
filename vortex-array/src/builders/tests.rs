@@ -790,11 +790,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
 
     for i in 0..count {
         let scalar = match dtype {
-            #[expect(
-                clippy::todo,
-                reason = "FixedSizeBinary support lands in follow-up changes"
-            )]
-            DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => Scalar::null(dtype.clone()),
             DType::Bool(n) => Scalar::bool(i % 2 == 0, *n),
             DType::Primitive(ptype, n) => match ptype {

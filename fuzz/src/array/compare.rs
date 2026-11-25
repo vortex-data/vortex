@@ -37,11 +37,7 @@ pub fn compare_canonical_array(
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
 
     match array.dtype() {
-        #[expect(
-            clippy::todo,
-            reason = "FixedSizeBinary support lands in follow-up changes"
-        )]
-        DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool = value
                 .as_bool()
