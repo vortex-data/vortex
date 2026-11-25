@@ -1,0 +1,11 @@
+name: Fuzz Build
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"  # every 3 hours
+  workflow_dispatch: { }
+
+jobs:
+  build:
+    name: "Build CPU fuzzers"
+    uses: ./.github/workflows/build-fuzzers.yml

@@ -21,6 +21,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-11-13
+  TY_VERSION: 0.0.98
 
 jobs:
   python-wheel-build:
@@ -88,10 +89,10 @@ jobs:
 
   rust-publish-dry-run:
     name: "Rust publish dry-run"
-    timeout-minutes: 30
+    timeout-minutes: 90
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-publish-dry-run', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-publish-dry-run', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -115,7 +116,7 @@ jobs:
           cargo set-version --workspace 0.100000.0
       - name: Test Release
         run: |
-          cargo publish --dry-run --no-verify --allow-dirty --workspace
+          cargo publish --dry-run --allow-dirty --workspace
 
   compat-check:
     name: "Compat check"
@@ -687,3 +688,159 @@ jobs:
       - uses: ./.github/actions/check-rebuild
         with:
           command: "cargo test --profile ci --locked --workspace --all-features --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
+
+  # CUDA tests also run on pull requests (cuda.yaml); the sanitizer and cuDF checks run only here.
+  cuda-test:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-tests
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            with:
+              sccache: s3
+          - name: Display NVIDIA SMI details
+            run: |
+              nvidia-smi
+              nvidia-smi -L
+              nvidia-smi -q -d Memory
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.ref }}
+      - parallel:
+          - uses: ./.github/actions/setup-rust
+            with:
+              repo-token: ${{ secrets.GITHUB_TOKEN }}
+              enable-sccache: "true"
+          - name: Install uv
+            uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+      - name: Install nextest
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
+        with:
+          tool: nextest
+      - parallel:
+          - name: Rust Tests
+            env:
+              FLAT_LAYOUT_INLINE_ARRAY_NODE: true
+            run: |
+              cargo nextest run \
+                --cargo-profile ci \
+                --locked \
+                -p vortex-file \
+                -p vortex-cuda \
+                -p vortex-cuda-ffi \
+                -p vortex-cub \
+                -p vortex-nvcomp \
+                -p vortex-test-e2e-cuda \
+                -p vortex-python-cuda \
+                --all-features \
+                --no-fail-fast \
+                --target x86_64-unknown-linux-gnu \
+                --verbose
+          - name: Python CUDA extension checks
+            env:
+              MATURIN_PEP517_ARGS: "--profile ci"
+            run: |
+              uv sync --all-packages --extra cuda
+              uvx ty@$TY_VERSION check vortex-python vortex-python-cuda
+              uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
+
+  cuda-test-sanitizer:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests (${{ matrix.sanitizer }})"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-test-sanitizer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: memcheck
+            runner_flags: "--tool memcheck --leak-check=full --error-exitcode 1"
+          # TODO(joe): try to re-enable racecheck, it is hanging in CI.
+          # - sanitizer: racecheck
+          #   runner_flags: "--tool racecheck --error-exitcode 1"
+          - sanitizer: synccheck
+            runner_flags: "--tool synccheck --error-exitcode 1"
+          - sanitizer: initcheck
+            runner_flags: "--tool initcheck --error-exitcode 1"
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            with:
+              sccache: s3
+          - name: Display NVIDIA SMI details
+            run: |
+              nvidia-smi
+              nvidia-smi -L
+              nvidia-smi -q -d Memory
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Build tests
+        run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu --no-run
+      - name: "CUDA - ${{ matrix.sanitizer }}"
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: "compute-sanitizer ${{ matrix.runner_flags }}"
+        run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+
+  cuda-test-cudf:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests (cudf)"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-test-cudf
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            with:
+              sccache: s3
+          - name: Display NVIDIA SMI details
+            run: |
+              nvidia-smi
+              nvidia-smi -L
+              nvidia-smi -q -d Memory
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Build cudf test library
+        run: cargo build --profile ci --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+      - name: Download and run cudf-test-harness
+        run: |
+          curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
+          $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/cudf_harness_runner \
+            ./cudf-test-harness-x86_64/cudf-test-harness \
+            $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/ci/libvortex_test_e2e_cuda.so
+
+  cuda-test-cudf-header:
+    if: github.repository == 'vortex-data/vortex'
+    name: "CUDA tests (cuDF dictionary header)"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/tag=cuda-test-cudf-header
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Build and run cuDF dictionary header tests
+        # The GPU image bakes the vortex-cuda Pixi environment into /opt/cudf.
+        run: |
+          nvidia-smi
+          pixi run --no-install --manifest-path /opt/cudf/pixi.toml bash -euo pipefail -c '
+            cmake -S vortex-cuda/ffi/tests -B build/cudf-header -G Ninja \
+              -DVORTEX_CUDF_BUILD_TESTS=ON \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+              -DCMAKE_CUDA_ARCHITECTURES=native
+            cmake --build build/cudf-header --parallel 4
+            ctest --test-dir build/cudf-header --output-on-failure --no-tests=error --verbose
+          '

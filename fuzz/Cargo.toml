@@ -37,6 +37,7 @@ cuda = ["vortex-cuda", "tokio"]
 [dependencies]
 # Always needed - arbitrary is used for input generation
 arbitrary = { workspace = true }
+flatbuffers = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 parquet-variant = { workspace = true, optional = true }
@@ -48,6 +49,7 @@ vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true, features = ["arbitrary"] }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
 vortex-functions = { workspace = true }
 vortex-io = { workspace = true, features = ["wasm-bindgen"] }
@@ -95,6 +97,14 @@ bench = false
 doc = false
 name = "file_io"
 path = "fuzz_targets/file_io.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "file_corruption"
+path = "fuzz_targets/file_corruption.rs"
 test = false
 required-features = ["native"]
 

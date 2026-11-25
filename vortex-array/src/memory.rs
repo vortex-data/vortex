@@ -67,7 +67,7 @@ pub trait MemorySessionExt: SessionExt {
     /// Configures the session allocator and returns the session.
     fn with_allocator(self, allocator: BufferAllocatorRef) -> VortexSession {
         let session = self.session();
-        session.get_mut::<MemorySession>().set_allocator(allocator);
+        session.register(MemorySession::new(allocator));
         session
     }
 }

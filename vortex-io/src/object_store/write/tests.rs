@@ -23,63 +23,11 @@ use object_store::PutOptions;
 use object_store::PutPayload;
 use object_store::PutResult;
 use object_store::UploadPart;
-use object_store::local::LocalFileSystem;
-use object_store::memory::InMemory;
 use object_store::path::Path;
-use rstest::rstest;
-use tempfile::tempdir;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::*;
-
-// Note: Concurrent writes test removed because &mut self in write_all already ensures
-// exclusive access. Multiple writers would need to be created with separate buffers,
-// which is not the intended use case.
-
-#[tokio::test]
-#[rstest]
-#[case(100)]
-#[case(8 * 1024 * 1024)]
-#[case(25 * 1024 * 1024)]
-#[case(26 * 1024 * 1024)]
-async fn test_object_store_writer_multiple_flushes(
-    #[case] chunk_size: usize,
-) -> anyhow::Result<()> {
-    let temp_dir = tempdir()?;
-    let local_store =
-        Arc::new(LocalFileSystem::new_with_prefix(temp_dir.path())?) as Arc<dyn ObjectStore>;
-    let memory_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-    let location = Path::from("test.bin");
-
-    for test_store in [memory_store, local_store] {
-        let mut writer = ObjectStoreWrite::new(Arc::clone(&test_store), &location).await?;
-
-        #[expect(clippy::cast_possible_truncation)]
-        let data = (0..3)
-            .map(|i| vec![i as u8; chunk_size])
-            .collect::<Vec<_>>();
-
-        // Write and flush multiple times
-        for i in 0..3 {
-            let data = data[i].clone();
-            writer.write_all(data).await?;
-            writer.flush().await?;
-        }
-
-        // Shutdown the writer to make sure data actually gets persisted.
-        writer.shutdown().await?;
-
-        // Verify all data was written
-        let result = test_store.get(&location).await?;
-        let bytes = result.bytes().await?;
-
-        let expected_data = itertools::concat(data.into_iter());
-        assert_eq!(bytes, expected_data);
-    }
-
-    Ok(())
-}
 
 #[allow(clippy::unimplemented)]
 mod multipart_lifecycle_tests {
@@ -376,6 +324,10 @@ mod multipart_lifecycle_tests {
             assert!(poll.is_pending());
             timeout(Duration::from_secs(2), entered.notified()).await?;
         }
+        // Cancellation rejects reuse immediately, but cleanup must wait for submitted work.
+        assert!(writer.shutdown().await.is_err());
+        assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 0);
+        release.notify_one();
         wait_for_abort(&counters).await;
         assert!(writer.shutdown().await.is_err());
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
@@ -435,6 +387,372 @@ mod multipart_lifecycle_tests {
         }
 
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+}
+mod bounded_tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::FutureExt;
+    use object_store::local::LocalFileSystem;
+    use object_store::memory::InMemory;
+    use parking_lot::Mutex;
+    use rstest::rstest;
+    use tempfile::TempDir;
+    use tempfile::tempdir;
+    use tokio::sync::Semaphore;
+
+    use super::*;
+
+    #[tokio::test]
+    #[rstest]
+    #[case(0)]
+    #[case(CHUNK_SIZE / 2)]
+    #[case(CHUNK_SIZE)]
+    #[case(CHUNK_SIZE + CHUNK_SIZE / 2)]
+    async fn test_object_store_writer_multiple_flushes(
+        #[case] chunk_size: usize,
+    ) -> VortexResult<()> {
+        let temp_dir = tempdir()?;
+        let local_store =
+            Arc::new(LocalFileSystem::new_with_prefix(temp_dir.path())?) as Arc<dyn ObjectStore>;
+        let memory_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let location = Path::from("test.bin");
+
+        for test_store in [memory_store, local_store] {
+            let mut writer = ObjectStoreWrite::new(Arc::clone(&test_store), &location).await?;
+            let data = (0u8..3).map(|i| vec![i; chunk_size]).collect::<Vec<_>>();
+            for data in &data {
+                let buffer = data.clone();
+                let pointer = buffer.as_ptr();
+                let returned = writer.write_all(buffer).await?;
+                assert_eq!(returned.as_ptr(), pointer);
+                assert_eq!(&returned, data);
+                writer.flush().await?;
+                assert!(test_store.head(&location).await.is_err());
+                assert!(writer.put_result().is_none());
+            }
+
+            writer.shutdown().await?;
+            writer.shutdown().await?;
+            assert!(writer.put_result().is_some());
+            assert!(writer.write_all(vec![1]).await.is_err());
+            assert!(writer.abort().await.is_err());
+            let bytes = test_store.get(&location).await?.bytes().await?;
+            assert_eq!(bytes, itertools::concat(data.into_iter()));
+        }
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct Probe {
+        // Retain the real handle beyond the writer's lifetime: local Drop cleanup must not hide
+        // a missing explicit abort, as cloud stores cannot rely on Drop for cleanup.
+        upload: tokio::sync::Mutex<Box<dyn MultipartUpload>>,
+        sizes: Mutex<Vec<usize>>,
+        settled: AtomicUsize,
+        aborts: AtomicUsize,
+        completes: AtomicUsize,
+        permits: Semaphore,
+        fail_part: bool,
+        fail_complete: bool,
+        fail_abort: AtomicBool,
+    }
+
+    #[derive(Debug)]
+    struct ProbedUpload(Arc<Probe>);
+
+    fn upload_error(message: &'static str) -> object_store::Error {
+        object_store::Error::Generic {
+            store: "test",
+            source: message.into(),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MultipartUpload for ProbedUpload {
+        fn put_part(&mut self, payload: PutPayload) -> UploadPart {
+            self.0.sizes.lock().push(payload.content_length());
+            let part = self.0.upload.try_lock().unwrap().put_part(payload);
+            let probe = Arc::clone(&self.0);
+            async move {
+                probe.permits.acquire().await.unwrap().forget();
+                let result = part.await;
+                probe.settled.fetch_add(1, Ordering::SeqCst);
+                if probe.fail_part {
+                    return Err(upload_error("injected part failure"));
+                }
+                result
+            }
+            .boxed()
+        }
+
+        async fn complete(&mut self) -> object_store::Result<PutResult> {
+            assert_eq!(
+                self.0.settled.load(Ordering::SeqCst),
+                self.0.sizes.lock().len()
+            );
+            self.0.completes.fetch_add(1, Ordering::SeqCst);
+            if self.0.fail_complete {
+                return Err(upload_error("injected complete failure"));
+            }
+            self.0.upload.lock().await.complete().await
+        }
+
+        async fn abort(&mut self) -> object_store::Result<()> {
+            assert_eq!(
+                self.0.settled.load(Ordering::SeqCst),
+                self.0.sizes.lock().len()
+            );
+            self.0.aborts.fetch_add(1, Ordering::SeqCst);
+            if self.0.fail_abort.load(Ordering::SeqCst) {
+                return Err(upload_error("injected abort failure"));
+            }
+            self.0.upload.lock().await.abort().await
+        }
+    }
+
+    async fn probed_writer(
+        directory: &TempDir,
+        fail_part: bool,
+        fail_complete: bool,
+        fail_abort: bool,
+    ) -> VortexResult<(ObjectStoreWrite, Arc<Probe>, Arc<dyn ObjectStore>)> {
+        let store =
+            Arc::new(LocalFileSystem::new_with_prefix(directory.path())?) as Arc<dyn ObjectStore>;
+        let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &Path::from("test.bin")).await?;
+        let UploadState::Active(mut active) =
+            std::mem::replace(&mut writer.state, UploadState::Aborted)
+        else {
+            panic!("new writer must be active");
+        };
+        let probe = Arc::new(Probe {
+            upload: tokio::sync::Mutex::new(active.upload),
+            sizes: Mutex::new(Vec::new()),
+            settled: AtomicUsize::new(0),
+            aborts: AtomicUsize::new(0),
+            completes: AtomicUsize::new(0),
+            permits: Semaphore::new(0),
+            fail_part,
+            fail_complete,
+            fail_abort: AtomicBool::new(fail_abort),
+        });
+        active.upload = Box::new(ProbedUpload(Arc::clone(&probe)));
+        writer.state = UploadState::Active(active);
+        Ok((writer, probe, store))
+    }
+
+    #[rstest]
+    #[case::exact_parts(0)]
+    #[case::partial_tail(31)]
+    #[tokio::test]
+    async fn test_oversized_write_backpressure_and_order(
+        #[case] tail: usize,
+        #[values(1, 4)] concurrency: usize,
+    ) -> VortexResult<()> {
+        let directory = tempdir()?;
+        let (writer, probe, store) = probed_writer(&directory, false, false, false).await?;
+        let mut writer = writer.with_concurrency(concurrency);
+        writer.write_all(*b"prefix!").await?;
+        writer.flush().await?;
+        assert!(probe.sizes.lock().is_empty());
+
+        let data = (0u8..=250)
+            .cycle()
+            .take((concurrency + 1) * CHUNK_SIZE + tail - 7)
+            .collect::<Vec<_>>();
+        let expected = [b"prefix!".as_slice(), data.as_slice()].concat();
+        let pointer = data.as_ptr();
+        {
+            let write = writer.write_all(data);
+            tokio::pin!(write);
+            assert!(futures::poll!(&mut write).is_pending());
+            assert_eq!(*probe.sizes.lock(), vec![CHUNK_SIZE; concurrency]);
+            assert_eq!(probe.completes.load(Ordering::SeqCst), 0);
+            probe.permits.add_permits(concurrency + 2);
+            let returned = write.await?;
+            assert_eq!(returned.as_ptr(), pointer);
+        }
+        writer.flush().await?;
+        assert_eq!(*probe.sizes.lock(), vec![CHUNK_SIZE; concurrency + 1]);
+        assert!(store.head(&Path::from("test.bin")).await.is_err());
+        writer.shutdown().await?;
+        let mut sizes = vec![CHUNK_SIZE; concurrency + 1];
+        if tail != 0 {
+            sizes.push(tail);
+        }
+        assert_eq!(*probe.sizes.lock(), sizes);
+        let bytes = store.get(&Path::from("test.bin")).await?.bytes().await?;
+        assert_eq!(bytes, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::default(None)]
+    #[case::explicit_zero(Some(0))]
+    #[tokio::test]
+    async fn test_unlimited_concurrency(#[case] concurrency: Option<usize>) -> VortexResult<()> {
+        let directory = tempdir()?;
+        let (mut writer, probe, store) = probed_writer(&directory, false, false, false).await?;
+        if let Some(concurrency) = concurrency {
+            writer = writer.with_concurrency(concurrency);
+        }
+        let data = (0u8..=250)
+            .cycle()
+            .take(9 * CHUNK_SIZE + 31)
+            .collect::<Vec<_>>();
+        let pointer = data.as_ptr();
+        // No part can finish, but unlimited writes must not wait for upload capacity.
+        let returned = writer.write_all(data).now_or_never().unwrap()?;
+        assert_eq!(returned.as_ptr(), pointer);
+        assert_eq!(*probe.sizes.lock(), vec![CHUNK_SIZE; 9]);
+        {
+            let flush = writer.flush();
+            tokio::pin!(flush);
+            assert!(futures::poll!(&mut flush).is_pending());
+            probe.permits.add_permits(10);
+            flush.await?;
+        }
+        assert!(store.head(&Path::from("test.bin")).await.is_err());
+        writer.shutdown().await?;
+        let mut sizes = vec![CHUNK_SIZE; 9];
+        sizes.push(31);
+        assert_eq!(*probe.sizes.lock(), sizes);
+        let bytes = store.get(&Path::from("test.bin")).await?.bytes().await?;
+        assert_eq!(bytes, returned);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::part_during_write(5 * CHUNK_SIZE, true, false, false, false)]
+    #[case::part_during_flush(CHUNK_SIZE, true, false, false, true)]
+    #[case::part_during_shutdown(101, true, false, false, false)]
+    #[case::complete(101, false, true, false, false)]
+    #[case::part_and_abort(101, true, false, true, false)]
+    #[case::complete_and_abort(101, false, true, true, false)]
+    #[tokio::test]
+    async fn test_upload_errors_cleanup_and_precedence(
+        #[case] size: usize,
+        #[case] fail_part: bool,
+        #[case] fail_complete: bool,
+        #[case] fail_abort: bool,
+        #[case] flush: bool,
+    ) -> VortexResult<()> {
+        let directory = tempdir()?;
+        let (writer, probe, _) =
+            probed_writer(&directory, fail_part, fail_complete, fail_abort).await?;
+        let mut writer = writer.with_concurrency(4);
+        probe.permits.add_permits(8);
+        let write = writer.write_all(vec![3; size]).await;
+        let result = if size == 5 * CHUNK_SIZE {
+            write.map(|_| ())
+        } else {
+            write?;
+            if flush {
+                writer.flush().await
+            } else {
+                writer.shutdown().await
+            }
+        };
+        let expected = if fail_part {
+            "injected part failure"
+        } else {
+            "injected complete failure"
+        };
+        assert!(result.unwrap_err().to_string().contains(expected));
+        assert_eq!(probe.aborts.load(Ordering::SeqCst), 1);
+        assert!(writer.put_result().is_none());
+        assert!(writer.write_all(vec![4]).await.is_err());
+        assert!(writer.shutdown().await.is_err());
+        // Cleanup can be retried even after complete and abort both failed.
+        probe.fail_abort.store(false, Ordering::SeqCst);
+        writer.abort().await?;
+        drop(writer);
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+        assert_eq!(
+            probe.completes.load(Ordering::SeqCst),
+            usize::from(fail_complete)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cancelled_abort_can_be_awaited_again() -> VortexResult<()> {
+        let directory = tempdir()?;
+        let (mut writer, probe, _) = probed_writer(&directory, false, false, false).await?;
+        writer.write_all(vec![7; CHUNK_SIZE]).await?;
+        {
+            let abort = writer.abort();
+            tokio::pin!(abort);
+            assert!(futures::poll!(&mut abort).is_pending());
+        }
+        assert!(writer.shutdown().await.is_err());
+        assert_eq!(probe.aborts.load(Ordering::SeqCst), 0);
+        probe.permits.add_permits(1);
+        writer.abort().await?;
+        writer.abort().await?;
+        drop(writer);
+        assert_eq!(probe.settled.load(Ordering::SeqCst), 1);
+        assert_eq!(probe.aborts.load(Ordering::SeqCst), 1);
+        assert_eq!(probe.completes.load(Ordering::SeqCst), 0);
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(0, false)]
+    #[case::empty_abort_error(0, true)]
+    #[case::external_failure_after_progress(4 * CHUNK_SIZE + 53, false)]
+    #[case::cancelled_oversized_write(5 * CHUNK_SIZE + 53, false)]
+    #[tokio::test]
+    async fn test_explicit_abort_settles_parts(
+        #[case] size: usize,
+        #[case] fail_abort: bool,
+    ) -> VortexResult<()> {
+        let directory = tempdir()?;
+        let (writer, probe, _) = probed_writer(&directory, false, false, fail_abort).await?;
+        let mut writer = writer.with_concurrency(4);
+        if size > 5 * CHUNK_SIZE {
+            let write = writer.write_all(vec![7; size]);
+            tokio::pin!(write);
+            assert!(futures::poll!(&mut write).is_pending());
+        } else {
+            writer.write_all(vec![7; size]).await?;
+        }
+        let pending = probe.sizes.lock().len();
+        {
+            let abort = writer.abort();
+            tokio::pin!(abort);
+            let polled = futures::poll!(&mut abort);
+            if pending != 0 {
+                assert!(polled.is_pending());
+                assert_eq!(probe.aborts.load(Ordering::SeqCst), 0);
+                probe.permits.add_permits(pending);
+            }
+            let result = match polled {
+                Poll::Ready(result) => result,
+                Poll::Pending => abort.await,
+            };
+            if fail_abort {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("injected abort failure")
+                );
+            } else {
+                result?;
+            }
+        }
+        probe.fail_abort.store(false, Ordering::SeqCst);
+        writer.abort().await?;
+        writer.abort().await?;
+        assert!(writer.shutdown().await.is_err());
+        assert_eq!(probe.completes.load(Ordering::SeqCst), 0);
+        drop(writer);
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
         Ok(())
     }
 }

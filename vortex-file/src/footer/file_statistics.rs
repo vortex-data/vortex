@@ -16,7 +16,6 @@ use prost::encoding::decode_varint;
 use prost::encoding::encode_varint;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::flatbuffers::FlatBufferRoot;
@@ -27,7 +26,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::stats::StatsSet;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -370,22 +368,11 @@ fn aggregate_fn_from_spec(
 ) -> VortexResult<Option<AggregateFnRef>> {
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     let id = AggregateFnId::new(spec.id());
-    let Some(plugin) = session.aggregate_fns().find_plugin(&id) else {
-        return Ok(None);
-    };
     let options = spec
         .options()
         .map(|options| options.bytes())
         .unwrap_or_default();
-    let aggregate_fn = plugin.deserialize(options, session)?;
-    if aggregate_fn.id() != id {
-        vortex_bail!(
-            "Aggregate function ID mismatch: expected {}, got {}",
-            id,
-            aggregate_fn.id()
-        );
-    }
-    Ok(Some(aggregate_fn))
+    AggregateFnRef::from_parts(id, options, session)
 }
 
 /// Reads one entry's partial states, one per spec in `set`, from `partials`.
@@ -550,12 +537,7 @@ impl WriteFlatBuffer for FileStatistics {
             .values
             .into_iter()
             .map(|aggregate_fn| {
-                let options = aggregate_fn.options().serialize()?.ok_or_else(|| {
-                    vortex_err!(
-                        "Aggregate function '{}' is not serializable",
-                        aggregate_fn.id()
-                    )
-                })?;
+                let options = aggregate_fn.serialize_options()?;
                 let id = fbb.create_string(aggregate_fn.id().as_ref());
                 let options = (!options.is_empty()).then(|| fbb.create_vector(options.as_slice()));
                 Ok(fb::AggregateSpec::create(
@@ -613,10 +595,10 @@ mod tests {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
 
     use super::*;
 

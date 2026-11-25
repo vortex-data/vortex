@@ -45,6 +45,7 @@ mod scan;
 mod serde;
 mod session;
 mod store;
+mod writable;
 
 #[cfg(unix)]
 use vortex::io::runtime::BlockingRuntime;

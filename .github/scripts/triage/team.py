@@ -12,6 +12,7 @@ TEAM = frozenset(
         "connortsui20",
         "danking",
         "gatesn",
+        "harukimoriarty",
         "joseph-isaacs",
         "lwwmanning",
         "mhk197",

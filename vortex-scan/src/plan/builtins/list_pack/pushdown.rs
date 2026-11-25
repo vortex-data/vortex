@@ -10,14 +10,14 @@
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::not;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_error::VortexResult;
+use vortex_expr::bound::not;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
+use vortex_functions::is_null::IsNull;
 use vortex_functions::list_length::ListLength;
 use vortex_session::VortexSession;
 
