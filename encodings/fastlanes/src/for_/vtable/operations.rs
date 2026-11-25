@@ -21,6 +21,12 @@ use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRSlots;
 
+fn cast_scalar<U: NativePType + AsPrimitive<P>, P: NativePType>(
+    encoded: &PrimitiveScalar<'_>,
+) -> Option<P> {
+    encoded.typed_value::<U>().map(AsPrimitive::as_)
+}
+
 fn encoded_scalar_as<P: NativePType>(encoded: &PrimitiveScalar<'_>) -> Option<P>
 where
     u8: AsPrimitive<P>,
@@ -31,9 +37,7 @@ where
     if encoded.ptype() == P::PTYPE {
         encoded.typed_value::<P>()
     } else {
-        match_each_unsigned_integer_ptype!(encoded.ptype(), |U| {
-            encoded.typed_value::<U>().map(AsPrimitive::as_)
-        })
+        match_each_unsigned_integer_ptype!(encoded.ptype(), |U| { cast_scalar::<U, P>(encoded) })
     }
 }
 

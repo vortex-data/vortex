@@ -259,12 +259,13 @@ fn v2_handles_wide_global_span_with_narrow_blocks() -> VortexResult<()> {
 }
 
 #[test]
-fn v2_handles_wide_span_inside_block() -> VortexResult<()> {
-    // First 8 chunks have narrow local span so sample picks v2; chunk 9 spans > i64::MAX so
-    // full-array signed wrapping subtraction produces negative residuals.
-    let array = PrimitiveArray::from_iter((0..10_240i64).map(|i| {
+fn test_v2_handles_wide_span_inside_block() -> VortexResult<()> {
+    // 16 chunks: aligned 8-block sampling picks even chunks (0, 2, ..., 14) which all have narrow
+    // local span so the selector picks v2, while unsampled chunk 1 spans > i64::MAX so full-array
+    // signed wrapping subtraction produces negative residuals and exercises the compress fallback.
+    let array = PrimitiveArray::from_iter((0..16_384i64).map(|i| {
         let chunk = i / 1024;
-        if chunk == 9 {
+        if chunk == 1 {
             if i % 2 == 0 {
                 -6_000_000_000_000_000_000
             } else {
@@ -282,7 +283,7 @@ fn v2_handles_wide_span_inside_block() -> VortexResult<()> {
 }
 
 #[test]
-fn v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
+fn test_v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter((0..2049i64).map(|i| {
         let block = i / 1024;
         1_000_000_000 + block * 1_000_000 + (i % 16)
@@ -295,7 +296,7 @@ fn v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
 }
 
 #[test]
-fn v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()> {
+fn test_v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()> {
     let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
     let for_and_runend = for_only()
         .with_new_scheme(&RunEndScheme)
@@ -332,12 +333,16 @@ fn v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()> {
 }
 
 #[test]
-fn v2_rejects_all_constant_block_sample() -> VortexResult<()> {
+fn test_v2_rejects_all_constant_block_sample() -> VortexResult<()> {
     let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
-    let compressor = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
+    let without_runend = for_only()
+        .with_new_scheme(&IntDictScheme)
+        .with_new_scheme(&SequenceScheme)
+        .build();
+    let full = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
 
     // Every sampled 1,024-element block is constant (zero residual bytes), while unsampled blocks
-    // vary; FoR.v2 must not win with an inflated sample ratio over Dict/RunEnd.
+    // vary; FoR.v2 must not win with an inflated sample ratio over Dict/RunEnd even without RunEnd.
     let array = PrimitiveArray::from_iter((0..524_288i32).map(|i| {
         let block = i / 1024;
         if (1..=16).contains(&block) {
@@ -347,7 +352,10 @@ fn v2_rejects_all_constant_block_sample() -> VortexResult<()> {
         }
     }))
     .into_array();
-    let compressed = compressor.compress(&array, &mut ctx)?;
-    assert_ne!(compressed.encoding_id(), for_v2_id());
+    assert_ne!(
+        without_runend.compress(&array, &mut ctx)?.encoding_id(),
+        for_v2_id()
+    );
+    assert_ne!(full.compress(&array, &mut ctx)?.encoding_id(), for_v2_id());
     Ok(())
 }

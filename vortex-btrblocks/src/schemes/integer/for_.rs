@@ -489,12 +489,8 @@ fn evaluate_v2_on_sample(
     // RunEnd is estimated on a 16x64 sample where FastLanes padding and slice jumps can
     // understate its compression ratio; compare against RunEnd on the same 8x1024 aligned sample
     // whenever RunEnd is eligible so FoR.v2 does not outbid it on run-structured columns.
-    if compressor.has_scheme(RunEndScheme.id())
+    if compressor.is_scheme_allowed(RunEndScheme.id(), compress_ctx)
         && data.integer_stats(exec_ctx).average_run_length() >= RUN_END_THRESHOLD
-        && !compress_ctx
-            .cascade_history()
-            .iter()
-            .any(|&(sid, _)| sid == RunEndScheme.id())
     {
         let (ends, values) = runend_encode(sample_data.array_as_primitive(), exec_ctx);
         let compressed_values =

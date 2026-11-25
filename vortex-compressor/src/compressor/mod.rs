@@ -21,6 +21,7 @@ pub(crate) use sample::sample_slices;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildPolicy;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -88,12 +89,15 @@ impl CascadingCompressor {
         self
     }
 
-    /// Whether the compressor has the scheme with this ID enabled.
+    /// Whether the compressor has the scheme with this ID enabled and not excluded in `ctx`.
     ///
     /// A scheme can use this to compare itself against an alternative only when the compressor
-    /// could actually pick that alternative.
-    pub fn has_scheme(&self, id: SchemeId) -> bool {
-        self.schemes.iter().any(|s| s.id() == id)
+    /// could actually pick that alternative in the current cascade position.
+    pub fn is_scheme_allowed(&self, id: SchemeId, ctx: &CompressorContext) -> bool {
+        self.schemes
+            .iter()
+            .find(|s| s.id() == id)
+            .is_some_and(|s| !self.is_excluded(*s, ctx))
     }
 }
 

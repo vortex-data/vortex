@@ -103,6 +103,13 @@ fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
+fn copy_primitive<E: NativePType>(encoded: &PrimitiveArray) -> PrimitiveArray {
+    PrimitiveArray::new(
+        Buffer::<E>::copy_from(encoded.as_slice::<E>()),
+        Validity::NonNullable,
+    )
+}
+
 /// Each iteration decodes a uniquely owned blocked FoR array (narrowed to unsigned residuals when
 /// chunk spans fit, otherwise same-width in place).
 #[vortex_bench_support::cpu_features]
@@ -122,12 +129,8 @@ fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usiz
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| {
-            let encoded = match_each_integer_ptype!(encoded.ptype(), |E| {
-                PrimitiveArray::new(
-                    Buffer::<E>::copy_from(encoded.as_slice::<E>()),
-                    Validity::NonNullable,
-                )
-            });
+            let encoded =
+                match_each_integer_ptype!(encoded.ptype(), |E| { copy_primitive::<E>(&encoded) });
             let array = FoR::try_new_chunked(encoded.into_array(), references.clone(), 0)
                 .unwrap()
                 .into_array();
