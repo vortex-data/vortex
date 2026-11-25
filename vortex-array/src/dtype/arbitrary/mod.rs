@@ -18,7 +18,10 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use crate::dtype::StructFields;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::i256;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 
 mod decimal;
 
@@ -36,7 +39,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 }
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
-    const BASE_TYPE_COUNT: i32 = 5;
+    const BASE_TYPE_COUNT: i32 = 6;
     const CONTAINER_TYPE_COUNT: i32 = 4;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
@@ -51,20 +54,37 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         4 => DType::Utf8(u.arbitrary()?),
         5 => DType::Binary(u.arbitrary()?),
 
+        6 => random_timestamp_dtype(u)?,
+
         // container types
-        6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
-        7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
-        8 => DType::FixedSizeList(
+        7 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
+        8 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
+        9 => DType::FixedSizeList(
             Arc::new(random_dtype(u, depth - 1)?),
             // We limit the list size to 3 rather (following random struct fields).
             u.choose_index(3)?.try_into().vortex_expect("impossible"),
             u.arbitrary()?,
         ),
-        9 => random_map_dtype(u, depth - 1)?,
-        // Null,
-        // Extension(ExtDType, Nullability),
+        10 => random_map_dtype(u, depth - 1)?,
         _ => unreachable!("Number out of range"),
     })
+}
+
+fn random_timestamp_dtype(u: &mut Unstructured<'_>) -> Result<DType> {
+    let unit = *u.choose(&[
+        TimeUnit::Seconds,
+        TimeUnit::Milliseconds,
+        TimeUnit::Microseconds,
+        TimeUnit::Nanoseconds,
+    ])?;
+    Ok(DType::Extension(
+        Timestamp::new(unit, u.arbitrary()?).erased(),
+    ))
+}
+
+/// Whether every value of the storage dtype is valid for this extension.
+pub(crate) fn supports_arbitrary_storage(ext: &ExtDTypeRef) -> bool {
+    ext.is::<Timestamp>()
 }
 
 fn random_map_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {

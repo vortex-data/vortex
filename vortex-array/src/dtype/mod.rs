@@ -14,7 +14,7 @@
 //! where nullability is usually field metadata.
 
 #[cfg(feature = "arbitrary")]
-mod arbitrary;
+pub(crate) mod arbitrary;
 mod bigint;
 mod claim;
 pub use claim::Claim;

@@ -55,6 +55,7 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -519,9 +520,17 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
-        DType::Extension(_) => {
-            // Extension types delegate to storage dtype, support most operations
-            ActionType::iter().collect()
+        DType::Extension(ext) => {
+            let mut actions = actions_for_dtype(ext.storage_dtype());
+            actions.remove(&Cast);
+            actions.remove(&Sum);
+            // The comparison oracle uses every comparison operator, so it requires ordering.
+            if !dtype.holds(Claim::Ord) {
+                actions.remove(&Compare);
+                actions.remove(&SearchSorted);
+                actions.remove(&MinMax);
+            }
+            actions
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::NullArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -36,6 +37,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
+use crate::dtype::arbitrary::supports_arbitrary_storage;
 use crate::scalar::Scalar;
 use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
@@ -193,6 +195,12 @@ fn random_array_chunk(
             )
             .vortex_expect("operation should succeed in arbitrary impl")
             .into_array())
+        }
+        DType::Extension(ext) if supports_arbitrary_storage(ext) => {
+            let storage = random_array_chunk(u, ext.storage_dtype(), chunk_len)?;
+            Ok(ExtensionArray::try_new(ext.clone(), storage)
+                .vortex_expect("generated extension storage must be valid")
+                .into_array())
         }
         DType::Union(..) | DType::Variant(_) | DType::Extension(..) => Err(IncorrectFormat),
     }

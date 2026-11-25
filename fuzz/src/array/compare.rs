@@ -6,9 +6,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -37,6 +39,14 @@ pub fn compare_canonical_array(
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
 
     match array.dtype() {
+        DType::Extension(_) => {
+            let extension = array
+                .clone()
+                .execute::<ExtensionArray>(ctx)
+                .vortex_expect("extension must execute");
+            let scalar = value.as_extension().to_storage_scalar();
+            compare_canonical_array(extension.storage_array(), &scalar, operator, ctx)
+        }
         DType::Bool(_) => {
             let bool = value
                 .as_bool()
@@ -186,11 +196,7 @@ pub fn compare_canonical_array(
             }))
             .into_array()
         }
-        d @ (DType::Null
-        | DType::Map(..)
-        | DType::Union(..)
-        | DType::Variant(_)
-        | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Map(..) | DType::Union(..) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
