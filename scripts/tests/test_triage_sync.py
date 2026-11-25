@@ -675,37 +675,45 @@ def test_summary_updates_when_items_are_snoozed_answered_downgraded_reassigned_o
     first = item(1, created=ago(days=1), assignees=["alice"])
     second = item(2, created=ago(days=1), assignees=["alice"])
     third = item(3, created=ago(days=1))
+    fourth = item(4, created=ago(days=1), assignees=["bob"])
     fake = FakeSlack()
-    run(fake, [first, second, third], pings=True, users=users)
+    run(fake, [first, second, third, fourth], pings=True, users=users)
     posts = len(fake.posted)
-    assert overview_replies(fake) == ["Due today: <@UALICE> 2 items, <@UONCALL> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UALICE> 2 items, <@UONCALL> 1 item, <@UBOB> 1 item"]
 
     # Snoozing #1, downgrading #2 to Low, and reassigning #3 to bob update the summary in place.
     fake.say(fake.root(1)["ts"], "!snooze 2d", NOW + timedelta(minutes=10))
     fake.say(fake.root(2)["ts"], "!priority low", NOW + timedelta(minutes=11))
     reassigned = item(3, created=ago(days=1), assignees=["bob"])
-    run(fake, [first, second, reassigned], NOW + HOUR, users=users)
-    assert overview_replies(fake) == ["Due today: <@UBOB> 1 item"]
+    run(fake, [first, second, reassigned, fourth], NOW + HOUR, users=users)
+    assert overview_replies(fake) == ["Due today: <@UBOB> 2 items"]
     assert "#1 " not in summary_blocks(fake)
     assert "#2 " not in summary_blocks(fake)
     assert reminder_link(fake, 3) in summary_blocks(fake)
+    assert reminder_link(fake, 4) in summary_blocks(fake)
     # Only the two command acknowledgements were posted; the summary was edited in place.
     assert len(fake.posted) == posts + 2
 
-    # Answering #3 on GitHub so it waits on the contributor clears the summary.
+    # Answering #3 on GitHub removes #3 while keeping #4 listed.
     answered = item(
         3,
         created=ago(days=1),
         assignees=["bob"],
         events=[event(iso(NOW + timedelta(hours=1, minutes=30)), TEAMMATE)],
     )
-    run(fake, [first, second, answered], NOW + 2 * HOUR, users=users)
-    assert overview_replies(fake) == ["Due today: all clear"]
+    run(fake, [first, second, answered, fourth], NOW + 2 * HOUR, users=users)
+    assert overview_replies(fake) == ["Due today: <@UBOB> 1 item"]
+    assert "#3 " not in summary_blocks(fake)
+    assert reminder_link(fake, 4) in summary_blocks(fake)
 
-    # Closing all remaining items keeps the summary clear without posting again.
-    run(fake, [], NOW + 3 * HOUR, users=users)
+    # Closing #4 after reminder hours clears the summary even when another unreminded item is due.
+    after_hours = NOW.replace(hour=23)
+    unreminded = item(5, created=iso(after_hours - HOUR), assignees=["alice"])
+    run(fake, [first, second, answered, unreminded], after_hours, pings=True, users=users)
     assert overview_replies(fake) == ["Due today: all clear"]
-    assert len(fake.posted) == posts + 2
+    assert "#4 " not in summary_blocks(fake)
+    # Only #5's new root was posted; the summary was edited in place.
+    assert len(fake.posted) == posts + 3
 
 
 def test_every_assignee_with_a_slack_id_is_reminded():
