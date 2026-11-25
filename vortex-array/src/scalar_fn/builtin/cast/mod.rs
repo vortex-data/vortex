@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod kernel;
+mod temporal;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
+pub(crate) use temporal::TemporalCast;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -56,15 +58,20 @@ use crate::scalar_fn::is_not_null_node;
 /// map, which the cast pairs up the same way as its kernels do. Otherwise a cast could
 /// reinterpret a nested extension that the top-level dtypes do not show.
 ///
+/// Callers first allow the exact temporal conversions that [`TemporalCast::classify`] selects,
+/// and only at the top level. A container can hand its cast kernel child values that no row
+/// references, and a fallible conversion would fail on them.
+///
 /// Use `vortex_functions::expr::ext_storage` to extract an extension array's storage.
 pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResult<()> {
     if source.is_extension() || target.is_extension() {
         if !source.eq_ignore_nullability(target)
             && !(*source == DType::Null && target.is_nullable())
         {
-            vortex_bail!(
-                "Cannot cast {source} to {target}. Extension casts only allow changes to top-level nullability or creation of typed nulls from Null."
-            );
+            match extension_cast_hint(source, target) {
+                Some(hint) => vortex_bail!("Cannot cast {source} to {target}. {hint}"),
+                None => vortex_bail!("Cannot cast {source} to {target}."),
+            }
         }
         return Ok(());
     }
@@ -83,6 +90,16 @@ pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResu
         }
         _ => Ok(()),
     }
+}
+
+/// Name the function that performs a rejected extension cast, if one exists.
+fn extension_cast_hint(source: &DType, target: &DType) -> Option<&'static str> {
+    // `ext_storage` reads the storage of an extension value. It cannot build one from a plain or
+    // null source.
+    if source.is_extension() && !target.is_extension() {
+        return Some("Use ext_storage to access raw extension values.");
+    }
+    temporal::temporal_cast_hint(source, target)
 }
 
 /// [`check_extension_cast`] for each pair of fields that
@@ -174,7 +191,10 @@ impl ScalarFnVTable for Cast {
     }
 
     fn return_dtype(&self, dtype: &DType, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        check_extension_cast(&arg_dtypes[0], dtype)?;
+        let source = &arg_dtypes[0];
+        if TemporalCast::classify(source, dtype).is_none() {
+            check_extension_cast(source, dtype)?;
+        }
         Ok(dtype.clone())
     }
 
@@ -185,6 +205,9 @@ impl ScalarFnVTable for Cast {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+        if let Some(cast) = TemporalCast::classify(input.dtype(), target_dtype) {
+            return cast.cast_array(input, target_dtype, ctx);
+        }
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
