@@ -5,23 +5,28 @@
 //!
 //! A [`BlockProgram`] reads an array's values from a [`BlockSource`] a block at a time, at most
 //! [`BLOCK_LEN`] rows, and passes each block through a list of [`BlockOp`]s while it is in L1.
-//! Only the last op writes full-length memory: a new buffer, the source's own buffer when it owns
-//! it outright, or the uninitialized tail of a builder.
+//! Only the last op writes full-length memory: a new buffer, or the source's own buffer when it
+//! owns it outright.
 //!
-//! A [`Block`] holds its rows' values and their validity. Values move between scratch blocks when
-//! an op changes their width; validity is one bit per row and is always updated in place, so an op
-//! that does not change validity leaves it untouched.
+//! A [`Block`] holds its rows' values and their validity. Values move between two scratch blocks
+//! when an op changes their width. Validity is read from the mask the program was given; an op
+//! that changes a row's validity writes it into the output's bitmap, which exists only once a
+//! row changes, so ops that leave validity alone pass the mask through untouched.
+//!
+//! Blocks are borrowed bytes and a [`PType`]. Viewing them as values is the job of `cast`, which
+//! holds the runtime's reinterpretations of memory.
 
-use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use num_traits::AsPrimitive;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::ReinterpretSink;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
@@ -34,7 +39,7 @@ use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 
-mod bits;
+mod cast;
 mod program;
 #[cfg(test)]
 mod tests;
@@ -44,54 +49,46 @@ pub use program::BlockProgram;
 /// The most rows a block holds.
 pub const BLOCK_LEN: usize = 1024;
 
-/// The bytes of one block's validity: a bit per row.
-const VALIDITY_BYTES: usize = BLOCK_LEN / 8;
-
-/// Uninitialized scratch memory for one block of any primitive type.
+/// Scratch for one block of values of any primitive type.
 #[repr(C, align(64))]
-pub struct BlockBuf([MaybeUninit<u64>; BLOCK_LEN]);
+pub struct BlockBuf([u8; BLOCK_LEN * 8]);
 
 impl BlockBuf {
-    /// Allocate scratch for one block without initializing it.
+    /// Zeroed scratch for one block.
     pub fn new_boxed() -> Box<Self> {
-        // SAFETY: `BlockBuf` holds only `MaybeUninit` values, which need no initialization.
-        unsafe { Box::<Self>::new_uninit().assume_init() }
+        Box::new(Self([0; BLOCK_LEN * 8]))
     }
 
-    /// The scratch as an uninitialized destination for `len` values of `T`.
-    pub fn out<T: NativePType>(&mut self, len: usize) -> &mut [MaybeUninit<T>] {
+    /// The scratch as `len` values of `T`, to fill.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `len` is more than [`BLOCK_LEN`].
+    pub fn values_mut<T: NativePType>(&mut self, len: usize) -> &mut [T] {
         assert!(len <= BLOCK_LEN, "a block holds at most {BLOCK_LEN} rows");
-        // SAFETY: the buffer holds `BLOCK_LEN` 8-byte values aligned to 64 bytes, so it fits
-        // `len <= BLOCK_LEN` values of any primitive type of at most 8 bytes at their alignment.
-        unsafe { std::slice::from_raw_parts_mut(self.0.as_mut_ptr().cast(), len) }
-    }
-
-    fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.0.as_mut_ptr().cast()
+        &mut cast::values_mut(&mut self.0)[..len]
     }
 }
 
-/// A block of initialized values of one primitive type.
+/// A block of values of one primitive type.
 #[derive(Clone, Copy)]
 pub struct BlockIn<'a> {
-    ptr: *const u8,
+    bytes: &'a [u8],
     len: usize,
     ptype: PType,
-    _borrow: PhantomData<&'a [u8]>,
 }
 
 impl<'a> BlockIn<'a> {
-    /// A block over initialized values.
+    /// A block over `values`.
     pub fn from_slice<T: NativePType>(values: &'a [T]) -> Self {
         assert!(
             values.len() <= BLOCK_LEN,
             "a block holds at most {BLOCK_LEN} rows"
         );
         Self {
-            ptr: values.as_ptr().cast(),
+            bytes: cast::bytes(values),
             len: values.len(),
             ptype: T::PTYPE,
-            _borrow: PhantomData,
         }
     }
 
@@ -121,20 +118,20 @@ impl<'a> BlockIn<'a> {
     #[inline]
     pub fn as_slice<T: NativePType>(&self) -> &'a [T] {
         assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
-        // SAFETY: the constructors guarantee `len` initialized values of `ptype` at `ptr`.
-        unsafe { std::slice::from_raw_parts(self.ptr.cast(), self.len) }
+        cast::values(self.bytes)
     }
 }
 
-/// Uninitialized memory a [`BlockOp`] writes one block of values into.
+/// Memory a [`BlockOp`] writes one block of values into, row by row from the first.
 pub struct BlockOut<'a> {
-    ptr: *mut u8,
+    bytes: &'a mut [MaybeUninit<u8>],
     len: usize,
     ptype: PType,
-    _borrow: PhantomData<&'a mut [u8]>,
+    /// The rows written so far.
+    filled: usize,
 }
 
-impl BlockOut<'_> {
+impl<'a> BlockOut<'a> {
     /// The number of rows the block must receive.
     #[inline]
     pub fn len(&self) -> usize {
@@ -147,27 +144,63 @@ impl BlockOut<'_> {
         self.len == 0
     }
 
-    /// The destination for the block's values, every one of which the op must write.
+    /// Write `f(value)` for each of `input` into the block's next `input.len()` rows.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` is not the type the block must hold, or `input` runs past the block.
+    #[inline]
+    pub fn push_map<S: NativePType, T: NativePType>(&mut self, input: &[S], f: impl Fn(S) -> T) {
+        assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
+        let rows = self.filled..self.filled + input.len();
+        input.map_into(&mut cast::uninit_values_mut::<T>(self.bytes)[rows], f);
+        self.filled += input.len();
+    }
+
+    /// The written block, once every row was pushed.
+    #[inline]
+    pub fn finish(self) -> VortexResult<Written<'a>> {
+        vortex_ensure_eq!(self.filled, self.len, "a block op wrote too few rows");
+        Ok(Written {
+            // SAFETY: `push_map` wrote rows `0..filled`, which is every row.
+            bytes: unsafe { cast::assume_init_mut(self.bytes) },
+            len: self.len,
+            ptype: self.ptype,
+        })
+    }
+
+    /// Write the block with `f`, for an op whose kernel fills uninitialized memory itself.
+    ///
+    /// # Safety
+    ///
+    /// `f` must initialize every value it is handed.
     ///
     /// # Panics
     ///
     /// Panics if `T` is not the type the block must hold.
     #[inline]
-    pub fn as_uninit<T: NativePType>(&mut self) -> &mut [MaybeUninit<T>] {
+    pub unsafe fn fill_with<T: NativePType>(
+        self,
+        f: impl FnOnce(&mut [MaybeUninit<T>]),
+    ) -> Written<'a> {
         assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
-        // SAFETY: the program hands out `len` writable values of `ptype` at `ptr`.
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast(), self.len) }
+        f(cast::uninit_values_mut::<T>(self.bytes));
+        Written {
+            // SAFETY: the caller guarantees `f` initialized every value.
+            bytes: unsafe { cast::assume_init_mut(self.bytes) },
+            len: self.len,
+            ptype: self.ptype,
+        }
     }
 }
 
 /// A block an op overwrites: it reads each value as one type and writes it back as another of the
 /// same width.
 pub struct BlockInOut<'a> {
-    ptr: *mut u8,
+    bytes: &'a mut [u8],
     len: usize,
     in_ptype: PType,
     out_ptype: PType,
-    _borrow: PhantomData<&'a mut [u8]>,
 }
 
 impl<'a> BlockInOut<'a> {
@@ -197,29 +230,22 @@ impl<'a> BlockInOut<'a> {
             "block must hold {}",
             self.out_ptype
         );
-        // SAFETY: the program hands out `len` initialized values of `in_ptype` at `ptr`.
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast(), self.len) }
+        cast::values_mut(self.bytes)
     }
 
-    /// Declare the block written, once every value holds its output.
-    ///
-    /// # Safety
-    ///
-    /// Every value must have been overwritten with a value of the output type.
+    /// The block, as the op has overwritten it.
     #[inline]
-    pub unsafe fn assume_written(self) -> Written<'a> {
+    pub fn written(self) -> Written<'a> {
         Written {
-            ptr: self.ptr,
+            bytes: self.bytes,
             len: self.len,
             ptype: self.out_ptype,
-            _borrow: PhantomData,
         }
     }
 }
 
 /// One block of values for a [`BlockOp`] to transform: from an input into separate memory, or in
 /// place.
-#[non_exhaustive]
 pub enum Values<'a> {
     /// Read `input` and write `out`, which never alias.
     Copy {
@@ -259,9 +285,9 @@ impl<'a> Values<'a> {
     pub fn map<S: NativePType, T: NativePType>(self, f: impl Fn(S) -> T) -> Written<'a> {
         match self {
             Values::Copy { input, mut out } => {
-                input.as_slice::<S>().map_into(out.as_uninit::<T>(), f);
-                // SAFETY: `map_into` wrote every value of `out`.
-                unsafe { Written::assume_init(out) }
+                out.push_map(input.as_slice::<S>(), f);
+                out.finish()
+                    .vortex_expect("the program sizes a block's output to its input")
             }
             Values::InPlace(block) => {
                 assert_eq!(S::PTYPE, block.in_ptype, "block holds {}", block.in_ptype);
@@ -271,38 +297,36 @@ impl<'a> Values<'a> {
                     "block must hold {}",
                     block.out_ptype
                 );
-                // SAFETY: the program hands out `len` initialized values of `S` at `ptr`.
-                let values =
-                    unsafe { std::slice::from_raw_parts_mut(block.ptr.cast::<S>(), block.len) };
-                ReinterpretSink::<S, T>::new(values).map_into_in_place(f);
-                // SAFETY: `map_into_in_place` overwrote every value with a `T`.
-                unsafe { block.assume_written() }
+                ReinterpretSink::<S, T>::new(cast::values_mut(block.bytes)).map_into_in_place(f);
+                block.written()
             }
         }
     }
 }
 
-/// How much of a block's validity is known without its bits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ValidityState {
-    AllValid,
-    AllInvalid,
-    /// The bits hold each row's validity.
-    Bits,
-}
-
-/// The validity of one block's rows, which ops update in place.
-///
-/// A block whose rows are all valid, or all null, holds no bits until an op changes one row.
+/// The validity of one block's rows, as the program's input mask gives it and as ops change it.
 pub struct BlockValidity<'a> {
+    /// The block's first row in the program.
+    start: usize,
     len: usize,
-    state: &'a mut ValidityState,
-    bits: &'a mut [u8; VALIDITY_BYTES],
+    input: &'a Mask,
+    /// The program's output validity, once a row's has changed.
+    changed: &'a mut Option<BitBufferMut>,
 }
 
 impl<'a> BlockValidity<'a> {
-    fn new(len: usize, state: &'a mut ValidityState, bits: &'a mut [u8; VALIDITY_BYTES]) -> Self {
-        Self { len, state, bits }
+    fn new(
+        start: usize,
+        len: usize,
+        input: &'a Mask,
+        changed: &'a mut Option<BitBufferMut>,
+    ) -> Self {
+        Self {
+            start,
+            len,
+            input,
+            changed,
+        }
     }
 
     /// The number of rows in the block.
@@ -317,40 +341,30 @@ impl<'a> BlockValidity<'a> {
         self.len == 0
     }
 
-    /// Whether every row of the block is valid.
-    #[inline]
-    pub fn all_valid(&self) -> bool {
-        *self.state == ValidityState::AllValid
-    }
-
     /// Whether `row`, counted from the block's first row, is valid.
     #[inline]
     pub fn is_valid(&self, row: usize) -> bool {
         assert!(row < self.len, "row {row} outside a block of {}", self.len);
-        match self.state {
-            ValidityState::AllValid => true,
-            ValidityState::AllInvalid => false,
-            ValidityState::Bits => self.bits[row / 8] & (1 << (row % 8)) != 0,
+        match &*self.changed {
+            Some(bits) => bits.value(self.start + row),
+            None => self.input.value(self.start + row),
         }
     }
 
     /// Make `row`, counted from the block's first row, valid or null.
     #[inline]
     pub fn set(&mut self, row: usize, valid: bool) {
-        assert!(row < self.len, "row {row} outside a block of {}", self.len);
-        match (*self.state, valid) {
-            (ValidityState::AllValid, true) | (ValidityState::AllInvalid, false) => return,
-            (ValidityState::AllValid, false) => self.bits.fill(u8::MAX),
-            (ValidityState::AllInvalid, true) => self.bits.fill(0),
-            (ValidityState::Bits, _) => {}
+        if self.is_valid(row) == valid {
+            return;
         }
-        *self.state = ValidityState::Bits;
-        let (byte, bit) = (row / 8, 1 << (row % 8));
-        if valid {
-            self.bits[byte] |= bit;
-        } else {
-            self.bits[byte] &= !bit;
-        }
+        let input = self.input;
+        self.changed
+            .get_or_insert_with(|| match input {
+                Mask::AllTrue(len) => BitBufferMut::new_set(*len),
+                Mask::AllFalse(len) => BitBufferMut::new_unset(*len),
+                Mask::Values(values) => BitBufferMut::copy_from(values.bit_buffer()),
+            })
+            .set_to(self.start + row, valid);
     }
 }
 
@@ -382,30 +396,14 @@ impl<'a> Block<'a> {
     }
 }
 
-/// Proof that every value of a block was written, which [`BlockOp::process`] returns.
+/// A block whose every value an op has written, which [`BlockOp::process`] returns.
 pub struct Written<'a> {
-    ptr: *mut u8,
+    bytes: &'a mut [u8],
     len: usize,
     ptype: PType,
-    _borrow: PhantomData<&'a mut [u8]>,
 }
 
-impl<'a> Written<'a> {
-    /// Declare a `Copy` output written, for ops that fill it themselves.
-    ///
-    /// # Safety
-    ///
-    /// Every value of `out` must be initialized.
-    #[inline]
-    pub unsafe fn assume_init(out: BlockOut<'a>) -> Self {
-        Self {
-            ptr: out.ptr,
-            len: out.len,
-            ptype: out.ptype,
-            _borrow: PhantomData,
-        }
-    }
-
+impl Written<'_> {
     /// The written values, for example to patch them.
     ///
     /// # Panics
@@ -414,20 +412,14 @@ impl<'a> Written<'a> {
     #[inline]
     pub fn as_mut_slice<T: NativePType>(&mut self) -> &mut [T] {
         assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
-        // SAFETY: the constructors guarantee `len` initialized values of `ptype` at `ptr`.
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast(), self.len) }
+        cast::values_mut(self.bytes)
     }
 }
 
 /// Where a [`BlockSource`] put the values of a block.
-#[non_exhaustive]
 pub enum SourceBlock<'s> {
-    /// In the `scratch` the program handed it, as `len` values of the source's type starting at
+    /// In the scratch the program handed it, as `len` values of the source's type starting at
     /// value `offset`. The program may overwrite them in place.
-    ///
-    /// Built with the unsafe [`SourceBlock::scratch`], since the program reads those values as
-    /// initialized.
-    #[non_exhaustive]
     Scratch {
         /// The index of the first value in the scratch.
         offset: usize,
@@ -436,18 +428,6 @@ pub enum SourceBlock<'s> {
     },
     /// In memory the source owns, which ops never overwrite.
     Lent(BlockIn<'s>),
-}
-
-impl SourceBlock<'_> {
-    /// Values the source wrote into its scratch: `len` values from value `offset`.
-    ///
-    /// # Safety
-    ///
-    /// The source wrote values `offset..offset + len` of the scratch it was handed, in its own
-    /// type, during this call to [`BlockSource::fill`].
-    pub unsafe fn scratch(offset: usize, len: usize) -> Self {
-        Self::Scratch { offset, len }
-    }
 }
 
 /// The start of a program: emits an array's own values, block by block, in row order.
@@ -464,7 +444,7 @@ pub trait BlockSource: Send {
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
-        scratch: &'s mut BlockBuf,
+        scratch: &mut BlockBuf,
         validity: &mut BlockValidity<'_>,
     ) -> VortexResult<SourceBlock<'s>>;
 
@@ -528,7 +508,7 @@ impl<T: NativePType> BlockSource for PrimitiveSource<T> {
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
-        _scratch: &'s mut BlockBuf,
+        _scratch: &mut BlockBuf,
         _validity: &mut BlockValidity<'_>,
     ) -> VortexResult<SourceBlock<'s>> {
         Ok(SourceBlock::Lent(BlockIn::from_slice(

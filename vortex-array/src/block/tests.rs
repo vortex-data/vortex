@@ -33,8 +33,6 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
-use crate::builders::ArrayBuilder;
-use crate::builders::PrimitiveBuilder;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -74,16 +72,18 @@ impl BlockSource for Counter {
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
-        scratch: &'s mut BlockBuf,
+        scratch: &mut BlockBuf,
         _validity: &mut BlockValidity<'_>,
     ) -> VortexResult<SourceBlock<'s>> {
         self.fills.lock().push(rows.clone());
-        let out = scratch.out::<i32>(rows.len());
+        let out = scratch.values_mut::<i32>(rows.len());
         for (out, row) in out.iter_mut().zip(rows.clone()) {
-            out.write(self.start + i32::try_from(row).unwrap_or(i32::MAX));
+            *out = self.start + i32::try_from(row).unwrap_or(i32::MAX);
         }
-        // SAFETY: the loop wrote every value of `out`.
-        Ok(unsafe { SourceBlock::scratch(0, rows.len()) })
+        Ok(SourceBlock::Scratch {
+            offset: 0,
+            len: rows.len(),
+        })
     }
 
     fn block_offset(&self) -> usize {
@@ -321,8 +321,8 @@ block_op 1 copy i32->i32 scratch0 -> output"
     Ok(())
 }
 
-/// Validity windows are taken from the input mask at any bit offset, flow through ops that leave
-/// validity alone, and make up the output's validity.
+/// Validity is read from the input mask at any bit offset, and flows through ops that leave it
+/// alone into the output.
 #[rstest]
 #[case::aligned(0)]
 #[case::bit_offset(3)]
@@ -364,7 +364,7 @@ fn uniform_validity_needs_no_bitmap(
     Ok(())
 }
 
-/// An op that nulls rows updates each block's validity in place, combined with the input's.
+/// An op that nulls rows changes the output's validity, combined with the input's.
 #[test]
 fn ops_can_null_rows() -> VortexResult<()> {
     let len = 2500;
@@ -421,30 +421,6 @@ fn patches_set_values_and_validity() -> VortexResult<()> {
     Ok(())
 }
 
-/// A program appends to a builder after what it already holds, growing it as needed, with the
-/// rows' validity.
-#[test]
-fn appends_to_a_builder() -> VortexResult<()> {
-    let mut ctx = ctx();
-    let mut builder = PrimitiveBuilder::<i32>::new_in(Nullability::Nullable, ctx.allocator());
-    builder.append_value(-1);
-    let mask = Mask::from_buffer(BitBuffer::collect_bool(2000, |row| !row.is_multiple_of(3)));
-    let program = counter_program(0, 2000, vec![(add_one::<i32>(true), PType::I32)]);
-    let traced = trace_op(|| program.append_to(&mask, &mut builder, &mut ctx))?;
-    assert!(
-        traced
-            .trace
-            .to_string()
-            .contains("drive ops=1 len=2000 into=builder")
-    );
-    let expected =
-        PrimitiveArray::from_option_iter(std::iter::once(Some(-1)).chain((0..2000usize).map(
-            |row| (!row.is_multiple_of(3)).then(|| i32::try_from(row + 1).unwrap_or(i32::MAX)),
-        )));
-    assert_arrays_eq!(builder.finish_into_primitive(), expected, &mut ctx);
-    Ok(())
-}
-
 /// With no ops, a program emits its source's values.
 #[test]
 fn no_ops_emit_the_source() -> VortexResult<()> {
@@ -463,16 +439,5 @@ fn empty_programs_fill_nothing() -> VortexResult<()> {
     let (output, _) = run(program, &Mask::new_true(0), Nullability::NonNullable)?;
     assert!(output.is_empty());
     assert!(fills.lock().is_empty());
-    Ok(())
-}
-
-/// A program with no rows appends nothing to a builder.
-#[test]
-fn empty_programs_append_nothing() -> VortexResult<()> {
-    let mut ctx = ctx();
-    let mut builder = PrimitiveBuilder::<i32>::new_in(Nullability::NonNullable, ctx.allocator());
-    let program = counter_program(0, 0, vec![]);
-    program.append_to(&Mask::new_true(0), &mut builder, &mut ctx)?;
-    assert_eq!(builder.len(), 0);
     Ok(())
 }
