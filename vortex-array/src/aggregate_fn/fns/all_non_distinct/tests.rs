@@ -1090,6 +1090,39 @@ fn constant_struct_union_fields() -> VortexResult<()> {
 }
 
 #[test]
+fn union_shared_null_ignores_inactive_payload() -> VortexResult<()> {
+    let variants = crate::dtype::UnionVariants::try_new(
+        FieldNames::from(["int"]),
+        vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+        vec![0],
+    )?;
+    let null_type_ids =
+        PrimitiveArray::new(buffer![0u8], Validity::from_iter([false])).into_array();
+    let lhs = crate::arrays::UnionArray::try_new(
+        null_type_ids.clone(),
+        variants.clone(),
+        vec![buffer![10i32].into_array()],
+    )?
+    .into_array();
+    let rhs = crate::arrays::UnionArray::try_new(
+        null_type_ids,
+        variants,
+        vec![buffer![20i32].into_array()],
+    )?
+    .into_array();
+    let batch = StructArray::try_new(
+        FieldNames::from(["lhs", "rhs"]),
+        vec![lhs, rhs],
+        1,
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    assert!(accumulate_all_non_distinct(&[batch])?);
+    Ok(())
+}
+
+#[test]
 fn constant_struct_multiple_batches_saturates() -> VortexResult<()> {
     let field_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let struct_dtype = DType::Struct(

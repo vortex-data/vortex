@@ -350,10 +350,16 @@ fn check_union_identical(
     }
 
     let type_ids = lhs.type_ids().clone().execute::<PrimitiveArray>(ctx)?;
+    let valid_mask = type_ids.validity()?.execute_mask(type_ids.len(), ctx)?;
     let type_ids = type_ids.as_slice::<u8>();
 
     for (variant_idx, &type_id) in lhs.variants().type_ids().iter().enumerate() {
-        let mask = Mask::from_iter(type_ids.iter().map(|&id| id == type_id));
+        let mask = Mask::from_iter(
+            type_ids
+                .iter()
+                .enumerate()
+                .map(|(i, &id)| valid_mask.value(i) && id == type_id),
+        );
         if mask.true_count() == 0 {
             continue;
         }

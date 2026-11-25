@@ -211,19 +211,28 @@ fn compare_unshredded_variants(
     let rhs_val_mask = rhs_val.validity()?.execute_mask(rhs_val.len(), ctx)?;
 
     for idx in 0..lhs_val.len() {
-        match (lhs_val_mask.value(idx), rhs_val_mask.value(idx)) {
-            (false, false) => continue,
-            (true, false) | (false, true) => return Ok(false),
-            (true, true) => {}
-        }
-        let lhs_meta_bytes = lhs_meta.bytes_at(idx);
-        let lhs_val_bytes = lhs_val.bytes_at(idx);
-        let rhs_meta_bytes = rhs_meta.bytes_at(idx);
-        let rhs_val_bytes = rhs_val.bytes_at(idx);
-        let lhs_variant = PqVariant::try_new(&lhs_meta_bytes, &lhs_val_bytes)
-            .map_err(|e| vortex_err!("Invalid Parquet Variant: {e}"))?;
-        let rhs_variant = PqVariant::try_new(&rhs_meta_bytes, &rhs_val_bytes)
-            .map_err(|e| vortex_err!("Invalid Parquet Variant: {e}"))?;
+        let lhs_meta_bytes;
+        let lhs_val_bytes;
+        let lhs_variant = if lhs_val_mask.value(idx) {
+            lhs_meta_bytes = lhs_meta.bytes_at(idx);
+            lhs_val_bytes = lhs_val.bytes_at(idx);
+            PqVariant::try_new(&lhs_meta_bytes, &lhs_val_bytes)
+                .map_err(|e| vortex_err!("Invalid Parquet Variant: {e}"))?
+        } else {
+            PqVariant::Null
+        };
+
+        let rhs_meta_bytes;
+        let rhs_val_bytes;
+        let rhs_variant = if rhs_val_mask.value(idx) {
+            rhs_meta_bytes = rhs_meta.bytes_at(idx);
+            rhs_val_bytes = rhs_val.bytes_at(idx);
+            PqVariant::try_new(&rhs_meta_bytes, &rhs_val_bytes)
+                .map_err(|e| vortex_err!("Invalid Parquet Variant: {e}"))?
+        } else {
+            PqVariant::Null
+        };
+
         if !pq_variants_equal(&lhs_variant, &rhs_variant) {
             return Ok(false);
         }
@@ -248,7 +257,8 @@ fn pq_variants_equal(lhs: &PqVariant<'_, '_>, rhs: &PqVariant<'_, '_>) -> bool {
         (PqVariant::Object(a), PqVariant::Object(b)) => {
             a.len() == b.len()
                 && a.iter()
-                    .all(|(k, lv)| b.get(k).is_some_and(|rv| pq_variants_equal(&lv, &rv)))
+                    .zip(b.iter())
+                    .all(|((lk, lv), (rk, rv))| lk == rk && pq_variants_equal(&lv, &rv))
         }
         _ => lhs == rhs,
     }

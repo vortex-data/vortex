@@ -584,6 +584,31 @@ fn test_all_non_distinct_distinguishes_uuid_from_string_with_same_metadata() -> 
 }
 
 #[test]
+fn test_all_non_distinct_matches_missing_value_with_encoded_variant_null() -> VortexResult<()> {
+    let metadata: &[u8] = &[0x01, 0x00, 0x00];
+    let variant_null: &[u8] = &[0x00];
+
+    let lhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([metadata]),
+        Some(VarBinViewArray::from_iter_nullable_bin([None::<&[u8]>]).into_array()),
+        None,
+    )?
+    .into_array();
+    let rhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([metadata]),
+        Some(VarBinViewArray::from_iter_nullable_bin([Some(variant_null)]).into_array()),
+        None,
+    )?
+    .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
 fn test_all_non_distinct_compares_fully_shredded_leaf_despite_different_metadata()
 -> VortexResult<()> {
     let (meta_a, _) = single_field_object("a", 1);
