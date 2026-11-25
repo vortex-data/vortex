@@ -514,6 +514,84 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_async_ipc_reader_resumes_after_would_block() -> VortexResult<()> {
+        struct WouldBlockOnceAsyncReader {
+            data: Vec<u8>,
+            pos: usize,
+            block_at: usize,
+            blocked: bool,
+        }
+
+        impl AsyncRead for WouldBlockOnceAsyncReader {
+            fn poll_read(
+                mut self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                buf: &mut [u8],
+            ) -> Poll<io::Result<usize>> {
+                if !self.blocked && self.pos == self.block_at {
+                    self.blocked = true;
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "try again",
+                    )));
+                }
+                if self.pos >= self.data.len() {
+                    return Poll::Ready(Ok(0));
+                }
+                let limit = if !self.blocked && self.pos < self.block_at {
+                    self.block_at - self.pos
+                } else {
+                    self.data.len() - self.pos
+                };
+                let count = buf.len().min(limit);
+                buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
+                self.pos += count;
+                Poll::Ready(Ok(count))
+            }
+        }
+
+        let chunk1 = buffer![1i32, 2, 3].into_array();
+        let chunk2 = buffer![4i32, 5, 6].into_array();
+        let dtype_msg = EncoderMessage::DType(chunk1.dtype());
+        let mut writer = AsyncMessageWriter::new(Cursor::new(Vec::new()), &SESSION);
+        writer.write_message(dtype_msg).await?;
+        writer.write_message(EncoderMessage::Array(&chunk1)).await?;
+        let chunk1_end = writer.inner().get_ref().len();
+        writer.write_message(EncoderMessage::Array(&chunk2)).await?;
+        let data = writer.into_inner().into_inner();
+
+        let mut reader = AsyncIPCReader::try_new(
+            WouldBlockOnceAsyncReader {
+                data,
+                pos: 0,
+                block_at: chunk1_end + 2,
+                blocked: false,
+            },
+            &SESSION,
+        )
+        .await?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let first = reader.next().await.vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
+
+        let err = reader
+            .next()
+            .await
+            .vortex_expect("expected would-block error")
+            .unwrap_err();
+        assert_io_error_kind(&err, io::ErrorKind::WouldBlock);
+
+        let second = reader
+            .next()
+            .await
+            .vortex_expect("expected resumed chunk")?;
+        assert_arrays_eq!(second, chunk2, &mut ctx);
+        assert!(reader.next().await.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_async_ipc_reader_rejects_non_array_message() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3].into_array();
         let raw_buf = ByteBuffer::copy_from([1u8, 2, 3, 4]);

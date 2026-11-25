@@ -19,6 +19,15 @@ use crate::messages::PollRead;
 
 pin_project! {
     /// An IPC message reader backed by an `AsyncRead` stream.
+    ///
+    /// # Error handling
+    ///
+    /// - [`io::ErrorKind::Interrupted`] is retried transparently in place.
+    /// - [`io::ErrorKind::WouldBlock`] and [`io::ErrorKind::TimedOut`] are returned to the caller
+    ///   while preserving any partial frame already buffered so the next poll resumes where reading
+    ///   stopped.
+    /// - Any other I/O error, EOF error, or decode error clears the internal buffer and terminates
+    ///   the stream so subsequent polls return `None`.
     pub struct AsyncMessageReader<R> {
         #[pin]
         read: R,

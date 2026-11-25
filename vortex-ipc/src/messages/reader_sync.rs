@@ -22,6 +22,15 @@ enum ReadState {
 }
 
 /// An IPC message reader backed by a `Read` stream.
+///
+/// # Error handling
+///
+/// - [`io::ErrorKind::Interrupted`] is retried transparently in place.
+/// - [`io::ErrorKind::WouldBlock`] and [`io::ErrorKind::TimedOut`] are returned to the caller
+///   while preserving any partial frame already buffered so the next call resumes where reading
+///   stopped.
+/// - Any other I/O error, EOF error, or decode error clears the internal buffer and terminates
+///   the reader so subsequent calls return `None`.
 pub struct SyncMessageReader<R> {
     read: R,
     buffer: BytesMut,
