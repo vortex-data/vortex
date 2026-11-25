@@ -331,7 +331,7 @@ fn check_canonical_identical(
 }
 
 /// Compare two scalars for non-distinctness, delegating `Variant` values (including those nested
-/// inside constant structs or lists) to [`variant_scalars_equal`].
+/// inside constant structs, lists, maps, or extensions) to [`variant_scalars_equal`].
 fn scalars_non_distinct(lhs: &Scalar, rhs: &Scalar) -> bool {
     match (lhs.is_null(), rhs.is_null()) {
         (true, true) => return true,
@@ -362,6 +362,25 @@ fn scalars_non_distinct(lhs: &Scalar, rhs: &Scalar) -> bool {
                         (Some(l), Some(r)) if scalars_non_distinct(&l, &r)
                     )
                 })
+        }
+        (DType::Map(..), DType::Map(..)) => {
+            let lhs_map = lhs.as_map();
+            let rhs_map = rhs.as_map();
+            lhs_map.map_dtype() == rhs_map.map_dtype()
+                && lhs_map.len() == rhs_map.len()
+                && lhs_map
+                    .entries()
+                    .zip(rhs_map.entries())
+                    .all(|((lk, lv), (rk, rv))| {
+                        scalars_non_distinct(&lk, &rk) && scalars_non_distinct(&lv, &rv)
+                    })
+        }
+        (DType::Extension(lhs_ext), DType::Extension(rhs_ext)) => {
+            lhs_ext.eq_ignore_nullability(rhs_ext)
+                && scalars_non_distinct(
+                    &lhs.as_extension().to_storage_scalar(),
+                    &rhs.as_extension().to_storage_scalar(),
+                )
         }
         _ => lhs == rhs,
     }

@@ -12,6 +12,7 @@ use super::AllNonDistinct;
 use super::all_non_distinct;
 use super::variant_scalars_equal;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -33,6 +34,7 @@ use crate::arrays::WidenArray;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldNames;
+use crate::dtype::MapDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
@@ -1069,5 +1071,102 @@ fn test_variant_reordered_object_fields_match_across_canonical_and_constant() ->
 
     assert!(accumulate_all_non_distinct(&[const_equal])?);
     assert!(!accumulate_all_non_distinct(&[const_distinct])?);
+    Ok(())
+}
+
+#[test]
+fn test_variant_map_reordered_object_fields_match_across_canonical_and_constant() -> VortexResult<()>
+{
+    let lhs_obj_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        ),
+        Nullability::NonNullable,
+    );
+    let rhs_obj_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["b", "a"]),
+            vec![
+                DType::Utf8(Nullability::NonNullable),
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ],
+        ),
+        Nullability::NonNullable,
+    );
+
+    let map_dtype = DType::Map(
+        MapDType::try_new(
+            DType::Utf8(Nullability::NonNullable),
+            DType::Variant(Nullability::NonNullable),
+            false,
+        )?,
+        Nullability::NonNullable,
+    );
+
+    let lhs_map = Scalar::map(
+        map_dtype.clone(),
+        [(
+            Scalar::from("k"),
+            Scalar::variant(Scalar::struct_(
+                lhs_obj_dtype,
+                [Scalar::from(1i32), Scalar::from("x")],
+            )),
+        )],
+    );
+    let rhs_map_equal = Scalar::map(
+        map_dtype.clone(),
+        [(
+            Scalar::from("k"),
+            Scalar::variant(Scalar::struct_(
+                rhs_obj_dtype.clone(),
+                [Scalar::from("x"), Scalar::from(1i32)],
+            )),
+        )],
+    );
+    let rhs_map_distinct = Scalar::map(
+        map_dtype.clone(),
+        [(
+            Scalar::from("k"),
+            Scalar::variant(Scalar::struct_(
+                rhs_obj_dtype,
+                [Scalar::from("y"), Scalar::from(1i32)],
+            )),
+        )],
+    );
+
+    let pair_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![map_dtype.clone(), map_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+    let const_equal = ConstantArray::new(
+        Scalar::struct_(pair_dtype.clone(), [lhs_map.clone(), rhs_map_equal]),
+        2,
+    )
+    .into_array();
+    let const_distinct =
+        ConstantArray::new(Scalar::struct_(pair_dtype, [lhs_map, rhs_map_distinct]), 2)
+            .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let canon_equal = const_equal
+        .clone()
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+    let canon_distinct = const_distinct
+        .clone()
+        .execute::<Canonical>(&mut ctx)?
+        .into_array();
+
+    assert!(accumulate_all_non_distinct(&[const_equal])?);
+    assert!(accumulate_all_non_distinct(&[canon_equal])?);
+    assert!(!accumulate_all_non_distinct(&[const_distinct])?);
+    assert!(!accumulate_all_non_distinct(&[canon_distinct])?);
     Ok(())
 }
