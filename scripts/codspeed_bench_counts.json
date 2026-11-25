@@ -41,6 +41,7 @@
     "listview_rebuild": 9,
     "patches_lookup": 10,
     "piecewise_sequence_take_primitive": 10,
+    "primitive_top_value": 3,
     "probe": 43,
     "row_fn_bool_retry": 0,
     "row_fn_output": 0,
