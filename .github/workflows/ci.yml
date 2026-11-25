@@ -217,6 +217,16 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      - name: Install nextest with doctest support
+        # Upstream nextest can't run doctests. Our fork adds `--doc`, which compiles the doctests of
+        # every crate in parallel and runs each doctest as its own test, where `cargo test --doc`
+        # handles one crate at a time. It's installed outside of CARGO_HOME so that it doesn't
+        # replace the nextest in the runner image. See
+        # https://github.com/vortex-data/nextest/blob/main/site/src/docs/design/architecture/doctests.md
+        run: |
+          cargo install --locked --root "${RUNNER_TEMP}/nextest-doctests" \
+            --git https://github.com/vortex-data/nextest \
+            --rev 31f8df296f560c6a932dabd34096019c81cd782e cargo-nextest
       - name: Docs
         env:
           # required to make sure docs build for features
@@ -225,8 +235,9 @@ jobs:
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
           cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
-          # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
+          # Run doctests in parallel with the nextest fork installed above.
+          "${RUNNER_TEMP}/nextest-doctests/bin/cargo-nextest" nextest run --cargo-profile ci --doc --workspace --all-features \
+            --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
