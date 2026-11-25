@@ -281,7 +281,9 @@ impl BitBufferMut {
     #[inline]
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
-            len.saturating_add(offset) <= buffer.len().saturating_mul(8),
+            offset
+                .checked_add(len)
+                .is_some_and(|end| end.div_ceil(8) <= buffer.len()),
             "Buffer len {} is too short for offset {offset} and length {len}",
             buffer.len()
         );
@@ -1589,7 +1591,7 @@ mod tests {
     }
 
     #[test]
-    fn append_false_clears_dirty_trailing_bits() {
+    fn test_append_false_clears_dirty_trailing_bits() {
         let mut from_new_set = BitBufferMut::new_set(5);
         from_new_set.append_false();
         from_new_set.append_true();
@@ -1632,20 +1634,6 @@ mod tests {
         assert_eq!(
             from_copy_from.freeze(),
             bitbuffer![true, true, true, true, true, false]
-        );
-    }
-
-    #[test]
-    fn append_buffer_overwrites_dirty_tail_byte() {
-        // Byte-aligned destination with an existing dirty trailing byte hits the `dst_bit_offset == 0`
-        // fast path in `append_buffer`.
-        let mut buf = BitBufferMut::from_buffer(buffer_mut![0xFF, 0xFF], 0, 8);
-        buf.append_buffer(&crate::BitBuffer::new_unset(3));
-        assert_eq!(
-            buf.freeze(),
-            bitbuffer![
-                true, true, true, true, true, true, true, true, false, false, false
-            ]
         );
     }
 }

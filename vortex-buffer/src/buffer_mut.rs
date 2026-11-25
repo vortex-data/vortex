@@ -1516,7 +1516,7 @@ mod tests {
     #[case::none(Alignment::none())]
     #[case::half(Alignment::new(4))]
     #[should_panic(expected = "must align to the scalar type's alignment")]
-    fn aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
+    fn test_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
         let buffer = BufferMut::<u64>::from_iter([1, 2, 3]);
         drop(buffer.aligned(alignment));
     }
@@ -1525,7 +1525,9 @@ mod tests {
     #[case::none(Alignment::none())]
     #[case::half(Alignment::new(4))]
     #[should_panic(expected = "must align to the scalar type's alignment")]
-    fn zeroed_preferred_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
+    fn test_zeroed_preferred_aligned_rejects_alignment_smaller_than_type(
+        #[case] alignment: Alignment,
+    ) {
         drop(BufferMut::<u64>::zeroed_preferred_aligned(
             4, alignment, None,
         ));

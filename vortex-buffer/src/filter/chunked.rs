@@ -541,7 +541,7 @@ mod tests {
     }
 
     #[rstest]
-    fn filter_chunked_offset_past_first_chunk(
+    fn test_filter_chunked_offset_past_first_chunk(
         #[values(FILTER_CHUNK_LEN, FILTER_CHUNK_LEN + 1, FILTER_CHUNK_LEN * 2 + 37)] offset: usize,
         #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
     ) {

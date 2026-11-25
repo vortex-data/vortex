@@ -182,7 +182,7 @@ mod tests {
     use crate::BufferMut;
 
     #[test]
-    fn trusted_len_adapter_tracks_remaining_len() {
+    fn test_trusted_len_adapter_tracks_remaining_len() {
         // SAFETY: `[10u32, 20, 30, 40].into_iter()` has an exact size hint.
         let mut iter = unsafe { [10u32, 20, 30, 40].into_iter().trusted_len() };
         assert_eq!(iter.size_hint(), (4, Some(4)));
@@ -205,7 +205,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "TrustedLenAdapter: iterator ended early")]
-    fn trusted_len_adapter_detects_early_end() {
+    fn test_trusted_len_adapter_detects_early_end() {
         struct ShortIter(usize);
         impl Iterator for ShortIter {
             type Item = u32;
@@ -225,7 +225,7 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "TrustedLenAdapter: iterator yielded more items than promised")]
-    fn trusted_len_adapter_detects_overrun() {
+    fn test_trusted_len_adapter_detects_overrun() {
         struct LongIter(usize);
         impl Iterator for LongIter {
             type Item = u32;
