@@ -25,7 +25,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -40,9 +39,10 @@ use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_opt_child;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -63,6 +63,7 @@ use crate::canonical::execute_sparse;
 
 mod canonical;
 mod compute;
+mod fill;
 mod kernel;
 mod ops;
 mod plugin;
@@ -254,16 +255,8 @@ impl VTable for Sparse {
         // reassemble with offset=0. Uses slot children (not data) since the executor
         // may have updated slots via reduce_parent/execute_parent.
         let array = if array.patches().offset() != 0 {
-            let offset = array.patches().offset();
-            let indices = array.patch_indices();
-            let values = array.patch_values().clone();
-            let len = array.len();
-            let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
-            let resolved_indices = indices.binary(
-                ConstantArray::new(offset_scalar, indices.len()).into_array(),
-                Operator::Sub,
-            )?;
-            let patches = Patches::new(len, 0, resolved_indices.clone(), values, None, ctx)?;
+            let patches = array.resolved_patches()?;
+            let resolved_indices = patches.indices().clone();
             // Decompose, update in place, and reassemble without re-validation.
             match array.try_into_parts() {
                 Ok(mut parts) => {
@@ -486,6 +479,10 @@ impl SparseData {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
+    /// Without one, the fill is the valid value that fills more than half of the valid positions if
+    /// there is one, and some valid value otherwise. That requires a boolean, primitive, decimal,
+    /// UTF-8 or binary array. A string array whose dominant value is too long to inline in a view
+    /// is returned as it is.
     pub fn encode(
         array: &ArrayRef,
         fill_value: Option<Scalar>,
@@ -548,29 +545,26 @@ impl SparseData {
         let fill = if let Some(fill) = fill_value {
             fill.cast(array.dtype())?
         } else {
-            // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
-            let (top_pvalue, _) = primitive
-                .top_value(ctx)?
-                .vortex_expect("Non empty or all null array");
-
-            Scalar::primitive_value(top_pvalue, top_pvalue.ptype(), array.dtype().nullability())
+            match fill::dominant_value(array, &mask, ctx)? {
+                Some(fill) => fill,
+                None => return Ok(array.clone()),
+            }
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
-        let non_top_bool = array
-            .binary(fill_array.clone(), Operator::NotEq)?
+        let non_fill_bool = array
+            .compare(fill_array.clone(), CompareOperator::NotEq)?
             .fill_null(Scalar::bool(true, Nullability::NonNullable))?
             .execute::<BoolArray>(ctx)?;
-        let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
+        let non_fill_mask = Mask::from_buffer(non_fill_bool.to_bit_buffer());
 
-        let non_top_values = array
-            .filter(non_top_mask.clone())?
+        let non_fill_values = array
+            .filter(non_fill_mask.clone())?
             .execute::<CanonicalValidity>(ctx)?
             .0
             .into_array();
 
-        let indices: Buffer<u64> = match non_top_mask {
+        let indices: Buffer<u64> = match non_fill_mask {
             Mask::AllTrue(count) => {
                 // all true -> complete slice
                 (0u64..count as u64).collect()
@@ -582,8 +576,14 @@ impl SparseData {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        Sparse::try_new(indices.into_array(), non_top_values, array.len(), fill, ctx)
-            .map(IntoArray::into_array)
+        Sparse::try_new(
+            indices.into_array(),
+            non_fill_values,
+            array.len(),
+            fill,
+            ctx,
+        )
+        .map(IntoArray::into_array)
     }
 }
 
@@ -598,9 +598,9 @@ pub trait SparseExt {
     fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
         let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().binary(
+        let indices = patches.indices().numeric(
             ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
-            Operator::Sub,
+            NumericOperator::Sub,
         )?;
 
         // SAFETY: subtracting the offset from valid patch indices keeps them sorted and within

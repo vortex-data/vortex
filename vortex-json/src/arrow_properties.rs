@@ -29,10 +29,7 @@ mod tests {
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::memory::BufferAllocatorRef;
     use vortex_array::scalar::Scalar;
-    use vortex_arrow::ExecuteArrowExt;
-    use vortex_arrow::test_harness::DefaultExport;
     use vortex_arrow::test_harness::check_arrow;
-    use vortex_arrow::test_harness::check_canonical_field;
     use vortex_arrow::test_harness::check_generated;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -116,23 +113,14 @@ mod tests {
             nullable,
         } = draw_case(tc)?;
 
-        for expected in [
-            Arc::new(StringArray::from_iter(
-                source
-                    .iter()
-                    .map(|s| s.as_ref().map(|value| value.text.as_str())),
-            )) as ArrowArrayRef,
-            Arc::new(LargeStringArray::from_iter(
-                source
-                    .iter()
-                    .map(|s| s.as_ref().map(|value| value.text.as_str())),
-            )),
-            Arc::new(StringViewArray::from_iter(
-                source
-                    .iter()
-                    .map(|s| s.as_ref().map(|value| value.text.as_str())),
-            )),
-        ] {
+        let text = source
+            .iter()
+            .map(|row| row.as_ref().map(|value| value.text.as_str()));
+        let alternate_layouts: [ArrowArrayRef; 2] = [
+            Arc::new(StringArray::from_iter(text.clone())),
+            Arc::new(LargeStringArray::from_iter(text.clone())),
+        ];
+        for expected in alternate_layouts {
             let mut field = Field::new("value", expected.data_type().clone(), nullable);
             field.try_with_extension_type(ArrowJson::default())?;
             check_arrow(array.clone(), &field, expected, &mut ctx)?;
@@ -140,16 +128,8 @@ mod tests {
 
         let mut canonical = Field::new("value", DataType::Utf8View, nullable);
         canonical.try_with_extension_type(ArrowJson::default())?;
-        check_canonical_field(&array, &canonical, &mut ctx)?;
-        let default = array.clone().execute_arrow(None, &mut ctx)?;
-        let expected: ArrowArrayRef = Arc::new(StringViewArray::from_iter(
-            source
-                .iter()
-                .map(|s| s.as_ref().map(|value| value.text.as_str())),
-        ));
-        assert_eq!(default.to_data(), expected.to_data());
-
-        check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+        let expected = Arc::new(StringViewArray::from_iter(text));
+        check_generated(tc, array, &canonical, expected, &mut ctx)
     }
 
     #[track_caller]

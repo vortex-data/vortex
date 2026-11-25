@@ -103,9 +103,9 @@ pub(crate) async fn load_device_patches(
         .into_primitive();
 
     // Ensure all on device
-    let chunk_offsets = ctx.ensure_on_device(chunk_offsets).await?;
-    let indices = ctx.ensure_on_device(indices).await?;
-    let values = ctx.ensure_on_device(values.buffer_handle().clone()).await?;
+    let chunk_offsets = ctx.ensure_on_device(chunk_offsets)?;
+    let indices = ctx.ensure_on_device(indices)?;
+    let values = ctx.ensure_on_device(values.buffer_handle().clone())?;
 
     let num_patches = patches.num_patches();
 
@@ -133,10 +133,11 @@ fn build_gpu_patches(
     // Zero-initialize to avoid uninitialized padding bytes (e.g. between
     // chunk_offset_type and indices) which would be UB when serialized.
     let mut gpu_patches: GPUPatches = unsafe { std::mem::zeroed() };
-    gpu_patches.chunk_offsets = dp.chunk_offsets.cuda_device_ptr()? as _;
+    let stream = ctx.stream();
+    gpu_patches.chunk_offsets = dp.chunk_offsets.cuda_device_ptr(stream)? as _;
     gpu_patches.chunk_offset_type = ptype_to_chunk_offset_type(dp.chunk_offset_ptype)?;
-    gpu_patches.indices = dp.indices.cuda_device_ptr()? as _;
-    gpu_patches.values = dp.values.cuda_device_ptr()? as _;
+    gpu_patches.indices = dp.indices.cuda_device_ptr(stream)? as _;
+    gpu_patches.values = dp.values.cuda_device_ptr(stream)? as _;
     gpu_patches.offset = dp.offset as u32;
     gpu_patches.offset_within_chunk = dp.offset_within_chunk as u32;
     gpu_patches.num_patches = dp.num_patches as u32;
@@ -158,8 +159,8 @@ fn build_gpu_patches(
     let mut buf =
         ByteBufferMut::with_capacity_aligned(size_of::<GPUPatches>(), Alignment::of::<u64>());
     buf.extend_from_slice(bytes);
-    let gpu_buf = ctx.ensure_on_device_sync(BufferHandle::new_host(buf.freeze()))?;
-    let ptr = gpu_buf.cuda_device_ptr()?;
+    let gpu_buf = ctx.ensure_on_device(BufferHandle::new_host(buf.freeze()))?;
+    let ptr = gpu_buf.cuda_device_ptr(stream)?;
     Ok((gpu_buf, ptr))
 }
 

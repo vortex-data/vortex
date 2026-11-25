@@ -22,10 +22,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
@@ -42,6 +40,8 @@ use vortex_session::registry::CachedId;
 
 use crate::decompressor::with_decompressor;
 use crate::validate_frame_content_size;
+
+mod probe;
 
 mod plugin;
 
@@ -535,26 +535,7 @@ impl VTable for ZstdBuffers {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = ZstdBuffers::decompress_and_build_inner(&array, session)?;
-        inner_array
-            .execute::<ArrayRef>(ctx)
-            .map(ExecutionResult::done)
-    }
-}
-
-impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
-    type ProbeState = ();
-
-    fn scalar_at(
-        array: ArrayView<'_, ZstdBuffers>,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
-        // layer here is weird. Valid use of zstd buffers array would be by executing it first into
-        // canonical
-        let inner_array =
-            ZstdBuffers::decompress_and_build_inner(&array.into_owned(), ctx.session())?;
-        inner_array.execute_scalar(index, ctx)
+        Ok(ExecutionResult::done(inner_array))
     }
 }
 
@@ -582,12 +563,13 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProvider;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
+    use vortex_array::stats::StatsProvider;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -651,6 +633,21 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::primitive(make_primitive_array())]
+    #[case::varbinview(make_varbinview_array())]
+    #[case::nullable_primitive(make_nullable_primitive_array())]
+    #[case::nullable_varbinview(make_nullable_varbinview_array())]
+    #[case::inlined_varbinview(make_inlined_varbinview_array())]
+    fn test_consistency(#[case] input: ArrayRef) -> VortexResult<()> {
+        let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        test_array_consistency(&compressed, &mut ctx);
+        test_array_consistency(&compressed.slice(1..compressed.len())?, &mut ctx);
         Ok(())
     }
 

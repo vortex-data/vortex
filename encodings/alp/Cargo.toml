@@ -26,11 +26,13 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+hegeltest = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
@@ -42,4 +44,12 @@ harness = false
 
 [[bench]]
 name = "alp_rd_take_chunked"
+harness = false
+
+[[bench]]
+name = "alp_slice_take"
+harness = false
+
+[[bench]]
+name = "alp_fsl_take"
 harness = false

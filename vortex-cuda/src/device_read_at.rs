@@ -12,6 +12,7 @@ use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 
 use crate::stream::VortexCudaStream;
+use crate::stream::await_stream_callback;
 
 /// A wrapper that uses an allocator to produce the returned buffer handle.
 #[derive(Clone)]
@@ -59,7 +60,11 @@ impl<T: VortexReadAt + Clone> VortexReadAt for CopyDeviceReadAt<T> {
 
             let host_buffer = handle.as_host().clone();
 
-            stream.copy_to_device(host_buffer)?.await
+            let device = stream.copy_to_device(&host_buffer)?;
+            // Callers consume the buffer on their own streams, possibly through untracked raw
+            // pointers, so wait for the copy rather than relying on stream order.
+            await_stream_callback(&stream).await?;
+            Ok(device)
         }
         .boxed()
     }

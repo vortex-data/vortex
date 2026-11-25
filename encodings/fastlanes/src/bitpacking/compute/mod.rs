@@ -16,6 +16,7 @@ mod compare;
 mod compare_fused;
 mod filter;
 pub(crate) mod is_constant;
+mod list_contains;
 mod packed_range;
 mod slice;
 mod stream_predicate;

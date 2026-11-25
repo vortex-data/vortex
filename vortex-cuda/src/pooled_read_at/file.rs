@@ -664,7 +664,7 @@ impl VortexReadAt for PooledFileReadAt {
             );
 
             let check_alignment = |buffer: BufferHandle| -> VortexResult<BufferHandle> {
-                let address = buffer.cuda_device_ptr()?;
+                let address = buffer.cuda_device_ptr(&reader.stream)?;
                 vortex_ensure!(
                     address.is_multiple_of(alignment.as_usize() as u64),
                     "Vortex CUDA file read returned device address {address:#x}, which is not aligned to {alignment} bytes"

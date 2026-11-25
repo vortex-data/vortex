@@ -13,6 +13,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
+use fastlanes::CmpOp;
 use fastlanes::FastLanesComparable;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -22,8 +23,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -120,32 +121,29 @@ where
     // unsigned arrays of one width share them.
     let rhs = rhs.as_();
     match base {
-        BaseCompare::Eq => stream_compare_fused::<T, _, _>(
+        BaseCompare::Eq => stream_compare_fused::<T>(
             lhs,
             bit_width,
-            rhs,
+            CmpOp::Eq(rhs),
             nullability,
-            <T as PhysicalPType>::Physical::is_eq,
             negate,
             &exact,
             ctx,
         ),
-        BaseCompare::Lt => stream_compare_fused::<T, _, _>(
+        BaseCompare::Lt => stream_compare_fused::<T>(
             lhs,
             bit_width,
-            rhs,
+            CmpOp::Lt(rhs),
             nullability,
-            <T as PhysicalPType>::Physical::is_lt,
             negate,
             &exact,
             ctx,
         ),
-        BaseCompare::Gt => stream_compare_fused::<T, _, _>(
+        BaseCompare::Gt => stream_compare_fused::<T>(
             lhs,
             bit_width,
-            rhs,
+            CmpOp::Gt(rhs),
             nullability,
-            <T as PhysicalPType>::Physical::is_gt,
             negate,
             &exact,
             ctx,
@@ -206,9 +204,8 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::optimizer::ArrayOptimizer;
-    use vortex_array::scalar_fn::fns::binary::CompareKernel;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -224,18 +221,18 @@ mod tests {
 
     /// All six operators on a small in-range input.
     #[rstest]
-    #[case(Operator::Eq, vec![false, false, false, true, false, false, true])]
-    #[case(Operator::NotEq, vec![true, true, true, false, true, true, false])]
-    #[case(Operator::Lt, vec![true, true, true, false, false, false, false])]
-    #[case(Operator::Lte, vec![true, true, true, true, false, false, true])]
-    #[case(Operator::Gt, vec![false, false, false, false, true, true, false])]
-    #[case(Operator::Gte, vec![false, false, false, true, true, true, true])]
-    fn small(#[case] op: Operator, #[case] expected: Vec<bool>) {
+    #[case(CompareOperator::Eq, vec![false, false, false, true, false, false, true])]
+    #[case(CompareOperator::NotEq, vec![true, true, true, false, true, true, false])]
+    #[case(CompareOperator::Lt, vec![true, true, true, false, false, false, false])]
+    #[case(CompareOperator::Lte, vec![true, true, true, true, false, false, true])]
+    #[case(CompareOperator::Gt, vec![false, false, false, false, true, true, false])]
+    #[case(CompareOperator::Gte, vec![false, false, false, true, true, true, true])]
+    fn small(#[case] op: CompareOperator, #[case] expected: Vec<bool>) {
         let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4, 5, 3]);
         let packed = BitPackedData::encode(&values.into_array(), 3, &mut ctx).unwrap();
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();
-        let result = packed.into_array().binary(rhs, op).unwrap();
+        let result = packed.into_array().compare(rhs, op).unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
     }
 
@@ -271,7 +268,7 @@ mod tests {
                         let want = prim
                             .clone()
                             .into_array()
-                            .binary(rhs.clone(), Operator::from(op))?;
+                            .compare(rhs.clone(), op)?;
                         assert_arrays_eq!(got, want, &mut SESSION.create_execution_ctx());
                     }
                 }
@@ -318,10 +315,7 @@ mod tests {
         ] {
             let got = <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs, op, &mut ctx)?
                 .expect("bit-packed compare kernel must engage");
-            let want = prim
-                .clone()
-                .into_array()
-                .binary(rhs.clone(), Operator::from(op))?;
+            let want = prim.clone().into_array().compare(rhs.clone(), op)?;
             assert_arrays_eq!(got, want, &mut SESSION.create_execution_ctx());
         }
         Ok(())
@@ -340,8 +334,10 @@ mod tests {
         let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
         assert!(packed.patches().is_some(), "test setup expects patches");
         let rhs = ConstantArray::new(50i32, prim.len()).into_array();
-        let expected = prim.into_array().binary(rhs.clone(), Operator::Eq)?;
-        let actual = packed.into_array().binary(rhs, Operator::Eq)?;
+        let expected = prim
+            .into_array()
+            .compare(rhs.clone(), CompareOperator::Eq)?;
+        let actual = packed.into_array().compare(rhs, CompareOperator::Eq)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
@@ -386,7 +382,7 @@ mod tests {
                 .clone()
                 .into_array()
                 .slice(start..start + slice_len)?
-                .binary(rhs.clone(), Operator::from(op))?;
+                .compare(rhs.clone(), op)?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
@@ -421,7 +417,7 @@ mod tests {
         let want = prim
             .into_array()
             .slice(start..end)?
-            .binary(rhs, Operator::Eq)?;
+            .compare(rhs, CompareOperator::Eq)?;
         assert_arrays_eq!(got, want, &mut ctx);
         Ok(())
     }
@@ -433,8 +429,10 @@ mod tests {
         let prim = PrimitiveArray::from_option_iter([Some(1u32), None, Some(3), Some(4), None]);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 3, &mut ctx)?;
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();
-        let actual = packed.into_array().binary(rhs.clone(), Operator::Eq)?;
-        let expected = prim.into_array().binary(rhs, Operator::Eq)?;
+        let actual = packed
+            .into_array()
+            .compare(rhs.clone(), CompareOperator::Eq)?;
+        let expected = prim.into_array().compare(rhs, CompareOperator::Eq)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
@@ -484,10 +482,7 @@ mod tests {
             if !patched && !nullable {
                 assert_eq!(got.as_constant().is_some(), decided, "{op:?} {rhs}");
             }
-            let want = prim
-                .clone()
-                .into_array()
-                .binary(rhs_array.clone(), Operator::from(op))?;
+            let want = prim.clone().into_array().compare(rhs_array.clone(), op)?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
@@ -508,10 +503,7 @@ mod tests {
                 got.as_constant().is_some(),
                 "{op:?} {rhs} should stay constant"
             );
-            let want = prim
-                .clone()
-                .into_array()
-                .binary(rhs_array.clone(), Operator::from(op))?;
+            let want = prim.clone().into_array().compare(rhs_array.clone(), op)?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
@@ -536,10 +528,7 @@ mod tests {
             let got =
                 <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs_array, op, &mut ctx)?
                     .expect("compare kernel must engage");
-            let want = prim
-                .clone()
-                .into_array()
-                .binary(rhs_array.clone(), Operator::from(op))?;
+            let want = prim.clone().into_array().compare(rhs_array.clone(), op)?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())

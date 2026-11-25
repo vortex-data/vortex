@@ -168,10 +168,70 @@ pub fn alp_rd_decode<T: ALPRDFloat + NativePType>(
     left_parts: BufferMut<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    mut right_parts: BufferMut<T::UINT>,
+    right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>>
+where
+    T::UINT: NativePType,
+{
+    let left_parts_patches = left_parts_patches
+        .map(|patches| PrimitivePatches::execute(patches, ctx))
+        .transpose()?;
+
+    Ok(alp_rd_decode_primitive(
+        left_parts,
+        left_parts_dict,
+        right_bit_width,
+        right_parts,
+        left_parts_patches,
+    ))
+}
+
+/// Left-part patches whose indices and values are already primitive arrays.
+pub(crate) struct PrimitivePatches {
+    indices: PrimitiveArray,
+    values: PrimitiveArray,
+    offset: usize,
+}
+
+impl PrimitivePatches {
+    fn execute(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let parts = patches.into_parts();
+
+        Ok(Self {
+            indices: parts.indices.execute::<PrimitiveArray>(ctx)?,
+            values: parts.values.execute::<PrimitiveArray>(ctx)?,
+            offset: parts.offset,
+        })
+    }
+
+    /// Downcasts the patch children, which must already be primitive arrays.
+    pub(crate) fn downcast(patches: Patches) -> Self {
+        let parts = patches.into_parts();
+
+        Self {
+            indices: parts.indices.downcast::<Primitive>(),
+            values: parts.values.downcast::<Primitive>(),
+            offset: parts.offset,
+        }
+    }
+}
+
+/// Decode ALP-RD encoded values with patches that are already primitive arrays.
+///
+/// The caller must check that each code is in `left_parts_dict`.
+///
+/// # Panics
+///
+/// Panics if `left_parts` and `right_parts` differ in length, or if a patch index is out of bounds.
+pub(crate) fn alp_rd_decode_primitive<T: ALPRDFloat + NativePType>(
+    left_parts: BufferMut<u16>,
+    left_parts_dict: &[u16],
+    right_bit_width: u8,
+    mut right_parts: BufferMut<T::UINT>,
+    left_parts_patches: Option<PrimitivePatches>,
+) -> Buffer<T>
 where
     T::UINT: NativePType,
 {
@@ -190,21 +250,19 @@ where
     );
 
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(indices.ptype(), |I| {
+        match_each_integer_ptype!(patches.indices.ptype(), |I| {
             apply_left_patches::<T, I>(
                 right_parts.as_mut_slice(),
-                indices.as_slice::<I>(),
-                patch_values.as_slice::<u16>(),
-                patches.offset(),
+                patches.indices.as_slice::<I>(),
+                patches.values.as_slice::<u16>(),
+                patches.offset,
                 right_bit_width,
             )
         });
     }
 
     // SAFETY: all bit patterns of T::UINT are valid T (u32↔f32 or u64↔f64).
-    Ok(unsafe { right_parts.transmute::<T>() }.freeze())
+    unsafe { right_parts.transmute::<T>() }.freeze()
 }
 
 /// Runs [`RDEncoder::split_parts`] compiled for the best SIMD level the CPU supports.

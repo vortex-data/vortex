@@ -241,10 +241,12 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -410,5 +412,32 @@ mod tests {
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[test]
+    fn finish_with_null_child_after_mixed_appends() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = StructArray::from_fields(&[
+            ("a", NullArray::new(1).into_array()),
+            ("b", PrimitiveArray::from_iter([7i32]).into_array()),
+        ])?;
+
+        let mut builder = StructBuilder::new_in(
+            source.dtype().as_struct_fields().clone(),
+            Nullability::NonNullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_scalar(&Scalar::default_value(builder.dtype()))?;
+        source
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+
+        let finished = builder.finish_into_struct();
+        let expected = StructArray::from_fields(&[
+            ("a", NullArray::new(2).into_array()),
+            ("b", PrimitiveArray::from_iter([0i32, 7]).into_array()),
+        ])?;
+        assert_arrays_eq!(&finished, &expected, &mut ctx);
+        Ok(())
     }
 }

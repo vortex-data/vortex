@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# str has storage_index=1. This tests cases where column_index (i.e. 0 in
+# SELECT strlen(str)) is different from storage_index.
+statement ok
+CREATE TABLE pep_test (before INTEGER, str VARCHAR, after INTEGER);
+
+statement ok
+INSERT INTO pep_test VALUES (0, 'Hello', 0), (1, 'Hi', 1), (2, 'Hey', 2);
+
+statement ok
+COPY (SELECT * FROM pep_test) TO '${WORK_DIR}/pe-pushdown.vortex';
+
+# || isn't pushed down as a complex filter so WHERE is not pushed down
+# although this is only usage of str in SELECT, we can't push strlen down
+# as there is usage in WHERE.
+# This also tests functions with multiple arguments using "str" inside
+query I
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
+WHERE prefix(str || 'O', 'H') > 0
+ORDER BY strlen(str);
+----
+2
+3
+5
+
+# conflict with concat(), no pushdown
+query I
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
+WHERE concat(str, str) = 'HelloHello'
+ORDER BY strlen(str);
+----
+5

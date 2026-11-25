@@ -136,6 +136,25 @@ jobs:
     uses: ./.github/workflows/pr-bench-gpu-compress.yml
     secrets: inherit
 
+  # A PR worth SQL benchmarks before merging is worth them on its own merge commit too, so the
+  # SQL labels and `action/bench-all` also add `action/bench-on-merge` (see develop-bench-on-merge.yml). Labels added
+  # with GITHUB_TOKEN start no workflows; develop-bench-on-merge.yml reads the label at merge.
+  add-bench-on-merge-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+      && contains(fromJSON('["action/bench-all", "action/bench-sql", "action/bench-sql-compact", "action/bench-sql-extended"]'), github.event.label.name)
+    steps:
+      - name: Add action/bench-on-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --method POST "repos/${GH_REPO}/issues/${PR_NUMBER}/labels" \
+            -f "labels[]=action/bench-on-merge" > /dev/null
+
   remove-sql-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -189,3 +208,21 @@ jobs:
     secrets: inherit
     with:
       matrix_preset: "pr-full"
+
+  remove-sql-scan-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/bench-scan'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/bench-scan
+          fail_on_error: true
+
+  sql-scan-bench:
+    needs: remove-sql-scan-label
+    uses: ./.github/workflows/pr-bench-sql.yml
+    secrets: inherit
+    with:
+      matrix_preset: "pr-scan"

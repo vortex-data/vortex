@@ -16,6 +16,8 @@ use crate::TableSpec;
 use crate::spatialbench::datagen;
 use crate::spatialbench::datagen::Table;
 use crate::utils::file::resolve_data_url;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::prepare_parquet_dir_keeping;
 use crate::workspace_root;
 
 /// Data-dir subfolder for the native-geometry Vortex files (the `vortex-spatial-native` lane).
@@ -88,6 +90,17 @@ impl Benchmark for SpatialBenchBenchmark {
             .data_url
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
+        // Generate the tables again if their row groups are not local ones. The `zone` files come
+        // from outside, so they stay.
+        let zone_prefix = format!("{}_", Table::Zone.name());
+        prepare_parquet_dir_keeping(
+            &base_data_dir.join(Format::Parquet.name()),
+            LOCAL_ROW_GROUP_ROWS,
+            |path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(&zone_prefix))
+            },
+        )?;
         datagen::generate_tables(&self.scale_factor, base_data_dir.clone()).await?;
 
         // `zone` is externally sourced (SpatialBench directly generates it), so restore its

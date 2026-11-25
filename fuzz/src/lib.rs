@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 
 use vortex_session::VortexSession;
 
-/// Session for the Arrow round-trip target, including every covered extension plugin.
+/// Session for the Arrow round-trip target, including every covered extension and Variant plugin.
 ///
 /// Separate registration keeps these plugins from changing other fuzz drivers' sessions.
 #[cfg(feature = "native")]
@@ -22,6 +22,7 @@ pub(crate) static ARROW_ROUND_TRIP_SESSION: LazyLock<VortexSession> = LazyLock::
     let session = VortexSession::empty();
     vortex_uuid::initialize(&session);
     vortex_json::initialize(&session);
+    vortex_parquet_variant::initialize(&session);
     vortex_tensor::initialize(&session);
     vortex_spatial::initialize(&session);
     session
@@ -53,6 +54,14 @@ pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::FuzzFileCorruption;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::has_duplicate_field_names;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::has_nullable_struct;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::run_file_corruption;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
 #[cfg(feature = "cuda")]

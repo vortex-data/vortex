@@ -64,10 +64,10 @@ impl Output {
 
     fn is_eos(&self) -> bool {
         assert_eq!(
-            self.schema.release.is_none(),
+            self.schema.release().is_none(),
             self.array.array.release.is_none()
         );
-        self.schema.release.is_none()
+        self.schema.release().is_none()
     }
 }
 
@@ -349,7 +349,7 @@ fn upload(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrayRef>
     }
     let mut buffers = Vec::new();
     for buffer in array.buffer_handles() {
-        buffers.push(ctx.ensure_on_device_sync(buffer)?);
+        buffers.push(ctx.ensure_on_device(buffer)?);
     }
     // SAFETY: The fixture's slots and buffers are unchanged except for their memory placement.
     unsafe { array.with_slots(slots.into())?.with_buffers(buffers) }
@@ -539,7 +539,8 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
         let message = match failure {
             "scan" => "injected scan failure",
             "dtype" => "logical dtype changed",
-            "export" => "exceeds target range",
+            // "value exceeds" or "values exceed", as the cast's wording has been.
+            "export" => "target range",
             "panic" => "injected polling panic",
             _ => unreachable!(),
         };
@@ -597,7 +598,7 @@ fn test_invalid_output_pointers_do_not_consume_or_poison() -> VortexResult<()> {
             unsafe { vx_cuda_device_batches_next(&raw mut handle, schema, array, &raw mut error) };
         assert_eq!(status, VX_CUDA_ERR);
         assert!(take_error(error).is_some());
-        assert!(output.schema.release.is_none());
+        assert!(output.schema.release().is_none());
         assert_eq!(output.array.array.length, 123);
     }
     assert_eq!(next(&mut handle)?.array.array.length, 1);
@@ -625,7 +626,7 @@ fn test_null_and_unaligned_handles_without_cuda() {
         };
         assert_eq!(status, VX_CUDA_ERR);
         assert!(take_error(error).is_some());
-        assert!(output.schema.release.is_none());
+        assert!(output.schema.release().is_none());
         assert_eq!(output.array.array.length, 123);
     }
     // SAFETY: Null is explicitly supported, including when error details are discarded.

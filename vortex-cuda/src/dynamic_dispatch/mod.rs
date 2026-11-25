@@ -573,6 +573,7 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::ALPArrayExt;
@@ -683,8 +684,8 @@ mod tests {
         let bitpacked = bitpacked_array_u32(bit_width, len, &mut ctx);
         let cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
         let packed = bitpacked.packed().clone();
-        let device_input = futures::executor::block_on(cuda_ctx.ensure_on_device(packed))?;
-        let input_ptr = device_input.cuda_device_ptr()?;
+        let device_input = cuda_ctx.ensure_on_device(packed)?;
+        let input_ptr = device_input.cuda_device_ptr(cuda_ctx.stream())?;
 
         let scalar_ops: Vec<ScalarOp> = references
             .iter()
@@ -1093,6 +1094,56 @@ mod tests {
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_widen_dict_for_codes_preserve_code_width() -> VortexResult<()> {
+        let mut cpu_ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([1i16, 2]);
+        let codes_for = FoR::try_new(codes.into_array(), Scalar::from(-1i16))?;
+        let values = PrimitiveArray::from_iter([11i16, 22]);
+        let dict = DictArray::try_new(codes_for.into_array(), values.into_array())?;
+        let array = WidenArray::try_new(
+            dict.into_array(),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let unsigned_codes = PrimitiveArray::from_iter([u16::MAX, 0]);
+        let unsigned_codes_for = FoR::try_new(unsigned_codes.into_array(), Scalar::from(1u16))?;
+        let unsigned_values = PrimitiveArray::from_iter([11u16, 22]);
+        let unsigned_dict = DictArray::try_new(
+            unsigned_codes_for.into_array(),
+            unsigned_values.into_array(),
+        )?;
+        let unsigned_array = WidenArray::try_new(
+            unsigned_dict.into_array(),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let cases = [
+            (array, PrimitiveArray::from_iter([11i64, 22]).into_array()),
+            (
+                unsigned_array,
+                PrimitiveArray::from_iter([11u64, 22]).into_array(),
+            ),
+        ];
+        for (array, expected) in cases {
+            assert!(matches!(
+                DispatchPlan::new(&array, CudaDispatchMode::Auto)?,
+                DispatchPlan::Fused(..)
+            ));
+
+            let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+            let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+            let actual = CanonicalCudaExt::into_host(canonical, cuda_ctx.execution_ctx())
+                .await?
+                .into_array();
+            assert_arrays_eq!(actual, expected, &mut cpu_ctx);
+        }
 
         Ok(())
     }
@@ -2008,9 +2059,7 @@ mod tests {
         ) -> VortexResult<ArrayRef> {
             let array = PrimitiveArray::new(Buffer::from(values), NonNullable);
             Ok(PrimitiveArray::from_buffer_handle(
-                cuda_ctx
-                    .ensure_on_device(array.buffer_handle().clone())
-                    .await?,
+                cuda_ctx.ensure_on_device(array.buffer_handle().clone())?,
                 T::PTYPE,
                 NonNullable,
             )

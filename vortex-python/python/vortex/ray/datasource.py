@@ -18,10 +18,8 @@ from ray.data.datasource.path_util import (
 )
 from typing_extensions import override
 
-from .. import open as vx_open
-from ..arrow.expression import ensure_vortex_expression
+from ..dataset import _open_exact_files
 from ..expr import Expr as VortexExpr
-from ..type_aliases import IntoProjection
 
 if TYPE_CHECKING:
     import pandas
@@ -59,13 +57,18 @@ def _url_scheme(fs: FileSystem) -> str | None:
 
 @final
 class VortexDatasource(Datasource):
-    """Read a folder of Vortex files as a row-wise-partitioned table."""
+    """Read a folder of Vortex files as a row-wise-partitioned table.
+
+    Each read task reads its files as one :class:`vortex.dataset.VortexDataset`, so Ray reads with
+    the same column selection, filter pushdown and cross-file concurrency as DuckDB, Polars and
+    PyArrow.
+    """
 
     def __init__(
         self,
         *,
         url: str,
-        columns: IntoProjection = None,
+        columns: list[str] | None = None,
         filter: pc.Expression | VortexExpr | None = None,
         batch_size: int | None = None,
         meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),
@@ -120,7 +123,8 @@ class VortexDatasource(Datasource):
                 paths,
                 self._columns,
                 self._filter,
-                per_task_row_limit if per_task_row_limit is not None else self._batch_size,
+                self._batch_size,
+                per_task_row_limit,
             )
             for paths in partition(parallelism, self._paths)
             if len(paths) > 0
@@ -135,39 +139,34 @@ class VortexDatasource(Datasource):
 
 def _read_task(
     paths: list[str],
-    columns: IntoProjection,
+    columns: list[str] | None,
     filter: pc.Expression | VortexExpr | None,
     batch_size: int | None,
+    per_task_row_limit: int | None = None,
 ) -> ReadTask:
     if not paths:
         raise ValueError("no paths specified")
 
-    files = [vx_open(path) for path in paths]
-    schemas = [f.dtype.to_arrow_schema() for f in files]
-    schema = schemas[0]
-    assert all(s == schema for s in schemas[1:])
-
-    num_rows = None if filter is not None else sum(len(f) for f in files)
-    output_schema = files[0].to_arrow(columns, limit=0).schema
-
+    dataset = _open_exact_files(paths)
     metadata = BlockMetadata(
-        num_rows=num_rows,
+        num_rows=None if filter is not None else dataset.count_rows(),
         size_bytes=None,
         exec_stats=None,
         input_files=tuple(paths),
     )
+    output_schema = dataset.scanner(columns=columns).projected_schema
 
     def read() -> Iterable[pandas.DataFrame]:
-        # If we could serialize a PyVortexFile and a PyExpr, we could set those up earlier.
+        # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
+        reader = _open_exact_files(paths).to_record_batch_reader(
+            columns=columns, filter=filter, batch_size=batch_size, limit=per_task_row_limit
+        )
 
-        vx_filter = ensure_vortex_expression(filter, schema=schema)
-        for path in paths:
-            f = vx_open(path)
-            for rb in f.to_arrow(columns, expr=vx_filter, batch_size=batch_size):
-                # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
-                #
-                # yield pa.Table.from_batches([rb])
-                #
-                yield rb.to_pandas()
+        for rb in reader:
+            # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
+            #
+            # yield pa.Table.from_batches([rb])
+            #
+            yield rb.to_pandas()
 
     return ReadTask(read, metadata, output_schema)

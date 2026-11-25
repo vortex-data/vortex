@@ -48,5 +48,6 @@ formats, and editions evolve while preserving read compatibility.
 **Language bindings:** [Rust](https://docs.rs/vortex), [Python](../api/python/index.rst),
 [Java](../api/java/index.rst), [C](../api/c/index.rst)
 
-**Query engines:** [DataFusion](../user-guide/datafusion.md), [DuckDB](../user-guide/duckdb.md),
-[Spark](../user-guide/spark.md), [Polars](../user-guide/polars.md), [Ray](../user-guide/ray.md)
+**Query engines:** [ClickHouse](../user-guide/clickhouse.md), [DataFusion](../user-guide/datafusion.md),
+[DuckDB](../user-guide/duckdb.md), [Spark](../user-guide/spark.md), [Polars](../user-guide/polars.md),
+[Ray](../user-guide/ray.md)

@@ -1,0 +1,180 @@
+name: Triage sync
+
+# Keeps the on-call triage channel in Slack up to date with external issues, external PRs, external
+# comments on team items, fuzzer issues, and bug issues that the team or a bot filed. The code and
+# its design notes are in .github/scripts/triage.
+#
+# The repository and its Actions logs are public, so the scripts print counts only. Claude runs
+# inside the sync step, so its input and its verdicts never pass through a job output or a step's
+# `env`, which the log prints.
+#
+# Repository configuration:
+# - Secret SLACK_TRIAGE_BOT_TOKEN (scopes: chat:write, channels:history)
+# - Variable SLACK_TRIAGE_CHANNEL_ID
+# - Secret SLACK_TRIAGE_USERS_JSON (optional): lowercase GitHub login to Slack user ID
+# - Variable SLACK_TRIAGE_ONCALL_ID (optional): the Slack user ID of the on-call engineer
+# - Variable ANTHROPIC_FEDERATION_RULE_TRIAGE (optional): turns on Claude's verdicts, together
+#   with ANTHROPIC_ORGANIZATION_ID and ANTHROPIC_SERVICE_ACCOUNT_ID
+
+on:
+  schedule:
+    # Every 5 minutes on weekdays, off the busy top of the hour. These UTC hours cover 08:00 London
+    # to 19:00 New York in both summer and winter time, and the bot skips the runs outside that span.
+    - cron: "2-59/5 7-23 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      pings:
+        description: Send reminders that mention people
+        type: boolean
+        default: false
+      max_new:
+        description: Maximum new item roots to create in one run (0 for unlimited)
+        type: number
+        default: 5
+      use_claude:
+        description: Ask Claude who owes the next move and how urgent each item is
+        type: boolean
+        default: true
+      purge:
+        description: Only delete every message that this bot posted in the channel
+        type: boolean
+        default: false
+
+permissions: { }
+
+concurrency:
+  group: triage-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: inputs.purge != true && vars.SLACK_TRIAGE_CHANNEL_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      # Requests the GitHub OIDC token that the script exchanges for a short-lived Anthropic token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      # `sync: false` because `uv run --no-project` needs only the uv binary. Running from the
+      # repository root applies its `exclude-newer` setting, which holds back new packages.
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+
+      - name: Sync the Slack channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_TRIAGE_BOT_TOKEN }}
+          SLACK_USERS_JSON: ${{ secrets.SLACK_TRIAGE_USERS_JSON }}
+          ONCALL_SLACK_ID: ${{ vars.SLACK_TRIAGE_ONCALL_ID }}
+          CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_TRIAGE }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          # A scheduled run pings and asks Claude. A manual run follows its inputs.
+          PINGS: ${{ github.event_name == 'schedule' || inputs.pings }}
+          MAX_NEW: ${{ github.event_name == 'schedule' && 10 || inputs.max_new }}
+          USE_CLAUDE: ${{ (github.event_name == 'schedule' || inputs.use_claude) && vars.ANTHROPIC_FEDERATION_RULE_TRIAGE != '' }}
+          # Only a scheduled run keeps to the run hours, so a manual run always syncs.
+          RUN_HOURS_ONLY: ${{ github.event_name == 'schedule' }}
+          PYTHONPATH: ${{ github.workspace }}/.github/scripts
+        run: |
+          args=(sync --repo "$GITHUB_REPOSITORY" --channel "$CHANNEL_ID")
+          args+=(--max-new "$MAX_NEW")
+          if [ "$PINGS" = "true" ]; then
+            args+=(--pings)
+          fi
+          if [ "$USE_CLAUDE" = "true" ]; then
+            args+=(--claude)
+          fi
+          if [ "$RUN_HOURS_ONLY" = "true" ]; then
+            args+=(--run-hours-only)
+          fi
+          uv run --no-project --with 'anthropic==2.6.0' python -m triage "${args[@]}"
+
+  purge:
+    if: github.event_name == 'workflow_dispatch' && inputs.purge && vars.SLACK_TRIAGE_CHANNEL_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      - name: Delete the bot's messages
+        working-directory: .github/scripts
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_TRIAGE_BOT_TOKEN }}
+          CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
+        run: python3 -m triage purge --channel "$CHANNEL_ID"
+
+  # It uses curl, not the Python code, so it still works when that code is broken.
+  notify-failure:
+    needs: [sync, purge]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check the previous scheduled run
+        id: repeat
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          notify=true
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            response=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" --get \
+              --data-urlencode "branch=${BRANCH}" \
+              --data-urlencode "event=schedule" \
+              --data-urlencode "status=completed" \
+              --data-urlencode "per_page=100" \
+              "${GITHUB_API_URL%/}/repos/${GITHUB_REPOSITORY}/actions/workflows/triage-sync.yml/runs" || true)
+            previous_run=$(jq -r '.workflow_runs[0] | select(.conclusion == "failure") | .id // ""' <<< "$response" 2>/dev/null || true)
+            if [ -n "$previous_run" ]; then
+              jobs=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" --get \
+                --data-urlencode "per_page=100" \
+                "${GITHUB_API_URL%/}/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run}/jobs" || true)
+              delivered=$(jq -r '[.jobs[]? | select(.name == "notify-failure") | .conclusion][0] // ""' <<< "$jobs" 2>/dev/null || true)
+              if [ "$delivered" = "success" ]; then
+                notify=false
+              fi
+            fi
+          fi
+          echo "notify=$notify" >> "$GITHUB_OUTPUT"
+      - name: Post a failure note
+        if: steps.repeat.outputs.notify == 'true'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_TRIAGE_BOT_TOKEN }}
+          CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
+          ONCALL_SLACK_ID: ${{ vars.SLACK_TRIAGE_ONCALL_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mention=""
+          if [ -n "$ONCALL_SLACK_ID" ]; then
+            mention="<@${ONCALL_SLACK_ID}> "
+          fi
+          text="${mention}:warning: The triage sync failed. <${RUN_URL}|Open the run> for the log."
+          payload=$(jq -n --arg channel "$CHANNEL_ID" --arg text "$text" \
+            '{channel: $channel, text: $text, unfurl_links: false}')
+          response=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$payload")
+          if [ "$(jq -r .ok <<< "$response")" != "true" ]; then
+            echo "Slack rejected the failure note: $(jq -r .error <<< "$response")"
+            exit 1
+          fi

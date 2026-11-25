@@ -15,6 +15,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -73,8 +74,12 @@ pub(crate) fn code_boundary_at(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<usize> {
-    codes_offsets
-        .execute_scalar(index, ctx)?
+    code_boundary(&codes_offsets.execute_scalar(index, ctx)?, index)
+}
+
+/// The code boundary that `codes_offsets[index]` holds.
+pub(crate) fn code_boundary(boundary: &Scalar, index: usize) -> VortexResult<usize> {
+    boundary
         .as_primitive()
         .as_opt::<usize>()
         .flatten()

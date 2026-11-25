@@ -32,10 +32,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::test_harness::DefaultExport;
     use crate::test_harness::StorageCase;
-    use crate::test_harness::check_arrow;
-    use crate::test_harness::check_canonical_field;
     use crate::test_harness::check_generated;
     use crate::test_harness::generate::draw_validity;
 
@@ -155,10 +152,7 @@ mod tests {
         );
         let field = Field::new("value", arrow_dtype, dtype.is_nullable());
         let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
-        check_arrow(array.clone(), &field, expected, &mut ctx)?;
-        check_canonical_field(&array, &field, &mut ctx)?;
-
-        check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+        check_generated(tc, array, &field, expected, &mut ctx)
     }
 
     #[hegel::test(test_cases = 100, print_blob = true)]

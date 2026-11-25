@@ -24,6 +24,7 @@ use arrow_buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
+use arrow_schema::Metadata;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -213,17 +214,15 @@ fn export_field_holds_vortex_id_and_marked_base64_metadata() -> VortexResult<()>
         .arrow()
         .to_arrow_field("t", tagged_i64s(0xff)?.dtype())?;
 
-    let expected_field = Field::new("t", DataType::Int64, true).with_metadata(
-        [
+    let expected_field =
+        Field::new("t", DataType::Int64, true).with_metadata(Metadata::from_iter([
             (EXTENSION_TYPE_NAME_KEY.to_owned(), "test.tagged".to_owned()),
             (EXTENSION_TYPE_METADATA_KEY.to_owned(), "/w==".to_owned()),
             (
                 EXTENSION_METADATA_ENCODING_KEY.to_owned(),
                 "base64".to_owned(),
             ),
-        ]
-        .into(),
-    );
+        ]));
     assert_eq!(field, expected_field);
 
     Ok(())

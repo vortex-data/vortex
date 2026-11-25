@@ -53,6 +53,24 @@ impl TimeUnit {
             TimeUnit::Days => Span::new().try_days(v)?,
         })
     }
+
+    /// Return the length of one unit in nanoseconds.
+    ///
+    /// A day is always 86,400 seconds, as in Arrow, so no unit accounts for leap seconds.
+    pub const fn nanos_per_unit(self) -> i64 {
+        match self {
+            TimeUnit::Nanoseconds => 1,
+            TimeUnit::Microseconds => 1_000,
+            TimeUnit::Milliseconds => 1_000_000,
+            TimeUnit::Seconds => 1_000_000_000,
+            TimeUnit::Days => 86_400_000_000_000,
+        }
+    }
+
+    /// Return the number of units in one day.
+    pub const fn units_per_day(self) -> i64 {
+        TimeUnit::Days.nanos_per_unit() / self.nanos_per_unit()
+    }
 }
 
 impl Display for TimeUnit {

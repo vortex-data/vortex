@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import io
 import math
 import os
 import pickle
+import subprocess
+import sys
+import textwrap
 
 import pyarrow as pa
+import pyarrow.fs as pafs
 import pytest
 
 import vortex as vx
@@ -64,6 +69,15 @@ def test_read_url_with_indices(tmp_path) -> None:
 def test_to_arrow_batch_size(vxf: VortexFile) -> None:
     assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
+
+
+def test_zero_batch_size_rejected(vxf: VortexFile) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_repeated_scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_arrow(batch_size=0)
 
 
 def test_to_arrow_columns(vxf: VortexFile) -> None:
@@ -129,6 +143,57 @@ def test_write_rejects_unsupported_object(tmp_path) -> None:
         vx.io.write(object(), str(tmp_path / "x.vortex"))  # ty: ignore[invalid-argument-type]
 
 
+def test_write_to_bytes_io() -> None:
+    source = pa.table({"id": [1, 2], "embedding": pa.array([[1, 2], [3, 4]], type=pa.list_(pa.float32(), 2))})
+    with io.BytesIO() as output:
+        vx.io.write_to(source.to_reader(max_chunksize=1), output, edition="core2025.10.0")
+        assert vx.open_readable(output).to_arrow(schema=source.schema).read_all().equals(source)
+
+
+def test_write_to_pyarrow_stream(tmp_path) -> None:
+    path = str(tmp_path / "arrow-output.vortex")
+    source = pa.table({"id": [1, 2, 3]})
+    with pafs.LocalFileSystem().open_output_stream(path) as output:
+        vx.io.VortexWriteOptions.compact().with_edition("core2025.10.0").write_to(source, output)
+        assert not output.closed
+    assert vx.open(path).to_arrow().read_all().equals(source)
+
+
+def test_write_to_retries_short_writes_and_flushes() -> None:
+    class ShortWriter:
+        def __init__(self):
+            self.buffer = io.BytesIO()
+            self.flushed = False
+
+        def write(self, data: bytes, /) -> int:
+            return self.buffer.write(data[:8])
+
+        def flush(self) -> None:
+            self.flushed = True
+
+    output = ShortWriter()
+    source = pa.table({"id": [1, 2, 3]})
+    vx.io.write_to(source, output)
+    assert output.flushed
+    assert vx.open_readable(output.buffer).to_arrow().read_all().equals(source)
+
+
+@pytest.mark.parametrize("failure", ["write", "flush"])
+def test_write_to_propagates_output_error(failure: str) -> None:
+    class FailingWriter:
+        def write(self, data: bytes, /) -> int:
+            if failure == "write":
+                raise OSError("output failed")
+            return len(data)
+
+        def flush(self) -> None:
+            if failure == "flush":
+                raise OSError("output failed")
+
+    with pytest.raises(OSError, match="output failed"):
+        vx.io.write_to(pa.table({"id": [1]}), FailingWriter())
+
+
 @pytest.mark.parametrize("with_footer", [False, True])
 def test_memory_map_reads_values(vxf: VortexFile, with_footer: bool) -> None:
     mapped = vx.open(vxf.path, memory_map=True, footer=vxf.footer if with_footer else None)
@@ -151,3 +216,106 @@ def test_memory_map_rejects_segment_cache(vxf: VortexFile) -> None:
 def test_memory_map_rejects_remote_url() -> None:
     with pytest.raises(ValueError, match="local path"):
         vx.open("s3://bucket/key.vortex", memory_map=True)
+
+
+@pytest.mark.parametrize("mode", ["to_arrow", "write"])
+def test_array_iterator_concurrent_transfer_does_not_deadlock(mode: str) -> None:
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        import tempfile
+        import threading
+
+        import pyarrow as pa
+        import vortex as vx
+
+        entry = threading.Event()
+        release = threading.Event()
+        transfer_started = threading.Event()
+        schema = pa.schema([pa.field("value", pa.int64())])
+        first_batch = vx.array(pa.table({"value": [10]}, schema=schema))
+        second_batch = vx.array(pa.table({"value": [20]}, schema=schema))
+
+        def delayed():
+            entry.set()
+            assert release.wait(5)
+            yield first_batch
+            yield second_batch
+
+        it = vx.ArrayIterator.from_iter(first_batch.dtype, iter(delayed()))
+        seen = []
+
+        def advance():
+            seen.append(next(it).to_arrow_table().to_pydict())
+
+        def releaser():
+            assert transfer_started.wait(5)
+            release.set()
+
+        producer = threading.Thread(target=advance)
+        watcher = threading.Thread(target=releaser)
+        producer.start()
+        watcher.start()
+        assert entry.wait(5)
+
+        # Hold the GIL until the native transfer call detaches it while waiting on
+        # the iterator mutex. Without detach(), watcher never gets the GIL to set
+        # `release`, so a lock-order regression deterministically deadlocks here.
+        sys.setswitchinterval(10.0)
+        mode = sys.argv[1]
+        if mode == "to_arrow":
+            transfer_started.set()
+            remaining = it.to_arrow().read_all().to_pydict()
+        else:
+            with tempfile.TemporaryDirectory() as td:
+                path = os.path.join(td, "out.vortex")
+                transfer_started.set()
+                vx.io.write(it, path)
+                remaining = vx.open(path).scan().read_all().to_arrow_table().to_pydict()
+
+        watcher.join(5)
+        producer.join(5)
+        assert not watcher.is_alive()
+        assert not producer.is_alive()
+        assert seen == [{"value": [10]}]
+        assert remaining == {"value": [20]}
+        assert next(it, None) is None
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script, mode],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+
+
+@pytest.mark.parametrize("method", ["next", "read_all", "to_arrow_array", "to_arrow", "write"])
+def test_python_array_iterator_rejects_reentrant_access(tmp_path, method: str) -> None:
+    batch = vx.array(pa.table({"a": [1, 2]}))
+    holder: dict[str, vx.ArrayIterator] = {}
+
+    def gen():
+        it = holder["it"]
+        with pytest.raises(RuntimeError, match="already being advanced"):
+            if method == "next":
+                next(it)
+            elif method == "read_all":
+                it.read_all()
+            elif method == "to_arrow_array":
+                it.to_arrow_array()
+            elif method == "to_arrow":
+                it.to_arrow()
+            else:
+                vx.io.write(it, str(tmp_path / "reentrant.vortex"))
+        yield batch
+
+    it = vx.ArrayIterator.from_iter(batch.dtype, gen())
+    holder["it"] = it
+
+    assert next(it).to_pylist() == [{"a": 1}, {"a": 2}]
+    with pytest.raises(StopIteration):
+        next(it)
