@@ -1274,7 +1274,7 @@ fn supported_data_types(dt: &DataType) -> bool {
         || dt.is_string()
         || matches!(
             dt,
-            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_)
+            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_) | Duration(_)
         );
 
     if !is_supported {

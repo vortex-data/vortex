@@ -60,6 +60,7 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::executor::VortexSessionExecute;
+    use crate::extension::datetime::Duration;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
@@ -171,6 +172,22 @@ mod tests {
         .into_array(),
         list_dtype(DType::Primitive(PType::I64, Nullability::NonNullable), Nullability::NonNullable),
     )]
+    #[case::duration_to_storage(
+        create_duration_array(TimeUnit::Milliseconds, false).into_array(),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    )]
+    #[case::storage_to_duration(
+        buffer![1_000i64, 2_000].into_array(),
+        duration_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
+    )]
+    #[case::duration_coarser_unit(
+        create_duration_array(TimeUnit::Milliseconds, false).into_array(),
+        duration_dtype(TimeUnit::Seconds, Nullability::NonNullable),
+    )]
+    #[case::duration_to_timestamp(
+        create_duration_array(TimeUnit::Milliseconds, false).into_array(),
+        timestamp_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
+    )]
     fn cast_never_reinterprets_storage(#[case] input: ArrayRef, #[case] target: DType) {
         assert!(
             Cast.bind(target.clone())
@@ -258,6 +275,10 @@ mod tests {
     #[case(create_timestamp_array(TimeUnit::Microseconds, true))]
     #[case(create_timestamp_array(TimeUnit::Nanoseconds, false))]
     #[case(create_timestamp_array(TimeUnit::Seconds, true))]
+    #[case(create_duration_array(TimeUnit::Milliseconds, false))]
+    #[case(create_duration_array(TimeUnit::Microseconds, true))]
+    #[case(create_duration_array(TimeUnit::Nanoseconds, false))]
+    #[case(create_duration_array(TimeUnit::Seconds, true))]
     fn test_cast_extension_conformance(#[case] array: ExtensionArray) {
         test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
@@ -314,5 +335,28 @@ mod tests {
         DType::Extension(
             Timestamp::new_with_tz(time_unit, Some("UTC".into()), nullability).erased(),
         )
+    }
+
+    fn create_duration_array(time_unit: TimeUnit, nullable: bool) -> ExtensionArray {
+        let dtype = duration_dtype(time_unit, nullable.into());
+
+        let storage = if nullable {
+            PrimitiveArray::from_option_iter([
+                Some(-1_000_000i64),
+                None,
+                Some(0),
+                Some(2_000_000),
+                None,
+            ])
+            .into_array()
+        } else {
+            buffer![-1_000_000i64, 0, 1_000_000, 2_000_000, 3_000_000].into_array()
+        };
+
+        ExtensionArray::new(dtype.as_extension().clone(), storage)
+    }
+
+    fn duration_dtype(time_unit: TimeUnit, nullability: Nullability) -> DType {
+        DType::Extension(Duration::new(time_unit, nullability).erased())
     }
 }
