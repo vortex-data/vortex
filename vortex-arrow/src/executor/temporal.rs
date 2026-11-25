@@ -3,10 +3,8 @@
 
 //! Canonical Vortex → Arrow conversion for the temporal extension types.
 //!
-//! `Date`, `Time`, and `Timestamp` are Vortex builtin extension types that map directly to
-//! native Arrow temporal types (`Date32`/`Date64`, `Time32`/`Time64`, `Timestamp`). These
-//! conversions live in the canonical executor rather than in the plugin layer because they
-//! aren't Arrow extensions and the mapping is fully determined by the source `ExtDType`.
+//! `Date`, `Time`, `Timestamp`, and `Duration` are Vortex built-in extension types that map
+//! directly to native Arrow types in the canonical executor.
 
 use std::sync::Arc;
 
@@ -16,6 +14,10 @@ use arrow_array::types::ArrowTemporalType;
 use arrow_array::types::ArrowTimestampType;
 use arrow_array::types::Date32Type;
 use arrow_array::types::Date64Type;
+use arrow_array::types::DurationMicrosecondType;
+use arrow_array::types::DurationMillisecondType;
+use arrow_array::types::DurationNanosecondType;
+use arrow_array::types::DurationSecondType;
 use arrow_array::types::Time32MillisecondType;
 use arrow_array::types::Time32SecondType;
 use arrow_array::types::Time64MicrosecondType;
@@ -33,10 +35,12 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::root;
 use vortex_functions::expr::ext_storage;
@@ -102,6 +106,29 @@ pub(super) fn to_arrow_timestamp(
     })
 }
 
+pub(super) fn to_arrow_duration(
+    array: ArrayRef,
+    target: &DataType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    validate_temporal_extension(&array, target)?;
+    let DataType::Duration(unit) = target else {
+        unreachable!("to_arrow_duration called with non-Duration type {target}");
+    };
+    Ok(match unit {
+        ArrowTimeUnit::Second => Arc::new(to_temporal_primitive::<DurationSecondType>(array, ctx)?),
+        ArrowTimeUnit::Millisecond => Arc::new(to_temporal_primitive::<DurationMillisecondType>(
+            array, ctx,
+        )?),
+        ArrowTimeUnit::Microsecond => Arc::new(to_temporal_primitive::<DurationMicrosecondType>(
+            array, ctx,
+        )?),
+        ArrowTimeUnit::Nanosecond => {
+            Arc::new(to_temporal_primitive::<DurationNanosecondType>(array, ctx)?)
+        }
+    })
+}
+
 fn with_timezone<T>(
     array: ArrayRef,
     tz: Option<&Arc<str>>,
@@ -153,6 +180,14 @@ fn validate_temporal_extension(array: &ArrayRef, target: &DataType) -> VortexRes
     let Some(ext) = array.dtype().as_extension_opt() else {
         return Ok(());
     };
+    if let (Some(unit), DataType::Duration(arrow_unit)) = (ext.metadata_opt::<Duration>(), target) {
+        vortex_ensure_eq!(
+            crate::dtype::to_arrow_time_unit(*unit)?,
+            *arrow_unit,
+            "Duration unit mismatch"
+        );
+        return Ok(());
+    }
     let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
         vortex_bail!(
             "Cannot convert extension {} to Arrow type {target}",

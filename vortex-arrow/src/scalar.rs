@@ -16,6 +16,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::BinaryScalar;
@@ -250,9 +251,19 @@ fn concat_scalar_arrays(
 
 /// Convert an [`ExtScalar`] to an Arrow [`Datum`].
 ///
-/// Currently only temporal extension types (timestamps, dates, and times) are supported.
+/// Currently only temporal extension types are supported.
 fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     let ext_dtype = scalar.ext_dtype();
+    if let Some(unit) = ext_dtype.metadata_opt::<Duration>() {
+        let value = scalar.to_storage_scalar().as_primitive().as_::<i64>();
+        return match unit {
+            TimeUnit::Seconds => value_to_arrow_scalar!(value, DurationSecondArray),
+            TimeUnit::Milliseconds => value_to_arrow_scalar!(value, DurationMillisecondArray),
+            TimeUnit::Microseconds => value_to_arrow_scalar!(value, DurationMicrosecondArray),
+            TimeUnit::Nanoseconds => value_to_arrow_scalar!(value, DurationNanosecondArray),
+            TimeUnit::Days => vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id()),
+        };
+    }
     let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
         vortex_bail!(
             "Cannot convert extension scalar {} to Arrow",
