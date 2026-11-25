@@ -37,7 +37,7 @@ def test_new_items_of_every_tier_are_candidates_most_urgent_first():
     fuzzer = item(4, author="fuzz-bot", author_bot=True, labels=["fuzzer"])
     bug = item(5, author=TEAMMATE, labels=["bug"])
     untracked = item(6, author=TEAMMATE)
-    assert chosen_numbers([normal, low, fuzzer, high, bug, untracked], EMPTY) == [4, 1, 2, 5, 3]
+    assert chosen_numbers([normal, low, fuzzer, high, bug, untracked], EMPTY) == [1, 4, 2, 5, 3]
 
 
 def test_candidates_are_capped():

@@ -38,6 +38,13 @@ def row(number, tier=Tier.HIGH, owes=Owes.VORTEX, score=0.0, title="A title", re
     return render.Row(target, assessment, item_state, f"https://example.slack.com/archives/C1/p{number}")
 
 
+def test_overview_links_to_the_slack_card_and_explains_thread_commands():
+    entry = render._entry(row(1), NOW, PLAIN)
+    assert "<https://example.slack.com/archives/C1/p1|card>" in entry
+    assert "|thread>" not in entry
+    assert "Open its card in the overview, then reply in its thread." in render.wrong_thread().text
+
+
 def blocks_of(message) -> int:
     return len(message.blocks) + sum(len(a.get("blocks", ())) for a in message.attachments)
 
@@ -78,7 +85,7 @@ def test_overview_groups_sections_in_order_with_colors():
     # Each item takes two lines, and a blank line separates the items.
     assert high.split("\n\n")[0] == (
         "📝 <https://github.com/o/r/issues/3|#3 A title> · alamb\n"
-        "\u2003\u2003gatesn (on call) · waiting 2d · <https://example.slack.com/archives/C1/p3|thread>"
+        "\u2003\u2003gatesn (on call) · waiting 2d · <https://example.slack.com/archives/C1/p3|card>"
     )
 
 
@@ -221,14 +228,15 @@ def test_activity_summarizes_events_in_one_line():
 
 
 def test_summary_mentions_each_person_once_and_links_their_item_threads():
-    message = render.reminder_summary({"UALICE": [row(1), row(2)], None: [row(3)]})
+    message = render.reminder_summary({"UALICE": [row(1), replace(row(2), direct_reminder=True)], None: [row(3)]})
     assert message.text == "Due today: <@UALICE> 2 items, On-call (not set) 1 item"
     assert (
         "<@UALICE> · 2 items: <https://example.slack.com/archives/C1/p1|#1 card>, "
-        "<https://example.slack.com/archives/C1/p2|#2 card>"
+        "<https://example.slack.com/archives/C1/p2|#2 reminder>"
     ) in json.dumps(message.blocks, ensure_ascii=False)
-    assert "Open each card" in message.blocks[0]["text"]["text"]
-    assert "Reply `!snooze 2d` in a card's thread" in message.blocks[-1]["elements"][0]["text"]
+    assert "Reminder links open the reminder reply" in message.blocks[0]["text"]["text"]
+    assert "card links open the item card" in message.blocks[0]["text"]["text"]
+    assert "Reply `!snooze 2d` in the item's thread" in message.blocks[-1]["elements"][0]["text"]
     # One person's line cannot be split across sections, so a long list is cut short.
     many = render.reminder_summary({"UALICE": [row(n) for n in range(1, 1001)]})
     assert all(len(b["text"]["text"]) <= 3000 for b in many.blocks if b["type"] == "section")
@@ -257,3 +265,4 @@ def test_instructions_state_the_limits_and_explain_every_kind():
     text = render.instructions().blocks[0]["text"]["text"]
     assert "at most 168" in text and "at most 60" in text
     assert all(f"{kind.emoji} {kind.meaning}" in text for kind in render.KINDS)
+    assert "item's Slack card" in text and "Reply in its thread to use commands." in text

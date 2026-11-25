@@ -69,6 +69,7 @@ class Row:
     state: ItemState | None
     # A link to the item's Slack thread, or None if the item has no root.
     thread_url: str | None
+    direct_reminder: bool = False
 
     @property
     def section(self) -> Section:
@@ -186,9 +187,9 @@ def _parts(*parts: str) -> str:
     return " · ".join(part for part in parts if part)
 
 
-def _thread(row: Row) -> str:
+def _card(row: Row) -> str:
     # A word in link color reads as a link, and an emoji alone does not.
-    return f"<{row.thread_url}|thread>" if row.thread_url else ""
+    return f"<{row.thread_url}|card>" if row.thread_url else ""
 
 
 def _first_line(row: Row, people: People) -> str:
@@ -206,7 +207,7 @@ def _first_line(row: Row, people: People) -> str:
 def _entry(row: Row, now: datetime, people: People) -> str:
     """Show an item on two lines: the item and its contributor, then the team's side of it."""
     detail = escape(row.assessment.owes_reason) if row.section is WAITING else _wait(row, now)
-    second = _parts(people.owners(row.item), detail, _thread(row))
+    second = _parts(people.owners(row.item), detail, _card(row))
     return f"{_first_line(row, people)}\n{_INDENT}{second}"
 
 
@@ -499,7 +500,10 @@ def invalid(error: str) -> Message:
 
 def wrong_thread() -> Message:
     return Message(
-        text="❓ Commands work only in an item's thread. Open its thread link in the overview."
+        text=(
+            "❓ Commands work only in an item's thread. Open its card in the overview, "
+            "then reply in its thread."
+        )
     )
 
 
@@ -510,24 +514,28 @@ def _mention(user: str | None) -> str:
 def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
     """Build the day's one reminder in the overview's thread, which points everyone to their items.
 
-    It mentions each person with due items once and links each of their items to its Slack thread,
-    where the item's own reminder waits. An item without a thread is named without a link, because
-    a link to GitHub would look like a link to the thread.
+    It mentions each person with due items once and links to each item's reminder when available,
+    otherwise to its card. An item without a thread is named without a link, because a link to
+    GitHub would look like a link to the thread.
     """
     lines = []
     for user, rows in due.items():
-        links = [
-            f"<{row.thread_url}|#{row.item.number} card>"
-            if row.thread_url
-            else f"#{row.item.number} card"
-            for row in rows
-        ]
+        links = []
+        for row in rows:
+            label = "reminder" if row.direct_reminder else "card"
+            links.append(
+                f"<{row.thread_url}|#{row.item.number} {label}>"
+                if row.thread_url
+                else f"#{row.item.number} card"
+            )
         # One person's line is one section, which cannot be split, so a long list is cut short.
         if len(links) > _SUMMARY_LINKS:
             links = [*links[:_SUMMARY_LINKS], f"+{len(links) - _SUMMARY_LINKS} more"]
         lines.append(f"{_mention(user)} · {_count(len(rows), 'item', 'items')}: {', '.join(links)}")
-    header = "⏰ *Due today.* Open each card, then use its thread for the reminder."
-    footer = "Reply `!snooze 2d` in a card's thread to pause its reminders."
+    header = (
+        "⏰ *Due today.* Reminder links open the reminder reply; card links open the item card."
+    )
+    footer = "Reply `!snooze 2d` in the item's thread to pause its reminders."
     # One line per person keeps the message far below the block limit for any team size.
     blocks = [_mrkdwn(header), *(_list(chunk) for chunk in _chunks(lines)), _context(footer)]
     text = "Due today: " + ", ".join(
@@ -583,7 +591,7 @@ def instructions() -> Message:
             "Each item takes two lines. The first shows the item and the outside contributor, and "
             "the item's number and title open it on GitHub. The second shows the assignees (or "
             "on-call when nobody is assigned), how long Vortex has owed a reply, and a link to the "
-            "item's thread here.",
+            "item's Slack card. Reply in its thread to use commands.",
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "

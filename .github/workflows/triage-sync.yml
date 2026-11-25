@@ -142,9 +142,16 @@ jobs:
               --data-urlencode "status=completed" \
               --data-urlencode "per_page=100" \
               "${GITHUB_API_URL%/}/repos/${GITHUB_REPOSITORY}/actions/workflows/triage-sync.yml/runs" || true)
-            previous=$(jq -r '.workflow_runs[0].conclusion // ""' <<< "$response" 2>/dev/null || true)
-            if [ "$previous" = "failure" ]; then
-              notify=false
+            previous_run=$(jq -r '.workflow_runs[0] | select(.conclusion == "failure") | .id // ""' <<< "$response" 2>/dev/null || true)
+            if [ -n "$previous_run" ]; then
+              jobs=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" --get \
+                --data-urlencode "per_page=100" \
+                "${GITHUB_API_URL%/}/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run}/jobs" || true)
+              delivered=$(jq -r '[.jobs[]? | select(.name == "notify-failure") | .conclusion][0] // ""' <<< "$jobs" 2>/dev/null || true)
+              if [ "$delivered" = "success" ]; then
+                notify=false
+              fi
             fi
           fi
           echo "notify=$notify" >> "$GITHUB_OUTPUT"

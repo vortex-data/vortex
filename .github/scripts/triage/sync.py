@@ -320,8 +320,9 @@ class Run:
         root = self.channel.roots.get(item.number)
         context = verdict_context(item)
         context_matches = root is not None and root.state.verdict_context == context
-        previous = root.state.verdict if context_matches and root else None
-        verdict = self.config.claude.verdicts.get(item.number) or previous
+        previous = root.state.verdict if root else None
+        cached = previous if context_matches else None
+        verdict = self.config.claude.verdicts.get(item.number) or cached
         assessment = assess(
             item,
             self.now,
@@ -332,10 +333,9 @@ class Run:
         asked_at = root.state.asked_at if context_matches and root else 0.0
         if item.number in self.config.claude.asked:
             asked_at = self.now.timestamp()
-        priority = root.state.priority if root else None
         pending_note = root.state.pending_claude_note if context_matches and root else ""
         if item.number in self.config.claude.verdicts:
-            pending_note = self._claude_note(item, previous, verdict, priority)
+            pending_note = self._claude_note(item, previous, verdict)
         saved_context = (
             context
             if context_matches
@@ -428,7 +428,6 @@ class Run:
         item: Item,
         previous: Verdict | None,
         verdict: Verdict | None,
-        priority: Tier | None,
     ) -> str:
         """Serialize a pending tier-change note with a key stable across repeated evaluations."""
         if verdict is None or item.number not in self.config.claude.verdicts:
@@ -440,17 +439,15 @@ class Run:
         before, after = old or rules.tier, verdict.tier or rules.tier
         if before is after:
             return ""
-        note = render.claude_moved(
-            before, after, verdict.tier is None, verdict.tier_reason, priority
-        )
         previous_check = f"{previous.checked_at.timestamp():.6f}" if previous else "initial"
         key = f"claude:{verdict.activity_at}:{previous_check}:{before.value}->{after.value}"
         return json.dumps(
             {
                 "key": key,
-                "text": note.text,
-                "blocks": note.blocks,
-                "attachments": note.attachments,
+                "before": before.value,
+                "after": after.value,
+                "automatic": verdict.tier is None,
+                "reason": verdict.tier_reason,
             },
             separators=(",", ":"),
         )
@@ -459,11 +456,20 @@ class Run:
         if not root.state.pending_claude_note:
             return
         pending = json.loads(root.state.pending_claude_note)
-        note = Message(
-            text=pending["text"],
-            blocks=tuple(pending.get("blocks", ())),
-            attachments=tuple(pending.get("attachments", ())),
-        )
+        if "before" in pending:
+            note = render.claude_moved(
+                Tier(pending["before"]),
+                Tier(pending["after"]),
+                pending["automatic"],
+                pending["reason"],
+                root.state.priority,
+            )
+        else:
+            note = Message(
+                text=pending["text"],
+                blocks=tuple(pending.get("blocks", ())),
+                attachments=tuple(pending.get("attachments", ())),
+            )
         self._reply(root.thread, pending["key"], lambda _people: note)
         root.state = replace(root.state, pending_claude_note="")
 
@@ -676,10 +682,9 @@ class Run:
     ) -> OverviewState:
         """Keep the day's summary in line with the day's reminders.
 
-        The summary links each item to its reminder, because Slack opens a thread only from a link
-        to one of its replies. The reminders come after the summary, and an item that becomes due
-        later in the day gets a reminder too, so the bot edits the summary when its content
-        changes. An edit notifies nobody, so only the first post mentions people.
+        The summary links to each posted reminder reply when available, otherwise to its card. An
+        item that becomes due later in the day gets a reminder too, so the bot edits the summary
+        when its content changes. An edit notifies nobody, so only the first post mentions people.
         """
         key = f"remind:{state.day}"
         ts = state.summary or thread.keys.get(key, "")
@@ -695,7 +700,7 @@ class Run:
             # A summary from before the bot stored each reminder finds it among the thread's keys.
             reply = root.state.reminder or root.thread.keys.get(key, "")
             link = self._reply_link(reply, root.thread.ts) if reply else row.thread_url
-            reminded.append(replace(row, thread_url=link))
+            reminded.append(replace(row, thread_url=link, direct_reminder=bool(reply)))
         if not reminded:
             return replace(state, summary=ts)
         message = render.reminder_summary(self._by_owner(reminded))

@@ -458,6 +458,44 @@ def test_claude_priority_changes_get_one_note_each():
     )
     assert "🟡" in card_text(fake, 1)
 
+    fake.say(root, "!priority auto", at + timedelta(minutes=1))
+    newest = item(1, kind="pr", created=ago(days=1), events=[event(ago(minutes=-210))])
+    at = NOW + 6 * HOUR
+    run(fake, [newest], at, claude=judged(fake, [newest], at, claude_says("vortex", "low", "superseded again")))
+    assert fake.bot_replies(root)[-1] == "🤖 Claude moved this item from 🔴 High to ⚪ Low: superseded again"
+
+
+def test_label_context_change_keeps_the_previous_tier_for_history():
+    target = item(1, kind="pr", created=ago(days=1))
+    fake = FakeSlack()
+    previous = rules.Verdict(
+        owes=rules.Owes.VORTEX,
+        reason="still needs Vortex",
+        activity_at=target.events[-1].at,
+        checked_at=NOW,
+        tier=rules.Tier.LOW,
+        tier_reason="superseded",
+    )
+    run(fake, [target], claude=sync.Judgment(verdicts={1: previous}, asked=frozenset({1})))
+
+    changed = item(1, kind="pr", created=ago(days=1), labels=["new-label"])
+    returned = rules.Verdict(
+        owes=rules.Owes.VORTEX,
+        reason="still needs Vortex",
+        activity_at=changed.events[-1].at,
+        checked_at=NOW + HOUR,
+        tier_reason="rules fit again",
+    )
+    run(
+        fake,
+        [changed],
+        NOW + HOUR,
+        claude=sync.Judgment(verdicts={1: returned}, asked=frozenset({1})),
+    )
+    assert fake.bot_replies(fake.root(1)["ts"])[-1] == (
+        "🤖 Claude moved this item from ⚪ Low back to the rules' 🔴 High: rules fit again"
+    )
+
 
 def test_new_root_claude_note_retries_after_an_ambiguous_post(monkeypatch):
     fake = FakeSlack()
@@ -599,7 +637,9 @@ def test_reminders_go_to_each_item_thread_after_one_summary():
 def reminder_link(fake, number) -> str:
     root = fake.root(number)["ts"]
     reply = next(m["ts"] for m in fake.thread(root) if m["text"].startswith("⏰"))
-    return f"<https://example.slack.com/archives/C1/p{reply.replace('.', '')}?thread_ts={root}&cid=C1|#{number}>"
+    return (
+        f"<https://example.slack.com/archives/C1/p{reply.replace('.', '')}?thread_ts={root}&cid=C1|#{number} reminder>"
+    )
 
 
 def summary_blocks(fake) -> str:
