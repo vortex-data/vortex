@@ -3,6 +3,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
@@ -48,6 +49,57 @@ use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
 use crate::source::SegmentId;
 
+/// What a filter's plans need that depends only on the filter and the dtype it is bound to, not
+/// on a file: the filter after rewrites, and each conjunct's stats rewrite for zone pruning.
+/// Built once per filter, it is shared by the scans of every file of one schema.
+pub struct FilterPrep {
+    /// The filter after [`find_between`], when the session rewrites it.
+    expression: BoundExpression,
+    /// Per conjunct of `expression`, the predicate over its statistics that proves it false,
+    /// where it has one.
+    falsified: Vec<Option<BoundExpression>>,
+}
+
+impl FilterPrep {
+    /// Rewrites `expression` and derives its conjuncts' pruning predicates.
+    pub fn new(expression: BoundExpression, session: &VortexSession) -> VortexResult<Self> {
+        let expression = if session.stats().has_rewrite_for(Between.id()) {
+            find_between(expression)?
+        } else {
+            expression
+        };
+        let falsified = FilterExpr::new(expression.clone())
+            .conjuncts()
+            .iter()
+            .map(|expr| expr.falsify(session))
+            .collect::<VortexResult<_>>()?;
+        Ok(Self {
+            expression,
+            falsified,
+        })
+    }
+}
+
+/// A filter's [`FilterPrep`], built by the first scan that needs it and shared by the scans of
+/// every file of one schema after.
+#[derive(Default)]
+pub struct SharedFilterPrep(OnceLock<Arc<FilterPrep>>);
+
+impl SharedFilterPrep {
+    /// The prep of `filter`, building it if no scan has yet.
+    pub fn get_or_try_init(
+        &self,
+        filter: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Arc<FilterPrep>> {
+        if let Some(prep) = self.0.get() {
+            return Ok(Arc::clone(prep));
+        }
+        let prep = Arc::new(FilterPrep::new(filter.clone(), session)?);
+        Ok(Arc::clone(self.0.get_or_init(|| prep)))
+    }
+}
+
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub struct FilterPlans {
     expression: FilterExpr,
@@ -57,7 +109,7 @@ pub struct FilterPlans {
 }
 
 impl FilterPlans {
-    /// Plans `expression`'s conjuncts over `root`.
+    /// Plans `prep`'s conjuncts over `root`.
     ///
     /// With `skip_unselective_dynamic`, a dynamic conjunct that kept almost every row on its last
     /// chunks is switched off, skipping both its zone pruning and its evaluation, until its dynamic
@@ -65,18 +117,13 @@ impl FilterPlans {
     /// again. [`find_between`] only merges comparisons against literals, so a switched-off
     /// conjunct never carries a static restriction with it.
     pub(crate) fn new(
-        expression: BoundExpression,
+        prep: &FilterPrep,
         root: &PlanRef,
         session: &VortexSession,
         skip_unselective_dynamic: bool,
     ) -> VortexResult<Self> {
-        let expression = if session.stats().has_rewrite_for(Between.id()) {
-            find_between(expression)?
-        } else {
-            expression
-        };
-        let expression =
-            FilterExpr::new(expression).with_skip_unselective_dynamic(skip_unselective_dynamic);
+        let expression = FilterExpr::new(prep.expression.clone())
+            .with_skip_unselective_dynamic(skip_unselective_dynamic);
         let predicates = expression
             .conjuncts()
             .iter()
@@ -88,21 +135,19 @@ impl FilterPlans {
                 Ok(FilterPlan::new(plan).into_plan())
             })
             .collect::<VortexResult<_>>()?;
-        let pruning = expression
-            .conjuncts()
+        let pruning = prep
+            .falsified
             .iter()
-            .map(|expr| {
-                expr.falsify(session)?
+            .map(|pruning| {
+                let plan = pruning
+                    .clone()
                     .map(|pruning| {
                         optimize(
                             plan_row_idx_expression(pruning, root.clone(), session)?,
                             session,
                         )
                     })
-                    .transpose()
-            })
-            .map(|plan| {
-                let plan = plan?;
+                    .transpose()?;
                 match plan {
                     Some(plan) if metadata_only(&plan)? => Ok(Some(plan)),
                     _ => Ok(None),

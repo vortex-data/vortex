@@ -231,10 +231,13 @@ impl MultiLayoutDataSource {
         self
     }
 
-    /// Runs every child's scans with `options`.
-    pub fn with_options(mut self, options: LayoutScanOptions) -> Self {
-        self.split_concurrency = options.concurrency();
-        self
+    /// This source with every child's scans running with `options`. It shares this source's
+    /// children, so the files it has opened are not opened again.
+    pub fn with_options(&self, options: LayoutScanOptions) -> Self {
+        Self {
+            split_concurrency: options.concurrency(),
+            ..self.clone()
+        }
     }
 }
 
@@ -393,6 +396,7 @@ impl BoundScanRequest {
             partition_range,
             ordered,
             limit,
+            bind_cache: _,
         } = request;
 
         Ok(Self {

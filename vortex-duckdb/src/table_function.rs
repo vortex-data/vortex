@@ -41,6 +41,7 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
+use vortex::scan::source::BindCache;
 use vortex::scan::stream::ScanStream;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -186,6 +187,8 @@ pub struct GlobalState {
     pub filter: Filter,
     /// The threads DuckDB runs, which a file's scan is split for.
     pub threads: NonZeroUsize,
+    /// The scan's request bound to the files' schema, shared by every file's scan.
+    pub bind_cache: BindCache,
     pub file_row_number_column_pos: Option<usize>,
 
     // Following fields are used only in aggregate scans.
@@ -357,6 +360,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         projection_expr: projection,
         filter,
         threads: init_input.max_threads(),
+        bind_cache: BindCache::default(),
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
         aggregate_state: Mutex::new(AggregateState::default()),

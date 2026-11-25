@@ -27,6 +27,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use super::ScanInput;
+use super::bind::BoundRequest;
 use super::plan_stream;
 use super::plan_stream::Planned;
 use crate::DataSource;
@@ -38,6 +39,7 @@ use crate::PartitionStream;
 use crate::ScanRequest;
 use crate::limit::RowLimit;
 use crate::prepare::ScanBuilder;
+use crate::prepare::SharedFilterPrep;
 use crate::selection::Selection;
 use crate::stream::ScanExec;
 
@@ -169,11 +171,16 @@ impl DataSource for PlanDataSource {
             vortex_bail!("PlanDataSource does not support ordered scans");
         }
         let dtype = self.dtype();
-        let projection = request.projection.bind(dtype)?.optimize_recursive()?;
-        let filter = request
-            .filter
-            .map(|filter| filter.bind(dtype)?.optimize_recursive())
-            .transpose()?;
+        let bound = match &request.bind_cache {
+            Some(cache) => cache.bind(dtype, &request.projection, request.filter.as_ref())?,
+            None => Arc::new(BoundRequest::new(
+                dtype,
+                &request.projection,
+                request.filter.as_ref(),
+            )?),
+        };
+        let projection = bound.projection.clone();
+        let filter = bound.filter.clone();
         let selected = request
             .partition_range
             .as_ref()
@@ -192,6 +199,10 @@ impl DataSource for PlanDataSource {
             dtype: projection.dtype().clone(),
             projection,
             filter,
+            filter_prep: request
+                .bind_cache
+                .is_some()
+                .then(|| Arc::clone(&bound.filter_prep)),
             selection: request.selection,
             limit: request.limit.map(RowLimit::new),
         };
@@ -222,6 +233,10 @@ pub(super) struct ScanState {
     pub(super) dtype: DType,
     pub(super) projection: BoundExpression,
     pub(super) filter: Option<BoundExpression>,
+    /// The filter's rewrites, shared with the scans of the other sources of a [`BindCache`].
+    ///
+    /// [`BindCache`]: super::BindCache
+    filter_prep: Option<Arc<SharedFilterPrep>>,
     selection: Selection,
     /// The scan's row budget, which every piece of it shares.
     pub(super) limit: Option<RowLimit>,
@@ -230,11 +245,15 @@ pub(super) struct ScanState {
 impl ScanState {
     /// A builder of this scan's `rows` of the child.
     pub(super) fn builder(&self, rows: Range<u64>) -> ScanBuilder {
-        ScanBuilder::new(self.session.clone(), self.child.input.clone())
+        let builder = ScanBuilder::new(self.session.clone(), self.child.input.clone())
             .with_projection(self.projection.clone())
             .with_some_filter(self.filter.clone())
             .with_selection(self.selection.clone())
-            .with_row_range(rows)
+            .with_row_range(rows);
+        match &self.filter_prep {
+            Some(prep) => builder.with_filter_prep(Arc::clone(prep)),
+            None => builder,
+        }
     }
 }
 

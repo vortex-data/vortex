@@ -49,6 +49,8 @@ pub(crate) use self::chunk::rows_per_chunk;
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
+pub use self::filter::FilterPrep;
+pub use self::filter::SharedFilterPrep;
 pub(crate) use self::parts::cut_parts;
 pub(crate) use self::parts::part_planner;
 pub(crate) use self::parts::scan_parts;

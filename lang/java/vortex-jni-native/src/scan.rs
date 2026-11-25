@@ -161,6 +161,7 @@ fn build_scan_request(
         limit,
         partition_selection: Selection::All,
         partition_range: None,
+        bind_cache: None,
     };
     Ok((request, split_concurrency))
 }
@@ -234,7 +235,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
             split_concurrency,
         )?;
 
-        let scan = RUNTIME.block_on(async { ds.inner().scan(request).await })?;
+        let source = ds.with_split_concurrency(split_concurrency);
+        let scan = RUNTIME.block_on(async { source.scan(request).await })?;
         Ok(Box::into_raw(Box::new(NativeScan::Pending(scan, split_concurrency))) as jlong)
     })
 }

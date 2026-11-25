@@ -246,6 +246,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         row_range: filter.row_range.clone(),
         selection: filter.row_selection.clone(),
         ordered: false,
+        bind_cache: Some(global.bind_cache.clone()),
         ..ScanRequest::default()
     };
     // An unordered scan without a limit opens onto a queue of the file's work, whose streams each
@@ -605,7 +606,8 @@ mod tests {
                 let values =
                     VarBinViewArray::from_iter_str([format!("{chunk}a"), format!("{chunk}b")])
                         .into_array();
-                let codes = Buffer::from_iter((0..len).map(|row| u8::from(row % 2 == 1))).into_array();
+                let codes =
+                    Buffer::from_iter((0..len).map(|row| u8::from(row % 2 == 1))).into_array();
                 Ok(DictArray::try_new(codes, values)?.into_array())
             })
             .collect::<VortexResult<Vec<_>>>()?;

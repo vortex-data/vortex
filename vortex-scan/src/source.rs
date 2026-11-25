@@ -34,9 +34,11 @@ pub struct ScanInput {
     pub cache: Option<ScanCache>,
 }
 
+mod bind;
 mod plan;
 mod plan_stream;
 
+pub use bind::BindCache;
 pub use plan::FilePruner;
 pub use plan::PlanChild;
 pub use plan::PlanDataSource;

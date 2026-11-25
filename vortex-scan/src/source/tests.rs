@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::assert_arrays_eq;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_expr::checked_add;
@@ -22,6 +23,7 @@ use vortex_expr::root;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
+use super::BindCache;
 use super::PlanChild;
 use super::PlanDataSource;
 use super::ScanInput;
@@ -211,5 +213,27 @@ async fn streams_share_the_scan() -> VortexResult<()> {
     }
     values.sort_unstable();
     assert_eq!(values, (0..100_000).collect::<Vec<_>>());
+    Ok(())
+}
+
+/// Sources of one schema that share a bind cache bind a request once between them, and each
+/// scan still reads its own rows.
+#[tokio::test]
+async fn sources_share_a_bound_request() -> VortexResult<()> {
+    let cache = BindCache::default();
+    let request = || ScanRequest {
+        filter: Some(gt(root(), lit(4u64))),
+        bind_cache: Some(cache.clone()),
+        ..ScanRequest::default()
+    };
+    let first = collect(partitions_of(&source_of(20), request()).await?).await?;
+    let second = collect(partitions_of(&source_of(20), request()).await?).await?;
+    assert_eq!(cache.len(), 1);
+    assert_eq!(first.len(), 15);
+    assert_arrays_eq!(
+        first,
+        second,
+        &mut VortexSession::empty().create_execution_ctx()
+    );
     Ok(())
 }

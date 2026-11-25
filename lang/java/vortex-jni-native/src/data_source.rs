@@ -8,6 +8,7 @@
 //! and bare file paths are both accepted. Filesystems are cached per base URL so repeated
 //! globs against the same bucket share a single client.
 
+use std::num::NonZeroUsize;
 use std::ptr;
 use std::sync::Arc;
 
@@ -29,6 +30,9 @@ use vortex::file::multi::parse_uri_or_path;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::multi::MultiLayoutDataSource;
+use vortex::layout::scan::options::LayoutScanOptions;
+use vortex::scan::DataSource;
 use vortex::scan::DataSourceRef;
 use vortex_arrow::ArrowSessionExt;
 
@@ -40,9 +44,9 @@ use crate::io::read_coalesce_config;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
 
-/// Wraps an `Arc<dyn DataSource>` behind a single pointer.
+/// Wraps a multi-file data source behind a single pointer.
 pub(crate) struct NativeDataSource {
-    inner: DataSourceRef,
+    inner: Arc<MultiLayoutDataSource>,
 }
 
 impl NativeDataSource {
@@ -56,8 +60,19 @@ impl NativeDataSource {
         unsafe { &*(ptr as *const Self) }
     }
 
-    pub(crate) fn inner(&self) -> &DataSourceRef {
-        &self.inner
+    /// The source, with its files' V1 scans running `split_concurrency` splits at once when set.
+    /// A configured source shares the files this one has opened.
+    pub(crate) fn with_split_concurrency(
+        &self,
+        split_concurrency: Option<NonZeroUsize>,
+    ) -> DataSourceRef {
+        match split_concurrency {
+            Some(concurrency) => Arc::new(
+                self.inner
+                    .with_options(LayoutScanOptions::default().with_concurrency(concurrency)),
+            ),
+            None => Arc::clone(&self.inner) as DataSourceRef,
+        }
     }
 }
 
@@ -100,9 +115,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_open(
             builder = builder.with_glob(glob, Some(fs));
         }
 
-        let inner = RUNTIME
-            .block_on(builder.build())
-            .map(|ds| Arc::new(ds) as DataSourceRef)?;
+        let inner = RUNTIME.block_on(builder.build()).map(Arc::new)?;
         Ok(Box::new(NativeDataSource { inner }).into_raw())
     })
 }
@@ -172,9 +185,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_openFiles(
             builder = builder.with_glob(path, Some(Arc::clone(&fs)));
         }
 
-        let inner = RUNTIME
-            .block_on(builder.build())
-            .map(|ds| Arc::new(ds) as DataSourceRef)?;
+        let inner = RUNTIME.block_on(builder.build()).map(Arc::new)?;
         Ok(Box::new(NativeDataSource { inner }).into_raw())
     })
 }

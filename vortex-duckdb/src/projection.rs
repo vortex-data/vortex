@@ -17,8 +17,8 @@ use vortex::expr::lit;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
+use vortex::scan::row_idx::row_idx;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -295,7 +295,7 @@ mod tests {
     use vortex::expr::lit;
     use vortex::expr::pack;
     use vortex::expr::root;
-    use vortex::layout::layouts::row_idx::row_idx;
+    use vortex::scan::row_idx::row_idx;
 
     use super::*;
 
