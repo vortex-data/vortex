@@ -781,7 +781,7 @@ mod partition_tests {
         assert_snapshot!(partition(expr, &scope)?, @"
         partition 1 scope={c=i32, d=i32}: $
         partition validity scope=bool: pack(0: $, 1: vortex.not($))
-        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0, $.1.0).d > 0i32))
+        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0.d, $.1.0) > 0i32))
         ");
         Ok(())
     }
