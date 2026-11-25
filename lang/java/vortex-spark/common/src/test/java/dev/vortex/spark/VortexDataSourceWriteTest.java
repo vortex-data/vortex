@@ -94,13 +94,6 @@ public final class VortexDataSourceWriteTest {
                 .mode(SaveMode.Overwrite)
                 .save();
 
-        // Add a small delay to ensure files are fully written and filesystem is synced
-        try {
-            Thread.sleep(1000); // 1 second delay
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
         // Then: Verify two Vortex files were created
         if (Files.exists(outputPath)) {
             try (Stream<Path> allFiles = Files.walk(outputPath)) {
