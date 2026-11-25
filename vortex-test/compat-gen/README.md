@@ -102,7 +102,10 @@ fixtures). Use `exact` for the current version.
 
 ## Python Orchestrator: `compat.py`
 
-### `publish [--git-ref <REF>] [--profile <PROFILE>] [--store <SPEC>] [--dry-run]`
+Pass `--profile <PROFILE>` before the subcommand to override the Cargo build
+profile (default: `release`, e.g. `compat.py --profile ci check`).
+
+### `publish [--git-ref <REF>] [--store <SPEC>] [--dry-run]`
 
 1. Detect version from nearest git tag at HEAD (or `<REF>`)
 2. Generate fixtures from the current working tree
@@ -110,14 +113,14 @@ fixtures). Use `exact` for the current version.
 4. Upload `.vortex` files + `manifest.json` to `v{version}/arrays/`
 5. Update `versions.json`
 
-### `check [--versions <CSV>] [--mode <MODE>] [--profile <PROFILE>] [--store <SPEC>]`
+### `check [--versions <CSV>] [--mode <MODE>] [--store <SPEC>]`
 
 1. Read `versions.json` from store
 2. For each version, download `arrays/manifest.json` + all `.vortex` files
 3. Run `vortex-compat check --dir <tmpdir> --mode superset`
 4. Aggregate results across all versions and fixtures, exit 1 if any failures
 
-### `generate --output <DIR> [--git-ref <REF>] [--profile <PROFILE>]`
+### `generate --output <DIR> [--git-ref <REF>]`
 
 Generate fixtures locally from the current working tree without publishing. Writes `.vortex` files and a
 `manifest.json` tagged with the version detected from HEAD (or `<REF>`).
