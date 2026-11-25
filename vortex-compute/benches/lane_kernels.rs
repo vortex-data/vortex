@@ -30,7 +30,6 @@ use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
-use vortex_compute::lane_kernels::ReinterpretSink;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -182,11 +181,9 @@ fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
 // -----------------------------------------------------------------------------
 // In-place vs out-of-place fallible cast i32 → u32 (same byte width).
 //
-// `try_map_masked_in_place` mutates the input via `ReinterpretSink` and
-// transmutes the wrapper — no output allocation. `try_map_masked_into` allocates
-// a fresh `BufferMut<u32>` and writes through it. Input values are all positive
-// `i32` so every lane succeeds; the two kernels do the same arithmetic, so any
-// delta is allocation + memory-traffic overhead.
+// Both kernels check whether each input fits in a `u32`. The in-place kernel
+// puts the resulting bits back into the input slice, and the out-of-place kernel
+// writes them to a separate output. All lanes succeed with this fixture.
 // -----------------------------------------------------------------------------
 
 #[divan::bench(args = SIZES)]
@@ -211,8 +208,9 @@ fn try_map_masked_in_place_narrow_i32_u32(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_i32.as_slice().to_vec(), f.mask.clone()))
         .bench_values(|(mut values, mask)| {
-            ReinterpretSink::<i32, u32>::new(values.as_mut_slice())
-                .try_map_masked_in_place(&mask, <u32 as NumCast>::from)
+            values
+                .as_mut_slice()
+                .try_map_masked_in_place(&mask, |v| <u32 as NumCast>::from(v).map(u32::cast_signed))
                 .unwrap();
             values
         });

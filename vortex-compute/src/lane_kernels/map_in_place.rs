@@ -24,11 +24,6 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     /// In-place counterpart of [`IndexedSourceExt::map_into`]. Each lane
     /// is replaced with `f(self[i])`.
     ///
-    /// The closure reads `Self::Item` and returns `Self::Write`. For the common
-    /// case `Self = &mut [T]` both are `T`; for `ReinterpretSink` the read and
-    /// write types can differ (e.g. read `f32`, write `u32`) over the same
-    /// backing memory when sizes and alignments match.
-    ///
     /// As with [`IndexedSourceExt::map_into`], use this only when the
     /// input is known non-nullable.
     ///
@@ -36,14 +31,14 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     #[inline]
     fn map_into_in_place<F>(self, mut f: F)
     where
-        F: FnMut(Self::Item) -> Self::Write,
+        F: FnMut(Self::Item) -> Self::Item,
     {
         #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, F>(values: &mut S, f: &mut F, base: usize, count: usize)
         where
             S: IndexedSink,
-            F: FnMut(S::Item) -> S::Write,
+            F: FnMut(S::Item) -> S::Item,
         {
             for bit_idx in 0..count {
                 let idx = base + bit_idx;
@@ -69,7 +64,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     }
 
     /// In-place counterpart of [`IndexedSourceExt::try_map_into`]. Each
-    /// lane is replaced with `f(self[i])`, or `Self::Write::default()` when `f`
+    /// lane is replaced with `f(self[i])`, or `Self::Item::default()` when `f`
     /// returns `None`. On failure returns `Err(first_failing_lane)`; the buffer
     /// state on `Err` is unspecified.
     ///
@@ -87,16 +82,16 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     #[inline]
     fn try_map_in_place<F>(self, mut f: F) -> Result<(), usize>
     where
-        Self::Write: Default,
-        F: FnMut(Self::Item) -> Option<Self::Write>,
+        Self::Item: Default,
+        F: FnMut(Self::Item) -> Option<Self::Item>,
     {
         #[allow(clippy::inline_always)]
         #[inline(always)]
         fn chunk<S, F>(values: &mut S, base: usize, count: usize, f: &mut F) -> Option<usize>
         where
             S: IndexedSink,
-            S::Write: Default,
-            F: FnMut(S::Item) -> Option<S::Write>,
+            S::Item: Default,
+            F: FnMut(S::Item) -> Option<S::Item>,
         {
             let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
@@ -131,7 +126,7 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     }
 
     /// In-place counterpart of [`IndexedSourceExt::try_map_masked_into`]. Each
-    /// lane of `self` is replaced with `f(self[i])`, or `Self::Write::default()`
+    /// lane of `self` is replaced with `f(self[i])`, or `Self::Item::default()`
     /// if `f` returned `None`. On failure returns `Err(first_failing_lane)`;
     /// lanes before that point have been written, and lanes within the failing
     /// chunk hold their unwrapped-or-default result. The buffer state on `Err`
@@ -163,8 +158,8 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         mut f: F,
     ) -> Result<(), usize>
     where
-        Self::Write: Default,
-        F: FnMut(Self::Item) -> Option<Self::Write>,
+        Self::Item: Default,
+        F: FnMut(Self::Item) -> Option<Self::Item>,
     {
         /// Bit-pack `is_none()` flags per lane, then AND with `src_chunk` post-loop to
         /// drop null-lane failures. The per-lane attribution work is `OR + shift`
@@ -180,8 +175,8 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
         ) -> Option<usize>
         where
             S: IndexedSink,
-            S::Write: Default,
-            F: FnMut(S::Item) -> Option<S::Write>,
+            S::Item: Default,
+            F: FnMut(S::Item) -> Option<S::Item>,
         {
             let mut fail_bits: u64 = 0;
             for bit_idx in 0..count {
@@ -217,7 +212,6 @@ mod tests {
     use vortex_buffer::BitBufferMut;
 
     use super::*;
-    use crate::lane_kernels::sink::ReinterpretSink;
 
     #[test]
     fn try_map_masked_in_place_all_ok() {
@@ -308,39 +302,6 @@ mod tests {
             .as_mut_slice()
             .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(77));
-    }
-
-    #[test]
-    fn reinterpret_sink_same_width_f32_u32() {
-        let mut buf: Vec<f32> = (0..130).map(|i| i as f32).collect();
-        let mask = BitBuffer::new_set(130);
-        ReinterpretSink::<f32, u32>::new(buf.as_mut_slice())
-            .try_map_masked_in_place(&mask, |f| Some(f.to_bits().wrapping_add(1)))
-            .unwrap();
-        // SAFETY: same size + alignment for f32 and u32; every slot now holds a u32 written by
-        // the closure.
-        let as_u32: &[u32] =
-            unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u32, buf.len()) };
-        for (i, &got) in as_u32.iter().enumerate() {
-            assert_eq!(got, (i as f32).to_bits().wrapping_add(1), "lane {i}");
-        }
-    }
-
-    #[test]
-    fn reinterpret_sink_failure_reports_lane() {
-        let mut buf: Vec<f32> = (0..200).map(|i| i as f32).collect();
-        let mask = BitBuffer::new_set(200);
-        let res = ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()).try_map_masked_in_place(
-            &mask,
-            |f| {
-                if f as u32 == 137 {
-                    None
-                } else {
-                    Some(f as u32)
-                }
-            },
-        );
-        assert_eq!(res, Err(137));
     }
 
     #[test]

@@ -76,6 +76,10 @@ name = "list_sum"
 harness = false
 
 [[bench]]
+name = "list_transform"
+harness = false
+
+[[bench]]
 name = "listview_zip"
 harness = false
 

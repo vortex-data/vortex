@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Benchmarks the merge commit of a PR labelled `action/bench-on-merge`. The scheduled
+# `develop-bench-trigger.yml` runs every three hours and covers every commit that landed since its
+# last run, so a PR whose effect must be measured on its own takes this label to get a run for
+# exactly its merge commit. The label can be added before or after the merge.
+#
+# `pull_request_target` gives the token `actions: write` for PRs from forks too. It is safe here
+# because the job checks out no code and runs nothing from the PR.
+
+name: Develop Benchmarks On Merge
+
+on:
+  pull_request_target:
+    types: [closed, labeled]
+    branches: [develop]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: >-
+      github.repository == 'vortex-data/vortex'
+      && github.event.pull_request.merged == true
+      && contains(github.event.pull_request.labels.*.name, 'action/bench-on-merge')
+      && (github.event.action == 'closed' || github.event.label.name == 'action/bench-on-merge')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch develop benchmarks for the merge commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -Eeuo pipefail
+
+          # Skip a commit that already has a non-cancelled run, so re-adding the label does not
+          # benchmark it twice.
+          already_ran="$(gh api \
+            "repos/${GH_REPO}/actions/workflows/develop-bench.yml/runs?branch=develop&per_page=50" \
+            | jq -r --arg sha "${MERGE_SHA}" \
+              '[.workflow_runs[] | select(.conclusion != "cancelled")
+                | if (.display_title | startswith("Develop Benchmarks for "))
+                  then .display_title == "Develop Benchmarks for \($sha)"
+                  else .head_sha == $sha end] | any')"
+          if [ "${already_ran}" = "true" ]; then
+            echo "${MERGE_SHA} (#${PR_NUMBER}) already has a Develop Benchmarks run; skipping."
+            exit 0
+          fi
+
+          echo "Dispatching develop-bench.yml for ${MERGE_SHA} (#${PR_NUMBER})..."
+          gh api --method POST \
+            "repos/${GH_REPO}/actions/workflows/develop-bench.yml/dispatches" \
+            -f ref="develop" \
+            -f "inputs[sha]=${MERGE_SHA}"
