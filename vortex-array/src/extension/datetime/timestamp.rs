@@ -114,6 +114,30 @@ pub fn resolve_time_zone(name: Option<&str>) -> VortexResult<TimeZone> {
     })
 }
 
+/// Shift a timestamp count into the local wall-clock time of `zone`.
+///
+/// The whole days and the remainder of the result give the local date and time of day. A timestamp
+/// without a time zone already counts local time, so a `None` zone returns the count unchanged.
+///
+/// The result is an `i128` because the shift can move a count near either end of the `i64` range
+/// past that end.
+pub fn local_count(value: i64, unit: TimeUnit, zone: Option<&TimeZone>) -> VortexResult<i128> {
+    let Some(zone) = zone else {
+        return Ok(i128::from(value));
+    };
+
+    let units_per_second = TimeUnit::Seconds.nanos_per_unit() / unit.nanos_per_unit();
+    let offset = if let Ok(offset) = zone.to_fixed_offset() {
+        offset
+    } else {
+        let second = value.div_euclid(units_per_second);
+        let nanos = value.rem_euclid(units_per_second) * unit.nanos_per_unit();
+        zone.to_offset(jiff::Timestamp::new(second, i32::try_from(nanos)?)?)
+    };
+
+    Ok(i128::from(value) + i128::from(offset.seconds()) * i128::from(units_per_second))
+}
+
 /// Unpacked value of a [`Timestamp`] extension scalar.
 ///
 /// Each variant carries the raw storage value and an optional timezone.
