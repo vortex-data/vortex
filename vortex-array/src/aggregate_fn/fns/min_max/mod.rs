@@ -4,6 +4,7 @@
 mod bool;
 mod decimal;
 pub use decimal::valid_range;
+mod duration;
 mod extension;
 mod fixed_size_list;
 mod primitive;
@@ -19,6 +20,7 @@ use vortex_session::registry::CachedId;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
+use self::duration::accumulate_duration;
 use self::extension::accumulate_extension;
 use self::fixed_size_list::accumulate_fixed_size_bytes;
 use self::primitive::accumulate_primitive;
@@ -35,7 +37,6 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -504,20 +505,7 @@ impl AggregateFnVTable for MinMax {
                 Canonical::Primitive(p) => accumulate_primitive(args, partial, p, ctx),
                 Canonical::Bool(b) => accumulate_bool(args, partial, b, ctx),
                 Canonical::VarBinView(v) => accumulate_varbinview(args, partial, v, ctx),
-                Canonical::Duration(d) => {
-                    let Some(MinMaxResult { min, max }) = min_max(d.counts(), ctx, *args.options)?
-                    else {
-                        return Ok(());
-                    };
-                    let dtype = d.dtype().as_nonnullable();
-                    partial.merge(
-                        args,
-                        Some(MinMaxResult {
-                            min: Scalar::try_new(dtype.clone(), min.into_value())?,
-                            max: Scalar::try_new(dtype, max.into_value())?,
-                        }),
-                    )
-                }
+                Canonical::Duration(d) => accumulate_duration(args, partial, d, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(args, partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
                 Canonical::FixedSizeList(f) if is_fixed_size_bytes(f.dtype()) => {

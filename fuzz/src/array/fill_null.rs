@@ -10,12 +10,16 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::duration::DurationArrayExt;
+use vortex_array::arrays::duration::DurationArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
@@ -54,7 +58,15 @@ pub fn fill_null_canonical_array(
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
-        Canonical::Duration(_) => unreachable!("Duration arrays are not fuzzed"),
+        Canonical::Duration(array) => {
+            let counts = array.counts().clone().execute::<PrimitiveArray>(ctx)?;
+            let fill_count = Scalar::try_new(
+                DType::Primitive(PType::I64, result_nullability),
+                fill_value.value().cloned(),
+            )?;
+            let filled = fill_primitive_array(counts, &fill_count, result_nullability, ctx);
+            DurationArray::try_new(array.unit(), filled)?.into_array()
+        }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

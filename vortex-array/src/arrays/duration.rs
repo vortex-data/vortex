@@ -3,6 +3,8 @@
 
 //! Canonical arrays of signed elapsed-time counts.
 
+use std::ops::Range;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -32,13 +34,25 @@ use crate::array::ValidityChild;
 use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
 use crate::array_slots;
+use crate::arrays::Slice;
+use crate::arrays::slice::SliceReduce;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DurationBuilder;
 use crate::dtype::DType;
 use crate::dtype::DurationUnit;
 use crate::dtype::PType;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    session.kernels().register_reduce_parent_rule(
+        Slice,
+        Duration,
+        const { &SliceReduceAdaptor(Duration) },
+    );
+}
 
 /// The canonical encoding for duration arrays.
 #[derive(Clone, Debug)]
@@ -180,6 +194,15 @@ impl OperationsVTable<Duration> for Duration {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
+    }
+}
+
+impl SliceReduce for Duration {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let counts = array.counts().slice(range)?;
+        Ok(Some(
+            DurationArray::try_new(array.unit(), counts)?.into_array(),
+        ))
     }
 }
 

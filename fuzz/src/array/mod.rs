@@ -56,6 +56,7 @@ use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
@@ -177,10 +178,21 @@ impl ExpectedValue {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let dtype = if u.int_in_range(0..=9)? == 0 {
+            let unit = *u.choose(&[
+                DurationUnit::Seconds,
+                DurationUnit::Milliseconds,
+                DurationUnit::Microseconds,
+                DurationUnit::Nanoseconds,
+            ])?;
+            Some(DType::Duration(unit, u.arbitrary()?))
+        } else {
+            None
+        };
         let array = ArbitraryArray::arbitrary_with_config(
             u,
             &ArbitraryArrayConfig {
-                dtype: None,
+                dtype,
                 len: 0..=FUZZ_ARRAY_MAX_LEN,
             },
         )?
@@ -517,8 +529,10 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         }
         DType::Map(..) => [Compress, Slice, Take, Filter, Mask, ScalarAt].into(),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
-        // Currently, no support at all
-        DType::Duration(..) => unreachable!("Duration dtype is not generated"),
+        DType::Duration(..) => [
+            Compress, Slice, Take, Filter, Compare, MinMax, FillNull, Mask, ScalarAt,
+        ]
+        .into(),
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {
             // Extension types delegate to storage dtype, support most operations

@@ -13,6 +13,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListView;
@@ -24,6 +25,7 @@ use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::duration::DurationArraySlotsExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -40,11 +42,13 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
@@ -354,9 +358,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             len,
             ctx,
         )?,
-        DType::Duration(..) => {
-            vortex_bail!("Sparse canonicalization does not support Duration arrays")
-        }
+        DType::Duration(unit, ..) => execute_sparse_duration(*unit, patches, &fill_value, ctx)?,
         DType::Union(..) => vortex_bail!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
             vortex_bail!("Sparse canonicalization does not support Variant")
@@ -725,6 +727,22 @@ fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error 
     Ok(parray.patch(patches, ctx)?.into_array())
 }
 
+fn execute_sparse_duration(
+    unit: DurationUnit,
+    patches: Patches,
+    fill_value: &Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let patches =
+        patches.map_values(|values| Ok(values.execute::<DurationArray>(ctx)?.counts().clone()))?;
+    let fill_count = Scalar::try_new(
+        DType::Primitive(PType::I64, fill_value.dtype().nullability()),
+        fill_value.value().cloned(),
+    )?;
+    let counts = execute_sparse_primitives::<i64>(&patches, &fill_count, ctx)?;
+    Ok(DurationArray::try_new(unit, counts)?.into_array())
+}
+
 fn execute_sparse_struct(
     struct_fields: &StructFields,
     fill_struct: StructScalar,
@@ -881,6 +899,7 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::DurationArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListViewArray;
@@ -896,6 +915,7 @@ mod test {
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::DurationUnit;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
@@ -975,6 +995,28 @@ mod test {
         ]);
 
         assert_arrays_eq!(&sparse_ints, &expected, &mut ctx);
+    }
+
+    #[rstest]
+    #[case(None)]
+    #[case(Some(42))]
+    fn test_sparse_duration(#[case] fill: Option<i64>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let unit = DurationUnit::Milliseconds;
+        let patch_indices = buffer![0u64, 2, 3, 5].into_array();
+        let patch_counts = PrimitiveArray::from_option_iter([Some(1i64), Some(-7), None, Some(9)]);
+        let patch_values = DurationArray::try_new(unit, patch_counts.into_array())?.into_array();
+        let fill_value = Scalar::try_new(
+            DType::Duration(unit, Nullable),
+            Scalar::from(fill).into_value(),
+        )?;
+        let sparse = Sparse::try_new(patch_indices, patch_values, 7, fill_value, &mut ctx)?;
+
+        let expected_counts =
+            PrimitiveArray::from_option_iter([fill, Some(-7), None, fill, Some(9)]);
+        let expected = DurationArray::try_new(unit, expected_counts.into_array())?;
+        assert_arrays_eq!(sparse.slice(1..6)?, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]

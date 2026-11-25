@@ -6,12 +6,15 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::duration::DurationArraySlotsExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
@@ -37,6 +40,18 @@ pub fn compare_canonical_array(
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
 
     match array.dtype() {
+        DType::Duration(..) => {
+            let array = array
+                .clone()
+                .execute::<DurationArray>(ctx)
+                .vortex_expect("to duration");
+            let count = Scalar::try_new(
+                DType::Primitive(PType::I64, value.dtype().nullability()),
+                value.value().cloned(),
+            )
+            .vortex_expect("duration values are i64 counts");
+            compare_canonical_array(array.counts(), &count, operator, ctx)
+        }
         DType::Bool(_) => {
             let bool = value
                 .as_bool()
@@ -188,7 +203,6 @@ pub fn compare_canonical_array(
         }
         d @ (DType::Null
         | DType::Map(..)
-        | DType::Duration(..)
         | DType::Union(..)
         | DType::Variant(_)
         | DType::Extension(_)) => {

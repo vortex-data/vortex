@@ -154,6 +154,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     constant::initialize(session);
     decimal::initialize(session);
     dict::initialize(session);
+    duration::initialize(session);
     extension::initialize(session);
     filter::initialize(session);
     fixed_size_list::initialize(session);
