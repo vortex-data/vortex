@@ -5,7 +5,6 @@
 
 mod file;
 mod read;
-mod shared;
 mod slot;
 
 use std::fmt;
@@ -15,7 +14,6 @@ use std::sync::Arc;
 
 pub use file::*;
 use futures::future::BoxFuture;
-pub use shared::*;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
