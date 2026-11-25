@@ -41,8 +41,8 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 /// - **struct** → [`StructStrategy`], with each field written by its override (if any) or by a
 ///   descended copy of this dispatcher.
 /// - **list** → [`ListLayoutStrategy`], with `elements` written by a descended copy of this
-///   dispatcher (so nested structs/lists recurse) and `offsets`/`validity` by the leaf/validity
-///   strategies. Gated: only when list decomposition is enabled via
+///   dispatcher (so nested structs/lists recurse) and `offsets`/`validity` by the leaf
+///   strategy. Gated: only when list decomposition is enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
 /// - **anything else** → the leaf strategy.
@@ -52,7 +52,7 @@ pub struct TableStrategy {
     /// A set of field-path overrides, e.g. to force one column to be compact-compressed. Keys are
     /// paths relative to the level this dispatcher sits at.
     leaf_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
-    /// The writer for any validity arrays that may be present, at any level of the tree.
+    /// The writer for struct validity arrays, at any level of the tree.
     validity: Arc<dyn LayoutStrategy>,
     /// The writer for leaf fields, i.e. anything that is not a struct.
     leaf: Arc<dyn LayoutStrategy>,
@@ -213,14 +213,18 @@ impl TableStrategy {
     /// Build the [`ListLayoutStrategy`] used to write a list field stream at this level.
     ///
     /// The `elements` sub-column is routed back through a clean descended dispatcher so nested
-    /// structs/lists recurse; `offsets` go straight to the leaf (they are always a primitive
-    /// column); and `validity` uses the shared validity strategy.
+    /// structs/lists recurse, and `offsets` and `validity` go straight to the leaf.
+    ///
+    /// List validity is not written with the struct validity strategy, which may collect the whole
+    /// column into one array: the validity of a nested list has a row per element of its parent,
+    /// so a single array of it can be tens of megabytes that every read of the column fetches.
+    /// The leaf strategy chunks it like the offsets.
     fn list_strategy(&self) -> Option<Arc<dyn LayoutStrategy>> {
         let factory = self.list_layout_factory.as_ref()?;
         let list_layout = ListLayoutStrategy::default()
             .with_elements(Arc::new(self.descend_clean()))
             .with_offsets(Arc::clone(&self.leaf))
-            .with_validity(Arc::clone(&self.validity))
+            .with_validity(Arc::clone(&self.leaf))
             .with_fallback(Arc::clone(&self.leaf));
         Some(factory(list_layout))
     }
@@ -343,6 +347,7 @@ mod tests {
     use crate::LayoutStrategy;
     use crate::layouts::chunked::Chunked;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::collect::CollectStrategy;
     use crate::layouts::flat::Flat;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::list::List;
@@ -531,6 +536,59 @@ mod tests {
         └── offsets: vortex.chunked, dtype: u64, children: 2
             ├── [0]: vortex.flat, dtype: u64, segment: 2
             └── [1]: vortex.flat, dtype: u64, segment: 3
+        ");
+        Ok(())
+    }
+
+    /// List validity is chunked by the leaf strategy, not collected into one array by the struct
+    /// validity strategy: a nested list's validity has a row per element of its parent, so one
+    /// array of it can be as large as the parent's elements.
+    #[tokio::test]
+    async fn chunks_nested_list_validity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut chunks = Vec::new();
+        for _ in 0..2 {
+            let inner = ListArray::try_new(
+                buffer![1i32, 2, 3].into_array(),
+                buffer![0u32, 2, 2, 3].into_array(),
+                Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+                &mut ctx,
+            )?
+            .into_array();
+            chunks.push(
+                ListArray::try_new(
+                    inner,
+                    buffer![0u32, 1, 3].into_array(),
+                    Validity::NonNullable,
+                    &mut ctx,
+                )?
+                .into_array(),
+            );
+        }
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
+
+        let dispatcher = TableStrategy::new(
+            Arc::new(CollectStrategy::new(FlatLayoutStrategy::default())),
+            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+        )
+        .with_list_layout();
+        let layout = write(&dispatcher, chunked).await?;
+        insta::assert_snapshot!(display_tree_with_canonical_segments(&layout), @r"
+        vortex.list, dtype: list(list(i32)?), children: 2
+        ├── elements: vortex.list, dtype: list(i32)?, children: 3
+        │   ├── elements: vortex.chunked, dtype: i32, children: 2
+        │   │   ├── [0]: vortex.flat, dtype: i32, segment: 0
+        │   │   └── [1]: vortex.flat, dtype: i32, segment: 1
+        │   ├── offsets: vortex.chunked, dtype: u64, children: 2
+        │   │   ├── [0]: vortex.flat, dtype: u64, segment: 2
+        │   │   └── [1]: vortex.flat, dtype: u64, segment: 3
+        │   └── validity: vortex.chunked, dtype: bool, children: 2
+        │       ├── [0]: vortex.flat, dtype: bool, segment: 4
+        │       └── [1]: vortex.flat, dtype: bool, segment: 5
+        └── offsets: vortex.chunked, dtype: u64, children: 2
+            ├── [0]: vortex.flat, dtype: u64, segment: 6
+            └── [1]: vortex.flat, dtype: u64, segment: 7
         ");
         Ok(())
     }
