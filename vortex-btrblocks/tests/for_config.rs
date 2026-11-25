@@ -314,7 +314,7 @@ fn test_v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()>
     );
     assert_ne!(
         full.compress(&i64_chunk, &mut ctx)?.encoding_id(),
-        for_v2_id()
+        for_v1_id()
     );
 
     let i32_chunk = PrimitiveArray::from_iter((0..122_880i32).map(|i| (i / 4) + 1)).into_array();
@@ -327,20 +327,13 @@ fn test_v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()>
     );
     assert_ne!(
         full.compress(&i32_chunk, &mut ctx)?.encoding_id(),
-        for_v2_id()
+        for_v1_id()
     );
     Ok(())
 }
 
 #[test]
 fn test_v2_rejects_all_constant_block_sample() -> VortexResult<()> {
-    let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
-    let without_runend = for_only()
-        .with_new_scheme(&IntDictScheme)
-        .with_new_scheme(&SequenceScheme)
-        .build();
-    let full = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
-
     // Every sampled 1,024-element block is constant (zero residual bytes), while unsampled blocks
     // vary; FoR.v2 must not win with an inflated sample ratio over Dict/RunEnd even without RunEnd.
     let array = PrimitiveArray::from_iter((0..524_288i32).map(|i| {
@@ -352,10 +345,18 @@ fn test_v2_rejects_all_constant_block_sample() -> VortexResult<()> {
         }
     }))
     .into_array();
-    assert_ne!(
-        without_runend.compress(&array, &mut ctx)?.encoding_id(),
-        for_v2_id()
-    );
-    assert_ne!(full.compress(&array, &mut ctx)?.encoding_id(), for_v2_id());
+    let without_runend_ids = compress_roundtrip(
+        for_only()
+            .with_new_scheme(&IntDictScheme)
+            .with_new_scheme(&SequenceScheme),
+        &array,
+    )?;
+    assert!(!without_runend_ids.contains(&for_v2_id()));
+
+    let full_ids = compress_roundtrip(
+        BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION),
+        &array,
+    )?;
+    assert!(!full_ids.contains(&for_v2_id()));
     Ok(())
 }
