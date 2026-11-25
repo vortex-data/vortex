@@ -18,6 +18,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::test_harness::check_metadata;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_session::registry::ReadContext;
@@ -315,4 +316,17 @@ fn v2_unnarrowed_and_legacy_metadata_roundtrip() -> VortexResult<()> {
     )?;
     assert_arrays_eq!(legacy, raw, &mut ctx);
     Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_for_v2_metadata() {
+    check_metadata(
+        "for_v2.metadata",
+        &v2::FoRV2Metadata {
+            offset: 1023,
+            encoded_bytes: 2,
+        }
+        .encode_to_vec(),
+    );
 }
