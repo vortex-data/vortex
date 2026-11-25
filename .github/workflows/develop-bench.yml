@@ -1,4 +1,4 @@
-# Runs benchmarks on `develop`, dispatched every 10 minutes by `develop-bench-trigger.yml`
+# Runs benchmarks on `develop`, dispatched every hour by `develop-bench-trigger.yml`
 # whenever new commits have landed on `develop` (or manually via `workflow_dispatch` on `develop`).
 
 name: Develop Benchmarks
