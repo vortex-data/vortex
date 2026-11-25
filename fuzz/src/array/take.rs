@@ -23,7 +23,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
+use vortex_error::vortex_bail;
 
 pub fn take_canonical_array_non_nullable_indices(
     array: &ArrayRef,
@@ -67,7 +67,7 @@ pub fn take_canonical_array(
     let indices_slice_non_opt = indices_non_opt.as_slice();
 
     match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let vec_values = bool_array.to_bit_buffer().iter().collect::<Vec<_>>();

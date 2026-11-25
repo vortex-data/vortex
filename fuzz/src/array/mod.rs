@@ -463,7 +463,11 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        #[expect(
+            clippy::todo,
+            reason = "FixedSizeBinary support lands in follow-up changes"
+        )]
+        DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
         DType::Null => {
             // Null arrays support most operations but not Sum or MinMax (return None for dtype)
             [

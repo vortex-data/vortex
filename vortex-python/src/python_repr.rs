@@ -10,7 +10,6 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtId;
-use vortex::error::vortex_panic;
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;
@@ -29,7 +28,11 @@ impl Display for DTypePythonRepr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let DTypePythonRepr(dtype) = self;
         match dtype {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+            #[expect(
+                clippy::todo,
+                reason = "FixedSizeBinary support lands in follow-up changes"
+            )]
+            DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
             DType::Null => write!(f, "null()"),
             DType::Bool(n) => write!(f, "bool(nullable={})", n.python_repr()),
             DType::Primitive(ptype, n) => match ptype {

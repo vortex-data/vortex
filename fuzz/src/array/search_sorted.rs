@@ -21,8 +21,8 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 // Count the insertion boundary directly instead of reusing production binary search.
 fn linear_search(
@@ -58,7 +58,7 @@ pub fn search_sorted_canonical_array(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let validity = bool_array

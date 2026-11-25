@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -65,7 +64,7 @@ impl Scalar {
         }
 
         match &self.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => unreachable!("Handled by the if case above"),
             DType::Bool(_) => {
                 let DType::Primitive(ptype, nullability) = target_dtype else {

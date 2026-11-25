@@ -174,7 +174,11 @@ impl Canonical {
     /// Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> Canonical {
         match dtype {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+            #[expect(
+                clippy::todo,
+                reason = "FixedSizeBinary support lands in follow-up changes"
+            )]
+            DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
             DType::Null => Canonical::Null(NullArray::new(0)),
             DType::Bool(n) => Canonical::Bool(unsafe {
                 BoolArray::new_unchecked(BitBuffer::empty(), Validity::from(n))

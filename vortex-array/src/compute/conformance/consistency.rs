@@ -906,7 +906,11 @@ fn widened_primitive_dtype(dtype: &DType) -> Option<DType> {
 /// Cast targets exercised for each logical dtype.
 fn slice_cast_targets(dtype: &DType) -> Vec<DType> {
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        #[expect(
+            clippy::todo,
+            reason = "FixedSizeBinary support lands in follow-up changes"
+        )]
+        DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
         DType::Null => vec![],
         DType::Bool(nullability) => vec![
             DType::Primitive(PType::U8, *nullability),

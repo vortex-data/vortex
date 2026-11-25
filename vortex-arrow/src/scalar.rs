@@ -29,7 +29,6 @@ use vortex_array::scalar::Utf8Scalar;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::dtype::to_data_type_naive;
 
@@ -71,7 +70,7 @@ impl ToArrowDatum for Scalar {
     fn to_arrow_datum(&self) -> Result<Arc<dyn Datum>, VortexError> {
         let value = self;
         match value.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => Ok(Arc::new(NullArray::new(SCALAR_ARRAY_LEN))),
             DType::Bool(_) => bool_to_arrow(value.as_bool()),
             DType::Primitive(..) => primitive_to_arrow(value.as_primitive()),

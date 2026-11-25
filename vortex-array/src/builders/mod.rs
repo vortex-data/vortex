@@ -414,7 +414,11 @@ pub fn builder_with_capacity_in(
     allocator: &BufferAllocatorRef,
 ) -> Box<dyn ArrayBuilder> {
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        #[expect(
+            clippy::todo,
+            reason = "FixedSizeBinary support lands in follow-up changes"
+        )]
+        DType::FixedSizeBinary(..) => todo!("FixedSizeBinary"),
         DType::Null => Box::new(NullBuilder::new()),
         DType::Bool(n) => Box::new(BoolBuilder::with_capacity_in(*n, capacity, allocator)),
         DType::Primitive(ptype, n) => {
