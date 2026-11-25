@@ -7,12 +7,12 @@ use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
 use std::sync::Arc;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use vortex_buffer::ByteBuffer;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 
