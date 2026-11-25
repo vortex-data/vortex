@@ -26,30 +26,52 @@ _AMBIGUOUS_ERRORS = frozenset(
 # Slack's limits on a section block's text and on the blocks in one message.
 _SECTION_LIMIT = 3000
 _MAX_BLOCKS = 50
+# Messages longer than this many lines are collapsed to a preview with "See more".
+PREVIEW_LINES = 20
+# Roughly how many characters fit on one line in Slack, so one long line counts as several.
+_LINE_WIDTH = 100
 
 
 def blocks(text: str) -> list[dict[str, object]]:
-    """Put each line of `text` in its own collapsed section block.
+    """Lay out a whole message as section blocks, collapsed if it is long.
 
-    Slack shows a section with `expand: false` behind "See more" once its text is long, so a long
-    title or reminder is hidden on its own without hiding the short lines around it. The message's
-    `text` remains the fallback for notifications.
+    A message of at most `PREVIEW_LINES` lines, counting wrapped lines, is always shown in full.
+    A longer one is sent with `expand: false`, so Slack shows a preview and hides the rest behind
+    "See more". The message's `text` remains the fallback for notifications.
     """
-    lines = [line for line in text.split("\n") if line.strip()]
-    if len(lines) > _MAX_BLOCKS:
-        lines = [*lines[: _MAX_BLOCKS - 1], "\n".join(lines[_MAX_BLOCKS - 1 :])]
+    expand = _display_lines(text) <= PREVIEW_LINES
     return [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": _truncate(line)},
-            "expand": False,
-        }
-        for line in lines
+        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}, "expand": expand}
+        for chunk in _chunks(text)
     ]
 
 
-def _truncate(text: str) -> str:
-    return text if len(text) <= _SECTION_LIMIT else text[: _SECTION_LIMIT - 1] + "…"
+def _display_lines(text: str) -> int:
+    return sum(max(1, -(-len(line) // _LINE_WIDTH)) for line in text.split("\n"))
+
+
+def _chunks(text: str) -> list[str]:
+    """Split `text` at line breaks into pieces that each fit in one section block."""
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        while len(line) > _SECTION_LIMIT:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:_SECTION_LIMIT])
+            line = line[_SECTION_LIMIT:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > _SECTION_LIMIT:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current)
+    if len(chunks) > _MAX_BLOCKS:
+        chunks = [*chunks[: _MAX_BLOCKS - 1], chunks[_MAX_BLOCKS - 1][: _SECTION_LIMIT - 1] + "…"]
+    return chunks
 
 
 class SlackError(Exception):

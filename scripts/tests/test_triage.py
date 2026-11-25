@@ -604,15 +604,32 @@ def test_closed_state_handles_open_closed_merged_and_deleted(monkeypatch):
     assert github.closed_state("o/r", 99999999) == "deleted"
 
 
-def test_slack_blocks_collapse_each_line_separately():
-    long_reason = "x" * 4000
-    result = slack.blocks(f"*PR #1*\n\n{long_reason}")
-    assert [block["text"]["text"] for block in result] == ["*PR #1*", "x" * 2999 + "…"]
-    assert all(block["type"] == "section" and block["expand"] is False for block in result)
+def test_slack_blocks_show_short_messages_and_collapse_long_ones():
+    short = "*PR #1*\nTitle\nOpened by `a`"
+    assert slack.blocks(short) == [{"type": "section", "text": {"type": "mrkdwn", "text": short}, "expand": True}]
 
-    many = slack.blocks("\n".join(str(i) for i in range(60)))
-    assert len(many) == 50
-    assert many[-1]["text"]["text"] == "\n".join(str(i) for i in range(49, 60))
+    at_limit = "\n".join(str(i) for i in range(slack.PREVIEW_LINES))
+    assert [block["expand"] for block in slack.blocks(at_limit)] == [True]
+
+    long = "\n".join(str(i) for i in range(slack.PREVIEW_LINES + 1))
+    assert slack.blocks(long) == [{"type": "section", "text": {"type": "mrkdwn", "text": long}, "expand": False}]
+
+    # One long line wraps over many lines in Slack, so it is collapsed too.
+    assert [block["expand"] for block in slack.blocks("x" * 2500)] == [False]
+
+
+def test_slack_blocks_split_text_beyond_the_section_limit():
+    line = "y" * 1000
+    result = slack.blocks("\n".join([line] * 5))
+    assert [block["text"]["text"] for block in result] == [
+        "\n".join([line] * 2),
+        "\n".join([line] * 2),
+        line,
+    ]
+    assert all(block["expand"] is False for block in result)
+
+    assert [len(block["text"]["text"]) for block in slack.blocks("z" * 7000)] == [3000, 3000, 1000]
+    assert len(slack.blocks("\n".join(["w" * 3000] * 60))) == 50
 
 
 def test_slack_post_and_update_send_collapsed_blocks(monkeypatch):
