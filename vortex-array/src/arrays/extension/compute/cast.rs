@@ -113,9 +113,17 @@ mod tests {
         buffer![1_000i64, 2_000].into_array(),
         timestamp_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
     )]
-    #[case::different_unit(
+    #[case::coarser_unit(
+        create_timestamp_array(TimeUnit::Nanoseconds, false).into_array(),
+        timestamp_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
+    )]
+    #[case::different_zone(
         create_timestamp_array(TimeUnit::Milliseconds, false).into_array(),
-        timestamp_dtype(TimeUnit::Nanoseconds, Nullability::NonNullable),
+        DType::Extension(Timestamp::new_with_tz(
+            TimeUnit::Milliseconds,
+            Some("+01:00".into()),
+            Nullability::NonNullable,
+        ).erased()),
     )]
     #[case::nullable_to_storage(
         create_timestamp_array(TimeUnit::Milliseconds, true).into_array(),
@@ -132,6 +140,10 @@ mod tests {
     #[case::nested_in_struct(
         in_struct(create_timestamp_array(TimeUnit::Milliseconds, false).into_array()),
         struct_dtype(DType::Primitive(PType::I64, Nullability::NonNullable)),
+    )]
+    #[case::nested_rescale(
+        in_struct(create_timestamp_array(TimeUnit::Milliseconds, false).into_array()),
+        struct_dtype(timestamp_dtype(TimeUnit::Nanoseconds, Nullability::NonNullable)),
     )]
     #[case::nested_in_list(
         in_list(create_timestamp_array(TimeUnit::Milliseconds, false).into_array()),
