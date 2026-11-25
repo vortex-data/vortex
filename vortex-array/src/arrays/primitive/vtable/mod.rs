@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayParts;
@@ -20,7 +19,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::match_each_native_ptype;
-use crate::validity::Validity;
 mod kernel;
 mod operations;
 mod plugin;
@@ -116,18 +114,13 @@ impl VTable for Primitive {
             len,
             "PrimitiveArray length does not match outer length",
         );
-        if let Some(validity_child) = slots[PrimitiveSlots::VALIDITY_CHILD].as_ref() {
-            vortex_ensure!(
-                nullability.is_nullable(),
-                "PrimitiveArray with non-nullable dtype cannot have a validity child",
-            );
+        let validity = crate::array::child_to_validity(
+            slots[PrimitiveSlots::VALIDITY_CHILD].as_ref(),
+            *nullability,
+        );
+        if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
-                validity_child.dtype(),
-                &Validity::DTYPE,
-                "PrimitiveArray validity child must have non-nullable bool dtype",
-            );
-            vortex_ensure_eq!(
-                validity_child.len(),
+                validity_len,
                 len,
                 "PrimitiveArray validity len does not match outer length",
             );
