@@ -9,6 +9,7 @@ use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
+use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -56,6 +57,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ext_metadata::encode_arrow_ext_metadata;
 
 use super::VortexDataSource;
+use super::VortexTable;
 use crate::common_tests::AnyStorage;
 
 async fn vortex_source() -> anyhow::Result<VortexDataSource> {
@@ -896,5 +898,33 @@ async fn test_double_projection_swap_composes_against_current_output() -> anyhow
         &batches
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_repeated_projection_does_not_duplicate_volatile_expr() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    let batch = arrow_array::record_batch!(("a", Int32, vec![1, 2, 3, 4, 5]))?;
+    let schema = batch.schema();
+    let data_source = data_source_from_batch(batch, &session).await?;
+    let table = Arc::new(VortexTable::new(data_source, session, schema));
+
+    let ctx = SessionContext::new();
+    ctx.register_table("t", table)?;
+
+    let batches = ctx
+        .sql("SELECT r AS x, r AS y FROM (SELECT random() AS r FROM t) AS s")
+        .await?
+        .collect()
+        .await?;
+
+    let mut row_count = 0usize;
+    for batch in &batches {
+        let xs = batch.column(0).as_primitive::<Float64Type>().values();
+        let ys = batch.column(1).as_primitive::<Float64Type>().values();
+        assert_eq!(xs, ys);
+        row_count += batch.num_rows();
+    }
+    assert_eq!(row_count, 5);
     Ok(())
 }

@@ -88,6 +88,7 @@ use datafusion_common::Statistics;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision as DFPrecision;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::OpenArgs;
@@ -903,15 +904,20 @@ impl DataSource for VortexDataSource {
         let converter = &self.expression_converter;
         let projected_schema = projection.project_schema(self.leftover_schema.as_ref())?;
         let combined_projection = match &self.applied_projection {
-            Some(existing) => match existing.try_merge(projection) {
-                Ok(merged) => merged,
-                Err(err) => {
-                    tracing::debug!(
-                        "VortexScanSource: failed to merge projection {projection}: {err}"
-                    );
+            Some(existing) => {
+                if !can_merge_projection(existing, projection)? {
                     return Ok(None);
                 }
-            },
+                match existing.try_merge(projection) {
+                    Ok(merged) => merged,
+                    Err(err) => {
+                        tracing::debug!(
+                            "VortexScanSource: failed to merge projection {projection}: {err}"
+                        );
+                        return Ok(None);
+                    }
+                }
+            }
             None => projection.clone(),
         };
         let input_schema = self.initial_schema.as_ref();
@@ -1036,6 +1042,31 @@ impl DataSource for VortexDataSource {
             f,
         )
     }
+}
+
+/// Matches DataFusion's projection-collapse guard: do not inline a non-trivial inner expression
+/// that the outer projection references more than once, which would duplicate volatile or
+/// expensive work.
+fn can_merge_projection(existing: &ProjectionExprs, incoming: &ProjectionExprs) -> DFResult<bool> {
+    let existing_exprs = existing.as_ref();
+    let mut ref_counts = vec![0usize; existing_exprs.len()];
+    for proj_expr in incoming.as_ref() {
+        proj_expr.expr.apply(|expr| {
+            if let Some(column) = expr.downcast_ref::<Column>()
+                && let Some(count) = ref_counts.get_mut(column.index())
+            {
+                *count += 1;
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+    }
+    Ok(!ref_counts.into_iter().enumerate().any(|(index, count)| {
+        count > 1
+            && !existing_exprs[index]
+                .expr
+                .placement()
+                .should_push_to_leaves()
+    }))
 }
 
 fn project_output_ordering(
