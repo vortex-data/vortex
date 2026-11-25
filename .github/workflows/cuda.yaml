@@ -41,9 +41,12 @@ jobs:
           filters: |
             cuda:
               - "vortex-cuda/**"
+              - "vortex-python/Cargo.toml"
               - "vortex-python/python/vortex/__init__.py"
               - "vortex-python/pyproject.toml"
+              - "vortex-python/src/**"
               - "vortex-python/test/test_cuda.py"
+              - "vortex-python-abi/**"
               - "vortex-python-cuda/**"
               - "vortex-test/**"
               - "pyproject.toml"
