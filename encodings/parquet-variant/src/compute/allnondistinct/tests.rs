@@ -92,29 +92,114 @@ fn all_non_distinct_empty_is_true() -> VortexResult<()> {
 }
 
 #[test]
-fn all_non_distinct_declines_when_only_one_side_is_shredded() -> VortexResult<()> {
-    let shredded = parquet_variant(
-        2,
-        Some(binary([b"\x10", b"\x11"])),
-        Some(buffer![1i32, 2].into_array()),
-    )?;
-    let unshredded = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
-    let batch = StructArray::try_new(
-        FieldNames::from(["lhs", "rhs"]),
-        vec![shredded, unshredded],
-        2,
+fn test_all_non_distinct_handles_mixed_shredded_and_unshredded_layouts() -> VortexResult<()> {
+    let (meta_1, val_1) = VariantBuilder::new().with_value(1i32).finish();
+    let (meta_2, val_2) = VariantBuilder::new().with_value(2i32).finish();
+
+    let shredded_matching = ParquetVariant::try_new(
         Validity::NonNullable,
+        binary([meta_1.as_slice(), meta_2.as_slice()]),
+        None,
+        Some(buffer![1i32, 2].into_array()),
+    )?
+    .into_array();
+    let shredded_distinct = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta_1.as_slice(), meta_2.as_slice()]),
+        None,
+        Some(buffer![1i32, 3].into_array()),
+    )?
+    .into_array();
+    let unshredded = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta_1.as_slice(), meta_2.as_slice()]),
+        Some(binary([val_1.as_slice(), val_2.as_slice()])),
+        None,
     )?
     .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
     let aggregate = AllNonDistinct.bind(EmptyOptions);
-    let result = AllNonDistinctParquetVariant.aggregate(&aggregate, &batch, &mut ctx)?;
-    assert!(
-        result.is_none(),
-        "a shredded value cannot be compared to an unshredded one from `value` alone, so the \
-         kernel must decline rather than report them identical; got {result:?}"
+
+    let matching_batch = StructArray::try_new(
+        FieldNames::from(["lhs", "rhs"]),
+        vec![shredded_matching.clone(), unshredded.clone()],
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    assert_eq!(
+        AllNonDistinctParquetVariant.aggregate(&aggregate, &matching_batch, &mut ctx)?,
+        Some(Scalar::bool(true, Nullability::NonNullable))
     );
+    assert!(all_non_distinct(&shredded_matching, &unshredded, &mut ctx)?);
+
+    let distinct_batch = StructArray::try_new(
+        FieldNames::from(["lhs", "rhs"]),
+        vec![shredded_distinct.clone(), unshredded.clone()],
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    assert_eq!(
+        AllNonDistinctParquetVariant.aggregate(&aggregate, &distinct_batch, &mut ctx)?,
+        Some(Scalar::bool(false, Nullability::NonNullable))
+    );
+    assert!(!all_non_distinct(
+        &shredded_distinct,
+        &unshredded,
+        &mut ctx
+    )?);
+    Ok(())
+}
+
+#[test]
+fn test_all_non_distinct_handles_mixed_root_value_with_raw_only_nested_field() -> VortexResult<()> {
+    let mut builder = VariantBuilder::new();
+    builder.new_object().finish();
+    let (meta_empty_obj, val_empty_obj) = builder.finish();
+    let (_, val_x) = VariantBuilder::new().with_value("x").finish();
+    let (_, val_y) = VariantBuilder::new().with_value("y").finish();
+
+    let make_shredded_object =
+        |root_value: Option<ArrayRef>, raw_b: &[u8]| -> VortexResult<ArrayRef> {
+            let field_a = StructArray::try_new(
+                FieldNames::from(["typed_value"]),
+                vec![buffer![1i32].into_array()],
+                1,
+                Validity::NonNullable,
+            )?
+            .into_array();
+            let field_b = StructArray::try_new(
+                FieldNames::from(["value"]),
+                vec![binary([raw_b])],
+                1,
+                Validity::NonNullable,
+            )?
+            .into_array();
+            let typed_value = StructArray::try_new(
+                FieldNames::from(["a", "b"]),
+                vec![field_a, field_b],
+                1,
+                Validity::NonNullable,
+            )?
+            .into_array();
+            Ok(ParquetVariant::try_new(
+                Validity::NonNullable,
+                binary([meta_empty_obj.as_slice()]),
+                root_value,
+                Some(typed_value),
+            )?
+            .into_array())
+        };
+
+    let lhs = make_shredded_object(Some(binary([val_empty_obj.as_slice()])), &val_x)?;
+    let rhs_matching = make_shredded_object(None, &val_x)?;
+    let rhs_distinct = make_shredded_object(None, &val_y)?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(all_non_distinct(&lhs, &rhs_matching, &mut ctx)?);
+    assert!(!all_non_distinct(&lhs, &rhs_distinct, &mut ctx)?);
     Ok(())
 }
 

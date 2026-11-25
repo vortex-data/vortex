@@ -62,14 +62,6 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             return Ok(None);
         };
 
-        // Mixed shredding layouts (only one side has `typed_value` or `value`): let the generic
-        // canonical path handle it.
-        if lhs.typed_value().is_some() != rhs.typed_value().is_some()
-            || lhs.value().is_some() != rhs.value().is_some()
-        {
-            return Ok(None);
-        }
-
         // Respect both the batch struct mask (rows masked out by the caller) and each side's
         // outer variant validity. A valid batch row where only one side is null is distinct, and
         // rows that are null on both sides must be excluded before comparing physical children.
@@ -98,9 +90,10 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             (lhs_mask.true_count() < batch.len()).then_some(lhs_mask)
         };
 
-        // Check child dtype compatibility before comparing metadata or children. When child dtypes
-        // differ (e.g. root `value` nullability), compare via `ParquetVariant` scalars rather than
-        // declining to `Canonical::Variant`, which omits raw-only nested field wrappers.
+        // Check shredding layout and child dtype compatibility before comparing metadata or
+        // children. When layouts or child dtypes differ (e.g. only one side is shredded, only one
+        // side has a root `value`, or nullability differs), compare via `ParquetVariant` scalars
+        // rather than declining to `Canonical::Variant`, which omits raw-only nested wrappers.
         let typed_pair = match (lhs.typed_value(), rhs.typed_value()) {
             (Some(lhs_typed), Some(rhs_typed)) if lhs_typed.dtype() == rhs_typed.dtype() => {
                 Some((lhs_typed, rhs_typed))
