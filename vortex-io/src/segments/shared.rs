@@ -99,8 +99,9 @@ pub struct SharedSegment {
 enum Drive {
     /// The read completed.
     Done(SharedVortexResult<BufferHandle>),
-    /// The read was polled, now or by another waiter.
-    Polled,
+    /// The read was polled, and is pending. If this waiter polled it, it holds the count of the
+    /// read's wakeups from before the poll; otherwise the waiter that did is responsible for them.
+    Polled(Option<u64>),
     /// There was no read to poll.
     Skipped,
 }
@@ -128,8 +129,8 @@ struct Slot {
     /// The read, until it has completed, for a slot that waiters drive. Waiters only ever try to
     /// lock it, never wait for it. A filled slot has none unless its completer was dropped.
     read: Mutex<Option<SegmentFuture>>,
-    /// Notified of a filled slot's waiters, which drive nothing.
-    hooks: Option<Box<dyn FillHooks>>,
+    /// Notified of a filled slot's waiters, which drive nothing, until the read completes.
+    hooks: Mutex<Option<Box<dyn FillHooks>>>,
     polled: AtomicBool,
     parking: Arc<Parking>,
     /// Wakes every parked waiter, for the read to be polled with.
@@ -143,11 +144,14 @@ struct Parking {
     wakers: Mutex<Vec<Option<Waker>>>,
     /// Increments each time the list is emptied.
     generation: AtomicU64,
+    /// Increments each time the read wakes the parked waiters, before it takes their wakers.
+    wakes: AtomicU64,
 }
 
 impl Parking {
     /// Wakes every parked waiter, outside the lock, leaving them registered.
     fn wake_parked(&self) {
+        self.wakes.fetch_add(1, Ordering::SeqCst);
         let wakers = self
             .wakers
             .lock()
@@ -213,13 +217,14 @@ impl SharedSegment {
     fn try_drive(&mut self) -> Drive {
         let Some(mut read) = self.slot.read.try_lock() else {
             // Another waiter is polling the read, and the read's next wakeup wakes this one too.
-            return Drive::Polled;
+            return Drive::Polled(None);
         };
         // The completer sets the result before it empties `read`, so an empty `read` means either
         // the result is there or a completer will fill the slot.
         let Some(future) = read.as_mut() else {
             return Drive::Skipped;
         };
+        let wakes = self.slot.parking.wakes.load(Ordering::SeqCst);
         let mut panicked = PanicGuard {
             slot: &self.slot,
             armed: true,
@@ -228,7 +233,7 @@ impl SharedSegment {
         panicked.armed = false;
 
         let Poll::Ready(result) = poll else {
-            return Drive::Polled;
+            return Drive::Polled(Some(wakes));
         };
         let result = self.slot.complete(result.map_err(Arc::new));
         *read = None;
@@ -275,7 +280,7 @@ impl Slot {
         Arc::new(Self {
             result: OnceLock::new(),
             read: Mutex::new(read),
-            hooks,
+            hooks: Mutex::new(hooks),
             polled: AtomicBool::new(false),
             progress: Waker::from(Arc::clone(&parking)),
             parking,
@@ -289,6 +294,8 @@ impl Slot {
         result: SharedVortexResult<BufferHandle>,
     ) -> SharedVortexResult<BufferHandle> {
         let result = self.result.get_or_init(|| result).clone();
+        // Nothing needs the hooks once the read has completed.
+        drop(self.hooks.lock().take());
         self.parking.wake_all();
         result
     }
@@ -297,7 +304,7 @@ impl Slot {
 impl Drop for Slot {
     fn drop(&mut self) {
         if self.result.get().is_none()
-            && let Some(hooks) = &self.hooks
+            && let Some(hooks) = self.hooks.get_mut()
         {
             hooks.dropped();
         }
@@ -348,10 +355,11 @@ impl Drop for Completer {
         if slot.result.get().is_some() {
             return;
         }
-        match &slot.hooks {
+        let abandoned = slot.hooks.lock().as_ref().map(|hooks| hooks.abandoned());
+        match abandoned {
             // The waiters drive the replacement, starting when this wakes them.
-            Some(hooks) => {
-                *slot.read.lock() = Some(hooks.abandoned());
+            Some(read) => {
+                *slot.read.lock() = Some(read);
                 slot.parking.wake_all();
             }
             None => drop(slot.complete(Err(Arc::new(vortex_err!(
@@ -393,9 +401,9 @@ impl Future for SharedSegment {
         if let Some(result) = this.slot.result.get() {
             return Poll::Ready(result.clone());
         }
-        if let Some(hooks) = &this.slot.hooks
-            && !this.slot.polled.load(Ordering::Relaxed)
+        if !this.slot.polled.load(Ordering::Relaxed)
             && !this.slot.polled.swap(true, Ordering::Relaxed)
+            && let Some(hooks) = &*this.slot.hooks.lock()
         {
             hooks.polled();
         }
@@ -409,10 +417,19 @@ impl Future for SharedSegment {
         if let Some(result) = this.slot.result.get() {
             return Poll::Ready(result.clone());
         }
-        if matches!(drive, Drive::Skipped)
-            && let Drive::Done(result) = this.try_drive()
-        {
-            return Poll::Ready(result);
+        match drive {
+            Drive::Skipped => {
+                if let Drive::Done(result) = this.try_drive() {
+                    return Poll::Ready(result);
+                }
+            }
+            // The read woke the parked waiters before this one had parked, so poll it again.
+            Drive::Polled(Some(wakes))
+                if this.slot.parking.wakes.load(Ordering::SeqCst) != wakes =>
+            {
+                cx.waker().wake_by_ref();
+            }
+            Drive::Polled(_) | Drive::Done(_) => {}
         }
         Poll::Pending
     }
@@ -615,6 +632,35 @@ mod tests {
         assert_eq!(count.0.load(Ordering::Relaxed), 1);
         assert!(block_on(shared).is_err());
         assert!(block_on(waiter).is_err());
+    }
+
+    #[test]
+    fn a_read_that_wakes_itself_is_polled_again() -> VortexResult<()> {
+        let mut yielded = false;
+        let mut shared = SharedSegment::new(
+            futures::future::poll_fn(move |cx| {
+                if std::mem::replace(&mut yielded, true) {
+                    Poll::Ready(Ok(buffer(5)))
+                } else {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            })
+            .boxed(),
+        );
+        let (count, waker) = counting();
+        assert!(
+            shared
+                .poll_unpin(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
+        assert_eq!(count.0.load(Ordering::Relaxed), 1);
+        assert!(
+            shared
+                .poll_unpin(&mut Context::from_waker(&waker))
+                .is_ready()
+        );
+        Ok(())
     }
 
     #[test]

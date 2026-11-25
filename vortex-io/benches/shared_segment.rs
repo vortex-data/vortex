@@ -113,10 +113,16 @@ fn file_source() -> FileSegmentSource {
 struct Ready {
     start: Arc<Barrier>,
     readers: Vec<JoinHandle<()>>,
+    /// A request for every segment, never polled, so that each segment is read exactly once
+    /// however far apart the threads drift.
+    _held: Vec<SegmentFuture>,
 }
 
 /// Starts `threads` threads that each read every segment from `source` in turn, once released.
 fn ready(threads: usize, source: Arc<dyn SegmentSource>) -> Ready {
+    let held = (0..SEGMENTS)
+        .map(|id| source.request(SegmentId::from(id as u32)))
+        .collect();
     let start = Arc::new(Barrier::new(threads + 1));
     let readers = (0..threads)
         .map(|_| {
@@ -130,7 +136,11 @@ fn ready(threads: usize, source: Arc<dyn SegmentSource>) -> Ready {
             })
         })
         .collect();
-    Ready { start, readers }
+    Ready {
+        start,
+        readers,
+        _held: held,
+    }
 }
 
 fn run(ready: Ready) {
