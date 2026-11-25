@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::runend::compress::runend_encode;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -36,6 +37,7 @@ use vortex_fastlanes::for_v2_id;
 
 use super::BitPackingScheme;
 use super::RunEndScheme;
+use super::runend::RUN_END_THRESHOLD;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
@@ -423,6 +425,13 @@ fn evaluate_v2_on_sample(
     else {
         return Ok(None);
     };
+    // Reject samples where every sampled block is constant (zero residual bytes): a zero-byte
+    // residual child makes FoR.v2 report an arbitrarily huge ratio (`before / refs`, or
+    // `before / 1` with zero-buffer Sequence refs), outbidding RunEnd/Dict/Affine even when
+    // unsampled blocks are non-constant.
+    if packed_v2.nbytes() == 0 {
+        return Ok(None);
+    }
     let v2_patches = extract_patch_count(&packed_v2);
     let compressed_refs =
         compressor.compress_child(references, compress_ctx, scheme.id(), 0, exec_ctx)?;
@@ -431,7 +440,7 @@ fn evaluate_v2_on_sample(
     let v2_raw = for_v2_compressed.nbytes();
     let v2_penalized = v2_raw.saturating_add(patch_density_cost_bytes(sample_len, v2_patches));
 
-    // Compute exact baseline `min(BitPacked.v1, FoR.v1)` on the same aligned sample.
+    // Compute exact baseline `min(BitPacked.v1, FoR.v1, RunEnd)` on the same aligned sample.
     let sample_data = ArrayAndStats::new(
         sample.clone().into_array(),
         compress_ctx.merged_stats_options(),
@@ -477,13 +486,40 @@ fn evaluate_v2_on_sample(
         }
     }
 
+    // RunEnd is estimated on a 16x64 sample where FastLanes padding and slice jumps can
+    // understate its compression ratio; compare against RunEnd on the same 8x1024 aligned sample
+    // whenever RunEnd is eligible so FoR.v2 does not outbid it on run-structured columns.
+    if compressor.has_scheme(RunEndScheme.id())
+        && data.integer_stats(exec_ctx).average_run_length() >= RUN_END_THRESHOLD
+        && !compress_ctx
+            .cascade_history()
+            .iter()
+            .any(|&(sid, _)| sid == RunEndScheme.id())
+    {
+        let (ends, values) = runend_encode(sample_data.array_as_primitive(), exec_ctx);
+        let compressed_values =
+            compressor.compress_child(&values, compress_ctx, RunEndScheme.id(), 0, exec_ctx)?;
+        let compressed_ends = compressor.compress_child(
+            &ends.into_array(),
+            compress_ctx,
+            RunEndScheme.id(),
+            1,
+            exec_ctx,
+        )?;
+        let runend_nbytes = compressed_values
+            .nbytes()
+            .saturating_add(compressed_ends.nbytes());
+        baseline_raw = baseline_raw.min(runend_nbytes);
+        baseline_penalized = baseline_penalized.min(runend_nbytes);
+    }
+
     if !beats_v2_margin(v2_raw, baseline_raw, sample_len)
         || !beats_v2_margin(v2_penalized, baseline_penalized, sample_len)
     {
         return Ok(None);
     }
 
-    let ratio = before_nbytes as f64 / v2_penalized.max(1) as f64;
+    let ratio = before_nbytes as f64 / v2_penalized as f64;
     if ratio < MIN_V2_COMPRESSION_RATIO {
         return Ok(None);
     }

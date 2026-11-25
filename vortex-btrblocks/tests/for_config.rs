@@ -285,11 +285,47 @@ fn v2_handles_wide_span_inside_block() -> VortexResult<()> {
 fn v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter((0..2049i64).map(|i| {
         let block = i / 1024;
-        1_000_000_000 + block * 1_000_000
+        1_000_000_000 + block * 1_000_000 + (i % 16)
     }))
     .into_array();
     let builder = for_only().with_new_scheme(&SequenceScheme);
     let ids = compress_roundtrip(builder, &array)?;
     assert!(ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()> {
+    let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
+
+    let i64_chunk = PrimitiveArray::from_iter((0..122_880i64).map(|i| (i / 4) + 1)).into_array();
+    let compressed_i64 = compressor.compress(&i64_chunk, &mut ctx)?;
+    assert_eq!(compressed_i64.encoding_id().as_ref(), "vortex.runend");
+
+    let i32_chunk = PrimitiveArray::from_iter((0..122_880i32).map(|i| (i / 4) + 1)).into_array();
+    let compressed_i32 = compressor.compress(&i32_chunk, &mut ctx)?;
+    assert_eq!(compressed_i32.encoding_id().as_ref(), "vortex.runend");
+    Ok(())
+}
+
+#[test]
+fn v2_rejects_all_constant_block_sample() -> VortexResult<()> {
+    let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
+
+    // Every sampled 1,024-element block is constant (zero residual bytes), while unsampled blocks
+    // vary; FoR.v2 must not win with an inflated sample ratio over Dict/RunEnd.
+    let array = PrimitiveArray::from_iter((0..524_288i32).map(|i| {
+        let block = i / 1024;
+        if (1..=16).contains(&block) {
+            block + (i % 8)
+        } else {
+            block
+        }
+    }))
+    .into_array();
+    let compressed = compressor.compress(&array, &mut ctx)?;
+    assert_ne!(compressed.encoding_id(), for_v2_id());
     Ok(())
 }
