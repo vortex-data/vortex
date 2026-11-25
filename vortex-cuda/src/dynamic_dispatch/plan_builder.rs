@@ -97,7 +97,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return matches!(arr.dtype().as_ptype(), PType::F32 | PType::F64);
     }
     if id == BitPacked.id() {
-        return true;
+        return array.is::<BitPacked>();
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();

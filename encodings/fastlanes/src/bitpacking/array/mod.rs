@@ -63,6 +63,7 @@ pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
 
 pub struct BitPackedDataParts {
     pub offset: u16,
+    /// Number of bits used per packed value.
     pub bit_width: u8,
     pub len: usize,
     pub packed: BufferHandle,
@@ -246,6 +247,7 @@ impl BitPackedData {
         BitUnpackedChunks::try_new(self, len, scratch)
     }
 
+    /// Returns the number of bits used per packed value.
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width
