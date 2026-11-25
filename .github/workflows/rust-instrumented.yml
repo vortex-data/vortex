@@ -77,6 +77,9 @@ jobs:
             --exclude vortex-bench \
             --exclude xtask \
             --exclude vortex-sqllogictest \
+            --exclude vortex-tui \
+            --exclude vortex-compat \
+            --exclude vortex-fuzz \
             --exclude vortex-cuda \
             --exclude vortex-cuda-driver \
             --exclude vortex-cuda-ffi \
@@ -93,6 +96,7 @@ jobs:
             --exclude lance-bench \
             --exclude random-access-bench \
             --exclude string-bench
+          cargo nextest run --locked --no-fail-fast -p vortex-fuzz
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"
@@ -109,6 +113,7 @@ jobs:
             --ignore 'benchmarks/*' --ignore 'vortex-test/*' \
             --ignore '*/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' \
             --ignore '*/tests/*' --ignore '*/tests.rs' --ignore '*/test.rs' \
+            --ignore '*/e2e_test/*' --ignore '*_tests.rs' --ignore '*_test.rs' \
             --ignore '*/conformance/*' --ignore '*/test_harness/*' --ignore '*/test_harness.rs' \
             --ignore '*/generated/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
