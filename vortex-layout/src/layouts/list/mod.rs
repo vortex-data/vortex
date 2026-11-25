@@ -35,6 +35,7 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
 use crate::lowering::slots_from_layout;
+use crate::plan::physical::ElementIndex;
 use crate::plan::physical::ListPackPlan;
 use crate::plan::physical::PlanRef;
 use crate::segments::SegmentSource;
@@ -59,6 +60,7 @@ pub use List as ListLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ListData {
     offsets_ptype: PType,
+    element_index: Option<ElementIndex>,
 }
 
 /// A list layout shredded into elements, offsets, and optional validity children.
@@ -74,7 +76,11 @@ impl VTable for List {
     }
 
     fn metadata(layout: &Layout<Self>) -> Self::Metadata {
-        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype))
+        let mut metadata = ListLayoutMetadata::new(layout.offsets_ptype);
+        if let Some(index) = &layout.element_index {
+            metadata.set_element_index(index);
+        }
+        ProstMetadata(metadata)
     }
 
     fn deserialize(
@@ -95,7 +101,7 @@ impl VTable for List {
             args.dtype,
             args.children.nchildren()
         );
-        args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
+        let elements = args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
         let offsets_dtype = DType::Primitive(offsets_ptype, Nullability::NonNullable);
         let offsets = args.children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
         let offsets_row_count = args.row_count.checked_add(1).ok_or_else(|| {
@@ -119,7 +125,11 @@ impl VTable for List {
                 "List validity row count does not match parent"
             );
         }
-        Ok(ListData { offsets_ptype })
+        let element_index = metadata.get_element_index(args.row_count, elements.row_count())?;
+        Ok(ListData {
+            offsets_ptype,
+            element_index,
+        })
     }
 
     fn nslots(_layout: &Layout<Self>) -> usize {
@@ -203,6 +213,18 @@ impl Layout<List> {
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
     ) -> Self {
+        Self::new_with_element_index(dtype, elements, offsets, validity, None)
+    }
+
+    /// Construct a list layout from its children, with the writer's index of the list holding
+    /// every so many elements.
+    pub fn new_with_element_index(
+        dtype: DType,
+        elements: LayoutRef,
+        offsets: LayoutRef,
+        validity: Option<LayoutRef>,
+        element_index: Option<ElementIndex>,
+    ) -> Self {
         let row_count = offsets.row_count().saturating_sub(1);
         let offsets_ptype = offsets.dtype().as_ptype();
         let mut children = vec![elements, offsets];
@@ -214,9 +236,17 @@ impl Layout<List> {
             row_count,
             Vec::new(),
             OwnedLayoutChildren::layout_children(children),
-            ListData { offsets_ptype },
+            ListData {
+                offsets_ptype,
+                element_index,
+            },
         )
         .into_typed()
+    }
+
+    /// The list holding every so many elements, when the writer recorded them.
+    pub fn element_index(&self) -> Option<&ElementIndex> {
+        self.element_index.as_ref()
     }
 
     /// Returns the elements child.
@@ -279,6 +309,15 @@ pub struct ListLayoutMetadata {
     /// The integer [`PType`] of the `offsets` child.
     #[prost(int32, tag = "1")]
     offsets_ptype: i32,
+    /// The element rows between the entries of the [`ElementIndex`], or zero when the writer
+    /// recorded none.
+    #[prost(uint64, tag = "2")]
+    element_stride: u64,
+    /// The list holding every `element_stride`-th element row, delta-encoded: the first sampled
+    /// list, then the difference between each sampled list and the one before it. The sampled
+    /// lists never decrease, so the deltas are small varints.
+    #[prost(uint64, repeated, packed = "true", tag = "3")]
+    element_list_deltas: Vec<u64>,
 }
 
 impl ListLayoutMetadata {
@@ -286,7 +325,47 @@ impl ListLayoutMetadata {
     pub fn new(offsets_ptype: PType) -> Self {
         Self {
             offsets_ptype: offsets_ptype as i32,
+            element_stride: 0,
+            element_list_deltas: Vec::new(),
         }
+    }
+
+    fn set_element_index(&mut self, index: &ElementIndex) {
+        self.element_stride = index.stride();
+        // The sampled lists never decrease, so the subtractions do not wrap.
+        self.element_list_deltas = index
+            .lists()
+            .iter()
+            .scan(0u64, |previous, &list| {
+                let delta = list - *previous;
+                *previous = list;
+                Some(delta)
+            })
+            .collect();
+    }
+
+    /// The writer's [`ElementIndex`] of a layout of `list_rows` lists of `element_rows`
+    /// elements, or `None` when it recorded none.
+    fn get_element_index(
+        &self,
+        list_rows: u64,
+        element_rows: u64,
+    ) -> VortexResult<Option<ElementIndex>> {
+        if self.element_stride == 0 {
+            return Ok(None);
+        }
+        let mut list = 0u64;
+        let lists = self
+            .element_list_deltas
+            .iter()
+            .map(|&delta| {
+                list = list.checked_add(delta).ok_or_else(|| {
+                    vortex_err!("ListLayoutMetadata element index overflows a list's position")
+                })?;
+                Ok(list)
+            })
+            .collect::<VortexResult<Vec<u64>>>()?;
+        ElementIndex::try_new(self.element_stride, lists, list_rows, element_rows).map(Some)
     }
 
     fn get_offsets_ptype(&self) -> VortexResult<PType> {
@@ -321,6 +400,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::test_harness::check_metadata;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -339,6 +419,7 @@ mod tests {
     use crate::LayoutStrategy;
     use crate::layout_children;
     use crate::layouts::flat::FlatLayout;
+    use crate::layouts::list::ElementIndex;
     use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
@@ -528,7 +609,11 @@ mod tests {
 
     #[test]
     fn test_deserialize_rejects_unknown_offsets_ptype() -> VortexResult<()> {
-        let metadata = ListLayoutMetadata { offsets_ptype: 11 }.encode_to_vec();
+        let metadata = ListLayoutMetadata {
+            offsets_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
         assert_deserialize_err(
             &list_dtype(Nullability::NonNullable),
             3,
@@ -630,5 +715,63 @@ mod tests {
             children,
             "List validity row count does not match parent",
         );
+    }
+
+    /// The sampled lists are stored as the first list and then the differences between
+    /// consecutive lists, and decode back to the same index.
+    #[test]
+    fn element_index_round_trips_as_deltas() -> VortexResult<()> {
+        let index = ElementIndex::try_new(4, vec![0, 0, 3, 3, 9, 1_000], 1_001, 24)?;
+        let mut metadata = ListLayoutMetadata::new(PType::U64);
+        metadata.set_element_index(&index);
+        assert_eq!(metadata.element_stride, 4);
+        assert_eq!(metadata.element_list_deltas, [0, 0, 3, 0, 6, 991]);
+
+        let decoded = ListLayoutMetadata::decode(metadata.encode_to_vec().as_slice())?;
+        assert_eq!(decoded.get_element_index(1_001, 24)?, Some(index));
+        Ok(())
+    }
+
+    /// The metadata's bytes, with every field set to a value other than its default.
+    #[test]
+    fn metadata_matches_its_golden_file() -> VortexResult<()> {
+        let index = ElementIndex::try_new(4, vec![0, 0, 3, 3, 9, 1_000], 1_001, 24)?;
+        let mut metadata = ListLayoutMetadata::new(PType::U64);
+        metadata.set_element_index(&index);
+        check_metadata("list.metadata", &metadata.encode_to_vec());
+        Ok(())
+    }
+
+    /// Metadata written before the element index, or without one, reads as having none.
+    #[test]
+    fn metadata_without_element_index_reads_as_none() -> VortexResult<()> {
+        let bytes = ListLayoutMetadata::new(PType::U32).encode_to_vec();
+        let decoded = ListLayoutMetadata::decode(bytes.as_slice())?;
+        assert_eq!(decoded.get_offsets_ptype()?, PType::U32);
+        assert_eq!(decoded.get_element_index(10, 100)?, None);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::too_few_entries(2, vec![0, 1], 3, 5, "cover every stride")]
+    #[case::too_many_entries(2, vec![0, 1, 0, 0], 3, 5, "cover every stride")]
+    #[case::overflowing_list(1, vec![u64::MAX, 1], 2, 2, "overflow")]
+    #[case::list_out_of_range(1, vec![0, 3], 3, 2, "is not one of the 3 lists")]
+    fn a_corrupt_element_index_is_rejected(
+        #[case] element_stride: u64,
+        #[case] element_list_deltas: Vec<u64>,
+        #[case] list_rows: u64,
+        #[case] element_rows: u64,
+        #[case] message: &str,
+    ) {
+        let metadata = ListLayoutMetadata {
+            offsets_ptype: PType::U64 as i32,
+            element_stride,
+            element_list_deltas,
+        };
+        let err = metadata
+            .get_element_index(list_rows, element_rows)
+            .expect_err("a corrupt index must be rejected");
+        assert!(err.to_string().contains(message), "{err}");
     }
 }

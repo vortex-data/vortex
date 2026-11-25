@@ -19,6 +19,10 @@ use crate::plan::PlanRef;
 use crate::plan::PlanSlots;
 use crate::plan::PlanVTable;
 
+mod element_index;
+
+pub use element_index::ElementIndex;
+
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
 const VALIDITY: usize = 2;
