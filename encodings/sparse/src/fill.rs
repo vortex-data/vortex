@@ -16,7 +16,7 @@ use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::majority::MajorityKey;
-use vortex_array::stats::majority::majority_vote;
+use vortex_array::stats::majority::majority_candidate;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -56,8 +56,8 @@ pub(crate) fn dominant_value(
             let decimal = array.clone().execute::<DecimalArray>(ctx)?;
             let index = match_each_decimal_value_type!(decimal.values_type(), |D| {
                 let values = decimal.buffer::<D>();
-                let (top, _) =
-                    majority_vote(&values, mask).vortex_expect("array has a valid value");
+                let top =
+                    majority_candidate(&values, mask).vortex_expect("array has a valid value");
                 first_valid_index_of(&values, mask, top)
             });
             decimal.into_array().execute_scalar(index, ctx)
@@ -103,7 +103,7 @@ fn view_vote_index(bytes: &VarBinViewArray, mask: &Mask) -> usize {
     // SAFETY: `ViewGroup` is a transparent wrapper around `BinaryView`.
     let groups: &[ViewGroup] =
         unsafe { std::slice::from_raw_parts(views.as_ptr().cast(), views.len()) };
-    let (group, _) = majority_vote(groups, mask).vortex_expect("array has a valid value");
+    let group = majority_candidate(groups, mask).vortex_expect("array has a valid value");
     if group.0.is_inlined() {
         return first_valid_index_of(groups, mask, group);
     }
