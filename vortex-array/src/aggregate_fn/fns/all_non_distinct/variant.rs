@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
+
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ExecutionCtx;
 use crate::arrays::VariantArray;
@@ -33,20 +36,28 @@ pub fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
             if lhs_names.len() != rhs_names.len() {
                 return false;
             }
-            let Some(lhs_fields) = lhs_struct.fields_iter() else {
-                return rhs_struct.is_null();
+            let (Some(lhs_fields), Some(rhs_fields)) =
+                (lhs_struct.fields_iter(), rhs_struct.fields_iter())
+            else {
+                return lhs_struct.is_null() && rhs_struct.is_null();
             };
-            let mut rhs_matched = vec![false; rhs_names.len()];
+            if lhs_names == rhs_names {
+                return lhs_fields
+                    .zip(rhs_fields)
+                    .all(|(l, r)| variant_scalars_equal(&l, &r));
+            }
+            let mut rhs_indices: HashMap<&str, VecDeque<usize>> =
+                HashMap::with_capacity(rhs_names.len());
+            for (idx, name) in rhs_names.iter().enumerate() {
+                rhs_indices.entry(name.as_ref()).or_default().push_back(idx);
+            }
             lhs_names.iter().zip(lhs_fields).all(|(name, lhs_field)| {
-                let Some(rhs_idx) = rhs_names
-                    .iter()
-                    .enumerate()
-                    .find(|&(idx, rhs_name)| !rhs_matched[idx] && rhs_name == name)
-                    .map(|(idx, _)| idx)
+                let Some(rhs_idx) = rhs_indices
+                    .get_mut(name.as_ref())
+                    .and_then(VecDeque::pop_front)
                 else {
                     return false;
                 };
-                rhs_matched[rhs_idx] = true;
                 rhs_struct
                     .field_by_idx(rhs_idx)
                     .is_some_and(|rhs_field| variant_scalars_equal(&lhs_field, &rhs_field))

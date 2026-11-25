@@ -1189,6 +1189,10 @@ fn test_variant_repeated_field_names_and_extension_storage() -> VortexResult<()>
         dup_dtype.clone(),
         [Scalar::from(1i32), Scalar::from(2i32)],
     ));
+    let dup_2_1 = Scalar::variant(Scalar::struct_(
+        dup_dtype.clone(),
+        [Scalar::from(2i32), Scalar::from(1i32)],
+    ));
     let dup_1_1 = Scalar::variant(Scalar::struct_(
         dup_dtype,
         [Scalar::from(1i32), Scalar::from(1i32)],
@@ -1196,6 +1200,7 @@ fn test_variant_repeated_field_names_and_extension_storage() -> VortexResult<()>
 
     assert!(variant_scalars_equal(&dup_1_2, &dup_1_2));
     assert!(!variant_scalars_equal(&dup_1_1, &dup_1_2));
+    assert!(!variant_scalars_equal(&dup_1_2, &dup_2_1));
 
     static ID: CachedId = CachedId::new("test.variant_ext");
     let ext_dtype =
