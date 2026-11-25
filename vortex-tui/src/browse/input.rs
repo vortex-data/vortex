@@ -125,7 +125,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn web_key_handles_multibyte_utf8_chars() {
+    fn test_web_key_handles_multibyte_utf8_chars() {
         assert!(matches!(
             key_code_from_web_key("é"),
             InputKeyCode::Char('é')

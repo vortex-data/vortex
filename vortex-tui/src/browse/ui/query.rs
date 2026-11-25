@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::RecordBatch;
-use datafusion::sql::parser::DFParser;
+use datafusion::sql::parser::DFParserBuilder;
 use datafusion::sql::parser::Statement as DFStatement;
 use datafusion::sql::sqlparser::ast::Expr;
 use datafusion::sql::sqlparser::ast::LimitClause;
 use datafusion::sql::sqlparser::ast::Statement;
 use datafusion::sql::sqlparser::ast::Value;
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::tokenizer::Tokenizer;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
 use ratatui::layout::Layout;
@@ -383,7 +385,17 @@ impl QueryState {
     /// with trailing or non-literal LIMIT clauses that should execute verbatim.
     fn parse_sql_parts(&self) -> Option<(String, Option<String>, Option<usize>)> {
         let sql = self.sql_input.trim();
-        let mut statements = DFParser::parse_sql(sql).ok()?;
+        let dialect = GenericDialect {};
+        let tokens = Tokenizer::new(&dialect, sql)
+            .with_unescape(false)
+            .tokenize_with_location()
+            .ok()?;
+        let mut statements = DFParserBuilder::new(tokens)
+            .with_dialect(&dialect)
+            .build()
+            .ok()?
+            .parse_statements()
+            .ok()?;
         if statements.len() != 1 {
             return None;
         }
@@ -779,6 +791,8 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use datafusion::sql::parser::DFParser;
+
     use super::*;
 
     fn assert_cursor_valid(state: &QueryState, expected_sql: &str, expected_pos: usize) {
@@ -911,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn non_paginatable_sql_executes_verbatim() {
+    fn test_non_paginatable_sql_executes_verbatim() {
         for input in [
             "SELECT FROM",
             "DESCRIBE data",
@@ -958,7 +972,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disconnected_worker_resets_running_and_sets_error() {
+    async fn test_disconnected_worker_resets_running_and_sets_error() {
         let mut state = QueryState {
             running: true,
             needs_row_count: true,
@@ -974,7 +988,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn early_navigation_and_sort_preserve_pending_row_count()
+    async fn test_early_navigation_and_sort_preserve_pending_row_count()
     -> vortex::error::VortexResult<()> {
         let prev_results = QueryResults {
             batches: vec![],
@@ -1038,7 +1052,7 @@ mod tests {
     }
 
     #[test]
-    fn results_title_reports_verbatim_row_count_without_paging_hints() {
+    fn test_results_title_reports_verbatim_row_count_without_paging_hints() {
         let mut state = QueryState {
             sql_input: "DESCRIBE data".to_string(),
             ..Default::default()
@@ -1087,7 +1101,7 @@ mod tests {
     }
 
     #[test]
-    fn horizontal_scroll_clamps_across_narrower_queries() {
+    fn test_horizontal_scroll_clamps_across_narrower_queries() {
         let mut state = QueryState {
             horizontal_scroll: 4,
             ..Default::default()
@@ -1115,7 +1129,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_sql_parts_preserves_literals_and_subqueries() {
+    fn test_parse_sql_parts_preserves_literals_and_subqueries() {
         let cases = [
             (
                 "SELECT val FROM data LIMIT 2",
@@ -1158,5 +1172,46 @@ mod tests {
                 state.sql_input
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_parse_sql_parts_preserves_escaped_quotes() -> vortex::error::VortexResult<()> {
+        let ctx = datafusion::prelude::SessionContext::new();
+
+        for (sql, expected) in [
+            ("SELECT 'a''''b' AS label", "a''b"),
+            ("SELECT 'a\\''b' AS label", "a\\'b"),
+            ("SELECT 'a''b' AS \"col\"\"\"\"name\"", "a'b"),
+        ] {
+            let mut state = QueryState {
+                sql_input: sql.to_string(),
+                ..Default::default()
+            };
+            state.prepare_initial_query();
+
+            let orig_batches = ctx
+                .sql(sql)
+                .await
+                .map_err(|e| vortex::error::vortex_err!("{e}"))?
+                .collect()
+                .await
+                .map_err(|e| vortex::error::vortex_err!("{e}"))?;
+            let rewritten_batches = ctx
+                .sql(&state.sql_input)
+                .await
+                .map_err(|e| vortex::error::vortex_err!("{e}"))?
+                .collect()
+                .await
+                .map_err(|e| vortex::error::vortex_err!("{e}"))?;
+
+            assert_eq!(orig_batches, rewritten_batches, "sql: {sql}");
+            let col = rewritten_batches[0]
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .ok_or_else(|| vortex::error::vortex_err!("expected StringArray"))?;
+            assert_eq!(col.value(0), expected, "sql: {sql}");
+        }
+        Ok(())
     }
 }
