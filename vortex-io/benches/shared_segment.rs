@@ -4,12 +4,9 @@
 //! Benchmarks many threads awaiting the same segments through a [`SharedSegmentSource`].
 //!
 //! When a scan cuts a file into parts smaller than a segment, every thread reading one of those
-//! parts awaits the same in-flight segment. Each thread here reads every segment in turn, blocking
-//! on each, while a background driver completes the reads, so that threads join reads in flight,
-//! poll them and are woken by their completion all at once.
-//!
-//! `file` shares reads from a [`FileSegmentSource`], as a Vortex file does. `future` shares the
-//! same reads through a source that only returns their futures, as any other source does.
+//! parts awaits the same in-flight segment. Each thread here reads every segment of a
+//! [`FileSegmentSource`] in turn, blocking on each, while its background driver completes the
+//! reads, so that threads join reads in flight, poll them and are woken by their completion at once.
 //!
 //! Lock contention does not show up in instruction counts, so CodSpeed does not run this benchmark.
 
@@ -73,15 +70,6 @@ impl VortexReadAt for MemoryFile {
         _alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         async move { Ok(BufferHandle::new_host(ByteBuffer::zeroed(length))) }.boxed()
-    }
-}
-
-/// Exposes only the futures of the source it wraps.
-struct FutureSource(FileSegmentSource);
-
-impl SegmentSource for FutureSource {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        self.0.request(id)
     }
 }
 
@@ -155,18 +143,5 @@ fn run(ready: Ready) {
 fn file(bencher: Bencher, threads: usize) {
     bencher
         .with_inputs(|| ready(threads, Arc::new(SharedSegmentSource::new(file_source()))))
-        .bench_values(run);
-}
-
-#[cfg(not(codspeed))]
-#[divan::bench(args = [1, 4, 16], sample_count = 50)]
-fn future(bencher: Bencher, threads: usize) {
-    bencher
-        .with_inputs(|| {
-            ready(
-                threads,
-                Arc::new(SharedSegmentSource::new(FutureSource(file_source()))),
-            )
-        })
         .bench_values(run);
 }

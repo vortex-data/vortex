@@ -11,15 +11,18 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
-use std::task::Wake;
 use std::task::Waker;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
+use futures::future::WeakShared;
 use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -73,98 +76,113 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
 
 /// One segment read awaited by any number of waiters.
 ///
-/// Each clone is a waiter, and the read is dropped, cancelling it, once every waiter is dropped.
-/// The result, error or not, goes to every waiter.
+/// Each clone is a waiter, and the read is cancelled once every waiter is dropped. The result,
+/// error or not, goes to every waiter.
 ///
-/// This replaces [`futures::future::Shared`], which serializes many threads awaiting one read: each
-/// poll of a pending `Shared` locks the mutex around its waker list, and its completion wakes every
-/// waiter while holding that lock. Here, a waiter whose read has finished reads the result without
-/// taking a lock, a pending waiter locks the waker list only when it registers a new waker, and the
-/// completion takes the wakers out of the list before it wakes them.
+/// A read that a source completes elsewhere, such as a
+/// [`FileSegmentSource`](super::FileSegmentSource) read that its driver resolves, is shared through
+/// a slot that its [`Completer`] fills. [`futures::future::Shared`] would serialize many threads
+/// awaiting the read: each poll of a pending `Shared` locks the mutex around its waker list, and its
+/// completion wakes every waiter while holding that lock. Here, a waiter whose read has finished
+/// reads the result without taking a lock, a pending waiter locks the waker list only when it
+/// registers a new waker, and the completion takes the wakers out of the list before it wakes them.
 ///
-/// A source that completes its reads elsewhere, such as [`FileSegmentSource`](super::FileSegmentSource)
-/// whose read driver resolves them, fills the slot directly through a [`Completer`], so the
-/// completion wakes every waiter at once from the driver's thread.
-///
-/// Otherwise the waiters poll the read future, one at a time, with a waker that wakes every parked
-/// waiter. Whichever waiter sees the read finish completes it for everyone.
-pub struct SharedSegment {
-    slot: Arc<Slot>,
-    /// Where this waiter's waker is in the slot's list, if it has registered one since the list
-    /// was last emptied.
-    parked: Option<Parked>,
-}
+/// Any other read is a future that its waiters poll, shared with `Shared`.
+pub struct SharedSegment(Waiter);
 
-/// What a waiter's attempt to poll the read did.
-enum Drive {
-    /// The read completed.
-    Done(SharedVortexResult<BufferHandle>),
-    /// The read was polled, and is pending. If this waiter polled it, it holds the count of the
-    /// read's wakeups from before the poll; otherwise the waiter that did is responsible for them.
-    Polled(Option<u64>),
-    /// There was no read to poll.
-    Skipped,
+enum Waiter {
+    Filled(FilledWaiter),
+    Future(Shared<BoxFuture<'static, SharedVortexResult<BufferHandle>>>),
 }
 
 /// A weak handle to a [`SharedSegment`] that doesn't keep its read alive.
-pub struct WeakSharedSegment(Weak<Slot>);
+pub struct WeakSharedSegment(WeakWaiter);
+
+enum WeakWaiter {
+    Filled(Weak<Slot>),
+    Future(WeakShared<BoxFuture<'static, SharedVortexResult<BufferHandle>>>),
+}
+
+impl SharedSegment {
+    /// Share `read` between any number of waiters.
+    pub fn new(read: SegmentFuture) -> Self {
+        Self(Waiter::Future(read.map_err(Arc::new).boxed().shared()))
+    }
+
+    /// A read that the returned [`Completer`] fills, with `hooks` told of its waiters.
+    pub(crate) fn filled(hooks: Option<Box<dyn FillHooks>>) -> (Self, Completer) {
+        let slot = Arc::new(Slot {
+            result: OnceLock::new(),
+            hooks: Mutex::new(hooks),
+            polled: AtomicBool::new(false),
+            abandoned: AtomicBool::new(false),
+            wakers: Mutex::new(Vec::new()),
+            generation: AtomicU64::new(0),
+        });
+        let completer = Completer {
+            slot: Arc::downgrade(&slot),
+            done: false,
+        };
+        (Self(Waiter::Filled(FilledWaiter::new(slot))), completer)
+    }
+
+    /// A weak handle to the read.
+    pub fn downgrade(&self) -> WeakSharedSegment {
+        WeakSharedSegment(match &self.0 {
+            Waiter::Filled(waiter) => WeakWaiter::Filled(Arc::downgrade(&waiter.slot)),
+            Waiter::Future(future) => WeakWaiter::Future(
+                future
+                    .downgrade()
+                    .vortex_expect("a waiter keeps the shared future alive"),
+            ),
+        })
+    }
+}
 
 impl WeakSharedSegment {
     /// A new waiter on the read, unless every waiter has been dropped.
     pub fn upgrade(&self) -> Option<SharedSegment> {
-        self.0.upgrade().map(SharedSegment::waiter)
+        Some(SharedSegment(match &self.0 {
+            WeakWaiter::Filled(slot) => Waiter::Filled(FilledWaiter::new(slot.upgrade()?)),
+            WeakWaiter::Future(future) => Waiter::Future(future.upgrade()?),
+        }))
     }
 }
 
-/// A registered waker: its index in the slot's list, the list's generation, and a copy of the
-/// waker to tell whether a later poll's waker differs.
-struct Parked {
-    index: usize,
-    generation: u64,
-    waker: Waker,
+impl Clone for SharedSegment {
+    fn clone(&self) -> Self {
+        Self(match &self.0 {
+            Waiter::Filled(waiter) => Waiter::Filled(FilledWaiter::new(Arc::clone(&waiter.slot))),
+            Waiter::Future(future) => Waiter::Future(future.clone()),
+        })
+    }
+}
+
+impl Future for SharedSegment {
+    type Output = SharedVortexResult<BufferHandle>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match &mut self.get_mut().0 {
+            Waiter::Filled(waiter) => waiter.poll(cx),
+            Waiter::Future(future) => future.poll_unpin(cx),
+        }
+    }
 }
 
 struct Slot {
     result: OnceLock<SharedVortexResult<BufferHandle>>,
-    /// The read, until it has completed, for a slot that waiters drive. Waiters only ever try to
-    /// lock it, never wait for it. A filled slot has none unless its completer was dropped.
-    read: Mutex<Option<SegmentFuture>>,
-    /// Notified of a filled slot's waiters, which drive nothing, until the read completes.
+    /// Told of the waiters until the read completes.
     hooks: Mutex<Option<Box<dyn FillHooks>>>,
     polled: AtomicBool,
-    parking: Arc<Parking>,
-    /// Wakes every parked waiter, for the read to be polled with.
-    progress: Waker,
-}
-
-/// The parked waiters' wakers. It holds no reference to the read, so a waker the read keeps does
-/// not keep the read alive.
-#[derive(Default)]
-struct Parking {
+    /// Whether the completer was dropped without completing the read.
+    abandoned: AtomicBool,
     wakers: Mutex<Vec<Option<Waker>>>,
-    /// Increments each time the list is emptied.
+    /// Increments each time `wakers` is emptied.
     generation: AtomicU64,
-    /// Increments each time the read wakes the parked waiters, before it takes their wakers.
-    wakes: AtomicU64,
 }
 
-impl Parking {
-    /// Wakes every parked waiter, outside the lock, leaving them registered.
-    fn wake_parked(&self) {
-        self.wakes.fetch_add(1, Ordering::SeqCst);
-        let wakers = self
-            .wakers
-            .lock()
-            .iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        for waker in wakers {
-            waker.wake();
-        }
-    }
-
-    /// Empties the list and wakes every waiter that was on it, outside the lock.
+impl Slot {
+    /// Empties the waker list and wakes every waiter that was on it, outside the lock.
     fn wake_all(&self) {
         let wakers = {
             let mut wakers = self.wakers.lock();
@@ -174,130 +192,6 @@ impl Parking {
         for waker in wakers.into_iter().flatten() {
             waker.wake();
         }
-    }
-}
-
-impl Wake for Parking {
-    fn wake(self: Arc<Self>) {
-        self.wake_parked();
-    }
-
-    fn wake_by_ref(self: &Arc<Self>) {
-        self.wake_parked();
-    }
-}
-
-impl SharedSegment {
-    /// Share `read` between any number of waiters.
-    pub fn new(read: SegmentFuture) -> Self {
-        Self::waiter(Slot::new(Some(read), None))
-    }
-
-    /// A read that the returned [`Completer`] fills, with `hooks` told of its waiters.
-    pub(crate) fn filled(hooks: Option<Box<dyn FillHooks>>) -> (Self, Completer) {
-        let slot = Slot::new(None, hooks);
-        let completer = Completer {
-            slot: Arc::downgrade(&slot),
-            done: false,
-        };
-        (Self::waiter(slot), completer)
-    }
-
-    fn waiter(slot: Arc<Slot>) -> Self {
-        Self { slot, parked: None }
-    }
-
-    /// A weak handle to the read.
-    pub fn downgrade(&self) -> WeakSharedSegment {
-        WeakSharedSegment(Arc::downgrade(&self.slot))
-    }
-
-    /// Polls the read if no other waiter is polling it, completing it for every waiter if it has
-    /// finished.
-    fn try_drive(&mut self) -> Drive {
-        let Some(mut read) = self.slot.read.try_lock() else {
-            // Another waiter is polling the read, and the read's next wakeup wakes this one too.
-            return Drive::Polled(None);
-        };
-        // The completer sets the result before it empties `read`, so an empty `read` means either
-        // the result is there or a completer will fill the slot.
-        let Some(future) = read.as_mut() else {
-            return Drive::Skipped;
-        };
-        let wakes = self.slot.parking.wakes.load(Ordering::SeqCst);
-        let mut panicked = PanicGuard {
-            slot: &self.slot,
-            armed: true,
-        };
-        let poll = future.poll_unpin(&mut Context::from_waker(&self.slot.progress));
-        panicked.armed = false;
-
-        let Poll::Ready(result) = poll else {
-            return Drive::Polled(Some(wakes));
-        };
-        let result = self.slot.complete(result.map_err(Arc::new));
-        *read = None;
-        drop(read);
-        // The slot has emptied the list, so this waiter's registration is gone.
-        self.parked = None;
-        Drive::Done(result)
-    }
-
-    /// Registers this waiter's waker unless it has already registered one that wakes the same
-    /// task since the list was last emptied.
-    fn park(&mut self, waker: &Waker) {
-        if let Some(parked) = &self.parked
-            && parked.generation == self.slot.parking.generation.load(Ordering::Acquire)
-            && parked.waker.will_wake(waker)
-        {
-            return;
-        }
-
-        let mut wakers = self.slot.parking.wakers.lock();
-        let generation = self.slot.parking.generation.load(Ordering::Relaxed);
-        let index = match &self.parked {
-            Some(parked) if parked.generation == generation => {
-                wakers[parked.index] = Some(waker.clone());
-                parked.index
-            }
-            _ => {
-                wakers.push(Some(waker.clone()));
-                wakers.len() - 1
-            }
-        };
-        drop(wakers);
-        self.parked = Some(Parked {
-            index,
-            generation,
-            waker: waker.clone(),
-        });
-    }
-}
-
-impl Slot {
-    fn new(read: Option<SegmentFuture>, hooks: Option<Box<dyn FillHooks>>) -> Arc<Self> {
-        let parking = Arc::new(Parking::default());
-        Arc::new(Self {
-            result: OnceLock::new(),
-            read: Mutex::new(read),
-            hooks: Mutex::new(hooks),
-            polled: AtomicBool::new(false),
-            progress: Waker::from(Arc::clone(&parking)),
-            parking,
-        })
-    }
-
-    /// Stores the result and wakes every parked waiter, returning the result that won if another
-    /// completion got there first.
-    fn complete(
-        &self,
-        result: SharedVortexResult<BufferHandle>,
-    ) -> SharedVortexResult<BufferHandle> {
-        let result = self.result.get_or_init(|| result).clone();
-        // Nothing needs the hooks once the read has completed.
-        drop(self.hooks.lock().take());
-        self.parking.wake_all();
-        result
     }
 }
 
@@ -317,8 +211,8 @@ pub(crate) trait FillHooks: Send + Sync {
     fn polled(&self);
     /// Every waiter was dropped before the read completed.
     fn dropped(&self);
-    /// The completer was dropped without completing the read. The returned future, driven by the
-    /// waiters, gives their result instead.
+    /// The completer was dropped without completing the read. Each waiter awaits a future from
+    /// here instead.
     fn abandoned(&self) -> SegmentFuture;
 }
 
@@ -339,7 +233,9 @@ impl Completer {
     pub(crate) fn complete(mut self, result: VortexResult<BufferHandle>) {
         self.done = true;
         if let Some(slot) = self.slot.upgrade() {
-            drop(slot.complete(result.map_err(Arc::new)));
+            drop(slot.result.set(result.map_err(Arc::new)));
+            drop(slot.hooks.lock().take());
+            slot.wake_all();
         }
     }
 }
@@ -349,100 +245,121 @@ impl Drop for Completer {
         if self.done {
             return;
         }
-        let Some(slot) = self.slot.upgrade() else {
-            return;
-        };
-        if slot.result.get().is_some() {
-            return;
-        }
-        let abandoned = slot.hooks.lock().as_ref().map(|hooks| hooks.abandoned());
-        match abandoned {
-            // The waiters drive the replacement, starting when this wakes them.
-            Some(read) => {
-                *slot.read.lock() = Some(read);
-                slot.parking.wake_all();
+        if let Some(slot) = self.slot.upgrade() {
+            if slot.hooks.lock().is_none() {
+                drop(slot.result.set(Err(Arc::new(vortex_err!(
+                    "Segment read dropped before it completed"
+                )))));
             }
-            None => drop(slot.complete(Err(Arc::new(vortex_err!(
-                "Segment read dropped before it completed"
-            ))))),
+            slot.abandoned.store(true, Ordering::Release);
+            slot.wake_all();
         }
     }
 }
 
-/// Completes the read with an error, waking every waiter, if polling it panics. The panic itself
-/// reaches only the waiter that polled.
-struct PanicGuard<'a> {
-    slot: &'a Slot,
-    armed: bool,
+/// A waiter on a slot that a [`Completer`] fills.
+struct FilledWaiter {
+    slot: Arc<Slot>,
+    /// Where this waiter's waker is in the slot's list, if it has registered one since the list
+    /// was last emptied.
+    parked: Option<Parked>,
+    /// What this waiter awaits instead once the completer has been dropped.
+    abandoned: Option<SegmentFuture>,
 }
 
-impl Drop for PanicGuard<'_> {
-    fn drop(&mut self) {
-        if self.armed {
-            drop(
-                self.slot
-                    .complete(Err(Arc::new(vortex_err!("Shared segment read panicked")))),
-            );
+/// A registered waker: its index in the slot's list, the list's generation, and a copy of the
+/// waker to tell whether a later poll's waker differs.
+struct Parked {
+    index: usize,
+    generation: u64,
+    waker: Waker,
+}
+
+impl FilledWaiter {
+    fn new(slot: Arc<Slot>) -> Self {
+        Self {
+            slot,
+            parked: None,
+            abandoned: None,
         }
     }
-}
 
-impl Clone for SharedSegment {
-    fn clone(&self) -> Self {
-        Self::waiter(Arc::clone(&self.slot))
-    }
-}
-
-impl Future for SharedSegment {
-    type Output = SharedVortexResult<BufferHandle>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        if let Some(result) = this.slot.result.get() {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<SharedVortexResult<BufferHandle>> {
+        if let Some(result) = self.slot.result.get() {
             return Poll::Ready(result.clone());
         }
-        if !this.slot.polled.load(Ordering::Relaxed)
-            && !this.slot.polled.swap(true, Ordering::Relaxed)
-            && let Some(hooks) = &*this.slot.hooks.lock()
+        if let Some(abandoned) = &mut self.abandoned {
+            return abandoned.poll_unpin(cx).map_err(Arc::new);
+        }
+        if !self.slot.polled.load(Ordering::Relaxed)
+            && !self.slot.polled.swap(true, Ordering::Relaxed)
+            && let Some(hooks) = &*self.slot.hooks.lock()
         {
             hooks.polled();
         }
-        let drive = this.try_drive();
-        if let Drive::Done(result) = drive {
-            return Poll::Ready(result);
-        }
-        this.park(cx.waker());
-        // A completion that emptied the list before this waiter registered set the result first,
-        // and a dropped completer installed the read to drive first.
-        if let Some(result) = this.slot.result.get() {
+        self.park(cx.waker());
+        // The completer sets the result, or marks the read abandoned, before it empties the list,
+        // so a waiter that registered too late sees it here.
+        if let Some(result) = self.slot.result.get() {
             return Poll::Ready(result.clone());
         }
-        match drive {
-            Drive::Skipped => {
-                if let Drive::Done(result) = this.try_drive() {
-                    return Poll::Ready(result);
-                }
+        if self.slot.abandoned.load(Ordering::Acquire) {
+            let abandoned = self
+                .slot
+                .hooks
+                .lock()
+                .as_ref()
+                .map(|hooks| hooks.abandoned());
+            if let Some(abandoned) = abandoned {
+                return self
+                    .abandoned
+                    .insert(abandoned)
+                    .poll_unpin(cx)
+                    .map_err(Arc::new);
             }
-            // The read woke the parked waiters before this one had parked, so poll it again.
-            Drive::Polled(Some(wakes))
-                if this.slot.parking.wakes.load(Ordering::SeqCst) != wakes =>
-            {
-                cx.waker().wake_by_ref();
-            }
-            Drive::Polled(_) | Drive::Done(_) => {}
         }
         Poll::Pending
     }
+
+    /// Registers this waiter's waker unless it has already registered one that wakes the same
+    /// task since the list was last emptied.
+    fn park(&mut self, waker: &Waker) {
+        if let Some(parked) = &self.parked
+            && parked.generation == self.slot.generation.load(Ordering::Acquire)
+            && parked.waker.will_wake(waker)
+        {
+            return;
+        }
+
+        let mut wakers = self.slot.wakers.lock();
+        let generation = self.slot.generation.load(Ordering::Relaxed);
+        let index = match &self.parked {
+            Some(parked) if parked.generation == generation => {
+                wakers[parked.index] = Some(waker.clone());
+                parked.index
+            }
+            _ => {
+                wakers.push(Some(waker.clone()));
+                wakers.len() - 1
+            }
+        };
+        drop(wakers);
+        self.parked = Some(Parked {
+            index,
+            generation,
+            waker: waker.clone(),
+        });
+    }
 }
 
-impl Drop for SharedSegment {
+impl Drop for FilledWaiter {
     fn drop(&mut self) {
         if self.slot.result.get().is_some() {
             return;
         }
         if let Some(parked) = &self.parked {
-            let mut wakers = self.slot.parking.wakers.lock();
-            if parked.generation == self.slot.parking.generation.load(Ordering::Relaxed) {
+            let mut wakers = self.slot.wakers.lock();
+            if parked.generation == self.slot.generation.load(Ordering::Relaxed) {
                 wakers[parked.index] = None;
             }
         }
@@ -450,26 +367,13 @@ impl Drop for SharedSegment {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_in_result)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
     use std::task::Context;
-    use std::task::Poll;
-    use std::task::Waker;
 
     use futures::FutureExt;
-    use futures::channel::oneshot;
     use futures::executor::block_on;
     use futures::future::join_all;
-    use futures::task::ArcWake;
-    use futures::task::waker;
-    use parking_lot::Mutex;
-    use vortex_array::buffer::BufferHandle;
     use vortex_buffer::ByteBuffer;
-    use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
     use super::*;
 
@@ -477,213 +381,10 @@ mod tests {
         BufferHandle::new_host(ByteBuffer::from(vec![byte; 4]))
     }
 
-    /// A read that completes when the test sends on the returned channel, and records whether it
-    /// was dropped.
-    fn gated() -> (
-        SharedSegment,
-        oneshot::Sender<VortexResult<BufferHandle>>,
-        Arc<AtomicUsize>,
-    ) {
-        struct OnDrop(Arc<AtomicUsize>);
-        impl Drop for OnDrop {
-            fn drop(&mut self) {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-
-        let (send, recv) = oneshot::channel();
-        let dropped = Arc::new(AtomicUsize::new(0));
-        let on_drop = OnDrop(Arc::clone(&dropped));
-        let read = async move {
-            let _on_drop = on_drop;
-            recv.await
-                .unwrap_or_else(|_| Err(vortex_err!("gate dropped")))
-        };
-        (SharedSegment::new(read.boxed()), send, dropped)
-    }
-
-    #[derive(Default)]
-    struct CountingWaker(AtomicUsize);
-
-    impl ArcWake for CountingWaker {
-        fn wake_by_ref(arc_self: &Arc<Self>) {
-            arc_self.0.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    fn counting() -> (Arc<CountingWaker>, Waker) {
-        let count = Arc::new(CountingWaker::default());
-        let waker = waker(Arc::clone(&count));
-        (count, waker)
-    }
-
     #[test]
-    fn many_waiters_share_one_read() -> VortexResult<()> {
-        let reads = Arc::new(AtomicUsize::new(0));
-        let shared = {
-            let reads = Arc::clone(&reads);
-            SharedSegment::new(
-                async move {
-                    reads.fetch_add(1, Ordering::Relaxed);
-                    Ok(buffer(7))
-                }
-                .boxed(),
-            )
-        };
-        let waiters = (0..64).map(|_| shared.clone()).collect::<Vec<_>>();
-        for result in block_on(join_all(waiters)) {
-            assert_eq!(result?.unwrap_host(), ByteBuffer::from(vec![7; 4]));
-        }
-        assert_eq!(reads.load(Ordering::Relaxed), 1);
-        Ok(())
-    }
-
-    #[test]
-    fn progress_and_completion_wake_every_parked_waiter() -> VortexResult<()> {
-        let (shared, send, _) = gated();
-        let mut waiters = (0..8).map(|_| shared.clone()).collect::<Vec<_>>();
-        let wakers = (0..8).map(|_| counting()).collect::<Vec<_>>();
-        for (waiter, (_, waker)) in waiters.iter_mut().zip(&wakers) {
-            assert!(
-                waiter
-                    .poll_unpin(&mut Context::from_waker(waker))
-                    .is_pending()
-            );
-            // Polling again with the same waker registers nothing new.
-            assert!(
-                waiter
-                    .poll_unpin(&mut Context::from_waker(waker))
-                    .is_pending()
-            );
-        }
-        assert_eq!(shared.slot.parking.wakers.lock().len(), 8);
-
-        // The read's wakeup reaches every waiter, so any of them can complete it.
-        send.send(Ok(buffer(1))).unwrap();
-        for (count, _) in &wakers {
-            assert_eq!(count.0.load(Ordering::Relaxed), 1);
-        }
-        let Poll::Ready(result) = waiters[3].poll_unpin(&mut Context::from_waker(&wakers[3].1))
-        else {
-            panic!("the read has finished");
-        };
-        result?;
-
-        // Its completion wakes every waiter again, and empties the list.
-        for (count, _) in &wakers {
-            assert_eq!(count.0.load(Ordering::Relaxed), 2);
-        }
-        assert!(shared.slot.parking.wakers.lock().is_empty());
-        for (waiter, (_, waker)) in waiters.iter_mut().zip(&wakers) {
-            assert!(
-                waiter
-                    .poll_unpin(&mut Context::from_waker(waker))
-                    .is_ready()
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn a_filled_read_wakes_every_waiter_once() -> VortexResult<()> {
+    fn completion_reaches_every_waiter() -> VortexResult<()> {
         let (shared, completer) = SharedSegment::filled(None);
-        let mut waiters = (0..8).map(|_| shared.clone()).collect::<Vec<_>>();
-        let wakers = (0..8).map(|_| counting()).collect::<Vec<_>>();
-        for (waiter, (_, waker)) in waiters.iter_mut().zip(&wakers) {
-            assert!(
-                waiter
-                    .poll_unpin(&mut Context::from_waker(waker))
-                    .is_pending()
-            );
-        }
-        assert!(!completer.is_canceled());
-        completer.complete(Ok(buffer(2)));
-        for (waiter, (count, waker)) in waiters.iter_mut().zip(&wakers) {
-            assert_eq!(count.0.load(Ordering::Relaxed), 1);
-            let Poll::Ready(result) = waiter.poll_unpin(&mut Context::from_waker(waker)) else {
-                panic!("the read has completed");
-            };
-            assert_eq!(result?.unwrap_host(), ByteBuffer::from(vec![2; 4]));
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn a_filled_read_is_canceled_without_waiters() {
-        let (shared, completer) = SharedSegment::filled(None);
-        let other = shared.clone();
-        drop(shared);
-        assert!(!completer.is_canceled());
-        drop(other);
-        assert!(completer.is_canceled());
-    }
-
-    #[test]
-    fn a_dropped_completer_fails_the_read() {
-        let (shared, completer) = SharedSegment::filled(None);
-        let mut waiter = shared.clone();
-        let (count, waker) = counting();
-        assert!(
-            waiter
-                .poll_unpin(&mut Context::from_waker(&waker))
-                .is_pending()
-        );
-        drop(completer);
-        assert_eq!(count.0.load(Ordering::Relaxed), 1);
-        assert!(block_on(shared).is_err());
-        assert!(block_on(waiter).is_err());
-    }
-
-    #[test]
-    fn a_read_that_wakes_itself_is_polled_again() -> VortexResult<()> {
-        let mut yielded = false;
-        let mut shared = SharedSegment::new(
-            futures::future::poll_fn(move |cx| {
-                if std::mem::replace(&mut yielded, true) {
-                    Poll::Ready(Ok(buffer(5)))
-                } else {
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                }
-            })
-            .boxed(),
-        );
-        let (count, waker) = counting();
-        assert!(
-            shared
-                .poll_unpin(&mut Context::from_waker(&waker))
-                .is_pending()
-        );
-        assert_eq!(count.0.load(Ordering::Relaxed), 1);
-        assert!(
-            shared
-                .poll_unpin(&mut Context::from_waker(&waker))
-                .is_ready()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn late_waiters_get_the_result() -> VortexResult<()> {
-        let (shared, send, dropped) = gated();
-        send.send(Ok(buffer(3))).unwrap();
-        block_on(shared.clone())?;
-        assert_eq!(dropped.load(Ordering::Relaxed), 1);
-
-        let late = shared.downgrade().upgrade().expect("a waiter is alive");
-        assert_eq!(block_on(late)?.unwrap_host(), ByteBuffer::from(vec![3; 4]));
-        assert_eq!(
-            block_on(shared)?.unwrap_host(),
-            ByteBuffer::from(vec![3; 4])
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn dropping_every_waiter_drops_the_read() {
-        let (shared, send, dropped) = gated();
-        let weak = shared.downgrade();
-        let mut waiters = (0..4).map(|_| shared.clone()).collect::<Vec<_>>();
+        let mut waiters = (0..16).map(|_| shared.clone()).collect::<Vec<_>>();
         for waiter in &mut waiters {
             assert!(
                 waiter
@@ -691,113 +392,67 @@ mod tests {
                     .is_pending()
             );
         }
+        let threads = waiters
+            .into_iter()
+            .map(|waiter| std::thread::spawn(move || block_on(waiter)))
+            .collect::<Vec<_>>();
+        completer.complete(Ok(buffer(7)));
+        for thread in threads {
+            assert_eq!(
+                thread
+                    .join()
+                    .map_err(|_| vortex_err!("waiter panicked"))??
+                    .unwrap_host(),
+                ByteBuffer::from(vec![7; 4])
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn late_waiters_get_the_result() -> VortexResult<()> {
+        let (shared, completer) = SharedSegment::filled(None);
+        completer.complete(Ok(buffer(3)));
+        let late = shared
+            .downgrade()
+            .upgrade()
+            .vortex_expect("a waiter is alive");
+        assert_eq!(block_on(late)?.unwrap_host(), ByteBuffer::from(vec![3; 4]));
+        Ok(())
+    }
+
+    #[test]
+    fn dropping_every_waiter_cancels_the_read() {
+        let (shared, completer) = SharedSegment::filled(None);
+        let weak = shared.downgrade();
+        let mut waiter = shared.clone();
+        assert!(
+            waiter
+                .poll_unpin(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
         drop(shared);
-        drop(waiters);
-        assert_eq!(dropped.load(Ordering::Relaxed), 1);
-        assert!(send.is_canceled());
+        assert!(!completer.is_canceled());
+        drop(waiter);
+        assert!(completer.is_canceled());
         assert!(weak.upgrade().is_none());
     }
 
     #[test]
     fn errors_reach_every_waiter() {
-        let (shared, send, _) = gated();
+        let (shared, completer) = SharedSegment::filled(None);
         let waiters = (0..8).map(|_| shared.clone()).collect::<Vec<_>>();
-        send.send(Err(vortex_err!("disk on fire"))).unwrap();
+        completer.complete(Err(vortex_err!("disk on fire")));
         let results = block_on(join_all(waiters));
-        let first = results[0].as_ref().unwrap_err();
-        for result in &results {
-            let err = result.as_ref().unwrap_err();
-            assert!(Arc::ptr_eq(err, first));
-            assert!(err.to_string().contains("disk on fire"));
-        }
-    }
-
-    #[test]
-    fn the_last_waiter_to_poll_can_drop() -> VortexResult<()> {
-        let (shared, send, dropped) = gated();
-        let mut last = shared.clone();
-        let mut other = shared;
-        let (other_count, other_waker) = counting();
-        assert!(
-            other
-                .poll_unpin(&mut Context::from_waker(&other_waker))
-                .is_pending()
-        );
-        assert!(
-            last.poll_unpin(&mut Context::from_waker(Waker::noop()))
-                .is_pending()
-        );
-        drop(last);
-
-        send.send(Ok(buffer(9))).unwrap();
-        assert_eq!(other_count.0.load(Ordering::Relaxed), 1);
-        assert_eq!(block_on(other)?.len(), 4);
-        assert_eq!(dropped.load(Ordering::Relaxed), 1);
-        Ok(())
-    }
-
-    #[test]
-    fn a_panicking_read_fails_the_other_waiters() {
-        let shared = SharedSegment::new(
-            futures::future::poll_fn(|_| -> Poll<VortexResult<BufferHandle>> {
-                panic!("driver panicked")
-            })
-            .boxed(),
-        );
-        let mut other = shared.clone();
-        let (count, waker) = counting();
-        // `other` cannot drive while the panicking waiter holds the read, so it parks first.
-        let read = shared.slot.read.lock();
-        assert!(
-            other
-                .poll_unpin(&mut Context::from_waker(&waker))
-                .is_pending()
-        );
-        drop(read);
-
-        let panicked =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| block_on(shared.clone())));
-        assert!(panicked.is_err());
-        assert_eq!(count.0.load(Ordering::Relaxed), 1);
-        let Poll::Ready(Err(err)) = other.poll_unpin(&mut Context::from_waker(&waker)) else {
+        let Err(first) = &results[0] else {
             panic!("the read failed");
         };
-        assert!(err.to_string().contains("panicked"));
-    }
-
-    /// Many threads await many reads that complete on another thread; none may miss its wakeup.
-    #[test]
-    fn concurrent_waiters_never_miss_a_completion() -> VortexResult<()> {
-        const READS: usize = 256;
-        const THREADS: usize = 8;
-        for _ in 0..20 {
-            let gates = (0..READS).map(|_| gated()).collect::<Vec<_>>();
-            let shared = gates.iter().map(|(s, ..)| s.clone()).collect::<Vec<_>>();
-            let sends = Mutex::new(
-                gates
-                    .into_iter()
-                    .map(|(_, send, _)| send)
-                    .collect::<Vec<_>>(),
-            );
-            std::thread::scope(|scope| -> VortexResult<()> {
-                let handles = (0..THREADS)
-                    .map(|_| {
-                        let waiters = shared.clone();
-                        scope.spawn(move || block_on(join_all(waiters)))
-                    })
-                    .collect::<Vec<_>>();
-                for send in sends.lock().drain(..) {
-                    send.send(Ok(buffer(0))).unwrap();
-                }
-                drop(shared);
-                for handle in handles {
-                    for result in handle.join().unwrap() {
-                        result?;
-                    }
-                }
-                Ok(())
-            })?;
+        for result in &results {
+            assert!(matches!(result, Err(err) if Arc::ptr_eq(err, first)));
         }
-        Ok(())
+        assert!(matches!(
+            block_on(shared).map(|_| ()),
+            Err(err) if err.to_string().contains("disk on fire")
+        ));
     }
 }
