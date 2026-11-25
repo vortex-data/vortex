@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024  # 100 MiB
+MAX_ARCHIVE_MEMBERS = 10_000
 
 TARGET_RE = re.compile(r"^[a-z0-9_]+$")
 CRASH_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -202,16 +203,19 @@ def _write_limited(src_stream: object, dst_path: Path, max_bytes: int) -> None:
 def _extract_from_zip(archive_path: Path, target: str, crash_file: str, dst_path: Path) -> None:
     preferred = (f"{target}/{crash_file}", crash_file)
     with zipfile.ZipFile(archive_path) as zf:
+        infos = zf.infolist()
+        if len(infos) > MAX_ARCHIVE_MEMBERS:
+            raise ValueError(f"Zip archive exceeds {MAX_ARCHIVE_MEMBERS} entries")
         chosen: zipfile.ZipInfo | None = None
         for name in preferred:
-            for info in zf.infolist():
+            for info in infos:
                 if info.filename == name:
                     chosen = info
                     break
             if chosen is not None:
                 break
         if chosen is None:
-            for info in zf.infolist():
+            for info in infos:
                 if not info.is_dir() and Path(info.filename).name == crash_file:
                     chosen = info
                     break
@@ -230,24 +234,22 @@ def _extract_from_zip(archive_path: Path, target: str, crash_file: str, dst_path
 
 
 def _extract_from_tar(archive_path: Path, target: str, crash_file: str, dst_path: Path) -> None:
-    preferred = (f"{target}/{crash_file}", crash_file)
+    preferred = {f"{target}/{crash_file}", crash_file}
     with tarfile.open(archive_path, "r:*") as tf:
-        members = tf.getmembers()
+        fallback: tarfile.TarInfo | None = None
         chosen: tarfile.TarInfo | None = None
-        for name in preferred:
-            for member in members:
-                normalized = member.name.lstrip("./")
-                if normalized == name:
-                    chosen = member
-                    break
-            if chosen is not None:
+        for count, member in enumerate(tf, start=1):
+            if count > MAX_ARCHIVE_MEMBERS:
+                raise ValueError(f"Tar archive exceeds {MAX_ARCHIVE_MEMBERS} entries")
+            normalized = member.name.lstrip("./")
+            if normalized in preferred:
+                chosen = member
                 break
-        if chosen is None:
-            for member in members:
-                if member.isfile() and Path(member.name).name == crash_file:
-                    chosen = member
-                    break
+            if fallback is None and Path(member.name).name == crash_file:
+                fallback = member
 
+        if chosen is None:
+            chosen = fallback
         if chosen is None:
             raise ValueError(f"Crash file {crash_file} not found in tar archive")
         if not chosen.isfile():
