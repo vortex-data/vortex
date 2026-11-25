@@ -260,6 +260,7 @@ mod tests {
     use std::sync::Barrier;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
     use std::task::Poll;
     use std::thread;
     use std::time::Duration;
@@ -287,15 +288,18 @@ mod tests {
         // We spawn a future that sets a value on a separate thread.
         let value = Arc::new(AtomicUsize::new(0));
         let value2 = Arc::clone(&value);
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
         runtime
             .handle()
             .spawn(async move {
                 value2.store(42, Ordering::SeqCst);
+                let _ = done_tx.send(());
             })
             .detach();
 
         // By default, nothing has driven the executor, so the value should still be 0.
         assert_eq!(value.load(Ordering::SeqCst), 0);
+        assert!(done_rx.try_recv().is_err());
 
         // An empty pool still does nothing.
         let pool = runtime.new_pool();
@@ -303,12 +307,9 @@ mod tests {
 
         // Adding a worker thread should drive the executor.
         pool.set_workers(1);
-        for _ in 0..10 {
-            if value.load(Ordering::SeqCst) == 42 {
-                break;
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
+        done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("worker thread should drive spawned task");
         assert_eq!(value.load(Ordering::SeqCst), 42);
     }
 
@@ -516,11 +517,7 @@ mod tests {
                 let h = h.clone();
                 async move {
                     if state < num_items {
-                        h.spawn_cpu(move || {
-                            thread::sleep(Duration::from_micros(10));
-                            state
-                        })
-                        .await;
+                        h.spawn_cpu(move || std::hint::black_box(state)).await;
                         Some((state, state + 1))
                     } else {
                         None
@@ -630,12 +627,11 @@ mod tests {
         let thread1 = thread::spawn(move || {
             let mut iter = iter1;
             let mut results = Vec::new();
-            barrier1.wait();
 
             for _ in 0..5 {
+                barrier1.wait();
                 if let Some(val) = iter.next() {
                     results.push(val);
-                    thread::sleep(Duration::from_micros(50));
                 }
             }
             results
@@ -644,12 +640,11 @@ mod tests {
         let thread2 = thread::spawn(move || {
             let mut iter = iter2;
             let mut results = Vec::new();
-            barrier2.wait();
 
             for _ in 0..5 {
+                barrier2.wait();
                 if let Some(val) = iter.next() {
                     results.push(val);
-                    thread::sleep(Duration::from_micros(50));
                 }
             }
             results

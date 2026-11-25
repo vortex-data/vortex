@@ -125,18 +125,25 @@ pub trait VortexReadAt: Send + Sync + 'static {
     /// A failed request does not prevent other results from being yielded. Callers should submit
     /// batches no larger than [`VortexReadAt::concurrency`].
     fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
-        let reads = requests
-            .iter()
-            .copied()
-            .map(|request| {
-                let read = self.read_at(request.offset, request.length, request.alignment);
-                async move { (request, read.await) }
-            })
-            .collect::<Vec<_>>();
-        stream::iter(reads)
-            .buffer_unordered(self.concurrency().max(1))
-            .boxed()
+        default_read_ranges(self, requests)
     }
+}
+
+pub(crate) fn default_read_ranges<R: VortexReadAt + ?Sized>(
+    read_at: &R,
+    requests: Arc<[ReadAtRequest]>,
+) -> ReadAtStream {
+    let reads = requests
+        .iter()
+        .copied()
+        .map(|request| {
+            let read = read_at.read_at(request.offset, request.length, request.alignment);
+            async move { (request, read.await) }
+        })
+        .collect::<Vec<_>>();
+    stream::iter(reads)
+        .buffer_unordered(read_at.concurrency().max(1))
+        .boxed()
 }
 
 impl VortexReadAt for Arc<dyn VortexReadAt> {
@@ -393,41 +400,15 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::task::Context;
 
+    use futures::task::noop_waker;
     use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
 
     use super::*;
-
-    struct DelayedReadAt;
-
-    impl VortexReadAt for DelayedReadAt {
-        fn concurrency(&self) -> usize {
-            2
-        }
-
-        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-            async { Ok(2) }.boxed()
-        }
-
-        fn read_at(
-            &self,
-            offset: u64,
-            _length: usize,
-            _alignment: Alignment,
-        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-            async move {
-                if offset == 0 {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                Ok(BufferHandle::new_host(ByteBuffer::from(vec![
-                    u8::try_from(offset).vortex_expect("test offset fits in u8"),
-                ])))
-            }
-            .boxed()
-        }
-    }
+    use crate::test_harness::SimulatedExecutor;
+    use crate::test_harness::SimulatedReadAt;
 
     #[test]
     fn test_coalesce_config_in_memory() {
@@ -504,22 +485,59 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_read_ranges_yields_in_completion_order() -> VortexResult<()> {
+    /// Thin wrapper that inherits the trait's default [`VortexReadAt::read_ranges`] method.
+    struct DefaultReadRanges(SimulatedReadAt);
+
+    impl VortexReadAt for DefaultReadRanges {
+        fn concurrency(&self) -> usize {
+            self.0.concurrency()
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            self.0.size()
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.0.read_at(offset, length, alignment)
+        }
+    }
+
+    #[test]
+    fn test_read_ranges_yields_in_completion_order() -> VortexResult<()> {
+        let exec = SimulatedExecutor::new();
+        let sim = SimulatedReadAt::gated(ByteBuffer::from(vec![0u8, 1u8])).with_concurrency(2);
+        let reader = DefaultReadRanges(sim.clone());
         let requests = Arc::from([
             ReadAtRequest::new(0, 1, Alignment::none()),
             ReadAtRequest::new(1, 1, Alignment::none()),
         ]);
-        let mut results = DelayedReadAt.read_ranges(requests);
+        let mut results = reader.read_ranges(requests);
+        let mut first_fut = results.next();
 
-        let (first_request, first_result) = results
-            .next()
-            .await
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        assert!(first_fut.poll_unpin(&mut cx).is_pending());
+        assert_eq!(sim.in_flight_count(), 2);
+
+        assert!(sim.complete_offset(1).is_some());
+        let (first_request, first_result) = exec
+            .drive(first_fut)
             .vortex_expect("first result is present");
-
         assert_eq!(first_request.offset, 1);
-        assert_eq!(first_result?.to_host().await.as_ref(), &[1]);
-        assert_eq!(results.count().await, 1);
+        assert_eq!(exec.drive(first_result?.to_host()).as_ref(), &[1]);
+
+        assert!(sim.complete_offset(0).is_some());
+        let (second_request, second_result) = exec
+            .drive(results.next())
+            .vortex_expect("second result is present");
+        assert_eq!(second_request.offset, 0);
+        assert_eq!(exec.drive(second_result?.to_host()).as_ref(), &[0]);
+        assert!(exec.drive(results.next()).is_none());
         Ok(())
     }
 

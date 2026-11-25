@@ -28,6 +28,8 @@ pub mod segments;
 pub mod session;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod std_file;
+#[cfg(any(test, feature = "_test-harness"))]
+pub mod test_harness;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
