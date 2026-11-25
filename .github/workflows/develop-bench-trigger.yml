@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Polls `develop` every hour and dispatches `develop-bench.yml` when HEAD has moved past the
-# latest non-cancelled Develop Benchmarks run. This caps triggers to at most one dispatch per
-# hour while keeping `develop-bench.yml` free of skipped no-op runs. Each run costs about 25
-# metal hosts, so the hour trades finer attribution of a regression for fewer runs: one run
-# covers every commit that landed since the last one.
+# Polls `develop` every three hours and dispatches `develop-bench.yml` when HEAD has moved past
+# the latest non-cancelled Develop Benchmarks run. This caps triggers to at most one dispatch per
+# three hours while keeping `develop-bench.yml` free of skipped no-op runs. Each run costs about
+# 25 metal hosts, so the interval trades finer attribution of a regression for fewer runs: one run
+# covers every commit that landed since the last one. A PR that needs results for its own merge
+# commit takes the `action/bench-on-merge` label, handled by `develop-bench-on-merge.yml`.
 
 name: Develop Benchmarks Trigger
 
@@ -15,7 +16,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: "7 * * * *"
+    - cron: "7 */3 * * *"
   workflow_dispatch: { }
 
 permissions:
@@ -39,12 +40,18 @@ jobs:
           echo "develop HEAD: ${head_sha}"
 
           # Check recent non-cancelled runs of develop-bench.yml on develop.
-          # Checking the last 10 runs covers in-flight dispatches, failed runs (so a broken
-          # commit is not retried every hour), and out-of-order completions.
+          # Checking the last 20 runs covers in-flight dispatches, failed runs (so a broken
+          # commit is not retried every interval), out-of-order completions, and runs that
+          # `develop-bench-on-merge.yml` dispatched for a given commit. Those name the commit in
+          # their title and are matched by it alone, because their `head_sha` is develop HEAD at
+          # dispatch time, which they did not benchmark.
           already_ran="$(gh api \
-            "repos/${GH_REPO}/actions/workflows/develop-bench.yml/runs?branch=develop&per_page=10" \
+            "repos/${GH_REPO}/actions/workflows/develop-bench.yml/runs?branch=develop&per_page=20" \
             | jq -r --arg sha "${head_sha}" \
-              '[.workflow_runs[] | select(.conclusion != "cancelled") | .head_sha] | any(. == $sha)')"
+              '[.workflow_runs[] | select(.conclusion != "cancelled")
+                | if (.display_title | startswith("Develop Benchmarks for "))
+                  then .display_title == "Develop Benchmarks for \($sha)"
+                  else .head_sha == $sha end] | any')"
 
           if [ "${already_ran}" = "true" ]; then
             echo "develop HEAD ${head_sha} already has a Develop Benchmarks run; skipping."

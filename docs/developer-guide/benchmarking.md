@@ -290,10 +290,14 @@ uv run --project benchmarks/bench-orchestrator vx-bench run tpch \
 
 ## CI Benchmarks
 
-Benchmarks run automatically on all commits to `develop` and can be run on-demand for PRs:
+Benchmarks run automatically on `develop` and can be run on-demand for PRs:
 
-- **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on every
-  commit to `develop`, with results uploaded for historical tracking.
+- **Post-commit** -- compression, string encoding, random access, and SQL benchmarks run on
+  `develop` at most every three hours, benchmarking its HEAD whenever new commits have landed, with
+  results uploaded for historical tracking. One run covers every commit since the previous one.
+- **Post-commit for one PR** -- `action/bench-on-merge` runs the post-commit benchmarks on the
+  PR's own merge commit once it merges, so its effect is not mixed with other commits'. Unlike the
+  other labels, it stays on the PR, and it can also be added after the merge.
 - **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
 - **Random access (S3)** -- `action/bench-random-access-s3` runs the random-access benchmark
   against data uploaded to S3 instead of local disk.
