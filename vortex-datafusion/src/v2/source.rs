@@ -903,7 +903,15 @@ impl DataSource for VortexDataSource {
         let converter = &self.expression_converter;
         let projected_schema = projection.project_schema(self.leftover_schema.as_ref())?;
         let combined_projection = match &self.applied_projection {
-            Some(existing) => existing.try_merge(projection)?,
+            Some(existing) => match existing.try_merge(projection) {
+                Ok(merged) => merged,
+                Err(err) => {
+                    tracing::debug!(
+                        "VortexScanSource: failed to merge projection {projection}: {err}"
+                    );
+                    return Ok(None);
+                }
+            },
             None => projection.clone(),
         };
         let input_schema = self.initial_schema.as_ref();
@@ -1087,6 +1095,7 @@ mod tests {
     use datafusion_physical_plan::expressions::BinaryExpr;
     use datafusion_physical_plan::expressions::lit;
     use datafusion_physical_plan::limit::LocalLimitExec;
+    use datafusion_physical_plan::projection::ProjectionExec;
     use futures::TryStreamExt;
     use futures::task::ArcWake;
     use futures::task::noop_waker_ref;
@@ -1715,6 +1724,73 @@ mod tests {
         );
         assert!(dropped.load(Ordering::Acquire));
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repeated_projection_swap_with_literal_falls_back_cleanly() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let array = StructArray::from_fields(&[
+            ("a", buffer![1i32, 2, 3].into_array()),
+            ("b", buffer![30i32, 10, 20].into_array()),
+        ])?
+        .into_array();
+        let mut buf = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(buf)?;
+        let source = VortexDataSource::builder(file.data_source()?, session)
+            .build()
+            .await?;
+
+        let first = ProjectionExprs::from(vec![ProjectionExpr::new(
+            Arc::new(Column::new("b", 1)),
+            "x",
+        )]);
+        let after_first = source
+            .try_swapping_with_projection(&first)?
+            .expect("first projection supported");
+
+        let second = ProjectionExprs::from(vec![
+            ProjectionExpr::new(lit(1_i32), "one"),
+            ProjectionExpr::new(Arc::new(Column::new("x", 0)), "y"),
+        ]);
+        let plan: Arc<dyn ExecutionPlan> =
+            match after_first.try_swapping_with_projection(&second)? {
+                Some(swapped) => Arc::new(DataSourceExec::new(swapped)),
+                None => Arc::new(ProjectionExec::try_new(
+                    second.iter().cloned(),
+                    Arc::new(DataSourceExec::new(after_first)),
+                )?),
+            };
+
+        let batches = collect(plan, Arc::new(TaskContext::default())).await?;
+        let ones = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        let ys = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(1)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ones, [1, 1, 1]);
+        assert_eq!(ys, [30, 10, 20]);
         Ok(())
     }
 }
