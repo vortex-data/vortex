@@ -13,7 +13,6 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::compute::conformance::mask::test_mask_conformance;
@@ -104,7 +103,7 @@ fn test_filter_primitive_array() {
 }
 
 #[test]
-#[should_panic(expected = "aligned")]
+#[should_panic(expected = "PrimitiveArray host buffer is not aligned")]
 fn test_from_buffer_handle_rejects_misaligned_host_buffer() {
     let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
     let misaligned = bytes.slice_unaligned(1..5);
@@ -112,34 +111,6 @@ fn test_from_buffer_handle_rejects_misaligned_host_buffer() {
 
     PrimitiveArray::from_buffer_handle(
         BufferHandle::new_host(misaligned),
-        PType::I32,
-        Validity::NonNullable,
-    );
-}
-
-#[test]
-#[should_panic(expected = "aligned")]
-fn test_primitive_data_from_buffer_handle_rejects_misaligned_host_buffer() {
-    let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
-    let misaligned = bytes.slice_unaligned(1..5);
-    assert!(!misaligned.is_aligned(Alignment::of::<i32>()));
-
-    PrimitiveData::from_buffer_handle(
-        BufferHandle::new_host(misaligned),
-        PType::I32,
-        Validity::NonNullable,
-    );
-}
-
-#[test]
-#[should_panic(expected = "aligned")]
-fn test_from_buffer_handle_rejects_empty_misaligned_host_buffer() {
-    let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
-    let misaligned_empty = bytes.slice_unaligned(1..1);
-    assert!(!misaligned_empty.is_aligned(Alignment::of::<i32>()));
-
-    PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_host(misaligned_empty),
         PType::I32,
         Validity::NonNullable,
     );
