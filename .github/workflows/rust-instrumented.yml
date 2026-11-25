@@ -75,7 +75,6 @@ jobs:
         run: |
           status=0
           cargo nextest run --locked --workspace --all-features --no-fail-fast \
-            --exclude vortex-bench \
             --exclude xtask \
             --exclude vortex-sqllogictest \
             --exclude vortex-tui \
