@@ -28,7 +28,8 @@ fn main() {
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-const LEN: usize = 65_536;
+/// The smallest length at which `top_value` samples the input before voting.
+const LEN: usize = 4_096;
 
 /// `(top_fraction, null_fraction)`: each value is the top value with probability
 /// `top_fraction`, and otherwise drawn uniformly from a wide range. The cases cover a majority
