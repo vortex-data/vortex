@@ -8,9 +8,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::duration::DurationArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
@@ -61,6 +64,12 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
                 Ok(PrimitiveArray::from_option_iter(opt_values).into_array())
             })
         }
+        DType::Duration(unit, _) => {
+            let duration = array.clone().execute::<DurationArray>(ctx)?;
+            let values = duration.values();
+            let sorted = sort_canonical_array(values, ctx)?.cast(values.dtype().clone())?;
+            Ok(DurationArray::try_new(*unit, sorted)?.into_array())
+        }
         DType::Decimal(d, _) => {
             let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
@@ -104,7 +113,6 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
         }
         d @ (DType::Null
         | DType::Map(..)
-        | DType::Duration(..)
         | DType::Union(..)
         | DType::Variant(_)
         | DType::Extension(_)) => {

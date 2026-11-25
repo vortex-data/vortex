@@ -518,7 +518,16 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         DType::Map(..) => [Compress, Slice, Take, Filter, Mask, ScalarAt].into(),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         DType::Duration(..) => [
-            Compress, Slice, Take, Filter, Compare, MinMax, FillNull, Mask, ScalarAt,
+            Compress,
+            Slice,
+            Take,
+            SearchSorted,
+            Filter,
+            Compare,
+            MinMax,
+            FillNull,
+            Mask,
+            ScalarAt,
         ]
         .into(),
         // Currently, no support at all

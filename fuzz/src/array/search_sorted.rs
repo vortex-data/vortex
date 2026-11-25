@@ -7,11 +7,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::duration::DurationArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
@@ -101,6 +104,14 @@ pub fn search_sorted_canonical_array(
                 ))
             })
         }
+        DType::Duration(..) => {
+            let duration = array.clone().execute::<DurationArray>(ctx)?;
+            let needle = Scalar::try_new(
+                DType::Primitive(PType::I64, scalar.dtype().nullability()),
+                scalar.value().cloned(),
+            )?;
+            search_sorted_canonical_array(duration.values(), &needle, side, ctx)
+        }
         DType::Decimal(d, _) => {
             let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
             let validity = decimal_array
@@ -158,7 +169,6 @@ pub fn search_sorted_canonical_array(
         }
         d @ (DType::Null
         | DType::Map(..)
-        | DType::Duration(..)
         | DType::Union(..)
         | DType::Variant(_)
         | DType::Extension(_)) => {
