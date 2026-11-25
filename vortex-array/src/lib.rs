@@ -115,7 +115,6 @@ pub mod display;
 pub mod dtype;
 mod executor;
 pub mod expr;
-mod expression;
 pub mod extension;
 pub mod flatbuffers;
 mod hash;

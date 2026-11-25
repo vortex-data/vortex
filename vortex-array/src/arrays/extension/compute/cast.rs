@@ -60,11 +60,11 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::executor::VortexSessionExecute;
-    use crate::expr::cast;
-    use crate::expr::root;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::builtin::cast::Cast;
     use crate::test_harness::ExpectedOutcome;
     use crate::test_harness::assert_execution_paths;
     use crate::validity::Validity;
@@ -160,7 +160,11 @@ mod tests {
         list_dtype(DType::Primitive(PType::I64, Nullability::NonNullable), Nullability::NonNullable),
     )]
     fn cast_never_reinterprets_storage(#[case] input: ArrayRef, #[case] target: DType) {
-        assert!(cast(root(), target.clone()).bind(input.dtype()).is_err());
+        assert!(
+            Cast.bind(target.clone())
+                .return_dtype(std::slice::from_ref(input.dtype()))
+                .is_err()
+        );
         assert!(input.cast(target.clone()).is_err());
 
         assert_execution_paths(

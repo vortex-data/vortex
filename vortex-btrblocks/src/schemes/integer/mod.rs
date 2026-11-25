@@ -5,6 +5,7 @@
 
 mod bitpacking;
 mod delta;
+mod elias_fano;
 mod for_;
 mod rle;
 mod runend;
@@ -18,6 +19,7 @@ mod pco;
 pub(crate) use bitpacking::BITPACKING_V1;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
+pub use elias_fano::EliasFanoScheme;
 pub(crate) use for_::FOR_V1;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]

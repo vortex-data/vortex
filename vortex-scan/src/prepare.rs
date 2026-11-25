@@ -9,9 +9,9 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
-use vortex_expr::analysis::referenced_field_paths;
 use vortex_session::VortexSession;
 
+use crate::analysis::referenced_field_paths;
 pub use crate::execution::ChunkPlanner;
 use crate::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::execution::FilterPlans;
