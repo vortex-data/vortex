@@ -635,8 +635,9 @@ fn test_in_list_unsupported_input(
 
 #[test]
 fn test_in_list_unsupported_type() -> DFResult<()> {
-    let value: Arc<dyn PhysicalExpr> =
-        Arc::new(df_expr::Literal::new(ScalarValue::DurationSecond(Some(1))));
+    let value: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Literal::new(
+        ScalarValue::IntervalYearMonth(Some(1)),
+    ));
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
         Arc::clone(&value),
         vec![value],
@@ -1308,7 +1309,6 @@ fn test_can_be_pushed_down_column_supported(test_schema: Schema) -> DFResult<()>
 }
 
 #[rstest]
-#[case::duration(DataType::Duration(ArrowTimeUnit::Second))]
 #[case::interval(DataType::Interval(IntervalUnit::YearMonth))]
 #[case::fixed_size_binary(DataType::FixedSizeBinary(16))]
 #[case::decimal32(DataType::Decimal32(1, 2))]
@@ -1360,7 +1360,7 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         Field::new("a", DataType::Int32, false),
         Field::new(
             "unsupported",
-            DataType::Duration(ArrowTimeUnit::Second),
+            DataType::Interval(IntervalUnit::YearMonth),
             true,
         ),
         Field::new("b", DataType::Int32, false),
@@ -1459,8 +1459,6 @@ fn test_can_be_pushed_down_literal_supported(test_schema: Schema) -> DFResult<()
 }
 
 #[rstest]
-#[case::duration(ScalarValue::DurationSecond(Some(42)))]
-#[case::null_duration(ScalarValue::DurationSecond(None))]
 #[case::interval(ScalarValue::IntervalYearMonth(Some(1)))]
 #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1, 2, 3, 4, 5])))]
 #[case::null_fixed_size_binary(ScalarValue::FixedSizeBinary(5, None))]
