@@ -96,6 +96,10 @@
   "vortex-compute": {
     "lane_kernels": 7
   },
+  "vortex-datafusion": {
+    "convert_exprs": 6,
+    "scan_many_files": 1
+  },
   "vortex-datetime-parts": {
     "split_temporal": 6
   },

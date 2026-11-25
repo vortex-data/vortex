@@ -42,7 +42,9 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 [dev-dependencies]
 anyhow = { workspace = true }
 datafusion = { workspace = true }
+divan = { workspace = true }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
@@ -53,3 +55,11 @@ vortex-tensor = { workspace = true }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "convert_exprs"
+harness = false
+
+[[bench]]
+name = "scan_many_files"
+harness = false
