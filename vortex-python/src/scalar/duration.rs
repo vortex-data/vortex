@@ -8,6 +8,7 @@ use pyo3::PyAny;
 use pyo3::PyResult;
 use pyo3::PyTypeInfo;
 use pyo3::Python;
+use pyo3::exceptions::PyModuleNotFoundError;
 use pyo3::exceptions::PyOverflowError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
@@ -19,8 +20,10 @@ use pyo3::types::PyType;
 use vortex::dtype::DType;
 use vortex::dtype::DurationUnit;
 use vortex::dtype::Nullability;
+use vortex::error::vortex_err;
 use vortex::scalar::Scalar;
 
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 
 const NANOS_PER_MICROSECOND: i128 = 1_000;
@@ -59,9 +62,23 @@ pub(super) fn to_py<'py>(
                 ));
             }
             static TIMEDELTA: PyOnceLock<Py<PyType>> = PyOnceLock::new();
-            return TIMEDELTA
-                .import(py, "pandas", "Timedelta")?
-                .call1((value, "ns"));
+            let timedelta = TIMEDELTA.import(py, "pandas", "Timedelta").map_err(|error| {
+                if error.is_instance_of::<PyModuleNotFoundError>(py)
+                    && error
+                        .value(py)
+                        .getattr(intern!(py, "name"))
+                        .and_then(|name| name.extract::<String>())
+                        .is_ok_and(|name| name == "pandas")
+                {
+                    vortex_err!(
+                        "Exporting duration[ns] to Python requires pandas. Install it with `pip install pandas`."
+                    )
+                    .into()
+                } else {
+                    PyVortexError::from(error)
+                }
+            })?;
+            return timedelta.call1((value, "ns"));
         }
     };
     let kwargs = [(keyword, value)].into_py_dict(py)?;

@@ -3,8 +3,11 @@
 
 import datetime
 import decimal
+import subprocess
+import sys
 import uuid
 import zoneinfo
+from textwrap import dedent
 from typing import Literal
 
 import pyarrow as pa
@@ -148,6 +151,25 @@ def test_duration_scalar_preserves_pandas_nanoseconds(stored: int) -> None:
     assert vx.scalar(value, dtype=scalar.dtype) == scalar
     assert vx.scalar(value).dtype == vx.DType.from_arrow(pa.duration("ns"), non_nullable=True)
     assert array.scalar_at(1).as_py() is None
+
+
+def test_duration_scalar_reports_missing_pandas() -> None:
+    # A fresh process keeps the cached pandas type from bypassing the import.
+    script = dedent(r"""
+        import sys
+
+        import pyarrow as pa
+        import pytest
+        import vortex as vx
+
+        scalar = vx.array(pa.array([1], type=pa.duration("ns"))).scalar_at(0)
+        sys.modules["pandas"] = None
+        message = r"Exporting duration\[ns\] to Python requires pandas.*pip install pandas"
+        with pytest.raises(RuntimeError, match=message):
+            scalar.as_py()
+    """)
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr
 
 
 def test_duration_scalar_rejects_precision_loss_and_overflow() -> None:
