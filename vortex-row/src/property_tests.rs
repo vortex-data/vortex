@@ -560,6 +560,27 @@ fn draw_column(
     depth: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<GeneratedColumn> {
+    let col = draw_column_inner(tc, len, depth, ctx)?;
+    if len > 0 && tc.draw(gs::integers::<u8>().max_value(7)) == 0 {
+        let scalar = col.canonical.execute_scalar(0, ctx)?;
+        let constant = ConstantArray::new(scalar, len).into_array();
+        let canonical = constant.clone().execute::<Canonical>(ctx)?.into_array();
+        let logical = vec![col.logical[0].clone(); len];
+        return Ok(GeneratedColumn {
+            canonical,
+            alternate: constant,
+            logical,
+        });
+    }
+    Ok(col)
+}
+
+fn draw_column_inner(
+    tc: &TestCase,
+    len: usize,
+    depth: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<GeneratedColumn> {
     let max_kind = if depth < 2 { 19 } else { 15 };
     match tc.draw(gs::integers::<u8>().max_value(max_kind)) {
         0 => finish_column(
