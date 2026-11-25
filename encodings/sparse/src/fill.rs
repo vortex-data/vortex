@@ -14,6 +14,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
@@ -66,13 +67,72 @@ pub(crate) fn most_common_value(
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let bytes = array.clone().execute::<VarBinViewArray>(ctx)?;
-            let index = top_index(mask, |index| bytes.bytes_at(index));
+            let index = view_majority_index(&bytes, mask)
+                .unwrap_or_else(|| top_index(mask, |index| bytes.bytes_at(index)));
             bytes.into_array().execute_scalar(index, ctx)
         }
         dtype => vortex_bail!(
             "cannot choose a fill value for a {dtype} array, so one must be given explicitly"
         ),
     }
+}
+
+/// A string view compared by the group of values it may hold.
+///
+/// An inline view holds its whole value, zero-padded, so two inline views are in one group
+/// exactly when their values are equal. A reference view is grouped by its
+/// [`head`](BinaryView::head), the value's length and first four bytes. Every value lies in exactly
+/// one group, so a value filling more than half of an array also makes its group a majority,
+/// which the vectorized vote finds from the views alone.
+#[derive(Clone, Copy, Default)]
+#[repr(transparent)]
+struct ViewGroup(BinaryView);
+
+impl MajorityKey for ViewGroup {
+    #[inline]
+    fn key_eq(self, other: Self) -> bool {
+        // Equal heads mean equal lengths, so `self` alone tells whether both are inline.
+        self.0.head() == other.0.head()
+            && (!self.0.is_inlined() || self.0.as_u128() == other.0.as_u128())
+    }
+}
+
+/// Returns the first valid index of the value filling more than half of the valid positions of
+/// `bytes`, or `None` if there is none or a sample suggests there is none.
+fn view_majority_index(bytes: &VarBinViewArray, mask: &Mask) -> Option<usize> {
+    let views = bytes.views();
+    // SAFETY: `ViewGroup` is a transparent wrapper around `BinaryView`.
+    let groups: &[ViewGroup] =
+        unsafe { std::slice::from_raw_parts(views.as_ptr().cast(), views.len()) };
+    let (group, _) = sampled_majority(groups, mask)?;
+    if group.0.is_inlined() {
+        return Some(first_valid_index_of(groups, mask, group));
+    }
+
+    // The group shares a length and a prefix. Its members fill more than half of the valid
+    // positions, so the majority value, if any, is also the majority within the group.
+    let buffers: Vec<&[u8]> = (0..bytes.data_buffers().len())
+        .map(|index| bytes.buffer(index).as_slice())
+        .collect();
+    let in_group = |index: usize| mask.value(index) && groups[index].key_eq(group);
+    let value = |index: usize| views[index].bytes(&buffers);
+    let mut candidate = None;
+    let mut surplus = 0usize;
+    for index in (0..views.len()).filter(|&index| in_group(index)) {
+        match candidate {
+            Some(current) if value(current) == value(index) => surplus += 1,
+            _ if surplus == 0 => {
+                candidate = Some(index);
+                surplus = 1;
+            }
+            _ => surplus -= 1,
+        }
+    }
+    let candidate = candidate.vortex_expect("the group has members");
+    let mut matches =
+        (0..views.len()).filter(|&index| in_group(index) && value(index) == value(candidate));
+    let first = matches.next().vortex_expect("the candidate occurs");
+    (1 + matches.count() > mask.true_count() / 2).then_some(first)
 }
 
 /// Returns the first valid index holding `value`, which must occur at one.
@@ -215,6 +275,39 @@ mod tests {
             .as_opt::<Sparse>()
             .vortex_expect("the input has values other than the fill");
         assert_eq!(sparse.fill_scalar(), &expected_fill);
+        assert_arrays_eq!(encoded, array, &mut ctx);
+        Ok(())
+    }
+
+    /// Long strings that share a length and prefix fall in one view group, which the vote finds
+    /// before comparing bytes.
+    #[rstest]
+    #[case::majority_in_group(55, 30, "same-prefix-value-AAAA")]
+    #[case::group_without_majority(40, 35, "same-prefix-value-AAAA")]
+    fn long_strings_sharing_a_head(
+        #[case] first_percent: usize,
+        #[case] second_percent: usize,
+        #[case] expected: &str,
+    ) -> VortexResult<()> {
+        let array = VarBinViewArray::from_iter_str((0..100).map(|index| {
+            if index < first_percent {
+                "same-prefix-value-AAAA".to_string()
+            } else if index < first_percent + second_percent {
+                "same-prefix-value-BBBB".to_string()
+            } else {
+                format!("other-{index}")
+            }
+        }))
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let encoded = Sparse::encode(&array, None, &mut ctx)?;
+        let sparse = encoded
+            .as_opt::<Sparse>()
+            .vortex_expect("the input has values other than the fill");
+        assert_eq!(
+            sparse.fill_scalar(),
+            &Scalar::utf8(expected, Nullability::NonNullable)
+        );
         assert_arrays_eq!(encoded, array, &mut ctx);
         Ok(())
     }
