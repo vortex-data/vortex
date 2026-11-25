@@ -307,6 +307,10 @@ name = "run_end_null_count"
 harness = false
 
 [[bench]]
+name = "primitive_top_value"
+harness = false
+
+[[bench]]
 name = "run_end_compress"
 harness = false
 
