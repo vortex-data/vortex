@@ -57,6 +57,17 @@ macro_rules! native_majority_key {
 
 native_majority_key!(u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64);
 
+/// Fixed-size byte strings, such as UUIDs or the 16-byte views of variable-length strings.
+impl<const N: usize> MajorityKey for [u8; N]
+where
+    [u8; N]: Default,
+{
+    #[inline]
+    fn key_eq(self, other: Self) -> bool {
+        self == other
+    }
+}
+
 impl MajorityKey for i128 {
     #[inline]
     fn key_eq(self, other: Self) -> bool {
@@ -296,6 +307,23 @@ mod tests {
         assert_eq!(
             majority(&values, &Mask::new_true(len)),
             Some((i256::MAX, expected))
+        );
+    }
+
+    #[test]
+    fn fixed_size_bytes() {
+        let values: Vec<[u8; 16]> = (0u8..100)
+            .map(|index| {
+                if index % 4 == 0 {
+                    [index; 16]
+                } else {
+                    *b"0123456789abcdef"
+                }
+            })
+            .collect();
+        assert_eq!(
+            majority(&values, &Mask::new_true(values.len())),
+            Some((*b"0123456789abcdef", 75))
         );
     }
 
