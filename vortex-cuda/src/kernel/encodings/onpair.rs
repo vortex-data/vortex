@@ -446,10 +446,10 @@ where
     // heap size, token window, byte window, and corruption status in a single
     // round trip. The lengths child is validated against the window size by
     // whichever output path materialises row offsets.
-    let scratch = ctx
-        .stream()
-        .clone_dtoh(&scratch)
-        .map_err(|e| vortex_err!("Failed to copy OnPair window scratch to host: {e}"))?;
+    // Await the readback rather than synchronizing the stream, so this thread keeps submitting
+    // the other fields' work while the window resolves.
+    let scratch = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(scratch)?));
+    let scratch = Buffer::<u64>::from_byte_buffer(scratch.try_to_host()?.await?);
     let [
         token_start,
         token_end,

@@ -31,6 +31,7 @@ use vortex_cuda_driver::CudaViewMut;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::DriverError;
+use vortex_cuda_driver::ReadbackBuffer;
 use vortex_cuda_driver::sys;
 
 use crate::stream::await_stream_callback;
@@ -405,28 +406,45 @@ impl PartialEq for CudaDeviceBuffer {
 
 /// Retains both sides of an enqueued D2H copy until completion, including an unpolled future.
 struct PendingHostCopy {
-    buffers: Option<(ByteBufferMut, Arc<dyn private::DeviceAllocation>)>,
+    buffers: Option<HostCopyBuffers>,
     // Store this before creating the future so Drop reports it even if the future is never
     // polled. Taking it when returning the error prevents logging a returned primary error.
     tracking_error: Option<DriverError>,
 }
 
+struct HostCopyBuffers {
+    host_buffer: ByteBufferMut,
+    allocation: Arc<dyn private::DeviceAllocation>,
+    /// The copy's destination when it is small enough to stage through pinned memory, copied
+    /// into `host_buffer` on completion.
+    staging: Option<ReadbackBuffer>,
+}
+
 impl PendingHostCopy {
     async fn finish(mut self, len: usize) -> VortexResult<ByteBuffer> {
-        let (_, allocation) = self.buffers.as_ref().vortex_expect("copy is pending");
-        await_stream_callback(allocation.stream()).await?;
+        let buffers = self.buffers.as_ref().vortex_expect("copy is pending");
+        await_stream_callback(buffers.allocation.stream()).await?;
 
-        let (mut host_buffer, _keep_alive) = self.buffers.take().vortex_expect("copy is pending");
+        let HostCopyBuffers {
+            mut host_buffer,
+            allocation: _keep_alive,
+            staging,
+        } = self.buffers.take().vortex_expect("copy is pending");
         if let Some(err) = self.tracking_error.take() {
             return Err(
                 VortexError::external(err).with_context("Failed to track CUDA copy source read")
             );
         }
 
-        // SAFETY: The successful callback confirms `cuMemcpyDtoHAsync_v2` fully initialized
-        // the buffer. Both allocations have remained alive until this point.
-        unsafe {
-            host_buffer.set_len(len);
+        if let Some(staging) = staging {
+            // SAFETY: The successful callback confirms the copy initialized `len` staged bytes.
+            host_buffer.extend_from_slice(unsafe { staging.as_slice(len) });
+        } else {
+            // SAFETY: The successful callback confirms `cuMemcpyDtoHAsync_v2` fully initialized
+            // the buffer. Both allocations have remained alive until this point.
+            unsafe {
+                host_buffer.set_len(len);
+            }
         }
 
         Ok(host_buffer.freeze().into_byte_buffer())
@@ -438,18 +456,18 @@ impl Drop for PendingHostCopy {
         if let Some(err) = self.tracking_error.take() {
             error!(error = ?err, "Unreturned error tracking CUDA copy source read");
         }
-        let Some((host_buffer, allocation)) = self.buffers.take() else {
+        let Some(buffers) = self.buffers.take() else {
             return;
         };
         // Callback registration/error and future cancellation cannot prove completion. This
         // synchronization must run even when access tracking returned an error.
-        if let Err(err) = allocation.stream().synchronize() {
+        if let Err(err) = buffers.allocation.stream().synchronize() {
             error!(error = ?err, "Failed to wait for CUDA host copy; retaining in-flight buffers");
             #[allow(
                 clippy::mem_forget,
                 reason = "without confirmed DMA completion, freeing either buffer risks use-after-free"
             )]
-            mem::forget((host_buffer, allocation));
+            mem::forget(buffers);
         }
     }
 }
@@ -515,26 +533,36 @@ impl DeviceBuffer for CudaDeviceBuffer {
         let mut host_buffer: ByteBufferMut =
             ByteBufferMut::with_capacity_aligned(self.len, alignment);
         let len = self.len;
+        // A copy into pageable memory blocks this thread until the stream drains, stalling every
+        // other export it would submit meanwhile. Stage small readbacks through pinned memory.
+        let mut staging = (len <= ReadbackBuffer::CAPACITY)
+            .then(|| stream.context().take_readback_buffer())
+            .transpose()
+            .map_err(|e| vortex_err!("Failed to allocate pinned readback buffer: {}", e))?;
+        let target = match &mut staging {
+            Some(staging) => staging.as_mut_ptr(),
+            None => host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
+        };
 
         stream
             .context()
             .bind_to_thread()
             .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
-        // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
-        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
+        // SAFETY: The target has capacity for `len` bytes: the host buffer was allocated with
+        // it, and staging is used only up to its capacity. The pending copy retains both until
+        // the copy completes.
         unsafe {
-            sys::cuMemcpyDtoHAsync_v2(
-                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
-                src_ptr,
-                len,
-                stream.cu_stream(),
-            )
-            .result()
-            .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+            sys::cuMemcpyDtoHAsync_v2(target.cast(), src_ptr, len, stream.cu_stream())
+                .result()
+                .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
         }
         let mut pending_copy = PendingHostCopy {
-            buffers: Some((host_buffer, Arc::clone(&self.allocation))),
+            buffers: Some(HostCopyBuffers {
+                host_buffer,
+                allocation: Arc::clone(&self.allocation),
+                staging,
+            }),
             tracking_error: None,
         };
         // Tracking can fail after the copy was enqueued. Do not return that error until the
@@ -613,6 +641,7 @@ mod tests {
     use std::task::Waker;
     use std::thread;
     use std::time::Duration;
+    use std::time::Instant;
 
     use rstest::rstest;
     use vortex::buffer::Buffer;
@@ -713,10 +742,11 @@ mod tests {
         // takes the real callback path before returning the original driver error.
         let tracking_error = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
         let pending_copy = PendingHostCopy {
-            buffers: Some((
-                ByteBufferMut::with_capacity(0),
-                Arc::clone(&buffer.allocation),
-            )),
+            buffers: Some(HostCopyBuffers {
+                host_buffer: ByteBufferMut::with_capacity(0),
+                allocation: Arc::clone(&buffer.allocation),
+                staging: None,
+            }),
             tracking_error: Some(tracking_error),
         };
         let error = pending_copy.finish(0).await.unwrap_err();
@@ -816,6 +846,38 @@ mod tests {
             Ok(())
         })?;
         assert!(allocation.upgrade().is_none());
+        Ok(())
+    }
+
+    /// Enqueue a copy behind a gated stream; it must return without waiting for the stream when
+    /// staged through pinned memory, and deliver the device bytes once the gate opens. The
+    /// pageable size is not enqueued behind the gate, since its copy blocks until it completes.
+    #[rstest]
+    #[case::staged(ReadbackBuffer::CAPACITY, true)]
+    #[case::pageable(ReadbackBuffer::CAPACITY + 1, false)]
+    #[crate::test]
+    fn host_copy_round_trips_and_staged_copies_do_not_block(
+        #[case] len: usize,
+        #[case] staged: bool,
+    ) -> VortexResult<()> {
+        // Keep the gated stream independent of tests synchronizing the primary context.
+        let context = CudaContext::new_non_primary(0, 0).map_err(VortexError::external)?;
+        let session = VortexSession::empty().with_some(CudaSession::with_context(context));
+        let ctx = CudaSession::create_execution_ctx(&session)?;
+        let values = (0..=u8::MAX).cycle().take(len).collect::<Vec<_>>();
+        let handle = ctx.copy_to_device(&values)?;
+        let copy = if staged {
+            let gate = block_stream(ctx.stream())?;
+            let enqueued = Instant::now();
+            let copy = handle.try_to_host()?;
+            // A blocking copy would return only when the gate times out after 5 s.
+            assert!(enqueued.elapsed() < Duration::from_secs(1));
+            drop(gate);
+            copy
+        } else {
+            handle.try_to_host()?
+        };
+        assert_eq!(block_on(copy)?.as_slice(), values.as_slice());
         Ok(())
     }
 
