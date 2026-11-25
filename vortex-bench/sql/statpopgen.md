@@ -15,7 +15,9 @@ The harness lives in [`src/statpopgen`](../src/statpopgen).
 ## CI variant
 
 CI runs this suite from local NVMe as the `Statistical and Population Genetics` PR
-comment, on DataFusion and DuckDB over Parquet, Vortex, and vortex-compact files.
+comment, and from S3 as `Statistical and Population Genetics on S3`, on DataFusion and DuckDB
+over Parquet, Vortex, and vortex-compact files. The S3 variant generates the data locally,
+uploads `statpopgen/` and passes its URL as `--opt remote-data-dir`.
 
 The queries use DuckDB's `lambda x: ...` list-lambda syntax. DataFusion parses it under its
 DuckDB SQL dialect, which the benchmark enables through `engine_init_sql`. Column names are

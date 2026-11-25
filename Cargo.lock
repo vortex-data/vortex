@@ -4706,8 +4706,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb48f90caa24d0483b8c652b9e783dce85070fb538b66a5f153c8611c5f55e4"
 dependencies = [
  "geoarrow-array",
  "geoarrow-schema",
@@ -4715,8 +4716,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-array"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c947ced364ad8a7b06f9e841277e775dcb3a2f2939acdc9ea8079fb9c8a42ee7"
 dependencies = [
  "arrow-array 60.2.0",
  "arrow-buffer 60.2.0",
@@ -4730,8 +4732,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-cast"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07fec3668df2e207e32b5e1a28ecf70ad29b5d7eaa46fac66c2cbfdb5aef6167"
 dependencies = [
  "arrow-schema 60.2.0",
  "geo-traits",
@@ -4742,8 +4745,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-schema"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d636e7ad5bdd26a16eb916c29635b82671c5d2561ca64a86f883223a697cc59"
 dependencies = [
  "arrow-schema 60.2.0",
  "geo-traits",
@@ -11210,6 +11214,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-decimal-byte-parts",
  "vortex-error",
+ "vortex-expr",
  "vortex-fsst",
  "vortex-functions",
  "vortex-io",
@@ -11303,6 +11308,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "mimalloc",
+ "parking_lot 0.12.5",
  "pco",
  "rand 0.10.3",
  "rstest",
@@ -11313,6 +11319,7 @@ dependencies = [
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
+ "vortex-elias-fano",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
@@ -11701,14 +11708,20 @@ dependencies = [
 name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
+ "codspeed-divan-compat",
+ "insta",
  "itertools 0.14.0",
+ "mimalloc",
  "parking_lot 0.12.5",
+ "prost 0.14.4",
  "rstest",
+ "smallvec",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
- "vortex-functions",
+ "vortex-mask",
  "vortex-session",
  "vortex-utils",
 ]
@@ -11733,6 +11746,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-expr",
  "vortex-fastlanes",
  "vortex-functions",
  "vortex-mask",
@@ -11836,6 +11850,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
  "vortex-functions",
  "vortex-mask",
  "vortex-session",
@@ -11865,6 +11880,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-expr",
  "vortex-mask",
  "vortex-session",
  "vortex-utils",
@@ -11891,6 +11907,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-cuda",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-fsst",
  "vortex-functions",
@@ -12000,6 +12017,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-edition",
  "vortex-error",
+ "vortex-expr",
  "vortex-functions",
  "vortex-session",
 ]
@@ -12123,7 +12141,9 @@ dependencies = [
  "arrow-buffer 60.2.0",
  "arrow-schema 60.2.0",
  "chrono",
+ "codspeed-divan-compat",
  "hegeltest",
+ "mimalloc",
  "parquet-variant",
  "parquet-variant-compute",
  "prost 0.14.4",
@@ -12134,6 +12154,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-edition",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-functions",
  "vortex-io",
@@ -12274,6 +12295,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-expr",
  "vortex-functions",
  "vortex-mask",
  "vortex-session",

@@ -32,10 +32,10 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 /// Returns `true` if `index` is the end of `bytes` or the start of a UTF-8 char in it.

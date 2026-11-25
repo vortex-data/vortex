@@ -19,6 +19,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -309,29 +310,42 @@ impl<T: TypedArrayRef<DecimalByteParts>> DecimalBytePartsArrayExt for T {}
 impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, DecimalByteParts>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, DecimalByteParts>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let scalar = array.msp().execute_scalar(index, ctx)?;
+        let array = state.array();
+        let scalar = state
+            .slot(DecimalBytePartsSlots::MSP)?
+            .vortex_expect("validated DecimalByteParts MSP slot")
+            .execute_scalar(index, ctx)?;
+        if scalar.is_null() {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
 
         let primitive_scalar = scalar.as_primitive();
         let msp = primitive_scalar.as_::<i64>().vortex_expect("non-null");
 
-        let lower_parts = array
-            .lower_parts()
-            .iter()
-            .map(|part| {
-                Ok(part
-                    .execute_scalar(index, ctx)?
-                    .as_primitive()
-                    .as_::<u64>()
-                    .vortex_expect("lower parts are non-nullable"))
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
+        let lower_part_count = array.slots().len() - DecimalBytePartsSlots::LOWER_PARTS_OFFSET;
+        if lower_part_count > MAX_LOWER_PARTS {
+            vortex_bail!(
+                "at most {MAX_LOWER_PARTS} lower parts are supported, got {lower_part_count}"
+            );
+        }
 
-        let value = match lower_parts.as_slice() {
+        let mut lower_parts = [0u64; MAX_LOWER_PARTS];
+        for (part_idx, lower_part) in lower_parts.iter_mut().take(lower_part_count).enumerate() {
+            *lower_part = state
+                .slot(DecimalBytePartsSlots::LOWER_PARTS_OFFSET + part_idx)?
+                .vortex_expect("validated DecimalByteParts lower-part slot")
+                .execute_scalar(index, ctx)?
+                .as_primitive()
+                .as_::<u64>()
+                .vortex_expect("lower parts are non-nullable");
+        }
+
+        let value = match &lower_parts[..lower_part_count] {
             [] => DecimalValue::I64(msp),
             [first] => DecimalValue::I128(assemble_wide_decimal_value(msp, [*first])),
             [first, second] => {
@@ -341,12 +355,19 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
                 DecimalValue::I256(assemble_wide_decimal_value(msp, [*first, *second, *third]))
             }
             _ => vortex_bail!(
-                "at most {MAX_LOWER_PARTS} lower parts are supported, got {}",
-                lower_parts.len()
+                "at most {MAX_LOWER_PARTS} lower parts are supported, got {lower_part_count}"
             ),
         };
 
         Scalar::try_decimal(value, array.decimal_dtype(), array.dtype().nullability())
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, DecimalByteParts>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

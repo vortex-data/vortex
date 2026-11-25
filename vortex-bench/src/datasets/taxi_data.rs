@@ -33,6 +33,9 @@ use crate::utils::parquet::remove_stale_parquet;
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "taxi";
 
+const VORTEX_PATH: &str = "taxi/taxi.vortex";
+const COMPACT_VORTEX_PATH: &str = "taxi/taxi-compact.vortex";
+
 /// Total number of rows in the taxi dataset.
 pub const ROW_COUNT: u64 = 3_339_715;
 
@@ -61,6 +64,14 @@ impl BenchDataset for TaxiData {
 
     fn row_count(&self) -> u64 {
         ROW_COUNT
+    }
+
+    fn relative_path(&self, format: Format) -> String {
+        match format {
+            Format::OnDiskVortex => VORTEX_PATH.to_owned(),
+            Format::VortexCompact => COMPACT_VORTEX_PATH.to_owned(),
+            _ => data_path(DATASET, format),
+        }
     }
 
     async fn path(&self, format: Format) -> Result<PathBuf> {
@@ -115,7 +126,7 @@ pub async fn fetch_taxi_data() -> Result<ArrayRef> {
 }
 
 pub async fn taxi_data_vortex() -> Result<PathBuf> {
-    idempotent_async("taxi/taxi.vortex", |output_fname| async move {
+    idempotent_async(VORTEX_PATH, |output_fname| async move {
         let buf = output_fname.to_path_buf();
         let mut output_file = TokioFile::create(output_fname).await?;
 
@@ -132,7 +143,7 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
 }
 
 pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
-    idempotent_async("taxi/taxi-compact.vortex", |output_fname| async move {
+    idempotent_async(COMPACT_VORTEX_PATH, |output_fname| async move {
         let buf = output_fname.to_path_buf();
         let mut output_file = TokioFile::create(output_fname).await?;
 
