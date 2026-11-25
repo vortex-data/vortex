@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -16,12 +17,12 @@ import pytest
 
 
 @pytest.fixture
-def compat() -> ModuleType:
+def compat(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     script = Path(__file__).resolve().parents[1] / "scripts" / "compat.py"
     spec = importlib.util.spec_from_file_location("vortex_compat_orchestrator", script)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
+    monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -121,3 +122,19 @@ def test_parallel_download_collects_io_errors(compat, tmp_path):
 
     assert failures == [("boom.vortex", "download failed: network timeout")]
     assert (tmp_path / "good.vortex").read_bytes() == b"ok"
+
+
+def test_run_rust_check_handles_invalid_json(compat, monkeypatch, tmp_path):
+    monkeypatch.setattr(compat, "_build_compat_bin", lambda _profile: "/fake/vortex-compat")
+    monkeypatch.setattr(
+        compat.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, stdout="not json", stderr=None),
+    )
+
+    result = compat._run_rust_check(tmp_path)
+    assert result["passed"] == []
+    assert result["skipped"] == []
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["name"] == "(all)"
+    assert "invalid JSON" in result["failed"][0]["error"]

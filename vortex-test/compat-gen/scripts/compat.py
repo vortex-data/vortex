@@ -858,7 +858,14 @@ def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
 
     if result.stdout.strip():
-        return json.loads(result.stdout)
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            return {
+                "passed": [],
+                "failed": [{"name": "(all)", "error": f"invalid JSON from check process: {e}"}],
+                "skipped": [],
+            }
 
     if result.returncode != 0:
         return {
