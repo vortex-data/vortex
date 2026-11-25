@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Choosing the fill value of a sparse array: the most common valid value of the input.
+//! Choosing the fill value of a sparse array: the valid value filling more than half of the valid
+//! rows when there is one, otherwise some valid value.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -14,6 +15,8 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_native_ptype;
+use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::majority::MajorityKey;
 use vortex_array::stats::majority::majority_candidate;
@@ -36,10 +39,14 @@ pub(crate) fn dominant_value(
     let nullability = array.dtype().nullability();
     match array.dtype() {
         DType::Primitive(..) => {
+            // `Sparse::encode` compares the array against the fill anyway, so the fill is not
+            // counted here as `PrimitiveArray::top_value` would.
             let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
-            let (top, _) = primitive
-                .top_value(ctx)?
-                .vortex_expect("array has a valid value");
+            let top: PValue = match_each_native_ptype!(primitive.ptype(), |P| {
+                majority_candidate(primitive.as_slice::<P>(), mask)
+                    .vortex_expect("array has a valid value")
+                    .into()
+            });
             Ok(Scalar::primitive_value(top, top.ptype(), nullability))
         }
         DType::Bool(_) => {
@@ -99,7 +106,8 @@ impl MajorityKey for ViewGroup {
 /// single value. A group of longer values shares a length and prefix, and a scalar vote over its
 /// members, comparing their bytes, finds the majority within it, which is the majority overall.
 fn view_vote_index(bytes: &VarBinViewArray, mask: &Mask) -> usize {
-    let views = bytes.views();
+    let resolved = bytes.resolved_views();
+    let views = resolved.views();
     // SAFETY: `ViewGroup` is a transparent wrapper around `BinaryView`.
     let groups: &[ViewGroup] =
         unsafe { std::slice::from_raw_parts(views.as_ptr().cast(), views.len()) };
@@ -108,10 +116,7 @@ fn view_vote_index(bytes: &VarBinViewArray, mask: &Mask) -> usize {
         return first_valid_index_of(groups, mask, group);
     }
 
-    let buffers: Vec<&[u8]> = (0..bytes.data_buffers().len())
-        .map(|index| bytes.buffer(index).as_slice())
-        .collect();
-    let value = |index: usize| views[index].bytes(&buffers);
+    let value = |index: usize| resolved.bytes(index);
     let mut candidate = None;
     let mut surplus = 0usize;
     let members =
