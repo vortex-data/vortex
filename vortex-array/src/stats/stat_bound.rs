@@ -28,7 +28,8 @@ pub trait StatBound<T>: Sized {
 
     /// Refines the bounds to the most precise estimate we can make for that bound.
     /// If the bounds are disjoint, then the result is `IntersectionResult::Empty`.
-    /// e.g. `Precision::Inexact(5)` and `Precision::Exact(6)` would result in `Precision::Exact(6)`.
+    /// e.g. for `Precision` or `LowerBound`, `Precision::Inexact(5)` and `Precision::Exact(6)`
+    /// result in `Precision::Exact(6)`.
     /// A.k.a. the `join` of the bound.
     fn intersection(&self, other: &Self) -> Option<IntersectionResult<Self>>;
 
