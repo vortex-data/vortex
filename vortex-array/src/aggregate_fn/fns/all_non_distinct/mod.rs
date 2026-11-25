@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_identical;
@@ -33,6 +34,7 @@ use self::primitive::check_primitive_identical;
 use self::struct_::check_struct_identical;
 use self::varbin::check_varbinview_identical;
 use self::variant::check_variant_identical;
+#[doc(hidden)]
 pub use self::variant::variant_scalars_equal;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -46,8 +48,12 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -325,10 +331,38 @@ fn check_canonical_identical(
         (Canonical::Variant(lhs), Canonical::Variant(rhs)) => {
             check_variant_identical(lhs, rhs, ctx)
         }
+        (Canonical::Union(lhs), Canonical::Union(rhs)) => check_union_identical(lhs, rhs, ctx),
         _ => Err(vortex_err!(
             "Canonical type mismatch in AllNonDistinct: {:?} vs {:?}",
             lhs.dtype(),
             rhs.dtype()
         )),
     }
+}
+
+fn check_union_identical(
+    lhs: &UnionArray,
+    rhs: &UnionArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    if !all_non_distinct(lhs.type_ids(), rhs.type_ids(), ctx)? {
+        return Ok(false);
+    }
+
+    let type_ids = lhs.type_ids().clone().execute::<PrimitiveArray>(ctx)?;
+    let type_ids = type_ids.as_slice::<u8>();
+
+    for (variant_idx, &type_id) in lhs.variants().type_ids().iter().enumerate() {
+        let mask = Mask::from_iter(type_ids.iter().map(|&id| id == type_id));
+        if mask.true_count() == 0 {
+            continue;
+        }
+        let lhs_child = lhs.children()[variant_idx].filter(mask.clone())?;
+        let rhs_child = rhs.children()[variant_idx].filter(mask)?;
+        if !all_non_distinct(&lhs_child, &rhs_child, ctx)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }

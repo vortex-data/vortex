@@ -1038,6 +1038,58 @@ fn constant_struct_list_with_null_elements(
 }
 
 #[test]
+fn constant_struct_union_fields() -> VortexResult<()> {
+    let variants = crate::dtype::UnionVariants::try_new(
+        FieldNames::from(["int", "text"]),
+        vec![
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::NonNullable),
+        ],
+        vec![5, 9],
+    )?;
+    let union_dtype = DType::Union(variants.clone(), Nullability::NonNullable);
+    let pair_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![union_dtype.clone(), union_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+
+    let int_10 = Scalar::union(
+        variants.clone(),
+        5,
+        Scalar::from(10i32),
+        Nullability::NonNullable,
+    )?;
+    let int_30 = Scalar::union(
+        variants.clone(),
+        5,
+        Scalar::from(30i32),
+        Nullability::NonNullable,
+    )?;
+    let text_a = Scalar::union(variants, 9, Scalar::from("a"), Nullability::NonNullable)?;
+
+    let equal = ConstantArray::new(
+        Scalar::struct_(pair_dtype.clone(), [int_10.clone(), int_10.clone()]),
+        3,
+    )
+    .into_array();
+    let distinct_payload = ConstantArray::new(
+        Scalar::struct_(pair_dtype.clone(), [int_10.clone(), int_30]),
+        3,
+    )
+    .into_array();
+    let distinct_tag =
+        ConstantArray::new(Scalar::struct_(pair_dtype, [int_10, text_a]), 3).into_array();
+
+    assert!(accumulate_all_non_distinct(&[equal])?);
+    assert!(!accumulate_all_non_distinct(&[distinct_payload])?);
+    assert!(!accumulate_all_non_distinct(&[distinct_tag])?);
+    Ok(())
+}
+
+#[test]
 fn constant_struct_multiple_batches_saturates() -> VortexResult<()> {
     let field_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let struct_dtype = DType::Struct(

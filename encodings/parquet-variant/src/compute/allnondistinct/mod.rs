@@ -6,6 +6,7 @@ mod tests;
 
 use std::fmt::Debug;
 
+use parquet_variant::Variant as PqVariant;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::RepeatedArrayProbe;
@@ -15,11 +16,13 @@ use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
 use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ParquetVariant;
@@ -136,9 +139,16 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             let lhs_metadata = filter_child(lhs.metadata())?;
             let rhs_metadata = filter_child(rhs.metadata())?;
             if !all_non_distinct(&lhs_metadata, &rhs_metadata, ctx)? {
-                // Compare directly via ParquetVariant scalars rather than declining to
-                // Canonical::Variant, which omits raw-only nested field wrappers.
-                let equal = compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?;
+                let equal = match (typed_pair, value_pair) {
+                    (None, Some((lhs_val, rhs_val))) => compare_unshredded_variants(
+                        &lhs_metadata,
+                        &rhs_metadata,
+                        &filter_child(lhs_val)?,
+                        &filter_child(rhs_val)?,
+                        ctx,
+                    )?,
+                    _ => compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?,
+                };
                 return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
             }
         }
@@ -160,12 +170,87 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             let lhs_value = filter_child(lhs_value)?;
             let rhs_value = filter_child(rhs_value)?;
             if !all_non_distinct(&lhs_value, &rhs_value, ctx)? {
-                let equal = compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?;
+                let equal = if typed_pair.is_none() {
+                    let lhs_metadata = filter_child(lhs.metadata())?;
+                    let rhs_metadata = filter_child(rhs.metadata())?;
+                    compare_unshredded_variants(
+                        &lhs_metadata,
+                        &rhs_metadata,
+                        &lhs_value,
+                        &rhs_value,
+                        ctx,
+                    )?
+                } else {
+                    compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?
+                };
                 return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
             }
         }
 
         Ok(Some(Scalar::bool(true, Nullability::NonNullable)))
+    }
+}
+
+/// Compare unshredded `ParquetVariant` rows by decoding raw `(metadata, value)` bytes directly
+/// into `parquet_variant::Variant`, preserving Parquet Variant type tags such as `Uuid` vs
+/// `String` while treating alternate binary encodings of the same logical value (e.g. short vs
+/// long strings or reordered object fields) as equal.
+fn compare_unshredded_variants(
+    lhs_metadata: &ArrayRef,
+    rhs_metadata: &ArrayRef,
+    lhs_value: &ArrayRef,
+    rhs_value: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let lhs_meta = lhs_metadata.clone().execute::<VarBinViewArray>(ctx)?;
+    let rhs_meta = rhs_metadata.clone().execute::<VarBinViewArray>(ctx)?;
+    let lhs_val = lhs_value.clone().execute::<VarBinViewArray>(ctx)?;
+    let rhs_val = rhs_value.clone().execute::<VarBinViewArray>(ctx)?;
+
+    let lhs_val_mask = lhs_val.validity()?.execute_mask(lhs_val.len(), ctx)?;
+    let rhs_val_mask = rhs_val.validity()?.execute_mask(rhs_val.len(), ctx)?;
+
+    for idx in 0..lhs_val.len() {
+        match (lhs_val_mask.value(idx), rhs_val_mask.value(idx)) {
+            (false, false) => continue,
+            (true, false) | (false, true) => return Ok(false),
+            (true, true) => {}
+        }
+        let lhs_meta_bytes = lhs_meta.bytes_at(idx);
+        let lhs_val_bytes = lhs_val.bytes_at(idx);
+        let rhs_meta_bytes = rhs_meta.bytes_at(idx);
+        let rhs_val_bytes = rhs_val.bytes_at(idx);
+        let lhs_variant = PqVariant::try_new(&lhs_meta_bytes, &lhs_val_bytes)
+            .map_err(|e| vortex_err!("Invalid Parquet Variant: {e}"))?;
+        let rhs_variant = PqVariant::try_new(&rhs_meta_bytes, &rhs_val_bytes)
+            .map_err(|e| vortex_err!("Invalid Parquet Variant: {e}"))?;
+        if !pq_variants_equal(&lhs_variant, &rhs_variant) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn pq_variants_equal(lhs: &PqVariant<'_, '_>, rhs: &PqVariant<'_, '_>) -> bool {
+    match (lhs, rhs) {
+        (PqVariant::String(a), PqVariant::String(b)) => a == b,
+        (PqVariant::String(a), PqVariant::ShortString(b))
+        | (PqVariant::ShortString(b), PqVariant::String(a)) => *a == b.as_str(),
+        (PqVariant::ShortString(a), PqVariant::ShortString(b)) => a.as_str() == b.as_str(),
+        (PqVariant::Float(a), PqVariant::Float(b)) => a.to_bits() == b.to_bits(),
+        (PqVariant::Double(a), PqVariant::Double(b)) => a.to_bits() == b.to_bits(),
+        (PqVariant::List(a), PqVariant::List(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|(la, rb)| pq_variants_equal(&la, &rb))
+        }
+        (PqVariant::Object(a), PqVariant::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(k, lv)| b.get(k).is_some_and(|rv| pq_variants_equal(&lv, &rv)))
+        }
+        _ => lhs == rhs,
     }
 }
 

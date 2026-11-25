@@ -518,15 +518,7 @@ fn test_all_non_distinct_matches_typed_vs_raw_value_with_same_metadata() -> Vort
     .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(variant_scalars_equal(
-        &lhs.execute_scalar(0, &mut ctx)?,
-        &rhs_equal.execute_scalar(0, &mut ctx)?,
-    ));
     assert!(all_non_distinct(&lhs, &rhs_equal, &mut ctx)?);
-    assert!(!variant_scalars_equal(
-        &lhs.execute_scalar(0, &mut ctx)?,
-        &rhs_distinct.execute_scalar(0, &mut ctx)?,
-    ));
     assert!(!all_non_distinct(&lhs, &rhs_distinct, &mut ctx)?);
     Ok(())
 }
@@ -555,11 +547,39 @@ fn test_all_non_distinct_matches_short_vs_long_string_with_same_metadata() -> Vo
     .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(variant_scalars_equal(
-        &lhs.execute_scalar(0, &mut ctx)?,
-        &rhs.execute_scalar(0, &mut ctx)?,
-    ));
     assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn test_all_non_distinct_distinguishes_uuid_from_string_with_same_metadata() -> VortexResult<()> {
+    // Parquet Variant UUID: basic_type=0, primitive_type=20 -> (20 << 2) | 0 = 0x50,
+    // followed by the 16 big-endian bytes of 550e8400-e29b-41d4-a716-446655440000.
+    let uuid_val: &[u8] = &[
+        0x50, 0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44,
+        0x00, 0x00,
+    ];
+    let (meta, str_val) = VariantBuilder::new()
+        .with_value("550e8400-e29b-41d4-a716-446655440000")
+        .finish();
+
+    let lhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta.as_slice()]),
+        Some(binary([uuid_val])),
+        None,
+    )?
+    .into_array();
+    let rhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta.as_slice()]),
+        Some(binary([str_val.as_slice()])),
+        None,
+    )?
+    .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
     Ok(())
 }
 
