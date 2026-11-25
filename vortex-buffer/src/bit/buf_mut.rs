@@ -600,7 +600,8 @@ impl BitBufferMut {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    /// The caller must ensure that `index < self.len()`. Setting a bit at or past `self.len()`
+    /// violates the invariant that all bits past `offset + len` are zero.
     #[inline]
     pub unsafe fn set_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
@@ -613,19 +614,20 @@ impl BitBufferMut {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    /// The caller must ensure that `index < self.len()`.
     #[inline]
     pub unsafe fn unset_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
-    /// Foces the length of the `BitBufferMut` to `new_len`.
+    /// Forces the length of the `BitBufferMut` to `new_len`.
     ///
     /// # Safety
     ///
     /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
     /// - The elements at `old_len..new_len` must be initialized
+    /// - All unused trailing bits at or past `offset + new_len` in the final byte must be zero
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn set_len(&mut self, new_len: usize) {
@@ -896,8 +898,8 @@ impl FromIterator<bool> for BitBufferMut {
         let ptr = buf.buffer.as_mut_ptr();
         for i in 0..lower_bound {
             let Some(v) = iter.next() else {
-                // SAFETY: We are definitely under the capacity and all values are already
-                // initialized from `new_unset`.
+                // SAFETY: `i <= lower_bound <= capacity()`, all bits are initialized from
+                // `new_unset`, and only bits `< i` were set, so bits `>= i` remain zero.
                 unsafe { buf.set_len(i) };
                 return buf;
             };
