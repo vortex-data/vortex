@@ -19,7 +19,7 @@ pub fn slice_relative_ends<E: IntegerPType>(
     run_ends: &[E],
     offset: usize,
     length: usize,
-) -> impl Iterator<Item = usize> + use<'_, E> {
+) -> impl ExactSizeIterator<Item = usize> + use<'_, E> {
     let offset_e = E::from_usize(offset).unwrap_or_else(|| {
         vortex_panic!(
             "offset {} cannot be converted to {}",

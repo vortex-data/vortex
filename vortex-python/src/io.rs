@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::error::Error;
+use std::io::Error as IoError;
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
@@ -23,6 +25,7 @@ use vortex::buffer::Buffer;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
@@ -30,6 +33,7 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::std_file::FileWrite;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::arrays::PyArray;
@@ -40,6 +44,7 @@ use crate::classes::table_class;
 use crate::current_runtime;
 use crate::dataset::ProjectionColumn;
 use crate::dataset::open_dataset;
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::file::row_indices;
@@ -52,6 +57,7 @@ use crate::opendal_store::CosStore;
 use crate::opendal_store::GoosefsStore;
 use crate::session::session;
 use crate::session::write_session;
+use crate::writable::PyWritable;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -60,6 +66,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(read_url, &m)?)?;
     m.add_function(wrap_pyfunction!(write, &m)?)?;
+    m.add_function(wrap_pyfunction!(write_to, &m)?)?;
 
     m.add_class::<PyVortexWriteOptions>()?;
 
@@ -298,6 +305,35 @@ pub fn write<'py>(
     write_inner(py, iter, path, store, edition, None)
 }
 
+/// Write a Vortex file to a caller-provided binary output stream.
+///
+/// The stream must be positioned at the start of a new file and implement
+/// ``write(bytes) -> int`` and ``flush()``. Vortex flushes it once the file is complete.
+/// The caller is responsible for closing it.
+///
+/// Parameters
+/// ----------
+/// iter : vortex.Array | vortex.ArrayIterator | pyarrow.Table | pyarrow.RecordBatchReader
+///     The data to write.
+/// output : object
+///     The binary file object that receives the encoded bytes. No seeking is needed.
+/// edition : str | None
+///     The Vortex edition to write, or ``None`` for the default.
+#[pyfunction]
+#[pyo3(signature = (iter, output, *, edition = None))]
+fn write_to<'py>(
+    py: Python<'py>,
+    iter: &Bound<'py, PyAny>,
+    output: &Bound<'py, PyAny>,
+    edition: Option<String>,
+) -> PyVortexResult<()> {
+    PyVortexWriteOptions {
+        use_compact_encodings: false,
+        edition,
+    }
+    .write_to(py, iter, output)
+}
+
 /// Write Vortex files with custom configuration.
 ///
 /// See also
@@ -429,14 +465,51 @@ impl PyVortexWriteOptions {
         path: &str,
         store: Option<AnyVortexStore>,
     ) -> PyVortexResult<()> {
-        write_inner(
-            py,
-            iter,
-            path,
-            store,
-            self.edition.as_deref(),
-            Some(self.use_compact_encodings),
-        )
+        write_inner(py, iter, path, store, self.edition.as_deref(), Some(self))
+    }
+
+    /// Write a Vortex file to a binary output stream with these options.
+    ///
+    /// The caller owns the stream. See :func:`vortex.io.write_to` for its contract.
+    pub fn write_to<'py>(
+        &self,
+        py: Python<'py>,
+        iter: &Bound<'py, PyAny>,
+        output: &Bound<'py, PyAny>,
+    ) -> PyVortexResult<()> {
+        let output = PyWritable::try_new(output)?;
+        let session = write_session(self.edition.as_deref())?;
+        let iter = WriteInput::validate(iter)?.into_array_iter(py)?;
+        py.detach(|| {
+            self.write_options(&session)
+                .blocking(&current_runtime())
+                .write(output, iter)
+        })
+        .map_err(|error| {
+            let python_error = error
+                .source()
+                .and_then(|source| source.downcast_ref::<IoError>())
+                .and_then(IoError::get_ref)
+                .and_then(|source| source.downcast_ref::<PyErr>());
+            match python_error {
+                Some(python_error) => PyVortexError::from(python_error.clone_ref(py)),
+                None => PyVortexError::from(error),
+            }
+        })?;
+        Ok(())
+    }
+}
+
+impl PyVortexWriteOptions {
+    fn write_options(&self, session: &VortexSession) -> VortexWriteOptions {
+        let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
+        if self.use_compact_encodings {
+            compressor = compressor.with_compact();
+        }
+        let strategy = WriteStrategyBuilder::from_session(session)
+            .with_btrblocks_builder(compressor)
+            .build();
+        session.write_options().with_strategy(strategy)
     }
 }
 
@@ -451,7 +524,7 @@ fn write_inner<'py>(
     path: &str,
     store: Option<AnyVortexStore>,
     edition: Option<&str>,
-    compact_override: Option<bool>,
+    options: Option<&PyVortexWriteOptions>,
 ) -> PyVortexResult<()> {
     let session = write_session(edition)?;
     let resolved = resolve_store(path, store.map(|x| x.into_inner()))?;
@@ -473,17 +546,8 @@ fn write_inner<'py>(
     let array_iter = input.into_array_iter(py)?;
 
     py.detach(|| {
-        let write_options = match compact_override {
-            Some(use_compact_encodings) => {
-                let mut compressor = BtrBlocksCompressorBuilder::from_session(&session);
-                if use_compact_encodings {
-                    compressor = compressor.with_compact();
-                }
-                let strategy = WriteStrategyBuilder::from_session(&session)
-                    .with_btrblocks_builder(compressor)
-                    .build();
-                session.write_options().with_strategy(strategy)
-            }
+        let write_options = match options {
+            Some(options) => options.write_options(&session),
             None => session.write_options(),
         };
 
