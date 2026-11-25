@@ -4210,13 +4210,13 @@ async fn test_write_plan_reuse_deterministic_concurrent() -> VortexResult<()> {
     crate::register_default_encodings(&session);
     crate::enable_all_registered_array_encodings(&session);
 
-    // Build 16 chunks whose distribution drifts halfway through so replay, challenge, and
-    // ratio-deviation replacement all trigger under concurrency > 1.
-    let chunks: Vec<ArrayRef> = (0..16u64)
+    // Build 24 chunks whose distribution drifts halfway through so replay, challenge, and
+    // ratio-deviation replacement all trigger across multiple fixed waves.
+    let chunks: Vec<ArrayRef> = (0..24u64)
         .map(|chunk_idx| {
             let values: Buffer<i64> = (0..4096i64)
                 .map(|i| {
-                    if chunk_idx < 8 {
+                    if chunk_idx < 10 {
                         (i * 7) % 8
                     } else {
                         chunk_idx as i64 * 100_000 + i * 1_000_003
@@ -4240,13 +4240,13 @@ async fn test_write_plan_reuse_deterministic_concurrent() -> VortexResult<()> {
         challenge_after: Some(2),
     };
 
-    let write_with_concurrency = || {
+    let write_with_concurrency = |concurrency: usize| {
         let session = session.clone();
         let strategy = CompressingStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             BtrBlocksCompressor::from_session(&session),
         )
-        .with_concurrency(4)
+        .with_concurrency(concurrency)
         .with_plan_reuse(Some(options));
         let stream = make_stream();
         async move {
@@ -4260,10 +4260,15 @@ async fn test_write_plan_reuse_deterministic_concurrent() -> VortexResult<()> {
         }
     };
 
-    let first = write_with_concurrency().await?;
-    for _ in 0..3 {
-        let next = write_with_concurrency().await?;
-        assert_eq!(first, next);
+    let serial = write_with_concurrency(1).await?;
+    for concurrency in [1, 2, 4, 8] {
+        for _ in 0..2 {
+            let next = write_with_concurrency(concurrency).await?;
+            assert_eq!(
+                serial, next,
+                "output differed for concurrency={concurrency}"
+            );
+        }
     }
 
     // Also verify the default WriteStrategyBuilder (which includes DictStrategy + PlanReuseScope).

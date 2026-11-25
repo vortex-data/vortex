@@ -143,6 +143,12 @@ impl PlanReuseScope {
     }
 }
 
+/// Fixed number of chunks compressed per wave after the initial plan is established.
+///
+/// Keeping the wave size independent of `concurrency` ensures that plan snapshots and commits
+/// produce identical output regardless of machine core count.
+const PLAN_REUSE_WAVE_SIZE: usize = 16;
+
 /// A layout writer that compresses chunks.
 ///
 /// The strategy counts each chunk that it compresses on the
@@ -294,68 +300,81 @@ impl LayoutStrategy for CompressingStrategy {
 
             let mut stream = stream;
             let mut first_wave = !reuse.has_plan();
-            let mut eof_reached = false;
-            while !eof_reached {
+            loop {
                 // Establish the initial plan from one chunk before fanning out so subsequent
-                // chunks replay it rather than selecting independently. Only gate the first
-                // wave so planless columns (or opaque compressors) still run at full concurrency.
-                let wave_limit = if first_wave { 1 } else { concurrency };
+                // chunks replay it rather than selecting independently. Use a fixed wave size
+                // afterward so plan snapshots and commits do not depend on `concurrency`.
+                let wave_limit = if first_wave { 1 } else { PLAN_REUSE_WAVE_SIZE };
                 first_wave = false;
-                let mut tasks = Vec::with_capacity(wave_limit);
-                for _ in 0..wave_limit {
-                    let Some(chunk) = stream.next().await else {
-                        eof_reached = true;
-                        break;
-                    };
-                    let (sequence_id, chunk) = chunk?;
-                    let chunk_reuse = reuse.next_chunk();
-                    let compressor = Arc::clone(&compressor);
-                    let stats = Arc::clone(&stats);
-                    let session = compute_session.clone();
-                    let buffered_bytes = buffered_bytes.clone();
-                    let size_scope = size_scope.clone();
+                let mut wave_commits = Vec::with_capacity(wave_limit);
+                let mut yielded = 0usize;
 
-                    // Count the input as uncompressed until its compressed output is counted.
-                    let input_reservation = size_scope.reserve(chunk.nbytes());
+                let mut wave = stream
+                    .by_ref()
+                    .take(wave_limit)
+                    .map(|chunk| {
+                        let chunk_reuse = reuse.next_chunk();
+                        let compressor = Arc::clone(&compressor);
+                        let stats = Arc::clone(&stats);
+                        let session = compute_session.clone();
+                        let buffered_bytes = buffered_bytes.clone();
+                        let size_scope = size_scope.clone();
 
-                    tasks.push(handle.spawn_cpu(move || {
-                        let mut ctx = session.create_execution_ctx();
-                        // Compute the stats for the chunk prior to compression. The exact
-                        // uncompressed size is measured once here and cached for the compressor.
-                        chunk.statistics().compute_all(&stats, &mut ctx)?;
-                        let uncompressed_size =
-                            if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
-                                u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
-                                    .map_err(|e| {
-                                        vortex_err!("chunk size does not fit in u64: {e}")
-                                    })?
-                            } else {
-                                chunk.nbytes()
-                            };
+                        // Count the input as uncompressed until its compressed output is counted.
+                        let input_reservation = chunk
+                            .as_ref()
+                            .ok()
+                            .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
 
-                        let compressed =
-                            compressor.compress_stream_chunk(&chunk, &chunk_reuse, &mut ctx)?;
-                        let compressed_size = compressed.nbytes();
-                        size_scope.record(uncompressed_size, compressed_size);
+                        handle.spawn_cpu(move || {
+                            let (sequence_id, chunk) = chunk?;
+                            let mut ctx = session.create_execution_ctx();
+                            // Compute the stats for the chunk prior to compression. The exact
+                            // uncompressed size is measured once here and cached for the compressor.
+                            chunk.statistics().compute_all(&stats, &mut ctx)?;
+                            let uncompressed_size =
+                                if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
+                                    u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
+                                        .map_err(|e| {
+                                            vortex_err!("chunk size does not fit in u64: {e}")
+                                        })?
+                                } else {
+                                    chunk.nbytes()
+                                };
 
-                        let output_reservation = buffered_bytes.reserve(compressed_size);
-                        drop(input_reservation);
-                        Ok::<_, VortexError>((
-                            sequence_id,
-                            compressed,
-                            chunk_reuse,
-                            output_reservation,
-                        ))
-                    }));
-                }
+                            let compressed =
+                                compressor.compress_stream_chunk(&chunk, &chunk_reuse, &mut ctx)?;
+                            let compressed_size = compressed.nbytes();
+                            size_scope.record(uncompressed_size, compressed_size);
 
-                for task in tasks {
-                    let (sequence_id, compressed, chunk_reuse, output_reservation) = task.await?;
-                    reuse.commit(chunk_reuse);
+                            let output_reservation = buffered_bytes.reserve(compressed_size);
+                            drop(input_reservation);
+                            Ok::<_, VortexError>((
+                                sequence_id,
+                                compressed,
+                                chunk_reuse,
+                                output_reservation,
+                            ))
+                        })
+                    })
+                    .buffered(concurrency);
+
+                while let Some(result) = wave.next().await {
+                    let (sequence_id, compressed, chunk_reuse, output_reservation) = result?;
+                    yielded += 1;
+                    wave_commits.push(chunk_reuse);
                     // The child counts the chunk when it takes it, so release the compressed
                     // bytes before yielding across the suspend point.
                     drop(output_reservation);
                     yield (sequence_id, compressed);
+                }
+
+                for chunk_reuse in wave_commits {
+                    reuse.commit(chunk_reuse);
+                }
+
+                if yielded < wave_limit {
+                    break;
                 }
             }
         };
