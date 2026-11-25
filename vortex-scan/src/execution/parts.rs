@@ -24,20 +24,41 @@ pub(crate) fn scan_parts(scan: &PreparedScan) -> Vec<Range<u64>> {
     scan_chunks(scan.rows().clone(), scan.chunk_rows)
 }
 
-/// `parts` cut into at least `n` pieces where they have the rows for it, each a whole number of
-/// [`ROW_BLOCK_SIZE`] blocks except at the edges of a part. Parts already at least `n` are
-/// returned as they are.
+/// `parts` cut into at least `n` pieces where they have the blocks for it. Each part gets its
+/// share of the `n` pieces by rows, and is cut into that many runs of whole [`ROW_BLOCK_SIZE`]
+/// blocks, as even as the blocks allow, the last run taking any partial block. Parts already at
+/// least `n` are returned as they are.
 pub(crate) fn cut_parts(parts: Vec<Range<u64>>, n: usize) -> Vec<Range<u64>> {
     if parts.len() >= n {
         return parts;
     }
-    let rows: u64 = parts.iter().map(|part| part.end - part.start).sum();
-    let block = ROW_BLOCK_SIZE as u64;
-    let target = rows.div_ceil(n as u64).div_ceil(block).max(1) * block;
-    let target = usize::try_from(target).unwrap_or(usize::MAX);
+    let rows: u128 = parts
+        .iter()
+        .map(|part| u128::from(part.end - part.start))
+        .sum();
     parts
         .into_iter()
-        .flat_map(|part| scan_chunks(part, target))
+        .flat_map(|part| {
+            let share = (u128::from(part.end - part.start) * n as u128).div_ceil(rows.max(1));
+            cut_part(part, u64::try_from(share).unwrap_or(u64::MAX))
+        })
+        .collect()
+}
+
+/// `part` cut into `pieces` runs of whole blocks from its start, as even as its blocks allow.
+fn cut_part(part: Range<u64>, pieces: u64) -> Vec<Range<u64>> {
+    let block = ROW_BLOCK_SIZE as u64;
+    let blocks = (part.end - part.start).div_ceil(block);
+    let pieces = pieces.clamp(1, blocks.max(1));
+    let (per, extra) = (blocks / pieces, blocks % pieces);
+    let mut start = part.start;
+    (0..pieces)
+        .map(|piece| {
+            let end = (start + (per + u64::from(piece < extra)) * block).min(part.end);
+            let range = start..end;
+            start = end;
+            range
+        })
         .collect()
 }
 
@@ -80,7 +101,14 @@ mod tests {
     #[rstest]
     #[case::enough_parts(vec![0..B, B..2 * B], 2, vec![0..B, B..2 * B])]
     #[case::one_part_in_blocks(vec![0..4 * B], 4, vec![0..B, B..2 * B, 2 * B..3 * B, 3 * B..4 * B])]
-    #[case::rounds_up_to_blocks(vec![0..4 * B], 3, vec![0..2 * B, 2 * B..4 * B])]
+    #[case::uneven_blocks(vec![0..4 * B], 3, vec![0..2 * B, 2 * B..3 * B, 3 * B..4 * B])]
+    #[case::sixteen_blocks_for_eighteen(vec![0..16 * B], 18, (0..16).map(|i| i * B..(i + 1) * B).collect())]
+    #[case::fewer_parts_than_pieces(
+        vec![0..16 * B, 16 * B..32 * B, 32 * B..48 * B],
+        4,
+        vec![0..8 * B, 8 * B..16 * B, 16 * B..24 * B, 24 * B..32 * B, 32 * B..40 * B, 40 * B..48 * B]
+    )]
+    #[case::partial_last_block(vec![0..2 * B + 5], 2, vec![0..2 * B, 2 * B..2 * B + 5])]
     #[case::too_few_rows(vec![0..B / 2], 4, vec![0..B / 2])]
     #[case::per_part(vec![0..2 * B, 2 * B..3 * B], 3, vec![0..B, B..2 * B, 2 * B..3 * B])]
     fn cuts_parts_on_blocks(

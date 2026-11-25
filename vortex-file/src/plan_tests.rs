@@ -219,7 +219,8 @@ async fn split_pieces_read_every_row_once(
         })
         .await?;
     let pieces = scan.split(NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN))?;
-    assert!(pieces.len() > 1 && pieces.len() <= n);
+    // The file has the blocks for every piece, so a host gets one per thread it asked for.
+    assert_eq!(pieces.len(), n);
     let mut workers = Vec::new();
     for piece in pieces {
         workers.extend(read_stream(piece.open()?, 2).await?);
