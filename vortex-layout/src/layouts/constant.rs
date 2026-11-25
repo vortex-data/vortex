@@ -92,9 +92,6 @@ impl LayoutStrategy for ConstantStrategy {
                 .await;
         }
 
-        // Record constant chunks as zero bytes so the compression ratio includes them.
-        let size_scope = ctx.size_scope().child();
-
         let mut exec_ctx = session.create_execution_ctx();
         let mut run: Option<ConstantRun> = None;
         let mut mismatch = None;
@@ -119,7 +116,7 @@ impl LayoutStrategy for ConstantStrategy {
 
             match run.as_mut() {
                 None => {
-                    size_scope.record(chunk.nbytes(), 0);
+                    ctx.size_scope().record_constant(chunk.nbytes());
                     run = Some(ConstantRun {
                         sequence_id,
                         scalar,
@@ -127,7 +124,7 @@ impl LayoutStrategy for ConstantStrategy {
                     });
                 }
                 Some(current) if current.scalar == scalar => {
-                    size_scope.record(chunk.nbytes(), 0);
+                    ctx.size_scope().record_constant(chunk.nbytes());
                     // Replacing the sequence ID drops the earlier one.
                     current.sequence_id = sequence_id;
                     current.len += chunk.len();
