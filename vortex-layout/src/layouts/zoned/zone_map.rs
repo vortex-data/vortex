@@ -633,8 +633,8 @@ mod tests {
         )
         .unwrap();
 
-        let cast_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let expr = not_eq(cast(root(), cast_dtype), lit(5i32));
+        let cast_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let expr = not_eq(cast(root(), cast_dtype), lit(5.0f64));
         let pruning_expr = falsify(&expr, PType::F32.into());
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();

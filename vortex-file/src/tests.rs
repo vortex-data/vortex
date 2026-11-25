@@ -4256,3 +4256,77 @@ mod writer_terminal_error_tests {
         Ok(())
     }
 }
+
+#[tokio::test]
+async fn test_narrowing_cast_filter_over_row_subset() -> VortexResult<()> {
+    let n = 64u64;
+    let ints: Vec<i64> = (0..n as i64)
+        .map(|i| if i < 32 { i } else { 5_000_000_000 + i })
+        .collect();
+    let floats: Vec<f64> = (0..n)
+        .map(|i| if i < 32 { i as f64 } else { f64::INFINITY })
+        .collect();
+    let nullable_ints: Vec<Option<i64>> = (0..n as i64).map(|i| (i < 32).then_some(i)).collect();
+    let table = StructArray::from_fields(&[
+        ("idx", PrimitiveArray::from_iter(0..n).into_array()),
+        ("a", PrimitiveArray::from_iter(ints).into_array()),
+        ("f", PrimitiveArray::from_iter(floats).into_array()),
+        (
+            "opt",
+            PrimitiveArray::from_option_iter(nullable_ints).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let i32_dtype = DType::Primitive(I32, Nullability::NonNullable);
+    let i64_non_null = DType::Primitive(PType::I64, Nullability::NonNullable);
+    let int_filter = eq(cast(col("a"), i32_dtype.clone()), lit(5i32));
+    let float_filter = eq(cast(col("f"), i32_dtype), lit(5i32));
+    let non_null_filter = eq(cast(col("opt"), i64_non_null), lit(5i64));
+
+    for with_file_stats in [true, false] {
+        let mut buf = ByteBufferMut::empty();
+        let mut options = SESSION.write_options();
+        if !with_file_stats {
+            options = options.with_file_statistics(Vec::new());
+        }
+        options
+            .with_strategy(
+                crate::WriteStrategyBuilder::from_session(&SESSION)
+                    .with_row_block_size(16)
+                    .with_data_block_target_bytes(None)
+                    .build(),
+            )
+            .write(&mut buf, table.to_array_stream())
+            .await?;
+        let file = SESSION.open_options().open_buffer(buf)?;
+        let projection = col("idx").bind(file.dtype())?.optimize_recursive()?;
+
+        for filter in [&int_filter, &float_filter, &non_null_filter] {
+            let bound = filter.bind(file.dtype())?.optimize_recursive()?;
+            let result = file
+                .scan()?
+                .with_filter(bound.clone())
+                .with_projection(projection.clone())
+                .with_row_range(0..32)
+                .into_array_stream()?
+                .read_all()
+                .await?
+                .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+            assert_eq!(result.as_slice::<u64>(), &[5]);
+
+            let indices = StrictSortedBuffer::try_new(Buffer::from_iter([3u64, 5, 9]))?;
+            let by_indices = file
+                .scan()?
+                .with_filter(bound)
+                .with_projection(projection.clone())
+                .with_row_indices(indices)
+                .into_array_stream()?
+                .read_all()
+                .await?
+                .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+            assert_eq!(by_indices.as_slice::<u64>(), &[5]);
+        }
+    }
+    Ok(())
+}
