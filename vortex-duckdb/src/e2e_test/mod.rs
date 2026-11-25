@@ -11,6 +11,8 @@ use std::ffi::CStr;
 use std::fs;
 #[cfg(test)]
 use std::fs::OpenOptions;
+#[cfg(test)]
+use std::path::PathBuf;
 
 #[cfg(test)]
 use parking_lot::Mutex;
@@ -27,13 +29,18 @@ mod vortex_scan_test;
 ///
 /// DuckDB's `INSTALL spatial` writes directly into the extension directory without cross-process
 /// locking, so concurrent `nextest` processes (or threads under `cargo test`) race when they all
-/// install into `~/.duckdb/extensions`. Directing connections to a shared versioned directory
-/// guarded by both an in-process mutex and an OS file lock avoids the race while letting already
-/// staged runs `LOAD spatial` in parallel.
+/// install into `~/.duckdb/extensions`. First try `LOAD spatial` against DuckDB's default
+/// extension directory so pre-installed environments avoid redundant downloads; otherwise stage
+/// into a user-scoped versioned directory guarded by an in-process mutex and an OS file lock.
 #[cfg(test)]
 pub(crate) fn load_spatial(conn: &crate::duckdb::Connection) {
     static PROCESS_LOCK: Mutex<()> = Mutex::new(());
 
+    if conn.query("LOAD spatial;").is_ok() {
+        return;
+    }
+
+    // SAFETY: `duckdb_library_version` returns a static NUL-terminated version string.
     let version: String = unsafe { CStr::from_ptr(crate::duckdb_library_version()) }
         .to_string_lossy()
         .chars()
@@ -46,7 +53,15 @@ pub(crate) fn load_spatial(conn: &crate::duckdb::Connection) {
         })
         .collect();
 
-    let ext_dir = std::env::temp_dir().join(format!("vortex-duckdb-extensions-{version}"));
+    let cache_base = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|home| {
+            PathBuf::from(home)
+                .join(".duckdb")
+                .join("vortex-test-extensions")
+        })
+        .unwrap_or_else(std::env::temp_dir);
+    let ext_dir = cache_base.join(format!("vortex-duckdb-extensions-{version}"));
     fs::create_dir_all(&ext_dir).expect("create DuckDB extension cache directory");
 
     let sql_dir = ext_dir

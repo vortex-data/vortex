@@ -436,6 +436,23 @@ fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
     Ok(values)
 }
 
+/// Runs `f` with `SCAN_V2` set to `enabled`, serialized against other tests toggling the global
+/// switch and always restoring `false` on drop.
+fn with_scan_v2<T>(enabled: bool, f: impl FnOnce() -> T) -> T {
+    static SCAN_V2_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+    struct ResetOnDrop;
+    impl Drop for ResetOnDrop {
+        fn drop(&mut self) {
+            crate::set_scan_v2(false);
+        }
+    }
+
+    let _lock = SCAN_V2_LOCK.lock();
+    crate::set_scan_v2(enabled);
+    let _reset = ResetOnDrop;
+    f()
+}
+
 #[rstest]
 #[case::filtered_count("SELECT count(*) FROM ? WHERE b < 100")]
 #[case::filtered_max("SELECT max(a) FROM ? WHERE b BETWEEN 300 AND 310")]
@@ -461,13 +478,10 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     ));
     let path = file.path().to_string_lossy();
 
-    crate::set_scan_v2(false);
-    let v1 = query_i64_column(&path, query)?;
-    crate::set_scan_v2(true);
-    let v2 = query_i64_column(&path, query);
-    crate::set_scan_v2(false);
+    let v1 = with_scan_v2(false, || query_i64_column(&path, query))?;
+    let v2 = with_scan_v2(true, || query_i64_column(&path, query))?;
 
-    assert_eq!(v2?, v1);
+    assert_eq!(v2, v1);
     Ok(())
 }
 
@@ -478,6 +492,8 @@ fn explain_plan(conn: &Connection, query: &str) -> Result<String> {
     for mut chunk in explain {
         let len: usize = chunk.len().as_();
         let vec = chunk.get_vector_mut(1);
+        // SAFETY: Column 1 of `EXPLAIN` is a VARCHAR vector with `len` initialized `duckdb_string_t`
+        // entries valid for the lifetime of `chunk`.
         for value in unsafe { vec.as_slice_mut::<duckdb_string_t>(len) } {
             plan.push_str(&String::from_duckdb_value(value));
         }
@@ -523,16 +539,20 @@ fn test_hash_join_dynamic_table_filter_v1_and_v2() -> Result<()> {
          ORDER BY f.id"
     );
 
+    let conn = database_connection();
+    let plan = explain_plan(&conn, &query)?;
+    assert!(
+        plan.contains("Filters:") && plan.contains("$.id"),
+        "expected pushed-down join filter on id in Read Vortex plan:\n{plan}"
+    );
+
     let expected = vec![30_001i64, 60_002, 120_004];
 
-    crate::set_scan_v2(false);
-    let v1 = query_i64_column(&fact, &query)?;
+    let v1 = with_scan_v2(false, || query_i64_column(&fact, &query))?;
     assert_eq!(v1, expected);
 
-    crate::set_scan_v2(true);
-    let v2 = query_i64_column(&fact, &query);
-    crate::set_scan_v2(false);
-    assert_eq!(v2?, expected);
+    let v2 = with_scan_v2(true, || query_i64_column(&fact, &query))?;
+    assert_eq!(v2, expected);
     Ok(())
 }
 
@@ -572,12 +592,41 @@ fn test_top_n_late_materialization_file_row_number() -> Result<()> {
         "expected late materialization over file_row_number:\n{plan}"
     );
 
-    let mut ks = Vec::new();
-    for chunk in conn.query(&query)? {
+    let mut actual = Vec::new();
+    for mut chunk in conn.query(&query)? {
         let len: usize = chunk.len().as_();
-        ks.extend_from_slice(chunk.get_vector(0).as_slice_with_len::<i64>(len));
+        let ks = chunk.get_vector(0).as_slice_with_len::<i64>(len).to_vec();
+        let read_strings = |col: usize, chunk: &mut crate::duckdb::DataChunk| -> Vec<String> {
+            let vec = chunk.get_vector_mut(col);
+            // SAFETY: Columns 1..=4 are VARCHAR vectors with `len` initialized `duckdb_string_t`
+            // entries valid for the lifetime of `chunk`.
+            unsafe { vec.as_slice_mut::<duckdb_string_t>(len) }
+                .iter_mut()
+                .map(String::from_duckdb_value)
+                .collect()
+        };
+        let p1 = read_strings(1, &mut chunk);
+        let p2 = read_strings(2, &mut chunk);
+        let p3 = read_strings(3, &mut chunk);
+        let p4 = read_strings(4, &mut chunk);
+        for idx in 0..len {
+            actual.push((
+                ks[idx],
+                p1[idx].clone(),
+                p2[idx].clone(),
+                p3[idx].clone(),
+                p4[idx].clone(),
+            ));
+        }
     }
-    assert_eq!(ks, vec![0, 1, 2, 3, 4]);
+    let expected: Vec<_> = (0..5i64)
+        .map(|k| {
+            let i = (0..rows).find(|&i| (i * 7919) % rows == k).unwrap();
+            let p = format!("payload_{i:06}_padding_data");
+            (k, p.clone(), p.clone(), p.clone(), p)
+        })
+        .collect();
+    assert_eq!(actual, expected);
     Ok(())
 }
 

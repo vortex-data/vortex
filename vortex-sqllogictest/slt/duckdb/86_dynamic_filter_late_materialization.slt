@@ -53,16 +53,24 @@ LIMIT 4;
 <REGEX>:file_row_number
 
 # Multi-file Top-N late materialization uses both file_index and file_row_number.
-query IIT
-SELECT id, sort_key, p1
+query TT
+EXPLAIN (FORMAT json) SELECT id, sort_key, p1, p2, p3, p4
 FROM '${WORK_DIR}/fact_*.vortex'
 ORDER BY sort_key ASC, id ASC
 LIMIT 4;
 ----
-0 0 payload_1_000000000000
-10000 0 payload_1_000000010000
-7679 1 payload_1_000000007679
-17679 1 payload_1_000000017679
+<REGEX>:(?s)(file_index.*file_row_number|file_row_number.*file_index)
+
+query IITTTT
+SELECT id, sort_key, p1, p2, p3, p4
+FROM '${WORK_DIR}/fact_*.vortex'
+ORDER BY sort_key ASC, id ASC
+LIMIT 4;
+----
+0 0 payload_1_000000000000 payload_2_000000000000 payload_3_000000000000 payload_4_000000000000
+10000 0 payload_1_000000010000 payload_2_000000010000 payload_3_000000010000 payload_4_000000010000
+7679 1 payload_1_000000007679 payload_2_000000007679 payload_3_000000007679 payload_4_000000007679
+17679 1 payload_1_000000017679 payload_2_000000017679 payload_3_000000017679 payload_4_000000017679
 
 # Multi-file hash join combined with struct field and IN filters.
 query IIT

@@ -99,6 +99,8 @@ impl TableFilterRef {
                     children: if out.children_count == 0 {
                         &[]
                     } else {
+                        // SAFETY: `children_count > 0`, so DuckDB populated `out.children` with a
+                        // valid pointer to `out.children_count` child handles owned by `self`.
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) }
                     },
                 })
@@ -116,6 +118,8 @@ impl TableFilterRef {
                     children: if out.children_count == 0 {
                         &[]
                     } else {
+                        // SAFETY: `children_count > 0`, so DuckDB populated `out.children` with a
+                        // valid pointer to `out.children_count` child handles owned by `self`.
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) }
                     },
                 })
@@ -291,6 +295,7 @@ impl DynamicFilterDataRef {
     }
 }
 
+/// cbindgen:ignore
 #[cfg(all(test, table_filter_test_support))]
 pub(crate) mod test_support {
     use std::ffi::CString;
@@ -375,6 +380,8 @@ pub(crate) mod test_support {
 
     impl TestDynamicFilterData {
         pub(crate) fn set_value(&self, value: &Value) {
+            // SAFETY: `self.0` is an owned handle allocated by the C++ test helper and `value`
+            // is a valid DuckDB value pointer cloned by `DynamicFilterData::SetValue`.
             unsafe {
                 duckdb_vx_test_dynamic_filter_data_set_value(self.0, value.as_ptr());
             }
@@ -384,6 +391,8 @@ pub(crate) mod test_support {
     impl Drop for TestDynamicFilterData {
         fn drop(&mut self) {
             if !self.0.is_null() {
+                // SAFETY: `self.0` was allocated by `duckdb_vx_test_table_filter_create_*dynamic`
+                // and has not been freed yet; destroy nulls it out.
                 unsafe { duckdb_vx_test_dynamic_filter_data_destroy(&raw mut self.0) };
             }
         }
@@ -394,6 +403,7 @@ pub(crate) mod test_support {
 
     impl OwnedTableFilter {
         pub(crate) fn as_ref(&self) -> &TableFilterRef {
+            // SAFETY: `self.0` is a live owned `TableFilter` pointer valid for `&self`.
             unsafe { TableFilter::borrow(self.0) }
         }
 
@@ -404,19 +414,24 @@ pub(crate) mod test_support {
         }
 
         pub(crate) fn constant(op: DUCKDB_VX_EXPR_TYPE, value: &Value) -> Self {
+            // SAFETY: `value.as_ptr()` is a valid DuckDB value; C++ copies it and returns an owned filter.
             Self(unsafe { duckdb_vx_test_table_filter_create_constant(op, value.as_ptr()) })
         }
 
         pub(crate) fn is_null() -> Self {
+            // SAFETY: Returns a freshly allocated owned `TableFilter`.
             Self(unsafe { duckdb_vx_test_table_filter_create_is_null() })
         }
 
         pub(crate) fn is_not_null() -> Self {
+            // SAFETY: Returns a freshly allocated owned `TableFilter`.
             Self(unsafe { duckdb_vx_test_table_filter_create_is_not_null() })
         }
 
         pub(crate) fn conjunction_and(children: Vec<Self>) -> Self {
             let mut raw: Vec<_> = children.into_iter().map(Self::into_raw).collect();
+            // SAFETY: `raw` holds `raw.len()` valid owned child pointers whose ownership transfers
+            // to the returned conjunction filter.
             Self(unsafe {
                 duckdb_vx_test_table_filter_create_conjunction_and(raw.as_mut_ptr(), raw.len())
             })
@@ -424,6 +439,8 @@ pub(crate) mod test_support {
 
         pub(crate) fn conjunction_or(children: Vec<Self>) -> Self {
             let mut raw: Vec<_> = children.into_iter().map(Self::into_raw).collect();
+            // SAFETY: `raw` holds `raw.len()` valid owned child pointers whose ownership transfers
+            // to the returned conjunction filter.
             Self(unsafe {
                 duckdb_vx_test_table_filter_create_conjunction_or(raw.as_mut_ptr(), raw.len())
             })
@@ -433,6 +450,8 @@ pub(crate) mod test_support {
             let name = CString::new(child_name)
                 .ok()
                 .vortex_expect("valid C string");
+            // SAFETY: `name` is NUL-terminated for the call and `child.into_raw()` transfers
+            // ownership of the child filter to the returned struct filter.
             Self(unsafe {
                 duckdb_vx_test_table_filter_create_struct_extract(
                     child_idx,
@@ -443,11 +462,13 @@ pub(crate) mod test_support {
         }
 
         pub(crate) fn optional(child: Self) -> Self {
+            // SAFETY: `child.into_raw()` transfers ownership of the child filter to the returned optional filter.
             Self(unsafe { duckdb_vx_test_table_filter_create_optional(child.into_raw()) })
         }
 
         pub(crate) fn in_filter(values: &[Value]) -> Self {
             let mut ptrs: Vec<_> = values.iter().map(|v| v.as_ptr()).collect();
+            // SAFETY: `ptrs` holds `ptrs.len()` valid DuckDB value pointers cloned by the C++ helper.
             Self(unsafe { duckdb_vx_test_table_filter_create_in(ptrs.as_mut_ptr(), ptrs.len()) })
         }
 
@@ -456,6 +477,7 @@ pub(crate) mod test_support {
             initial: &Value,
         ) -> (Self, TestDynamicFilterData) {
             let mut data: TestDynamicFilterDataPtr = ptr::null_mut();
+            // SAFETY: `initial.as_ptr()` is valid and `&raw mut data` receives an owned handle.
             let filter = Self(unsafe {
                 duckdb_vx_test_table_filter_create_dynamic(op, initial.as_ptr(), &raw mut data)
             });
@@ -463,6 +485,7 @@ pub(crate) mod test_support {
         }
 
         pub(crate) fn bloom() -> Self {
+            // SAFETY: Returns a freshly allocated owned `TableFilter`.
             Self(unsafe { duckdb_vx_test_table_filter_create_bloom() })
         }
 
@@ -471,6 +494,7 @@ pub(crate) mod test_support {
             value: &Value,
             wrap_optional: bool,
         ) -> Self {
+            // SAFETY: `value.as_ptr()` is a valid DuckDB value cloned by the C++ helper.
             Self(unsafe {
                 duckdb_vx_test_table_filter_create_expr_comparison(
                     op,
@@ -486,6 +510,7 @@ pub(crate) mod test_support {
             wrap_optional: bool,
         ) -> Self {
             let mut ptrs: Vec<_> = values.iter().map(|v| v.as_ptr()).collect();
+            // SAFETY: `col_type` and `ptrs[..ptrs.len()]` are valid DuckDB handles borrowed for the call.
             Self(unsafe {
                 duckdb_vx_test_table_filter_create_expr_in(
                     col_type.as_ptr(),
@@ -502,6 +527,7 @@ pub(crate) mod test_support {
             wrap_optional: bool,
         ) -> (Self, TestDynamicFilterData) {
             let mut data: TestDynamicFilterDataPtr = ptr::null_mut();
+            // SAFETY: `initial.as_ptr()` is valid and `&raw mut data` receives an owned handle.
             let filter = Self(unsafe {
                 duckdb_vx_test_table_filter_create_expr_dynamic(
                     op,
@@ -514,6 +540,7 @@ pub(crate) mod test_support {
         }
 
         pub(crate) fn expr_unsupported() -> Self {
+            // SAFETY: Returns a freshly allocated owned `TableFilter`.
             Self(unsafe { duckdb_vx_test_table_filter_create_expr_unsupported() })
         }
     }
@@ -521,6 +548,8 @@ pub(crate) mod test_support {
     impl Drop for OwnedTableFilter {
         fn drop(&mut self) {
             if !self.0.is_null() {
+                // SAFETY: `self.0` is still owned by `self` (not transferred via `into_raw`) and
+                // was allocated by a C++ test helper; destroy frees and nulls it.
                 unsafe { duckdb_vx_test_table_filter_destroy(&raw mut self.0) };
             }
         }
