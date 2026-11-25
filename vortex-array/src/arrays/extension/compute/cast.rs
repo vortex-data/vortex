@@ -11,7 +11,7 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastReduce;
 
 impl CastReduce for Extension {
     fn cast(array: ArrayView<'_, Extension>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -60,11 +60,11 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::executor::VortexSessionExecute;
-    use crate::expr::cast;
-    use crate::expr::root;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::builtin::cast::Cast;
     use crate::test_harness::ExpectedOutcome;
     use crate::test_harness::assert_execution_paths;
     use crate::validity::Validity;
@@ -113,9 +113,17 @@ mod tests {
         buffer![1_000i64, 2_000].into_array(),
         timestamp_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
     )]
-    #[case::different_unit(
+    #[case::coarser_unit(
+        create_timestamp_array(TimeUnit::Nanoseconds, false).into_array(),
+        timestamp_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
+    )]
+    #[case::different_zone(
         create_timestamp_array(TimeUnit::Milliseconds, false).into_array(),
-        timestamp_dtype(TimeUnit::Nanoseconds, Nullability::NonNullable),
+        DType::Extension(Timestamp::new_with_tz(
+            TimeUnit::Milliseconds,
+            Some("+01:00".into()),
+            Nullability::NonNullable,
+        ).erased()),
     )]
     #[case::nullable_to_storage(
         create_timestamp_array(TimeUnit::Milliseconds, true).into_array(),
@@ -132,6 +140,10 @@ mod tests {
     #[case::nested_in_struct(
         in_struct(create_timestamp_array(TimeUnit::Milliseconds, false).into_array()),
         struct_dtype(DType::Primitive(PType::I64, Nullability::NonNullable)),
+    )]
+    #[case::nested_rescale(
+        in_struct(create_timestamp_array(TimeUnit::Milliseconds, false).into_array()),
+        struct_dtype(timestamp_dtype(TimeUnit::Nanoseconds, Nullability::NonNullable)),
     )]
     #[case::nested_in_list(
         in_list(create_timestamp_array(TimeUnit::Milliseconds, false).into_array()),
@@ -160,7 +172,11 @@ mod tests {
         list_dtype(DType::Primitive(PType::I64, Nullability::NonNullable), Nullability::NonNullable),
     )]
     fn cast_never_reinterprets_storage(#[case] input: ArrayRef, #[case] target: DType) {
-        assert!(cast(root(), target.clone()).bind(input.dtype()).is_err());
+        assert!(
+            Cast.bind(target.clone())
+                .return_dtype(std::slice::from_ref(input.dtype()))
+                .is_err()
+        );
         assert!(input.cast(target.clone()).is_err());
 
         assert_execution_paths(

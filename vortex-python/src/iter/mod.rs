@@ -5,6 +5,8 @@ mod python;
 
 use std::iter;
 use std::sync::Arc;
+use std::thread;
+use std::thread::ThreadId;
 
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchIterator;
@@ -13,9 +15,11 @@ use arrow_array::cast::AsArray;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
 use parking_lot::Mutex;
+use parking_lot::MutexGuard;
 use pyo3::Bound;
 use pyo3::PyResult;
 use pyo3::Python;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use vortex::array::ArrayRef;
@@ -26,7 +30,6 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
-use vortex::error::VortexResult;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 
@@ -50,9 +53,21 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+struct IterGuard<'a> {
+    owner: &'a Mutex<Option<ThreadId>>,
+    guard: MutexGuard<'a, Option<Box<dyn ArrayIterator + Send>>>,
+}
+
+impl Drop for IterGuard<'_> {
+    fn drop(&mut self) {
+        *self.owner.lock() = None;
+    }
+}
+
 #[pyclass(name = "ArrayIterator", module = "vortex", frozen)]
 pub struct PyArrayIterator {
     iter: Mutex<Option<Box<dyn ArrayIterator + Send>>>,
+    owner: Mutex<Option<ThreadId>>,
     dtype: DType,
 }
 
@@ -61,6 +76,7 @@ impl PyArrayIterator {
         let dtype = iter.dtype().clone();
         Self {
             iter: Mutex::new(Some(iter)),
+            owner: Mutex::new(None),
             dtype,
         }
     }
@@ -69,14 +85,29 @@ impl PyArrayIterator {
         &self.dtype
     }
 
-    pub fn take(&self) -> Option<Box<dyn ArrayIterator + Send>> {
-        self.iter.lock().take()
+    fn lock_iter(&self) -> PyResult<IterGuard<'_>> {
+        let current = thread::current().id();
+        if *self.owner.lock() == Some(current) {
+            return Err(PyRuntimeError::new_err(
+                "ArrayIterator is already being advanced",
+            ));
+        }
+        let guard = self.iter.lock();
+        *self.owner.lock() = Some(current);
+        Ok(IterGuard {
+            owner: &self.owner,
+            guard,
+        })
+    }
+
+    pub fn take(&self) -> PyResult<Option<Box<dyn ArrayIterator + Send>>> {
+        Ok(self.lock_iter()?.guard.take())
     }
 
     /// Read the chunks that are left into one array; this does the IO, so call it detached.
-    fn read_remaining(&self) -> VortexResult<ArrayRef> {
-        if let Some(iter) = self.take() {
-            iter.read_all()
+    fn read_remaining(&self) -> PyVortexResult<ArrayRef> {
+        if let Some(iter) = self.take()? {
+            Ok(iter.read_all()?)
         } else {
             // Otherwise, we continue to return an empty array.
             Ok(Canonical::empty(&self.dtype).into_array())
@@ -101,9 +132,9 @@ impl PyArrayIterator {
     /// Returns the next chunk from the iterator.
     fn __next__(&self, py: Python) -> PyVortexResult<Option<PyArrayRef>> {
         py.detach(|| {
-            Ok(self
-                .iter
-                .lock()
+            let mut guard = self.lock_iter()?;
+            Ok(guard
+                .guard
                 .as_mut()
                 .and_then(|iter| iter.next())
                 .transpose()?
@@ -144,9 +175,9 @@ impl PyArrayIterator {
     ) -> PyVortexResult<Bound<'py, PyAny>> {
         let target_field = arrow_target_field(arrow_type, &self.dtype)?;
 
-        let export = py.detach(|| {
+        let export = py.detach(|| -> PyVortexResult<_> {
             let array = self.read_remaining()?;
-            ArrowExport::execute(array, target_field, combine_chunks)
+            Ok(ArrowExport::execute(array, target_field, combine_chunks)?)
         })?;
 
         Ok(export.into_pyarrow(py)?)
@@ -160,9 +191,10 @@ impl PyArrayIterator {
         let schema = Arc::new(session().arrow().to_arrow_schema(slf.get().dtype())?);
         let target = Field::new_struct("", schema.fields().clone(), false);
 
-        let iter = slf.get().take().unwrap_or_else(|| {
+        let py_iter = slf.get();
+        let iter = slf.py().detach(|| py_iter.take())?.unwrap_or_else(|| {
             Box::new(ArrayIteratorAdapter::new(
-                slf.get().dtype().clone(),
+                py_iter.dtype().clone(),
                 iter::empty(),
             ))
         });

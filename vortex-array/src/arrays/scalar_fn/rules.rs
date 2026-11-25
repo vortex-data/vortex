@@ -22,7 +22,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::pack::Pack;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFn> =
@@ -167,16 +167,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::cast;
-    use crate::expr::is_not_null;
-    use crate::expr::is_null;
-    use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
-    use crate::scalar::Scalar;
+    use crate::scalar::NumericOperator;
     use crate::scalar_fn::TypedScalarFnInstance;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::list_contains::PreparedSet;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::numeric::Numeric;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -199,7 +193,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let array = ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(Binary, Operator::Add).erased(),
+            TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased(),
             children,
         )?;
         let mask = Mask::from_iter((0..100).map(|index| index % 20 == 0));
@@ -230,40 +224,13 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_pushdown_without_children() -> VortexResult<()> {
-        let list = Scalar::list(
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            vec![Scalar::from(7i32)],
-            Nullability::NonNullable,
-        );
-        let array = PreparedSet::try_new_array(list.clone(), 3)?;
-        let parent = FilterArray::try_new(array.clone(), Mask::from_iter([true, false, true]))?;
-
-        let result = ScalarFilterPushdownRule
-            .reduce_parent(array.as_::<ScalarFn>(), parent.as_view(), 0)?
-            .ok_or_else(|| vortex_err!("expected filter pushdown"))?;
-
-        assert_eq!(result.as_::<ScalarFn>().nchildren(), 0);
-        assert_eq!(result.len(), 2);
-        assert_arrays_eq!(
-            result,
-            ConstantArray::new(list, 2),
-            &mut SESSION.create_execution_ctx()
-        );
-        Ok(())
-    }
-
-    #[test]
     fn test_empty_constants() {
         let array = ChunkedArray::try_new(
             vec![
                 ConstantArray::new(Some(1u64), 0).into_array(),
                 PrimitiveArray::from_iter(vec![2u64])
                     .into_array()
-                    .apply(&cast(
-                        root(),
-                        DType::Primitive(PType::U64, Nullability::Nullable),
-                    ))
+                    .cast(DType::Primitive(PType::U64, Nullability::Nullable))
                     .vortex_expect("casted"),
             ],
             DType::Primitive(PType::U64, Nullability::Nullable),
@@ -271,36 +238,25 @@ mod tests {
         .vortex_expect("construction")
         .into_array();
 
-        let expr = is_null(root());
-        let result = array.apply(&expr).vortex_expect("expr evaluation");
+        let result = array.is_not_null().vortex_expect("is_not_null");
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([false]),
+            BoolArray::from_iter([true]),
             &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
-    fn test_reduce_isnull() -> VortexResult<()> {
+    fn test_reduce_is_not_null() -> VortexResult<()> {
         let ctx = &mut SESSION.create_execution_ctx();
         let validity = BoolArray::from_iter([true, false, true]).into_array();
 
-        assert_arrays_eq!(
-            validity.clone().apply(&is_null(root()))?,
-            ConstantArray::new(false, 3),
-            ctx
-        );
-        assert_arrays_eq!(
-            validity.clone().apply(&is_not_null(root()))?,
-            ConstantArray::new(true, 3),
-            ctx
-        );
+        assert_arrays_eq!(validity.is_not_null()?, ConstantArray::new(true, 3), ctx);
 
         let buffer = buffer![1, 2, 3];
         let nullable = PrimitiveArray::new(buffer, Validity::Array(validity.clone())).into_array();
 
-        assert_arrays_eq!(nullable.clone().apply(&is_not_null(root()))?, validity, ctx);
-        assert_arrays_eq!(nullable.apply(&is_null(root()))?, validity.not()?, ctx);
+        assert_arrays_eq!(nullable.is_not_null()?, validity, ctx);
 
         Ok(())
     }

@@ -600,6 +600,7 @@ pub struct Scan {
     root: Option<Root>,
     splits: Vec<Split>,
     next: usize,
+    max_active: usize,
     active: Vec<Option<Active>>,
     live: usize,
     outputs: VecDeque<(usize, ArrayRef)>,
@@ -644,6 +645,7 @@ impl Scan {
             root: Some(root),
             splits,
             next: 0,
+            max_active: 1,
             active: vec![None],
             live: 0,
             outputs: VecDeque::new(),
@@ -667,10 +669,18 @@ impl Scan {
     }
 
     /// Runs up to `max_active` splits at once.
+    ///
+    /// Changing this after execution has started preserves live slots and queued dirty
+    /// notifications: shrinking lets already-active splits finish before admitting new ones
+    /// below the new limit, and growing appends free slots without moving active ones.
     pub fn with_max_active(mut self, max_active: usize) -> Self {
-        self.active.resize_with(max_active.max(1), || None);
-        self.core.dirty_flags = vec![false; self.active.len()];
-        self.core.dirty = Vec::with_capacity(self.active.len());
+        let max_active = max_active.max(1);
+        self.max_active = max_active;
+        // Never truncate: live slots index into `active` and `dirty_flags`.
+        if max_active > self.active.len() {
+            self.active.resize_with(max_active, || None);
+            self.core.dirty_flags.resize(max_active, false);
+        }
         self
     }
 
@@ -701,7 +711,7 @@ impl Scan {
                 self.advance(slot)?;
                 continue;
             }
-            if self.live < self.active.len() && self.next < self.splits.len() {
+            if self.live < self.max_active && self.next < self.splits.len() {
                 self.activate()?;
                 continue;
             }

@@ -1,0 +1,321 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod kernel;
+mod temporal;
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+
+pub use kernel::*;
+use prost::Message;
+pub(crate) use temporal::TemporalCast;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+
+use crate::AnyColumnar;
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::Canonical;
+use crate::CanonicalView;
+use crate::ColumnarView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Bool;
+use crate::arrays::Constant;
+use crate::arrays::Decimal;
+use crate::arrays::Extension;
+use crate::arrays::FixedSizeList;
+use crate::arrays::ListView;
+use crate::arrays::Map;
+use crate::arrays::Null;
+use crate::arrays::Primitive;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::VarBinView;
+use crate::arrays::struct_::compute::cast::struct_cast;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::StructFields;
+use crate::proto::expr as pb;
+use crate::scalar_fn::Arity;
+use crate::scalar_fn::ChildName;
+use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::display::ExprDisplay;
+use crate::scalar_fn::is_not_null_node;
+
+/// Checks that a cast involving an extension dtype changes only its top-level nullability or
+/// creates typed nulls of a nullable dtype from an untyped [`DType::Null`].
+///
+/// The rule also holds for every extension dtype nested in a struct, list, fixed-size list, or
+/// map, which the cast pairs up the same way as its kernels do. Otherwise a cast could
+/// reinterpret a nested extension that the top-level dtypes do not show.
+///
+/// Callers first allow the exact temporal conversions that [`TemporalCast::classify`] selects,
+/// and only at the top level. A container can hand its cast kernel child values that no row
+/// references, and a fallible conversion would fail on them.
+///
+/// Use `vortex_functions::expr::ext_storage` to extract an extension array's storage.
+pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResult<()> {
+    if source.is_extension() || target.is_extension() {
+        if !source.eq_ignore_nullability(target)
+            && !(*source == DType::Null && target.is_nullable())
+        {
+            match extension_cast_hint(source, target) {
+                Some(hint) => vortex_bail!("Cannot cast {source} to {target}. {hint}"),
+                None => vortex_bail!("Cannot cast {source} to {target}."),
+            }
+        }
+        return Ok(());
+    }
+
+    match (source, target) {
+        (
+            DType::List(source, _) | DType::FixedSizeList(source, ..),
+            DType::List(target, _) | DType::FixedSizeList(target, ..),
+        ) => check_extension_cast(source, target),
+        (DType::Map(source, _), DType::Map(target, _)) => {
+            check_extension_cast(&source.key_dtype(), &target.key_dtype())?;
+            check_extension_cast(&source.value_dtype(), &target.value_dtype())
+        }
+        (DType::Struct(source, _), DType::Struct(target, _)) => {
+            check_struct_extension_cast(source, target)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Name the function that performs a rejected extension cast, if one exists.
+fn extension_cast_hint(source: &DType, target: &DType) -> Option<&'static str> {
+    // `ext_storage` reads the storage of an extension value. It cannot build one from a plain or
+    // null source.
+    if source.is_extension() && !target.is_extension() {
+        return Some("Use ext_storage to access raw extension values.");
+    }
+    temporal::temporal_cast_hint(source, target)
+}
+
+/// [`check_extension_cast`] for each pair of fields that
+/// [`struct_cast_fields`](crate::arrays::struct_::compute::cast::struct_cast_fields) casts. A
+/// target field that the source lacks becomes nulls, so it reinterprets nothing.
+fn check_struct_extension_cast(source: &StructFields, target: &StructFields) -> VortexResult<()> {
+    if source.names() == target.names() {
+        for (source, target) in source.fields().zip(target.fields()) {
+            check_extension_cast(&source, &target)?;
+        }
+        return Ok(());
+    }
+
+    for (name, target) in target.names().iter().zip(target.fields()) {
+        if let Some(source) = source.field(name) {
+            check_extension_cast(&source, &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// A cast expression that converts values to a target data type.
+#[derive(Clone)]
+pub struct Cast;
+
+impl Cast {
+    /// Creates a lazy cast of `input` to `target_dtype`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the source and target violate the extension cast rule.
+    pub fn try_new(input: ArrayRef, target_dtype: DType) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Cast.bind(target_dtype), [input])
+    }
+}
+
+impl ScalarFnVTable for Cast {
+    type Options = DType;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.cast");
+        *ID
+    }
+
+    fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            pb::CastOpts {
+                target: Some(dtype.try_into()?),
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let proto = pb::CastOpts::decode(_metadata)?.target;
+        DType::from_proto(
+            proto
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?,
+            session,
+        )
+    }
+
+    fn arity(&self, _options: &DType) -> Arity {
+        Arity::Exact(1)
+    }
+
+    fn child_name(&self, _instance: &DType, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            _ => unreachable!("Invalid child index {} for Cast expression", child_idx),
+        }
+    }
+
+    fn fmt_sql(
+        &self,
+        dtype: &DType,
+        expr: &dyn ExprDisplay,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(f, "cast(")?;
+        Display::fmt(expr.display_child(0), f)?;
+        write!(f, " as {}", dtype)?;
+        write!(f, ")")
+    }
+
+    fn return_dtype(&self, dtype: &DType, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let source = &arg_dtypes[0];
+        if TemporalCast::classify(source, dtype).is_none() {
+            check_extension_cast(source, dtype)?;
+        }
+        Ok(dtype.clone())
+    }
+
+    fn execute(
+        &self,
+        target_dtype: &DType,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let input = args.get(0)?;
+        if let Some(cast) = TemporalCast::classify(input.dtype(), target_dtype) {
+            return cast.cast_array(input, target_dtype, ctx);
+        }
+
+        let Some(columnar) = input.as_opt::<AnyColumnar>() else {
+            return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
+        };
+
+        match columnar {
+            ColumnarView::Canonical(canonical) => {
+                match cast_canonical(canonical, target_dtype, ctx)? {
+                    Some(result) => Ok(result),
+                    None => vortex_bail!(
+                        "No CastKernel to cast canonical array {} from {} to {}",
+                        canonical.to_array_ref().encoding_id(),
+                        canonical.to_array_ref().dtype(),
+                        target_dtype,
+                    ),
+                }
+            }
+            ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
+                Some(result) => Ok(result),
+                // Some array conversions have no scalar cast.
+                None => input
+                    .execute::<Canonical>(ctx)?
+                    .into_array()
+                    .cast(target_dtype.clone()),
+            },
+        }
+    }
+
+    fn reduce<T: ReduceNode>(&self, target_dtype: &DType, node: &T) -> VortexResult<Option<T>> {
+        let child = node.child(0);
+        if &child.node_dtype()? == target_dtype {
+            return Ok(Some(child));
+        }
+        Ok(None)
+    }
+
+    fn simplify<T: ReduceNode>(&self, target_dtype: &DType, node: &T) -> VortexResult<Option<T>> {
+        let child = node.child(0);
+        if let Some(scalar) = child.as_constant() {
+            // A failing cast (e.g. null to a non-nullable dtype) is left in place so the error
+            // surfaces at execution time rather than during optimization.
+            return Ok(scalar
+                .cast(target_dtype)
+                .ok()
+                .map(|scalar| node.new_constant(scalar)));
+        }
+        // Collapse node if child is already the target type
+        if &child.node_dtype()? == target_dtype {
+            return Ok(Some(child));
+        }
+        Ok(None)
+    }
+
+    fn validity<T: ReduceNode>(
+        &self,
+        dtype: &DType,
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(if dtype.is_nullable() {
+            is_not_null_node(&node.child(0))?
+        } else {
+            node.new_constant(true.into())
+        }))
+    }
+
+    fn is_strict(&self, _instance: &DType) -> bool {
+        // Cast options can pin a non-nullable output dtype instead of propagating nullability.
+        false
+    }
+}
+
+/// Cast a canonical array to the target dtype by dispatching to the appropriate
+/// [`CastKernel`] for each canonical encoding.
+///
+/// Canonical encodings that can manipulate validity directly all implement [`CastKernel`] —
+/// the kernel is the execution-time complement of their [`CastReduce`] rule and can compute
+/// statistics (e.g. min of the validity array) when the reduce rule had to give up.
+/// Encodings that delegate to scalars or storage (e.g. [`Null`], [`Constant`], [`Extension`])
+/// only implement [`CastReduce`] because they never need execution-level information.
+fn cast_canonical(
+    canonical: CanonicalView<'_>,
+    dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    match canonical {
+        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
+        CanonicalView::Bool(a) => <Bool as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Map(a) => <Map as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
+        CanonicalView::Union(_) => {
+            vortex_bail!(
+                "TODO(connor)[Union]: implement Union casting with conformance coverage for \
+                 outer nullability changes, including validation of nullable-to-nonnullable casts"
+            )
+        }
+        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
+        CanonicalView::Variant(_) => {
+            vortex_bail!("Variant arrays don't support casting")
+        }
+    }
+}
+
+/// Cast a constant array by dispatching to its [`CastReduce`] implementation.
+fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    <Constant as CastReduce>::cast(array, dtype)
+}

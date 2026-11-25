@@ -45,6 +45,7 @@ mod scan;
 mod serde;
 mod session;
 mod store;
+mod writable;
 
 #[cfg(unix)]
 use vortex::io::runtime::BlockingRuntime;
@@ -171,10 +172,6 @@ pub(crate) fn current_runtime() -> CurrentThreadRuntime {
 }
 
 /// Runs `f` with the worker pool that drives [`current_runtime`]'s executor in the background.
-///
-/// The pool is deliberately not handed out by value: `CurrentThreadWorkerPool` shares its state
-/// between clones but shuts every worker down on `Drop`, so dropping a temporary clone would stop
-/// the whole pool.
 pub(crate) fn with_pool<T>(f: impl FnOnce(&CurrentThreadWorkerPool) -> T) -> T {
     f(&runtime_state().pool)
 }

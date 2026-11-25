@@ -51,6 +51,16 @@ def test_vortex_datasource_count_and_schema_follow_the_scan(ray_init, tmpdir_fac
     assert ds.schema().names == ["index"]
 
 
+@pytest.mark.parametrize(("limit", "expected"), [(1, [[10]]), (0, [])])
+def test_vortex_datasource_per_task_row_limit(tmp_path: Path, limit: int, expected: list[list[int]]) -> None:
+    path = tmp_path / "three.vortex"
+    vx.io.write(pa.table({"v": [10, 11, 12]}), str(path))
+    source = VortexDatasource(url=str(path), batch_size=2)
+
+    task = source.get_read_tasks(1, per_task_row_limit=limit)[0]
+    assert [list(block["v"]) for block in task()] == expected
+
+
 def test_partition() -> None:
     assert partition(1, []) == [[]]
     assert partition(1, [1]) == [[1]]

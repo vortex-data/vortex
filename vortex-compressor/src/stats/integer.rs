@@ -11,12 +11,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProvider;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -274,8 +274,10 @@ pub struct IntegerStats {
     null_count: u32,
     /// Cache for `validity.true_count()`.
     value_count: u32,
-    /// The average run length.
+    /// The average run length, truncated: `value_count / run_count`.
     average_run_length: u32,
+    /// The number of runs of equal consecutive valid values.
+    run_count: u32,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -329,9 +331,16 @@ impl IntegerStats {
         self.value_count
     }
 
-    /// Returns the average run length.
+    /// Returns the average run length, truncated to an integer.
     pub fn average_run_length(&self) -> u32 {
         self.average_run_length
+    }
+
+    /// Returns the number of runs of equal consecutive valid values.
+    ///
+    /// Zero only when there are no valid values.
+    pub fn run_count(&self) -> u32 {
+        self.run_count
     }
 
     /// Returns the type-erased typed statistics.
@@ -358,6 +367,7 @@ where
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
+            run_count: 0,
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
@@ -372,6 +382,7 @@ where
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
+            run_count: 0,
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
@@ -442,6 +453,7 @@ where
         null_count,
         value_count,
         average_run_length: value_count / runs,
+        run_count: runs,
         erased: TypedStats { min, max, distinct }.into(),
     })
 }
@@ -518,7 +530,7 @@ where
 }
 
 /// Counts occurrences of valid values.
-trait Counter<T> {
+pub(super) trait Counter<T> {
     /// Whether this counts at all. The pass skips all counting work otherwise.
     const COUNTS: bool = true;
 
@@ -527,7 +539,7 @@ trait Counter<T> {
 }
 
 /// Counts nothing.
-struct NoCounter;
+pub(super) struct NoCounter;
 
 impl<T> Counter<T> for NoCounter {
     const COUNTS: bool = false;
@@ -574,13 +586,13 @@ const CHUNK_U32: u32 = 64;
 
 /// The result of a [`scan`]. Statistics it did not compute keep their initial values: `T::MAX`
 /// for `min`, `T::MIN` for `max` and 1 for `runs`.
-struct Scan<T> {
+pub(super) struct Scan<T> {
     /// The smallest valid value.
     min: T,
     /// The largest valid value.
     max: T,
     /// The number of runs of equal consecutive valid values.
-    runs: u32,
+    pub(super) runs: u32,
 }
 
 /// The state of a [`scan`], kept in locals so that it stays in registers: the counter is reached
@@ -605,7 +617,7 @@ struct ScanState<T> {
 ///
 /// Not inlined: in the caller, which covers every integer type, the vectorizer gives up on the
 /// lanes.
-fn scan<T, C, const MIN_MAX: bool, const RUNS: bool>(
+pub(super) fn scan<T, C, const MIN_MAX: bool, const RUNS: bool>(
     values: &[T],
     validity: &Mask,
     counter: &mut C,
@@ -1096,6 +1108,7 @@ mod tests {
         assert_eq!(stats.value_count, 2);
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
+        assert_eq!(stats.run_count(), 2);
         assert_eq!(stats.distinct_count().unwrap(), 2);
     }
 
@@ -1153,6 +1166,7 @@ mod tests {
         let value_count: u32 = expected.values().sum();
         assert_eq!(stats.value_count, value_count);
         if value_count > 0 {
+            assert_eq!(stats.run_count(), runs);
             assert_eq!(stats.average_run_length, value_count / runs);
         }
         Ok(())
@@ -1237,6 +1251,7 @@ mod tests {
                         valid_values.len() as u32 / runs,
                         "{case:?}"
                     );
+                    assert_eq!(stats.run_count(), runs, "{case:?}");
                     let actual: Option<HashMap<$T, u32>> = typed
                         .distinct()
                         .map(|d| d.distinct_values().iter().map(|(k, &c)| (k.0, c)).collect());

@@ -14,15 +14,15 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::FoR;
 use crate::FoRReferences;
@@ -109,9 +109,9 @@ fn compare_unsigned_encoded<T: IntegerPType + Into<PValue>>(
     nullability: Nullability,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
-    lhs.encoded().binary(
+    lhs.encoded().compare(
         ConstantArray::new(Scalar::primitive(distance, nullability), lhs.len()).into_array(),
-        Operator::from(operator),
+        operator,
     )
 }
 
@@ -465,10 +465,7 @@ mod tests {
             for operator in ALL_OPERATORS {
                 let actual = <FoR as CompareKernel>::compare(array.as_view(), &rhs, operator, ctx)?
                     .unwrap_or_else(|| panic!("FoR compare must engage for {operator:?}"));
-                let expected = values
-                    .clone()
-                    .into_array()
-                    .binary(rhs.clone(), Operator::from(operator))?;
+                let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
                 assert_arrays_eq!(actual, expected, ctx);
             }
         }

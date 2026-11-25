@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES (1), (2), (3), (4), (NULL)) t(number)) TO '${WORK_DIR}/members.vortex';
+----
+5
+
+statement ok
+CREATE VIEW members AS SELECT * FROM '${WORK_DIR}/members.vortex';
+
+query I
+SELECT count(*) FROM members WHERE number IN (1, 3);
+----
+2
+
+query TT
+EXPLAIN (FORMAT json) SELECT count(*) FROM members WHERE number IN (1, 3);
+----
+<!REGEX>:FILTER
+
+query I
+SELECT count(*) FROM members WHERE number NOT IN (1, 3);
+----
+2
+
+query TT
+EXPLAIN (FORMAT json) SELECT count(*) FROM members WHERE number NOT IN (1, 3);
+----
+<!REGEX>:FILTER

@@ -7,8 +7,10 @@
 //! generic selection algorithm are tested in their owning crates.
 
 use std::iter;
+use std::sync::Arc;
 
 use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
@@ -56,11 +58,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
+use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
+use crate::ChildDecision;
+use crate::ChildPolicy;
+use crate::ChildRequest;
 use crate::SESSION;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
@@ -455,5 +461,124 @@ fn test_varbin_validity_is_compressed() -> VortexResult<()> {
 
     assert!(compressed.is::<VarBin>(), "{}", compressed.encoding_id());
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// Sparse stores each null as a patch, so a quarter of nulls among mostly-zero values must not
+/// pick it. This is the shape of a genotype column: most samples are homozygous reference (0),
+/// about a fifth have no call (null), and a few carry an alternate allele.
+#[test]
+fn test_sparse_counts_nulls_as_patches() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(0);
+    let len = 131_072;
+    let input = PrimitiveArray::from_option_iter((0..len).map(|_| {
+        let draw = rng.next_u32() % 400;
+        if draw < 100 {
+            None
+        } else if draw < 103 {
+            Some(1u8)
+        } else {
+            Some(0u8)
+        }
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    // A raw validity bitmap is len / 8 bytes; the values cost little beyond it.
+    assert!(
+        compressed.nbytes() < len / 8 + len / 16,
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+/// Unique text cut at random offsets from a pool of prose, like the comment columns of TPC-H.
+fn unique_prose(rows: usize, seed: u64) -> ArrayRef {
+    const SYLLABLES: &[&str] = &[
+        "ac", "count", "pack", "age", "re", "quest", "de", "pos", "it", "in", "struct", "ion",
+        "the", "od", "ol", "ite", "pin", "to", "bean", "fox", "id", "ea", "pend", "enc", "ex",
+        "cuse", "plate", "let", "asym", "ptote", "court", "dol", "phin", "mul", "ti", "pli", "er",
+        "saut", "erne", "wart", "hog", "fret", "din", "os", "at", "tain", "mint", "sum", "as",
+        "braid", "hock", "ey", "play", "fur", "ious", "ly", "care", "fill", "quick", "sly",
+    ];
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let words: Vec<String> = (0..300)
+        .map(|_| {
+            (0..rng.random_range(1..4))
+                .map(|_| SYLLABLES[rng.random_range(0..SYLLABLES.len())])
+                .collect()
+        })
+        .collect();
+
+    let mut pool = String::new();
+    while pool.len() < 1 << 20 {
+        pool.push_str(&words[rng.random_range(0..words.len())]);
+        pool.push(' ');
+    }
+
+    let values = (0..rows).map(|_| {
+        let len = rng.random_range(19..79);
+        let start = rng.random_range(0..pool.len() - len);
+        &pool[start..start + len]
+    });
+    VarBinViewArray::from_iter_str(values).into_array()
+}
+
+/// The sampled estimates used to flip between FSST and OnPair from chunk to chunk on unique text,
+/// although OnPair is clearly smaller on every one of them at full size.
+#[test]
+fn test_unique_text_selects_onpair_on_every_chunk() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+
+    for seed in 0..8 {
+        let compressed = assert_roundtrip(&compressor, &unique_prose(16_384, seed))?;
+        assert!(
+            compressed.is::<OnPair>(),
+            "chunk {seed} compressed to {}",
+            compressed.encoding_id()
+        );
+    }
+
+    Ok(())
+}
+
+/// Keeps every child a scheme registers.
+#[derive(Debug)]
+struct KeepEverything;
+
+impl ChildPolicy for KeepEverything {
+    fn decide(&self, _request: &ChildRequest<'_>) -> ChildDecision {
+        ChildDecision::Keep
+    }
+}
+
+#[rstest]
+#[case::schemes_decide(false)]
+#[case::policy_keeps(true)]
+fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..1_000_000).map(|i| i / 100)).into_array();
+    let mut builder = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&BITPACKING_V1);
+    if keep {
+        builder = builder.with_child_policy(Arc::new(KeepEverything));
+    }
+    let compressed = assert_roundtrip(&builder.build(), &input)?;
+
+    assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
+    let children_canonical = compressed
+        .slots()
+        .iter()
+        .flatten()
+        .all(ArrayRef::is_canonical);
+    assert_eq!(children_canonical, keep);
     Ok(())
 }

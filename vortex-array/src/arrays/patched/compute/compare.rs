@@ -23,8 +23,8 @@ use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Patched {
     fn compare(
@@ -47,9 +47,9 @@ impl CompareKernel for Patched {
         //  We slice the inner before performing the comparison.
         let result = lhs
             .inner()
-            .binary(
+            .compare(
                 ConstantArray::new(constant.clone(), lhs.len()).into_array(),
-                operator.into(),
+                operator,
             )?
             .execute::<Canonical>(ctx)?
             .into_bool();
@@ -176,8 +176,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
-    use crate::scalar_fn::fns::binary::CompareKernel;
-    use crate::scalar_fn::fns::operators::CompareOperator;
+    use crate::scalar_fn::builtin::compare::CompareKernel;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

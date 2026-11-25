@@ -1,0 +1,461 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Small utility JNI entry points for listing, deleting, and reading the user-defined
+//! metadata and column statistics of Vortex files.
+
+use std::sync::Arc;
+
+use futures::StreamExt;
+use jni::EnvUnowned;
+use jni::objects::JByteArray;
+use jni::objects::JClass;
+use jni::objects::JMap;
+use jni::objects::JObject;
+use jni::objects::JObjectArray;
+use jni::objects::JString;
+use jni::sys::jlong;
+use jni::sys::jlongArray;
+use jni::sys::jobject;
+use vortex::buffer::ByteBuffer;
+use vortex::dtype::FieldMask;
+use vortex::dtype::FieldPath;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::file::VortexFile;
+use vortex::file::multi::open_cached;
+use vortex::file::multi::parse_uri_or_path;
+use vortex::io::VortexReadAt;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
+use vortex::utils::aliases::hash_map::HashMap;
+
+use crate::RUNTIME;
+use crate::errors::try_or_throw;
+use crate::io::java_readable;
+use crate::io::read_coalesce_config;
+use crate::object_store::object_store_fs;
+use crate::session::session_ref;
+use crate::statistics::ColumnStatistics;
+use crate::statistics::column_statistics_to_java;
+use crate::statistics::source_column_statistics;
+
+/// Extract a Java `Map<String, String>` into a Rust [`HashMap`].
+pub(crate) fn extract_properties(
+    env: &mut jni::Env,
+    options: &JObject,
+) -> Result<HashMap<String, String>, crate::errors::JNIError> {
+    let mut properties = HashMap::new();
+    if !options.is_null() {
+        let options_ref = env.new_local_ref(options)?;
+        let opts = env.cast_local::<JMap>(options_ref)?;
+        let mut iterator = opts.iter(env)?;
+        while let Some(entry) = iterator.next(env)? {
+            let key_obj = entry.key(env)?;
+            let val_obj = entry.value(env)?;
+            let key_str = env.cast_local::<JString>(key_obj)?;
+            let val_str = env.cast_local::<JString>(val_obj)?;
+            properties.insert(key_str.try_to_string(env)?, val_str.try_to_string(env)?);
+        }
+    }
+    Ok(properties)
+}
+
+/// Extract a Java `Map<String, byte[]>` of user-defined metadata segments.
+///
+/// Values are opaque bytes, so they are copied out of the Java arrays rather than
+/// interpreted. A null map yields an empty set of segments.
+pub(crate) fn extract_metadata(
+    env: &mut jni::Env,
+    metadata: &JObject,
+) -> Result<HashMap<String, ByteBuffer>, crate::errors::JNIError> {
+    let mut segments = HashMap::new();
+    if metadata.is_null() {
+        return Ok(segments);
+    }
+
+    let metadata_ref = env.new_local_ref(metadata)?;
+    let map = env.cast_local::<JMap>(metadata_ref)?;
+    let mut iterator = map.iter(env)?;
+    while let Some(entry) = iterator.next(env)? {
+        let key_obj = entry.key(env)?;
+        let val_obj = entry.value(env)?;
+        let key_str = env.cast_local::<JString>(key_obj)?;
+        let key = key_str.try_to_string(env)?;
+        if val_obj.is_null() {
+            return Err(vortex_err!("null metadata value for key '{key}'").into());
+        }
+        let bytes = env.cast_local::<JByteArray>(val_obj)?;
+        segments.insert(key, ByteBuffer::from(env.convert_byte_array(&bytes)?));
+        // Each entry costs three local refs, so release them as we go rather than relying on
+        // the frame's guaranteed capacity.
+        env.delete_local_ref(bytes);
+        env.delete_local_ref(key_str);
+        env.delete_local_ref(entry);
+    }
+
+    Ok(segments)
+}
+
+/// Build a `java.util.HashMap<String, byte[]>` from user-defined metadata segments.
+fn metadata_to_java(
+    env: &mut jni::Env,
+    segments: Vec<(String, ByteBuffer)>,
+) -> Result<jobject, crate::errors::JNIError> {
+    let map = env.new_object(
+        jni::jni_str!("java/util/HashMap"),
+        jni::jni_sig!("()V"),
+        &[],
+    )?;
+    let raw = map.as_raw();
+    let map = env.cast_local::<JMap>(map)?;
+    for (key, value) in segments {
+        let key = env.new_string(key)?;
+        let value = env.byte_array_from_slice(value.as_slice())?;
+        // A file may hold several segments and each entry costs two local refs, so release
+        // them as we go rather than relying on the frame's guaranteed capacity.
+        if let Some(previous) = map.put(env, key.as_ref(), value.as_ref())? {
+            env.delete_local_ref(previous);
+        }
+        env.delete_local_ref(value);
+        env.delete_local_ref(key);
+    }
+
+    Ok(raw)
+}
+
+/// Open a Vortex file through the session footer cache.
+///
+/// `cache_key` identifies the file in the session footer cache. All entry points name the file
+/// the same way the scan path does — the object-store path, or the `NativeReadable`'s name — so a
+/// metadata or statistics read and a later scan of the same file share one footer read.
+fn open_file(
+    session: &VortexSession,
+    source: Arc<dyn VortexReadAt>,
+    cache_key: &str,
+    file_size: Option<u64>,
+    include_metadata: bool,
+) -> VortexResult<VortexFile> {
+    RUNTIME.block_on(open_cached(
+        session,
+        Some(cache_key),
+        source,
+        file_size,
+        &|options| options.with_include_metadata(include_metadata),
+    ))
+}
+
+/// Collect the user-defined metadata segments of an opened Vortex file.
+fn metadata_segments(file: &VortexFile) -> Vec<(String, ByteBuffer)> {
+    file.metadata_segments()
+        .map(|(key, value)| (key.to_string(), value.clone()))
+        .collect()
+}
+
+/// Open the Vortex file at `uri` through a native storage client.
+///
+/// The cache key is the object-store path, as on the scan path.
+fn open_uri_file(
+    env: &mut jni::Env,
+    session: &VortexSession,
+    uri: &JString,
+    options: &JObject,
+    include_metadata: bool,
+) -> Result<VortexFile, crate::errors::JNIError> {
+    let uri: String = uri.try_to_string(env)?;
+    let url = parse_uri_or_path(&uri)?;
+    let properties = extract_properties(env, options)?;
+
+    let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
+    let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
+
+    Ok(open_file(session, source, &path, None, include_metadata)?)
+}
+
+/// Open a Vortex file through a caller-provided `dev.vortex.io.NativeReadable`, so no native
+/// storage client is created.
+///
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
+/// keys the file in the session footer cache, as it does for the scan path.
+fn open_readable_file(
+    env: &mut jni::Env,
+    session: &VortexSession,
+    readable: &JObject,
+    name: &JString,
+    length: jlong,
+    include_metadata: bool,
+) -> Result<VortexFile, crate::errors::JNIError> {
+    if readable.is_null() {
+        throw_runtime!("null readable");
+    }
+    let name: String = name.try_to_string(env)?;
+    if name.is_empty() {
+        throw_runtime!("readable name must not be empty");
+    }
+    let length =
+        u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
+
+    let vm = env.get_java_vm()?;
+    let coalesce_config = read_coalesce_config(env, readable)?;
+    let readable = Arc::new(env.new_global_ref(readable)?);
+    let source = java_readable(vm, readable, length, coalesce_config, session.handle());
+
+    // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
+    // that same normalized form, so normalize here too — otherwise a read through this function
+    // and a scan of the same readable would land on two different cache entries.
+    let cache_key = name.trim_start_matches('/');
+    Ok(open_file(
+        session,
+        source,
+        cache_key,
+        Some(length),
+        include_metadata,
+    )?)
+}
+
+/// Read the user-defined metadata segments of the Vortex file at `uri`.
+///
+/// Returns a `java.util.HashMap<String, byte[]>`, empty when the file carries no metadata.
+/// Metadata lives in its own segments, so this may issue a read beyond the file tail.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    uri: JString,
+    options: JObject,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_uri_file(env, session, &uri, &options, true)?;
+        metadata_to_java(env, metadata_segments(&file))
+    })
+}
+
+/// Read the user-defined metadata segments of a Vortex file through a caller-provided
+/// `dev.vortex.io.NativeReadable`, so no native storage client is created.
+///
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
+/// keys the file in the session footer cache, as it does for the scan path.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readable: JObject,
+    name: JString,
+    length: jlong,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_readable_file(env, session, &readable, &name, length, true)?;
+        metadata_to_java(env, metadata_segments(&file))
+    })
+}
+
+/// Read the statistics of each top-level column of an opened Vortex file through its data
+/// source, so stored aggregate partials come before the legacy statistics.
+fn read_column_statistics(file: &VortexFile) -> VortexResult<Vec<ColumnStatistics>> {
+    let source = file.data_source()?;
+    RUNTIME.block_on(source_column_statistics(source.as_ref(), file.footer()))
+}
+
+/// Read the per-column statistics of the Vortex file at `uri`.
+///
+/// Returns a `dev.vortex.api.VortexColumnStatistics[]` in schema order. The statistics come
+/// from the file footer, so no column data is read.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatistics(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    uri: JString,
+    options: JObject,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_uri_file(env, session, &uri, &options, false)?;
+        let statistics = read_column_statistics(&file)?;
+        Ok(column_statistics_to_java(env, file.footer(), statistics)?.into_raw())
+    })
+}
+
+/// Read the per-column statistics of a Vortex file through a caller-provided
+/// `dev.vortex.io.NativeReadable`, so no native storage client is created.
+///
+/// See [`Java_dev_vortex_jni_NativeFiles_readStatistics`] for the return value.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatisticsFromReadable(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readable: JObject,
+    name: JString,
+    length: jlong,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_readable_file(env, session, &readable, &name, length, false)?;
+        let statistics = read_column_statistics(&file)?;
+        Ok(column_statistics_to_java(env, file.footer(), statistics)?.into_raw())
+    })
+}
+
+/// The natural row splits of a Vortex file read through a `dev.vortex.io.NativeReadable`, as their
+/// boundaries: split `i` holds rows `[boundaries[i], boundaries[i + 1])`.
+///
+/// The splits use the default split policy, following the file's chunk boundaries and subdividing
+/// large chunks. `name` keys the file in the session footer cache, as it does for the scan path.
+///
+/// `columns` names the top-level columns that the scan reads, and the splits then follow the chunks
+/// of those columns only. A null `columns`, or one that names no column of the file, uses every
+/// column.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readable: JObject,
+    name: JString,
+    length: jlong,
+    columns: JObjectArray,
+) -> jlongArray {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_readable_file(env, session, &readable, &name, length, false)?;
+
+        let field_mask = scanned_fields(env, &columns, &file)?;
+        let splits = file.splits_for(&field_mask)?;
+
+        let mut boundaries = Vec::with_capacity(splits.len() + 1);
+        boundaries.push(splits.first().map_or(0, |split| split.start));
+        boundaries.extend(splits.iter().map(|split| split.end));
+        let boundaries = boundaries
+            .into_iter()
+            .map(|boundary| jlong::try_from(boundary).map_err(Into::into))
+            .collect::<VortexResult<Vec<jlong>>>()?;
+
+        let array = env.new_long_array(boundaries.len())?;
+        array.set_region(env, 0, &boundaries)?;
+        Ok(array.into_raw())
+    })
+}
+
+/// The field mask of the top-level `columns` that `file` holds, or of every field when there are
+/// none.
+fn scanned_fields(
+    env: &mut jni::Env,
+    columns: &JObjectArray,
+    file: &VortexFile,
+) -> Result<Vec<FieldMask>, crate::errors::JNIError> {
+    let mut field_mask = Vec::new();
+
+    if !columns.is_null()
+        && let Some(fields) = file.dtype().as_struct_fields_opt()
+    {
+        for index in 0..columns.len(env)? {
+            let element = columns.get_element(env, index)?;
+            let column = env.cast_local::<JString>(element)?;
+            let column = column.try_to_string(env)?;
+            if fields.find(&column).is_some() {
+                field_mask.push(FieldMask::Prefix(FieldPath::from_name(column)));
+            }
+        }
+    }
+
+    if field_mask.is_empty() {
+        field_mask.push(FieldMask::All);
+    }
+
+    Ok(field_mask)
+}
+
+/// List Vortex files under the given URI prefix. Returns a `java.util.ArrayList<String>`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_listFiles(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    path: JString,
+    options: JObject,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let root_path: String = path.try_to_string(env)?;
+        let url = parse_uri_or_path(&root_path)?;
+
+        let properties = extract_properties(env, &options)?;
+
+        let (fs, prefix) = object_store_fs(&url, &properties, session.handle())?;
+
+        let mut stream = fs.list(&prefix);
+
+        let paths_vec = RUNTIME.block_on(async move {
+            let mut paths = Vec::new();
+            while let Some(file) = stream.next().await {
+                let mut found = url.clone();
+                found.set_path(&file?.path);
+                paths.push(found.to_string());
+            }
+
+            VortexResult::Ok(paths)
+        })?;
+
+        let paths_result = env.new_object(
+            jni::jni_str!("java/util/ArrayList"),
+            jni::jni_sig!("()V"),
+            &[],
+        )?;
+        let raw = paths_result.as_raw();
+        let paths_list = env.cast_local::<jni::objects::JList>(paths_result)?;
+        for path in paths_vec.into_iter() {
+            let path_string = env.new_string(path)?;
+            paths_list.add(env, path_string.as_ref())?;
+        }
+
+        Ok(raw)
+    })
+}
+
+/// Delete Vortex files at the given URIs.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_delete(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    uris: JObjectArray,
+    options: JObject,
+) {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let mut delete_uris = Vec::new();
+
+        let num_uris = uris.len(env)?;
+        for idx in 0..num_uris {
+            let uri = uris.get_element(env, idx)?;
+            let uri_str = env.cast_local::<JString>(uri)?;
+            delete_uris.push(uri_str.try_to_string(env)?);
+        }
+
+        if delete_uris.is_empty() {
+            return Ok(());
+        }
+
+        let store_url = parse_uri_or_path(&delete_uris[0])?;
+
+        let properties = extract_properties(env, &options)?;
+
+        let (fs, _path) = object_store_fs(&store_url, &properties, session.handle())?;
+
+        RUNTIME.block_on(async {
+            for uri in delete_uris {
+                let url = parse_uri_or_path(&uri)?;
+                fs.delete(url.path()).await?;
+            }
+            VortexResult::Ok(())
+        })?;
+
+        Ok(())
+    });
+}

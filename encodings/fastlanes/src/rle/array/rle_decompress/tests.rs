@@ -55,7 +55,7 @@ fn test_decode_rejects_out_of_bounds_index() -> VortexResult<()> {
         0,
         FL_CHUNK_SIZE,
     )?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -72,7 +72,7 @@ fn test_decode_rejects_index_into_next_chunk() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter(indices).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -84,7 +84,7 @@ fn test_decode_rejects_non_monotonic_offsets() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -97,7 +97,7 @@ fn test_decode_rejects_offsets_beyond_values() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -110,7 +110,7 @@ fn test_decode_rejects_empty_chunk() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -133,7 +133,7 @@ fn test_decode_rejects_out_of_bounds_index_at_valid_position() -> VortexResult<(
     .into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -157,7 +157,7 @@ fn test_decode_tolerates_garbage_index_at_null_position() -> VortexResult<()> {
     .into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
-    let decoded = rle_decompress(&rle, &mut ctx)?;
+    let decoded = rle_decompress(rle, &mut ctx)?;
     let expected = PrimitiveArray::from_option_iter(
         (0..FL_CHUNK_SIZE).map(|i| (i != 100).then_some(if i % 2 == 0 { 10u32 } else { 20 })),
     );
@@ -174,7 +174,7 @@ fn test_decode_in_bounds_indices_roundtrip() -> VortexResult<()> {
         .into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
-    let decoded = rle_decompress(&rle, &mut ctx)?;
+    let decoded = rle_decompress(rle, &mut ctx)?;
     let expected =
         PrimitiveArray::from_iter([10u32, 20].iter().cycle().take(FL_CHUNK_SIZE).copied());
     assert_arrays_eq!(decoded, expected, &mut ctx);
@@ -327,4 +327,37 @@ fn max_lane_index_is_exact(#[case] base: u8, #[case] bits: u8, #[case] expected:
     deltas[77] = bits;
     assert_eq!(max_lane_index(&bases, Some(&deltas)), expected);
     assert_eq!(max_lane_index(&bases, None), usize::from(base));
+}
+
+/// The compressor may store `values` and `values_idx_offsets` in any encoding, such as FastLanes
+/// Delta, which execution turns into primitive arrays before decoding.
+#[test]
+fn test_decode_delta_encoded_offsets_and_values() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let len = 4 * FL_CHUNK_SIZE + 300;
+    let expected = PrimitiveArray::from_iter((0..len).map(|i| (i / 5) as i64));
+    let rle = RLE::encode(expected.as_view(), &mut ctx)?;
+
+    let values = rle.values().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let delta_values = Delta::try_from_primitive_array(&values, &mut ctx)?.into_array();
+
+    let offsets = rle
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let delta_offsets = Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array();
+
+    let encoded = RLE::try_new(
+        delta_values,
+        rle.indices().clone(),
+        delta_offsets,
+        rle.offset(),
+        rle.len(),
+    )?;
+
+    assert_arrays_eq!(encoded, expected, &mut ctx);
+
+    let sliced = encoded.into_array().slice(500..2500)?;
+    assert_arrays_eq!(sliced, expected.slice(500..2500)?, &mut ctx);
+    Ok(())
 }

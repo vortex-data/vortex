@@ -302,16 +302,34 @@ fn sample_rows(array: &ArrayRef) -> ArrayRef {
     sample(array, SAMPLE_SIZE, sample_count)
 }
 
+/// Returns the compressed size of a sample once the `fixed` bytes of its `total` are charged at
+/// the share that the sample's `sample_len` rows make up of the full array's `full_len` rows.
+///
+/// A sample pays in full for bytes that do not grow with the input, such as a symbol table, which
+/// makes a scheme look worse than it is at full size. The amortized share rounds up, so a
+/// non-empty output never becomes a zero-byte one.
+fn amortize_fixed_nbytes(total: u64, fixed: u64, sample_len: usize, full_len: usize) -> u64 {
+    if sample_len >= full_len {
+        return total;
+    }
+
+    let fixed = fixed.min(total);
+    let amortized = (u128::from(fixed) * sample_len as u128).div_ceil(full_len as u128);
+    // The share is at most `fixed` because `sample_len < full_len`.
+    (total - fixed) + u64::try_from(amortized).unwrap_or(fixed)
+}
+
 /// Estimates a scheme's compression ratio by compressing the array's compression sample.
 ///
 /// The sample is shared by every sampled scheme on the array; see [`compression_sample`].
+/// The bytes a scheme reports through [`Scheme::fixed_nbytes`] are amortized over the full array.
 ///
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(crate) fn estimate_compression_ratio_with_sampling(
     compressor: &CascadingCompressor,
-    scheme: &S,
+    scheme: &dyn Scheme,
     data: &ArrayAndStats,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
@@ -327,15 +345,21 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
 
-    let compressed = match scheme.compress(compressor, &sample.data, sample_ctx, exec_ctx) {
-        Ok(compressed) => compressed,
-        Err(err) => {
-            trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
-            return Err(err);
-        }
-    };
+    let compressed =
+        match compressor.compress_with_scheme(scheme, &sample.data, &sample_ctx, exec_ctx) {
+            Ok(compressed) => compressed,
+            Err(err) => {
+                trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
+                return Err(err);
+            }
+        };
 
-    let after = compressed.nbytes();
+    let after = amortize_fixed_nbytes(
+        compressed.nbytes(),
+        scheme.fixed_nbytes(&compressed),
+        sample.data.array().len(),
+        data.array().len(),
+    );
     let score = EstimateScore::from_sample_sizes(sample.before, after);
 
     if matches!(score, EstimateScore::ZeroBytes) {

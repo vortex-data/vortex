@@ -35,6 +35,7 @@ vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true }
 vortex-fsst = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
@@ -117,4 +118,13 @@ test = false
 
 [[bench]]
 name = "pipeline"
+harness = false
+
+[[bench]]
+name = "write_compression"
+harness = false
+test = false
+
+[[bench]]
+name = "filter_chunked"
 harness = false

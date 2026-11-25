@@ -39,11 +39,8 @@ mod tests {
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
-    use vortex_arrow::ExecuteArrowExt;
-    use vortex_arrow::test_harness::DefaultExport;
     use vortex_arrow::test_harness::StorageCase;
     use vortex_arrow::test_harness::check_arrow;
-    use vortex_arrow::test_harness::check_canonical_field;
     use vortex_arrow::test_harness::check_generated;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexExpect;
@@ -186,28 +183,17 @@ mod tests {
                 ..
             } = draw_wkb_storage(tc, nullability, len)?;
             let array = ExtensionArray::try_new(dtype, storage)?.into_array();
-            let expected: Vec<ArrowArrayRef> = vec![
-                Arc::new(arrow_array::BinaryArray::from_iter(
-                    source.iter().map(|b| b.as_deref()),
-                )),
-                Arc::new(arrow_array::LargeBinaryArray::from_iter(
-                    source.iter().map(|b| b.as_deref()),
-                )),
-                Arc::new(arrow_array::BinaryViewArray::from_iter(
-                    source.iter().map(|b| b.as_deref()),
-                )),
+            let bytes = source.iter().map(|row| row.as_deref());
+            let alternate_layouts: [ArrowArrayRef; 2] = [
+                Arc::new(arrow_array::BinaryArray::from_iter(bytes.clone())),
+                Arc::new(arrow_array::LargeBinaryArray::from_iter(bytes.clone())),
             ];
-            let default_expected: ArrowArrayRef = Arc::new(
-                arrow_array::BinaryViewArray::from_iter(source.iter().map(|b| b.as_deref())),
-            );
-            let default = array.clone().execute_arrow(None, &mut ctx)?;
-            assert_eq!(default.to_data(), default_expected.to_data());
-            for expected in expected {
+            for expected in alternate_layouts {
                 let target = field.clone().with_data_type(expected.data_type().clone());
                 check_arrow(array.clone(), &target, expected, &mut ctx)?;
             }
-            check_canonical_field(&array, &field, &mut ctx)?;
-            check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+            let expected = Arc::new(arrow_array::BinaryViewArray::from_iter(bytes));
+            check_generated(tc, array, &field, expected, &mut ctx)
         } else {
             let source = (0..len)
                 .map(|_| {
@@ -221,11 +207,7 @@ mod tests {
             let storage =
                 build_geometry(dtype.storage_dtype(), field.data_type(), &source, &mut ctx)?;
             let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
-            check_arrow(array.clone(), &field, Arc::clone(&storage.arrow), &mut ctx)?;
-            let default = array.clone().execute_arrow(None, &mut ctx)?;
-            assert_eq!(default.to_data(), storage.arrow.to_data());
-            check_canonical_field(&array, &field, &mut ctx)?;
-            check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+            check_generated(tc, array, &field, storage.arrow, &mut ctx)
         }
     }
 

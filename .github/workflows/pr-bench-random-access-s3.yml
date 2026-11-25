@@ -20,5 +20,5 @@ jobs:
       benchmark_name: Random Access (S3)
       with_lance: true
       variant_id: "-s3"
-      remote_data_dir: >-
-        s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/random-access/
+      # Match the fixtures used by the develop baseline in develop-bench.yml.
+      remote_data_dir: s3://vortex-public-benchmark-fixtures/random-access/v1/

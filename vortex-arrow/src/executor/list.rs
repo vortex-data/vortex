@@ -15,6 +15,7 @@ use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::ListViewDataParts;
@@ -92,6 +93,10 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    // A sliced list keeps its whole elements array. Trim it to the elements the remaining lists
+    // reference, so that the export does not convert elements no list reads.
+    let array = &array.reset_offsets(false, ctx)?;
+
     // We must cast the offsets to the required offset type.
     let offsets = array
         .offsets()
@@ -147,6 +152,9 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         )));
     }
 
+    // As for a sliced list: drop the elements before the first list and after the last.
+    let array = array.rebuild(ListViewRebuildMode::TrimElements, ctx)?;
+
     let ListViewDataParts {
         elements,
         offsets,
@@ -186,7 +194,6 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         offsets[offsets.len() - 1] + final_size
     });
 
-    // Extract the elements array.
     let elements =
         elements.execute_arrow_with_options(Some(elements_field.as_ref()), options, ctx)?;
     vortex_ensure!(
@@ -211,6 +218,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -221,6 +229,7 @@ mod tests {
     use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -230,8 +239,9 @@ mod tests {
     use vortex_array::arrays::SliceArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
-    use vortex_array::scalar_fn::fns::mask::Mask;
+    use vortex_array::scalar_fn::builtin::mask::Mask;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -448,6 +458,65 @@ mod tests {
         Ok(())
     }
 
+    /// A few lists cut from a long list export the elements those lists hold, not every element
+    /// of the list they were cut from. Lists [0..50), [50], [51] and [52..100) are cut to `rows`.
+    #[rstest]
+    #[case::prefix(0..2, &[0, 50, 51], 0..51)]
+    #[case::middle(1..3, &[0, 1, 2], 50..52)]
+    #[case::suffix(3..4, &[0, 48], 52..100)]
+    fn sliced_list_exports_only_its_elements(
+        #[values(false, true)] list_view: bool,
+        #[case] rows: Range<usize>,
+        #[case] expected_offsets: &[i32],
+        #[case] expected_values: Range<i32>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements =
+            PrimitiveArray::new((0..100).collect::<Buffer<i32>>(), Validity::NonNullable)
+                .into_array();
+        let sliced = if list_view {
+            // A zero-copy-to-list ListView of the rows, over all of the elements.
+            let offsets: Buffer<i32> = [0, 50, 51, 52][rows.clone()].iter().copied().collect();
+            let sizes: Buffer<i32> = [50, 1, 1, 48][rows].iter().copied().collect();
+            unsafe {
+                ListViewArray::new_unchecked(
+                    elements,
+                    PrimitiveArray::new(offsets, Validity::NonNullable).into_array(),
+                    PrimitiveArray::new(sizes, Validity::NonNullable).into_array(),
+                    Validity::NonNullable,
+                )
+                .with_zero_copy_to_list(true)
+            }
+            .into_array()
+        } else {
+            let offsets =
+                PrimitiveArray::new(buffer![0i32, 50, 51, 52, 100], Validity::NonNullable);
+            let list = ListArray::try_new(
+                elements,
+                offsets.into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )?;
+            SliceArray::new(list.into_array(), rows).into_array()
+        };
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = sliced.execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)?;
+        let arrow_list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+        assert_eq!(arrow_list.value_offsets(), expected_offsets);
+        let values = arrow_list
+            .values()
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        assert_eq!(values.values(), &expected_values.collect::<Vec<_>>());
+        Ok(())
+    }
+
     #[test]
     fn slice_wrapped_list_exports() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -480,13 +549,15 @@ mod tests {
         assert_eq!(second_vals.values(), &[4, 5, 6]);
 
         // The conversion shares the elements buffer regardless of which path resolves the
-        // Slice (revealed List or zero-copy-to-list ListView).
+        // Slice (revealed List or zero-copy-to-list ListView), starting at the first element the
+        // slice references.
         let values = arrow_list
             .values()
             .as_any()
             .downcast_ref::<Int32Array>()
             .unwrap();
-        assert_eq!(values.values().as_ptr(), elements_ptr);
+        assert_eq!(values.values().as_ptr(), elements_ptr.wrapping_add(2));
+        assert_eq!(values.values(), &[3, 4, 5, 6]);
         let expected = [Some(vec![3]), Some(vec![4, 5, 6])];
         assert_eq!(arrow_list.len(), expected.len());
         for (index, expected) in expected.into_iter().enumerate() {

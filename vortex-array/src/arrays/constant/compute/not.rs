@@ -9,7 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::not::NotReduce;
+use crate::scalar_fn::builtin::not::NotReduce;
 
 impl NotReduce for Constant {
     fn invert(array: ArrayView<'_, Constant>) -> VortexResult<Option<ArrayRef>> {

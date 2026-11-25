@@ -18,25 +18,25 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::bound;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::NodeRewriter;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::fns::is_null::IsNull;
-use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
-use vortex_array::scalar_fn::fns::select::FieldSelection;
-use vortex_array::scalar_fn::fns::select::Select;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
+use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
+use vortex_array::scalar_fn::builtin::pack::Pack as PackFn;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_expr as unbound;
+use vortex_expr::Expression;
+use vortex_expr::bound;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::NodeRewriter;
+use vortex_expr::traversal::Transformed;
+use vortex_functions::is_null::IsNull;
+use vortex_functions::select::FieldSelection;
+use vortex_functions::select::Select;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -657,10 +657,10 @@ impl PartitionRule for IsNullRule {
 mod partition_tests {
     use insta::assert_snapshot;
     use vortex_array::dtype::PType;
-    use vortex_array::expr as unbound;
-    use vortex_array::expr::bound::get_item;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::pack;
+    use vortex_expr as unbound;
+    use vortex_expr::bound::get_item;
+    use vortex_expr::bound::is_not_null;
+    use vortex_expr::bound::pack;
 
     use super::*;
     use crate::plan::partition::PartitionedExpression;
@@ -752,7 +752,7 @@ mod partition_tests {
     #[test]
     fn validity_select_and_root() -> VortexResult<()> {
         let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
-        let expr = unbound::select(["a"], unbound::root());
+        let expr = vortex_functions::expr::select(["a"], unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"
         partition 0 scope=i32: $
         partition validity scope=bool: $
@@ -772,7 +772,7 @@ mod partition_tests {
         let inner = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
         let scope = struct_of(&[("a", i32()), ("s", inner)], Nullability::Nullable);
         let expr = unbound::and(
-            unbound::is_null(unbound::root()),
+            vortex_functions::expr::is_null(unbound::root()),
             unbound::gt(
                 unbound::get_item("d", unbound::get_item("s", unbound::root())),
                 unbound::lit(0i32),
@@ -791,7 +791,7 @@ mod partition_tests {
         let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
         let expr = unbound::is_not_null(unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: $");
-        let expr = unbound::is_null(unbound::root());
+        let expr = vortex_functions::expr::is_null(unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: vortex.not($)");
 
         let a = struct_of(&[("x", i32())], Nullability::Nullable);

@@ -27,6 +27,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
+use fastlanes::CmpOp;
 use fastlanes::FastLanesComparable;
 use fastlanes::transpose_bits;
 use vortex_array::ArrayRef;
@@ -39,13 +40,14 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::packed_range::constant_bits;
 use super::packed_range::set_patch_bits;
-use super::stream_predicate::stream_predicate;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
@@ -56,27 +58,16 @@ const U64_BITS: usize = u64::BITS as usize;
 /// `u64` words spanning one FastLanes block (1024 bits / 64).
 const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 
-/// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
-/// `unpack_cmp` kernel, producing a [`BoolArray`].
+/// Compare the unpacked values of a [`BitPacked`] array using the fused FastLanes `unpack_cmp`
+/// kernel for `op`, producing a [`BoolArray`].
 ///
-/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`. It compares values
-/// as `V`, which can be the physical type of `T` so that types of one width share kernels. When
-/// `negate` is set, the result of `kernel` is inverted, so one kernel serves an operator and its
-/// negation.
-/// `predicate(value)` is exact and handles patches and width 0; it is `&dyn` since that path is
-/// cold.
-///
-/// [`BitPackedArray`]: crate::BitPackedArray
-#[expect(
-    clippy::too_many_arguments,
-    reason = "typed compare execution parameters"
-)]
-pub(super) fn stream_compare_fused<T, V, K>(
+/// When `negate` is set, the result of `op` is inverted. `predicate(value)` is exact and handles
+/// patches and width 0.
+pub(super) fn stream_compare_fused<T>(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
-    rhs: V,
+    op: CmpOp<<T as PhysicalPType>::Physical>,
     nullability: Nullability,
-    kernel: K,
     negate: bool,
     predicate: &dyn Fn(T) -> bool,
     ctx: &mut ExecutionCtx,
@@ -86,17 +77,99 @@ where
         + BitPackedIter
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+{
+    let bits = stream_fused_bits(
+        array,
+        bit_width,
+        negate,
+        predicate,
+        ctx,
+        |bit_width, packed_chunk, lane_major| {
+            // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
+            // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp_op`'s contract.
+            // The kernel assigns every word in `lane_major`, so its previous contents are
+            // irrelevant.
+            unsafe {
+                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp_op(
+                    bit_width,
+                    packed_chunk,
+                    lane_major,
+                    op,
+                );
+            }
+        },
+    )?;
+    let validity = array.validity()?.union_nullability(nullability);
+    Ok(BoolArray::new(bits, validity).into_array())
+}
+
+/// Compare the unpacked values of a [`BitPacked`] array against `rhs` using the fused FastLanes
+/// `unpack_cmp` kernel, producing the raw membership/comparison [`BitBuffer`] with patches applied.
+pub(super) fn stream_compare_fused_bits<T, V, K>(
+    array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
+    rhs: V,
+    kernel: K,
+    negate: bool,
+    predicate: &dyn Fn(T) -> bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitBuffer>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
     V: FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     K: Fn(V, V) -> bool + Copy,
+{
+    stream_fused_bits(
+        array,
+        bit_width,
+        negate,
+        predicate,
+        ctx,
+        |bit_width, packed_chunk, lane_major| {
+            // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
+            // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract.
+            // The kernel assigns every word in `lane_major`, so its previous contents are
+            // irrelevant.
+            unsafe {
+                <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<V, _>(
+                    bit_width,
+                    packed_chunk,
+                    lane_major,
+                    kernel,
+                    rhs,
+                );
+            }
+        },
+    )
+}
+
+fn stream_fused_bits<T, F>(
+    array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
+    negate: bool,
+    predicate: &dyn Fn(T) -> bool,
+    ctx: &mut ExecutionCtx,
+    mut unpack_cmp_block: F,
+) -> VortexResult<BitBuffer>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+    F: FnMut(usize, &[<T as PhysicalPType>::Physical], &mut [u64; WORDS_PER_CHUNK]),
 {
     let len = array.len();
     let bit_width = bit_width as usize;
     let offset = array.offset() as usize;
 
-    // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
-    // streaming predicate, which handles every layout (including the empty array).
-    if len == 0 || bit_width == 0 {
-        return stream_predicate::<T, _>(array, nullability, predicate, ctx);
+    if len == 0 {
+        return Ok(BitBuffer::empty());
+    }
+    if bit_width == 0 {
+        return constant_bits(array, predicate(T::zero()), predicate, ctx);
     }
 
     // Over-allocate to whole 1024-bit blocks in padded coordinates so every block - including the
@@ -117,15 +190,7 @@ where
                 let out = words[range.start / U64_BITS..]
                     .first_chunk_mut::<WORDS_PER_CHUNK>()
                     .vortex_expect("over-allocated buffer holds a full block per chunk");
-                // SAFETY: `packed_chunk` holds exactly `128 * bit_width / size_of::<U>()` packed
-                // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
-                // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
-                unsafe {
-                    <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<
-                        V,
-                        _,
-                    >(bit_width, packed_chunk, &mut lane_major, kernel, rhs);
-                }
+                unpack_cmp_block(bit_width, packed_chunk, &mut lane_major);
                 transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
                 if negate {
                     out.iter_mut().for_each(|word| *word = !*word);
@@ -155,6 +220,5 @@ where
         });
     }
 
-    let validity = array.validity()?.union_nullability(nullability);
-    Ok(BoolArray::new(bits.freeze(), validity).into_array())
+    Ok(bits.freeze())
 }

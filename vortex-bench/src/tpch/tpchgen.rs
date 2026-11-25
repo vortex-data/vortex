@@ -47,12 +47,10 @@ use crate::IdempotentPath;
 use crate::SESSION;
 use crate::tpch::nest::NestedBatchReader;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::prepare_parquet_dir;
 use crate::utils::split;
-
-/// The parquet-rs default, kept explicit so the shared writer settings do not change the
-/// parallelism of existing TPC-H Parquet benchmarks.
-const ROW_GROUP_SIZE: usize = 1024 * 1024;
 
 // Compressed size of each TPC-H table at scale factor 1, used to split tables into files of about
 // `split::TARGET_FILE_COMPRESSED_BYTES`: the mean of the Parquet and default Vortex sizes, measured at
@@ -89,6 +87,8 @@ pub struct TpchGenOptions {
     pub batch_size: usize,
     /// Shape of the generated tables
     pub shape: TableShape,
+    /// Rows in each Parquet row group
+    pub row_group_rows: usize,
 }
 
 impl Default for TpchGenOptions {
@@ -99,6 +99,7 @@ impl Default for TpchGenOptions {
             format: Format::Parquet,
             batch_size: 8192 * 64,
             shape: TableShape::Flat,
+            row_group_rows: LOCAL_ROW_GROUP_ROWS,
         }
     }
 }
@@ -126,11 +127,22 @@ impl TpchGenOptions {
         self.shape = shape;
         self
     }
+
+    pub fn with_row_group_rows(mut self, row_group_rows: usize) -> Self {
+        self.row_group_rows = row_group_rows;
+        self
+    }
 }
 
 /// Generate all TPC-H tables for a single scale factor
 pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     fs::create_dir_all(&options.output_dir)?;
+    if matches!(options.format, Format::Parquet | Format::OnDiskDuckDB) {
+        prepare_parquet_dir(
+            &options.output_dir.join(Format::Parquet.name()),
+            options.row_group_rows,
+        )?;
+    }
 
     let scale_factor = options.scale_factor.parse::<f64>()?;
     let mut all_futures = Vec::new();
@@ -318,11 +330,11 @@ fn generate_table_file(
 }
 
 /// Number of parts generated in parallel for a table written as one Parquet file.
-fn table_num_parts(generator: TableGenerator, scale_factor: f64) -> usize {
+fn table_num_parts(generator: TableGenerator, scale_factor: f64, row_group_rows: usize) -> usize {
     let rows = usize::try_from(generator.estimated_rows(scale_factor)).unwrap_or(1);
     get_available_parallelism()
         .unwrap_or(1)
-        .min(rows.div_ceil(ROW_GROUP_SIZE))
+        .min(rows.div_ceil(row_group_rows))
         .max(1)
 }
 
@@ -347,7 +359,7 @@ async fn write_parquet(
     }
 
     let scale_factor = options.scale_factor.parse::<f64>()?;
-    let gen_parts = table_num_parts(generator, scale_factor);
+    let gen_parts = table_num_parts(generator, scale_factor, options.row_group_rows);
     write_parquet_parts(generator, options, gen_parts, output).await
 }
 
@@ -386,7 +398,7 @@ fn write_parquet_file(
     let iter = create_batch_iterator(generator, options, part, num_parts)?;
     let schema = iter.schema();
     let props = parquet_writer_properties()
-        .set_max_row_group_row_count(Some(ROW_GROUP_SIZE))
+        .set_max_row_group_row_count(Some(options.row_group_rows))
         .build();
     let mut writer = ArrowWriter::try_new(fs::File::create(output)?, schema, Some(props))?;
     for batch in iter {
@@ -409,19 +421,19 @@ fn concat_parquet_parts(parts: &[PathBuf], output: &Path) -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let root_schema = inputs[0].1.file_metadata().schema_descr().root_schema_ptr();
-    let mut writer = SerializedFileWriter::new(
-        fs::File::create(output)?,
-        root_schema,
-        Arc::new(WriterProperties::builder().build()),
-    )?;
+    let file_metadata = inputs[0].1.file_metadata();
+    let root_schema = file_metadata.schema_descr().root_schema_ptr();
+    // The parts' key-value metadata holds the Arrow schema and the layout version, which
+    // `remove_stale_parquet` reads, so the whole file keeps it.
+    let props = WriterProperties::builder()
+        .set_key_value_metadata(file_metadata.key_value_metadata().cloned())
+        .build();
+    let mut writer =
+        SerializedFileWriter::new(fs::File::create(output)?, root_schema, Arc::new(props))?;
 
     for (input, metadata) in &inputs {
-        let column_indexes = metadata.column_index();
-        let offset_indexes = metadata.offset_index();
         for (rg_idx, rg) in metadata.row_groups().iter().enumerate() {
-            let rg_column_indexes = column_indexes.and_then(|ci| ci.get(rg_idx));
-            let rg_offset_indexes = offset_indexes.and_then(|oi| oi.get(rg_idx));
+            let rg_page_index = metadata.page_index_for_row_group(rg_idx);
             let mut rg_out = writer.next_row_group()?;
             for (col_idx, column) in rg.columns().iter().enumerate() {
                 let result = ColumnCloseResult {
@@ -429,8 +441,8 @@ fn concat_parquet_parts(parts: &[PathBuf], output: &Path) -> Result<()> {
                     rows_written: rg.num_rows() as _,
                     metadata: column.clone(),
                     bloom_filter: None,
-                    column_index: rg_column_indexes.and_then(|row| row.get(col_idx)).cloned(),
-                    offset_index: rg_offset_indexes.and_then(|row| row.get(col_idx)).cloned(),
+                    column_index: rg_page_index.column_index(col_idx).cloned(),
+                    offset_index: rg_page_index.offset_index(col_idx).cloned(),
                 };
                 rg_out.append_column(input, result)?;
             }
@@ -583,6 +595,48 @@ impl FileWriter for VortexWriter {
                 .map_err(|e| anyhow!("Write task failed: {}", e))??;
         }
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::Int64Array;
+    use parquet::arrow::ARROW_SCHEMA_META_KEY;
+
+    use super::*;
+    use crate::utils::parquet::has_current_layout;
+
+    #[test]
+    fn concatenated_parts_keep_the_file_metadata() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let parts = (0..2)
+            .map(|part| -> Result<PathBuf> {
+                let path = dir.path().join(format!("t.part{part}"));
+                let batch = RecordBatch::try_from_iter([(
+                    "x",
+                    Arc::new(Int64Array::from_iter_values(0..1000)) as _,
+                )])?;
+                let props = parquet_writer_properties().build();
+                let mut writer =
+                    ArrowWriter::try_new(fs::File::create(&path)?, batch.schema(), Some(props))?;
+                writer.write(&batch)?;
+                writer.close()?;
+                Ok(path)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let output = dir.path().join("t.parquet");
+        concat_parquet_parts(&parts, &output)?;
+
+        let metadata = ParquetMetaDataReader::new().parse_and_finish(&fs::File::open(&output)?)?;
+        assert_eq!(metadata.file_metadata().num_rows(), 2000);
+        assert!(has_current_layout(&metadata));
+        assert!(
+            metadata
+                .file_metadata()
+                .key_value_metadata()
+                .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == ARROW_SCHEMA_META_KEY))
+        );
         Ok(())
     }
 }
