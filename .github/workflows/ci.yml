@@ -203,12 +203,43 @@ jobs:
     # The PR-only mirror is a skipped ancestor on develop; override implicit success().
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
+          || 'ubuntu-latest' }}
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Docs
+        env:
+          # required to make sure docs build for features
+          RUSTDOCFLAGS: "-D warnings --cfg docsrs"
+        run: |
+          # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
+          # including all private docs.
+          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
+
+  # Doctests are separate from `rust-docs` so that they run in parallel with `cargo doc`, which
+  # takes most of that job. They share nothing: doctests build libraries with all features.
+  rust-doctests:
+    name: "Rust (doctests)"
+    needs: duckdb-mirror
+    # The PR-only mirror is a skipped ancestor on develop; override implicit success().
+    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
+    timeout-minutes: 30
     env:
       # The commit of our nextest fork to run doctests with. See the install step below.
       NEXTEST_DOCTESTS_REV: d680b84ad20fe1e8299e78087e8fe0f4d6880b43
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
+          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-doctests', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -243,18 +274,10 @@ jobs:
         with:
           path: ${{ runner.temp }}/nextest-doctests
           key: ${{ steps.nextest-doctests.outputs.cache-primary-key }}
-      - name: Docs
-        env:
-          # required to make sure docs build for features
-          RUSTDOCFLAGS: "-D warnings --cfg docsrs"
-        run: |
-          # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
-          # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
       - name: Doctests
         env:
           RUSTDOCFLAGS: "-D warnings --cfg docsrs"
-        # Run doctests in parallel with the nextest fork installed above.
+        # Run doctests with the nextest fork installed above.
         run: |
           "${RUNNER_TEMP}/nextest-doctests/bin/cargo-nextest" nextest run --cargo-profile ci --doc --workspace --all-features \
             --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
