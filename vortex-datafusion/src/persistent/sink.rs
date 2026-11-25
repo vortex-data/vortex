@@ -12,12 +12,10 @@ use datafusion_common::exec_datafusion_err;
 use datafusion_common_runtime::JoinSet;
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::display::FileGroupDisplay;
-use datafusion_datasource::file_sink_config::FileOutputMode;
 use datafusion_datasource::file_sink_config::FileSink;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSink;
 use datafusion_datasource::write::demux::DemuxedStreamReceiver;
-use datafusion_datasource::write::demux::FileSize;
 use datafusion_datasource::write::get_writer_schema;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
@@ -29,6 +27,7 @@ use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::metrics::MetricsSet;
 use futures::StreamExt;
+use futures::future::try_join_all;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
@@ -71,38 +70,14 @@ impl VortexSink {
             bytes_written,
         }
     }
-
-    fn is_single_file_output(&self) -> bool {
-        self.config.table_partition_cols.is_empty()
-            && match self.config.file_output_mode {
-                FileOutputMode::SingleFile => true,
-                FileOutputMode::Directory => false,
-                FileOutputMode::Automatic => self
-                    .config
-                    .table_paths
-                    .first()
-                    .is_some_and(|path| self.config.file_output_mode.single_file_output(path)),
-            }
-    }
-
-    fn record_written_file(&self, path: &Path, summary: &WriteSummary) -> u64 {
-        let rows = summary.row_count();
-        self.rows_written
-            .add(usize::try_from(rows).unwrap_or(usize::MAX));
-        self.bytes_written
-            .add(usize::try_from(summary.size()).unwrap_or(usize::MAX));
-        tracing::info!(path = %path, "Successfully written file");
-        rows
-    }
 }
 
 struct WrittenFile {
     path: Path,
-    size: FileSize,
     summary: WriteSummary,
-    /// Kept open until `demux_task` succeeds when writing a single output file so an upstream
-    /// failure drops and aborts the multipart upload instead of overwriting the destination.
-    pending_writer: Option<CountingVortexWrite<ObjectStoreWrite>>,
+    /// Kept open until `demux_task` succeeds so an upstream failure drops and aborts every
+    /// multipart upload instead of publishing partial output files.
+    writer: CountingVortexWrite<ObjectStoreWrite>,
 }
 
 impl std::fmt::Debug for VortexSink {
@@ -168,7 +143,6 @@ impl FileSink for VortexSink {
             .map_err(|e| {
                 exec_datafusion_err!("Failed to derive Vortex DType from writer schema: {e}")
             })?;
-        let defer_publish = self.is_single_file_output();
 
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
@@ -212,38 +186,20 @@ impl FileSink for VortexSink {
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to write Vortex file: {e}"))?;
 
-                let pending_writer = if defer_publish {
-                    Some(object_writer)
-                } else {
-                    object_writer.shutdown().await.map_err(|e| {
-                        exec_datafusion_err!("Failed to shutdown Vortex writer: {e}")
-                    })?;
-                    file.size.store(summary.size(), Ordering::Relaxed);
-                    None
-                };
+                file.size.store(summary.size(), Ordering::Relaxed);
 
                 Ok(WrittenFile {
                     path: file.path,
-                    size: file.size,
                     summary,
-                    pending_writer,
+                    writer: object_writer,
                 })
             });
         }
 
-        let mut row_count = 0;
-        let mut pending_writes = Vec::new();
-
+        let mut written_files = Vec::new();
         while let Some(result) = file_write_tasks.join_next().await {
             match result {
-                Ok(r) => {
-                    let written = r?;
-                    if written.pending_writer.is_some() {
-                        pending_writes.push(written);
-                    } else {
-                        row_count += self.record_written_file(&written.path, &written.summary);
-                    }
-                }
+                Ok(r) => written_files.push(r?),
                 Err(e) => {
                     if e.is_panic() {
                         std::panic::resume_unwind(e.into_panic());
@@ -254,24 +210,37 @@ impl FileSink for VortexSink {
             }
         }
 
-        // Verify upstream input succeeded before publishing deferred single-file uploads.
-        // Returning an error here drops `pending_writes`, aborting any open `ObjectStoreWrite`.
+        // Verify upstream input succeeded before publishing any output files.
+        // Returning an error here drops `written_files`, aborting all open `ObjectStoreWrite`s.
         demux_task
             .join_unwind()
             .await
             .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
 
-        for mut written in pending_writes {
-            if let Some(mut object_writer) = written.pending_writer.take() {
-                object_writer
+        let published = try_join_all(written_files.into_iter().map(
+            |WrittenFile {
+                 path,
+                 summary,
+                 mut writer,
+             }| async move {
+                writer
                     .shutdown()
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to shutdown Vortex writer: {e}"))?;
-                written
-                    .size
-                    .store(written.summary.size(), Ordering::Relaxed);
-            }
-            row_count += self.record_written_file(&written.path, &written.summary);
+                Ok::<_, DataFusionError>((path, summary))
+            },
+        ))
+        .await?;
+
+        let mut row_count = 0;
+        for (path, summary) in published {
+            let rows = summary.row_count();
+            row_count += rows;
+            self.rows_written
+                .add(usize::try_from(rows).unwrap_or(usize::MAX));
+            self.bytes_written
+                .add(usize::try_from(summary.size()).unwrap_or(usize::MAX));
+            tracing::info!(path = %path, "Successfully written file");
         }
 
         Ok(row_count)
@@ -302,6 +271,7 @@ mod tests {
     use datafusion_datasource::TableSchema;
     use datafusion_datasource::file_format::format_as_file_type;
     use datafusion_datasource::file_groups::FileGroup;
+    use datafusion_datasource::file_sink_config::FileOutputMode;
     use datafusion_datasource::sink::DataSinkExec;
     use datafusion_datasource::url::ListingTableUrl;
     use datafusion_execution::object_store::ObjectStoreUrl;
@@ -829,6 +799,53 @@ mod tests {
                 "+----+", "| a  |", "+----+", "| 33 |", "| 44 |", "| 55 |", "+----+"
             ],
             &batches
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_copy_sql_upstream_error_leaves_no_partial_files_in_directory()
+    -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+        for setting in [
+            "SET datafusion.execution.minimum_parallel_output_files = 1",
+            "SET datafusion.execution.soft_max_rows_per_output_file = 1",
+        ] {
+            ctx.session.sql(setting).await?.collect().await?;
+        }
+
+        let first_batch = record_batch!(("s", Utf8, vec![Some("11"), Some("22")]))?;
+        let second_batch = record_batch!(("s", Utf8, vec![Some("33")]))?;
+        let bad_batch = record_batch!(("s", Utf8, vec![Some("not an integer")]))?;
+
+        let input = MemTable::try_new(
+            first_batch.schema(),
+            vec![vec![first_batch, second_batch, bad_batch]],
+        )?;
+        ctx.session
+            .register_table("copy_dir_input", Arc::new(input))?;
+
+        let err = ctx
+            .session
+            .sql(
+                "COPY (SELECT CAST(s AS INTEGER) AS a FROM copy_dir_input) \
+                 TO 'file:///dir-output/' STORED AS VORTEX",
+            )
+            .await?
+            .collect()
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not an integer"), "{err}");
+
+        let files = ctx
+            .store
+            .list(Some(&Path::from("dir-output")))
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(
+            files.is_empty(),
+            "expected no partial output files after failed COPY, found {files:?}"
         );
 
         Ok(())
