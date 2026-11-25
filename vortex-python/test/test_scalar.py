@@ -347,6 +347,14 @@ def test_uuid_scalar() -> None:
     assert scalar.as_py() == value
 
 
+def test_nullable_uuid_scalar() -> None:
+    value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    scalar = vx.scalar([value, None])
+    assert isinstance(scalar, vx.ListScalar)
+    assert scalar.element(1).as_py() is None
+    assert scalar.as_py() == [value, None]
+
+
 def test_list_scalar_with_dtype() -> None:
     scalar = vx.scalar([1, 2], dtype=vx.list_(vx.int_(32)))
     assert isinstance(scalar, vx.ListScalar)
