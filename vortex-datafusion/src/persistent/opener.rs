@@ -481,15 +481,7 @@ impl FileOpener for VortexOpener {
                 scan_reference_schema,
                 leftover_projection,
             } = if let Some(residual) = &residual_filter {
-                let mut indices = projection.column_indices();
-                indices.extend(
-                    collect_columns(residual)
-                        .iter()
-                        .map(|column| column.index()),
-                );
-                indices.sort_unstable();
-                indices.dedup();
-                raw_projection(&indices, &this_file_schema, projection)?
+                raw_projection(&this_file_schema, projection, Some(residual))?
             } else if projection_pushdown {
                 expr_converter.split_projection(
                     projection,
@@ -914,6 +906,7 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Metadata;
     use arrow_schema::SchemaRef;
+    use datafusion::arrow::array::ArrayRef;
     use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::array::RecordBatch;
@@ -924,6 +917,7 @@ mod tests {
     use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
+    use datafusion::functions::core::expr_ext::FieldAccessor;
     use datafusion::logical_expr::col;
     use datafusion::logical_expr::lit;
     use datafusion::physical_expr::planner::logical2physical;
@@ -1392,6 +1386,118 @@ mod tests {
             ["+----+", "| a  |", "+----+", "| 20 |", "| 40 |", "+----+"],
             &batches
         );
+        Ok(())
+    }
+
+    /// A residual filter evaluates on the scan output, so the scan keeps the struct fields that the
+    /// filter reads, besides those that the projection reads.
+    #[rstest]
+    #[tokio::test]
+    async fn test_residual_filter_reads_struct_field(
+        #[values(false, true)] projection_pushdown: bool,
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let ints = |values: Vec<i32>| Arc::new(Int32Array::from(values)) as ArrayRef;
+        let s = StructArray::try_from(vec![
+            ("a", ints(vec![10, 20, 30, 40])),
+            ("b", ints(vec![1, 2, 3, 4])),
+            ("unused", ints(vec![0, 0, 0, 0])),
+        ])?;
+        let batch = RecordBatch::try_from_iter([("s", Arc::new(s) as ArrayRef)])?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "residual.vortex", batch.clone()).await?;
+
+        let schema = batch.schema();
+        let filter = logical2physical(&(col("s").field("b") % lit(2)).eq(lit(0)), schema.as_ref());
+        let mut opener = make_opener(store, TableSchema::from(Arc::clone(&schema)), Some(filter));
+        opener.projection = ProjectionExprs::from(vec![ProjectionExpr::new(
+            logical2physical(&col("s").field("a"), schema.as_ref()),
+            "a",
+        )]);
+        opener.projection_pushdown = projection_pushdown;
+        opener.scan_v2 = scan_v2;
+
+        let batches = opener
+            .open(PartitionedFile::new("residual.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        assert_batches_eq!(
+            ["+----+", "| a  |", "+----+", "| 20 |", "| 40 |", "+----+"],
+            &batches
+        );
+
+        Ok(())
+    }
+
+    /// A struct field that the file lacks reads as null, next to a field that the file has.
+    #[rstest]
+    #[tokio::test]
+    async fn test_raw_projection_reads_struct_field_missing_from_file(
+        #[values(false, true)] projection_pushdown: bool,
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let int = |name: &str| Field::new(name, DataType::Int32, false);
+        let s = StructArray::try_new(
+            vec![int("a"), int("unused")].into(),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3])),
+                Arc::new(Int32Array::from(vec![0, 0, 0])),
+            ],
+            None,
+        )?;
+        let batch = RecordBatch::try_from_iter([("s", Arc::new(s) as ArrayRef)])?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "evolved.vortex", batch.clone()).await?;
+
+        let table_schema = Arc::new(Schema::new(vec![Field::new(
+            "s",
+            DataType::Struct(
+                vec![
+                    int("a"),
+                    Field::new("b", DataType::Utf8, true),
+                    int("unused"),
+                ]
+                .into(),
+            ),
+            false,
+        )]));
+        let mut opener = make_opener(store, TableSchema::from(Arc::clone(&table_schema)), None);
+        opener.projection = ProjectionExprs::from(vec![
+            ProjectionExpr::new(
+                logical2physical(&(col("s").field("a") % lit(2)), table_schema.as_ref()),
+                "odd",
+            ),
+            ProjectionExpr::new(
+                logical2physical(&col("s").field("b"), table_schema.as_ref()),
+                "b",
+            ),
+        ]);
+        opener.projection_pushdown = projection_pushdown;
+        opener.scan_v2 = scan_v2;
+
+        let batches = opener
+            .open(PartitionedFile::new("evolved.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        assert_batches_eq!(
+            [
+                "+-----+---+",
+                "| odd | b |",
+                "+-----+---+",
+                "| 1   |   |",
+                "| 0   |   |",
+                "| 1   |   |",
+                "+-----+---+",
+            ],
+            &batches
+        );
+
         Ok(())
     }
 
