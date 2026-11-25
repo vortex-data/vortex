@@ -36,6 +36,7 @@ use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::ArrowSessionExt;
 use crate::ExecuteArrowExt;

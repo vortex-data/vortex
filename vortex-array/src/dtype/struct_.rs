@@ -412,6 +412,12 @@ impl StructFields {
             .map(|dt| dt.value().vortex_expect("field DType must be valid"))
     }
 
+    /// Returns an ordered iterator over the fields, or an error if a field [`DType`] can't be decoded.
+    pub fn try_fields(&self) -> VortexResult<impl ExactSizeIterator<Item = DType>> {
+        let fields: Vec<DType> = self.0.dtypes.iter().map(FieldDType::value).try_collect()?;
+        Ok(fields.into_iter())
+    }
+
     /// Returns an ordered iterator over references to the field dtypes.
     ///
     /// Unlike [`Self::fields`], this does not clone each [`DType`].

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Benchmarks for the `list_sum` scalar function over `List`, `ListView`, and
-//! `FixedSizeList` inputs.
+//! `FixedSizeList` inputs, and over lists of bool elements.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
@@ -26,7 +26,6 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::session::DTypeSession;
-use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
@@ -34,6 +33,8 @@ use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::root;
 use vortex_functions::expr::list_sum;
 use vortex_session::VortexSession;
 
@@ -64,11 +65,21 @@ const SMALL: usize = 100;
 const MEDIUM: usize = 250;
 const LARGE: usize = 500;
 
-/// A uniformly-random partition of `num_lists * BASE_LIST_SIZE` elements into `num_lists`
-/// lists, plus a validity mask with ~1/8 of lists null at random positions.
-fn random_lists(num_lists: usize) -> (Vec<i32>, Validity) {
+/// Average list lengths: short lists weigh per-list overhead, long lists per-element work. The
+/// longest is about the length of statpopgen's genotype lists.
+const LIST_SIZES: &[usize] = &[8, 256, 4_096];
+
+/// Elements for lists of `list_size`: at least 4096, at least 16 lists, and a multiple of
+/// `list_size`.
+fn num_elements(list_size: usize) -> usize {
+    (16 * list_size).max(4_096)
+}
+
+/// A uniformly-random partition of `total` elements into `num_lists` lists, plus a validity
+/// mask with ~1/8 of lists null at random positions.
+fn random_lists(num_lists: usize, total: usize) -> (Vec<i32>, Validity) {
     let mut rng = StdRng::seed_from_u64(num_lists as u64);
-    let total = (num_lists * BASE_LIST_SIZE) as i32;
+    let total = total as i32;
 
     let cut_dist = Uniform::new_inclusive(0i32, total).unwrap();
     let mut cuts: Vec<i32> = (0..num_lists - 1).map(|_| rng.sample(cut_dist)).collect();
@@ -102,10 +113,14 @@ fn make_elements(total: i32, nullable: bool) -> ArrayRef {
 
 /// A canonical `List<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_list(num_lists: usize, nullable_elements: bool) -> ArrayRef {
+    let elements = make_elements((num_lists * BASE_LIST_SIZE) as i32, nullable_elements);
+    list_over(elements, BASE_LIST_SIZE)
+}
+
+/// A `List` over `elements` with `list_size` elements per list on average, ~1/8 of lists null.
+fn list_over(elements: ArrayRef, list_size: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    let (sizes, validity) = random_lists(num_lists);
-    let total: i32 = sizes.iter().sum();
-    let elements = make_elements(total, nullable_elements);
+    let (sizes, validity) = random_lists(elements.len() / list_size, elements.len());
     let offsets: Buffer<i32> = std::iter::once(0)
         .chain(sizes.iter().scan(0i32, |acc, &s| {
             *acc += s;
@@ -119,10 +134,15 @@ fn make_list(num_lists: usize, nullable_elements: bool) -> ArrayRef {
 
 /// A gapless `ListView<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_listview(num_lists: usize) -> ArrayRef {
+    let elements = make_elements((num_lists * BASE_LIST_SIZE) as i32, false);
+    listview_over(elements, BASE_LIST_SIZE)
+}
+
+/// A gapless `ListView` over `elements` with `list_size` elements per list on average, ~1/8 of
+/// lists null.
+fn listview_over(elements: ArrayRef, list_size: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    let (sizes, validity) = random_lists(num_lists);
-    let total: i32 = sizes.iter().sum();
-    let elements = make_elements(total, false);
+    let (sizes, validity) = random_lists(elements.len() / list_size, elements.len());
     let offsets: Buffer<i32> = sizes
         .iter()
         .scan(0i32, |acc, &s| {
@@ -144,13 +164,28 @@ fn make_listview(num_lists: usize) -> ArrayRef {
 
 /// A `FixedSizeList<i32, 8>` of `num_lists` lists, ~1/8 of them null.
 fn make_fsl(num_lists: usize) -> ArrayRef {
+    let elements = make_elements((num_lists * BASE_LIST_SIZE) as i32, false);
+    fsl_over(elements, BASE_LIST_SIZE)
+}
+
+/// A `FixedSizeList` over `elements` with `list_size` elements per list, ~1/8 of lists null.
+fn fsl_over(elements: ArrayRef, list_size: usize) -> ArrayRef {
+    let num_lists = elements.len() / list_size;
     let mut rng = StdRng::seed_from_u64(num_lists as u64);
-    let total = (num_lists * BASE_LIST_SIZE) as i32;
-    let elements = make_elements(total, false);
     let null_dist = Uniform::new(0u32, 8).unwrap();
     let valid = (0..num_lists).map(|_| rng.sample(null_dist) != 0);
     let validity = Validity::Array(BoolArray::from_iter(valid).into_array());
-    FixedSizeListArray::new(elements, BASE_LIST_SIZE as u32, validity, num_lists).into_array()
+    FixedSizeListArray::new(elements, list_size as u32, validity, num_lists).into_array()
+}
+
+/// `len` random bools, ~1/8 null.
+fn bool_elements(len: usize, seed: u64) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let null_dist = Uniform::new(0u32, 8).unwrap();
+    BoolArray::from_iter(
+        (0..len).map(|_| (rng.sample(null_dist) != 0).then(|| rng.random_bool(0.5))),
+    )
+    .into_array()
 }
 
 /// Apply `list_sum(root())` and materialize the result.
@@ -223,4 +258,28 @@ fn fsl_sum_medium(bencher: Bencher) {
 #[divan::bench]
 fn fsl_sum_large(bencher: Bencher) {
     run(bencher, make_fsl(LARGE));
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn list_sum_bool(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        list_over(bool_elements(num_elements(list_size), 0), list_size),
+    );
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn listview_sum_bool(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        listview_over(bool_elements(num_elements(list_size), 0), list_size),
+    );
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn fsl_sum_bool(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        fsl_over(bool_elements(num_elements(list_size), 0), list_size),
+    );
 }

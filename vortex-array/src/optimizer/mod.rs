@@ -86,7 +86,7 @@ const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 /// also sees that state.
 ///
 /// [`ArrayRef::inner_mut`]: crate::ArrayRef::inner_mut
-/// [`Stat::IsConstant`]: crate::expr::stats::Stat::IsConstant
+/// [`Stat::IsConstant`]: crate::stats::Stat::IsConstant
 #[derive(Debug, Default)]
 pub(crate) struct OptimizedState(pub(crate) AtomicBool);
 
@@ -600,11 +600,11 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::Primitive;
     use crate::arrays::StructArray;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProviderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

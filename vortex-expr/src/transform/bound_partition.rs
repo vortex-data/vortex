@@ -13,12 +13,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::pack;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::NodeRewriter;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_error::VortexExpect;
@@ -30,6 +24,12 @@ use crate::analysis::Annotation;
 use crate::analysis::AnnotationFn;
 use crate::analysis::BoundAnnotations;
 use crate::analysis::descendent_bound_annotations;
+use crate::bound::get_item;
+use crate::bound::pack;
+use crate::traversal::NodeExt;
+use crate::traversal::NodeRewriter;
+use crate::traversal::Transformed;
+use crate::traversal::TraversalOrder;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -368,20 +368,37 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::checked_add;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
-    use vortex_functions::expr::merge;
+    use vortex_array::scalar_fn::builtin::get_item::GetItem;
 
     use super::*;
-    use crate::analysis::make_bound_free_field_annotator;
+    use crate::analysis::AnnotationFn;
+    use crate::checked_add;
+    use crate::col;
+    use crate::get_item;
+    use crate::lit;
+    use crate::pack;
+    use crate::root;
+
+    /// Annotates each top-level field read from the root scope, the way the scan's field-access
+    /// analysis does for expressions without a `select`.
+    fn free_field_annotator(
+        scope: &StructFields,
+    ) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
+        move |expr: &BoundExpression| {
+            let Some(scalar_fn) = expr.as_scalar() else {
+                return scope.names().iter().cloned().collect();
+            };
+            match scalar_fn.as_opt::<GetItem>() {
+                Some(field_name) if expr.children()[0].is_root() => vec![field_name.clone()],
+                _ => vec![],
+            }
+        }
+    }
 
     #[fixture]
     fn dtype() -> DType {
@@ -406,7 +423,7 @@ mod tests {
         dtype: &DType,
     ) -> VortexResult<BoundPartitionedExpr<FieldName>> {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        partition_bound(expr, make_bound_free_field_annotator(fields))
+        partition_bound(expr, free_field_annotator(fields))
     }
 
     #[rstest]
@@ -568,41 +585,6 @@ mod tests {
             .bind(&root_dtype)
             .unwrap();
         assert_eq!(partitioned.root, expected_root);
-    }
-
-    #[rstest]
-    fn test_expr_merge(dtype: DType) {
-        let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
-
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-        let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
-        let root_dtype =
-            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
-        assert_eq!(
-            partitioned.root,
-            expected.bind(&root_dtype).unwrap(),
-            "{} {}",
-            partitioned.root,
-            expected
-        );
-
-        assert_eq!(partitioned.partitions.len(), 2);
-
-        let part_a = partitioned.find_partition(&"a".into()).unwrap();
-        let expected_a = pack([("a_0", col("a"))], NonNullable);
-        assert_eq!(
-            part_a,
-            &expected_a.bind(&dtype).unwrap(),
-            "{part_a} {expected_a}"
-        );
-
-        let part_b = partitioned.find_partition(&"b".into()).unwrap();
-        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
-        assert_eq!(
-            part_b,
-            &expected_b.bind(&dtype).unwrap(),
-            "{part_b} {expected_b}"
-        );
     }
 
     #[rstest]
