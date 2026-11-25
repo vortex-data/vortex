@@ -210,8 +210,32 @@ impl AggregateFnVTable for AllNonDistinct {
         }
 
         match batch {
-            Columnar::Constant(c) => {
-                let _ = c;
+            Columnar::Constant(constant) => {
+                if constant.is_empty() {
+                    return Ok(());
+                }
+
+                let Some(struct_scalar) = constant.scalar().as_struct_opt() else {
+                    vortex_bail!(
+                        "AllNonDistinct expects a Struct constant, got {:?}",
+                        constant.dtype()
+                    );
+                };
+
+                let Some(mut fields) = struct_scalar.fields_iter() else {
+                    // Outer struct scalar is null, so all rows are masked out.
+                    return Ok(());
+                };
+
+                let (Some(lhs), Some(rhs), None) = (fields.next(), fields.next(), fields.next())
+                else {
+                    vortex_bail!(
+                        "AllNonDistinct expects a 2-field Struct constant, got {:?}",
+                        constant.dtype()
+                    );
+                };
+
+                partial.all_non_distinct = lhs == rhs;
                 Ok(())
             }
             Columnar::Canonical(c) => {

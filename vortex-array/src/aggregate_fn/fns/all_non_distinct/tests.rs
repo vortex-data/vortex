@@ -8,13 +8,18 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use super::AllNonDistinct;
 use super::all_non_distinct;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -28,6 +33,8 @@ use crate::dtype::DecimalDType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::StructFields;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -835,4 +842,140 @@ fn struct_with_nullable_string_field_different() -> VortexResult<()> {
     )?
     .into_array();
     assert_matches_baseline(&a, &b)
+}
+
+// ─── Constant struct batches via Accumulator ─────────────────────────────────
+
+fn accumulate_all_non_distinct(batches: &[ArrayRef]) -> VortexResult<bool> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = batches[0].dtype().clone();
+    let mut acc = Accumulator::try_new(AllNonDistinct, EmptyOptions, dtype)?;
+    for batch in batches {
+        acc.accumulate(batch, &mut ctx)?;
+    }
+    let result = acc.finish()?;
+    Ok(result.as_bool().value().unwrap_or(false))
+}
+
+#[rstest]
+#[case::equal(1, 1, 4, true)]
+#[case::distinct(1, 2, 4, false)]
+#[case::empty_distinct(1, 2, 0, true)]
+fn constant_struct_non_nullable(
+    #[case] lhs: i32,
+    #[case] rhs: i32,
+    #[case] len: usize,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let field_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let struct_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![field_dtype.clone(), field_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+    let scalar = Scalar::struct_(struct_dtype, [Scalar::from(lhs), Scalar::from(rhs)]);
+    let batch = ConstantArray::new(scalar, len).into_array();
+
+    assert_eq!(accumulate_all_non_distinct(&[batch])?, expected);
+    Ok(())
+}
+
+#[rstest]
+#[case::both_null(None, None, true)]
+#[case::lhs_null(None, Some(1), false)]
+#[case::rhs_null(Some(1), None, false)]
+#[case::both_equal(Some(1), Some(1), true)]
+#[case::both_distinct(Some(1), Some(2), false)]
+fn constant_struct_nullable_fields(
+    #[case] lhs: Option<i32>,
+    #[case] rhs: Option<i32>,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let field_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    let struct_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![field_dtype.clone(), field_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+    let to_scalar = |value: Option<i32>| match value {
+        Some(v) => Scalar::primitive(v, Nullability::Nullable),
+        None => Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+    };
+    let scalar = Scalar::struct_(struct_dtype, [to_scalar(lhs), to_scalar(rhs)]);
+    let batch = ConstantArray::new(scalar, 4).into_array();
+
+    assert_eq!(accumulate_all_non_distinct(&[batch])?, expected);
+    Ok(())
+}
+
+#[test]
+fn constant_struct_outer_null_is_true() -> VortexResult<()> {
+    let field_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let struct_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![field_dtype.clone(), field_dtype],
+        ),
+        Nullability::Nullable,
+    );
+    let batch = ConstantArray::new(Scalar::null(struct_dtype), 4).into_array();
+
+    assert!(accumulate_all_non_distinct(&[batch])?);
+    Ok(())
+}
+
+#[test]
+fn constant_struct_nan_is_non_distinct() -> VortexResult<()> {
+    let field_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+    let struct_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![field_dtype.clone(), field_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+    let scalar = Scalar::struct_(
+        struct_dtype,
+        [Scalar::from(f64::NAN), Scalar::from(f64::NAN)],
+    );
+    let batch = ConstantArray::new(scalar, 3).into_array();
+
+    assert!(accumulate_all_non_distinct(&[batch])?);
+    Ok(())
+}
+
+#[test]
+fn constant_struct_multiple_batches_saturates() -> VortexResult<()> {
+    let field_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let struct_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![field_dtype.clone(), field_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+    let equal = ConstantArray::new(
+        Scalar::struct_(
+            struct_dtype.clone(),
+            [Scalar::from(1i32), Scalar::from(1i32)],
+        ),
+        2,
+    )
+    .into_array();
+    let distinct = ConstantArray::new(
+        Scalar::struct_(struct_dtype, [Scalar::from(1i32), Scalar::from(2i32)]),
+        2,
+    )
+    .into_array();
+
+    assert!(!accumulate_all_non_distinct(&[
+        equal.clone(),
+        distinct,
+        equal
+    ])?);
+    Ok(())
 }
