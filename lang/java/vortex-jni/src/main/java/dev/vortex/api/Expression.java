@@ -9,6 +9,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -134,8 +135,10 @@ public final class Expression {
      * for Spark; otherwise the scan can drop rows.
      */
     public static Expression compare(BinaryOp op, FloatOrder order, Expression lhs, Expression rhs) {
-        Preconditions.checkArgument(op.isComparison(), "%s is not a comparison operator", op);
-        Preconditions.checkNotNull(order, "order");
+        if (!op.isComparison()) {
+            throw new IllegalArgumentException(String.format("%s is not a comparison operator", op));
+        }
+        Objects.requireNonNull(order, "order");
         return new Expression(
                 NativeExpression.compare(op.code(), order.code(), lhs.nativePointer(), rhs.nativePointer()));
     }
@@ -230,7 +233,7 @@ public final class Expression {
      */
     public static Expression listContains(
             Expression list, Expression needle, boolean sqlNullSemantics, FloatOrder order) {
-        Preconditions.checkNotNull(order, "order");
+        Objects.requireNonNull(order, "order");
         return new Expression(NativeExpression.listContains(
                 list.nativePointer(), needle.nativePointer(), sqlNullSemantics, order.code()));
     }
