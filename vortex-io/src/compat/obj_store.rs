@@ -43,7 +43,8 @@ impl<T: ObjectStore> ObjectStore for Compat<T> {
         payload: PutPayload,
         opts: PutOptions,
     ) -> Result<PutResult> {
-        Compat::new(self.inner().put_opts(location, payload, opts)).await
+        let fut = self.enter(|inner| inner.put_opts(location, payload, opts));
+        Compat::new(fut).await
     }
 
     async fn put_multipart_opts(
@@ -51,13 +52,13 @@ impl<T: ObjectStore> ObjectStore for Compat<T> {
         location: &Path,
         opts: PutMultipartOptions,
     ) -> Result<Box<dyn MultipartUpload>> {
-        Ok(Box::new(Compat::new(
-            Compat::new(self.inner().put_multipart_opts(location, opts)).await?,
-        )))
+        let fut = self.enter(|inner| inner.put_multipart_opts(location, opts));
+        Ok(Box::new(Compat::new(Compat::new(fut).await?)))
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
-        let mut result = Compat::new(self.inner().get_opts(location, options)).await?;
+        let fut = self.enter(|inner| inner.get_opts(location, options));
+        let mut result = Compat::new(fut).await?;
         result.payload = match result.payload {
             GetResultPayload::Stream(stream) => {
                 GetResultPayload::Stream(Compat::new(stream).boxed())
@@ -69,18 +70,19 @@ impl<T: ObjectStore> ObjectStore for Compat<T> {
     }
 
     async fn get_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> Result<Vec<Bytes>> {
-        Compat::new(self.inner().get_ranges(location, ranges)).await
+        let fut = self.enter(|inner| inner.get_ranges(location, ranges));
+        Compat::new(fut).await
     }
 
     fn delete_stream(
         &self,
         locations: BoxStream<'static, Result<Path>>,
     ) -> BoxStream<'static, Result<Path>> {
-        Compat::new(self.inner().delete_stream(locations)).boxed()
+        Compat::new(self.enter(|inner| inner.delete_stream(locations))).boxed()
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, Result<ObjectMeta>> {
-        Compat::new(self.inner().list(prefix)).boxed()
+        Compat::new(self.enter(|inner| inner.list(prefix))).boxed()
     }
 
     fn list_with_offset(
@@ -88,33 +90,38 @@ impl<T: ObjectStore> ObjectStore for Compat<T> {
         prefix: Option<&Path>,
         offset: &Path,
     ) -> BoxStream<'static, Result<ObjectMeta>> {
-        Compat::new(self.inner().list_with_offset(prefix, offset)).boxed()
+        Compat::new(self.enter(|inner| inner.list_with_offset(prefix, offset))).boxed()
     }
 
     async fn list_with_delimiter(&self, prefix: Option<&Path>) -> Result<ListResult> {
-        Compat::new(self.inner().list_with_delimiter(prefix)).await
+        let fut = self.enter(|inner| inner.list_with_delimiter(prefix));
+        Compat::new(fut).await
     }
 
     async fn copy_opts(&self, from: &Path, to: &Path, options: CopyOptions) -> Result<()> {
-        Compat::new(self.inner().copy_opts(from, to, options)).await
+        let fut = self.enter(|inner| inner.copy_opts(from, to, options));
+        Compat::new(fut).await
     }
 
     async fn rename_opts(&self, from: &Path, to: &Path, options: RenameOptions) -> Result<()> {
-        Compat::new(self.inner().rename_opts(from, to, options)).await
+        let fut = self.enter(|inner| inner.rename_opts(from, to, options));
+        Compat::new(fut).await
     }
 }
 
 #[async_trait]
 impl<T: MultipartUpload> MultipartUpload for Compat<T> {
     fn put_part(&mut self, data: PutPayload) -> UploadPart {
-        Compat::new(self.inner_mut().put_part(data)).boxed()
+        Compat::new(self.enter_mut(|inner| inner.put_part(data))).boxed()
     }
 
     async fn complete(&mut self) -> Result<PutResult> {
-        Compat::new(self.inner_mut().complete()).await
+        let fut = self.enter_mut(|inner| inner.complete());
+        Compat::new(fut).await
     }
 
     async fn abort(&mut self) -> Result<()> {
-        Compat::new(self.inner_mut().abort()).await
+        let fut = self.enter_mut(|inner| inner.abort());
+        Compat::new(fut).await
     }
 }

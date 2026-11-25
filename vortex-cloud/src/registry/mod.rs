@@ -13,6 +13,9 @@
 //!    `oss://`, and `goosefs://`, and the Hugging Face Hub's `hf://` — are served by the crate's
 //!    `opendal` and `hf` modules under the matching service feature.
 
+use std::borrow::Cow;
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+use std::env::VarError;
 use std::sync::Arc;
 
 use object_store::ObjectStore;
@@ -100,7 +103,15 @@ impl EnvSource {
     #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
-            EnvSource::Process => std::env::var(key).ok(),
+            EnvSource::Process => match std::env::var(key) {
+                Ok(v) => Some(v),
+                Err(VarError::NotUnicode(_)) => None,
+                Err(VarError::NotPresent) => std::env::vars_os().find_map(|(k, v)| {
+                    k.to_str()
+                        .filter(|k| k.eq_ignore_ascii_case(key))
+                        .and_then(|_| v.into_string().ok())
+                }),
+            },
             EnvSource::Fixed(vars) => vars
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(key))
@@ -149,11 +160,14 @@ impl ObjectStoreRegistry for Registry {
             }
         }
 
-        // 2. Build the store and determine how many raw URL path segments form its mount prefix.
-        let (store, depth) = self.build_store(to_resolve)?;
+        // 2. Normalize consecutive slashes so cold builds agree with warm cache hits (which
+        //    ignore empty segments via `path_segments`), then build the store and determine how
+        //    many raw URL path segments form its mount prefix.
+        let normalized = normalize_url(to_resolve);
+        let (store, depth) = self.build_store(&normalized)?;
 
         // 3. Cache the store and return it alongside the path that lives inside the store.
-        self.cache_and_resolve(to_resolve, store, depth)
+        self.cache_and_resolve(&normalized, store, depth)
     }
 }
 
@@ -254,6 +268,33 @@ impl Registry {
 /// Extracts the scheme and authority of a URL (components before the Path)
 fn url_key(url: &Url) -> &str {
     &url[..url::Position::AfterPort]
+}
+
+/// Collapses consecutive `/` characters in `url`'s path so cold store builds normalize `//`
+/// identically to warm cache lookups.
+fn normalize_url(url: &Url) -> Cow<'_, Url> {
+    let path = url.path();
+    if !path.contains("//") {
+        return Cow::Borrowed(url);
+    }
+
+    let mut normalized_path = String::with_capacity(path.len());
+    let mut prev_slash = false;
+    for ch in path.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                normalized_path.push('/');
+                prev_slash = true;
+            }
+        } else {
+            prev_slash = false;
+            normalized_path.push(ch);
+        }
+    }
+
+    let mut normalized = url.clone();
+    normalized.set_path(&normalized_path);
+    Cow::Owned(normalized)
 }
 
 /// Returns the non-empty segments of a path

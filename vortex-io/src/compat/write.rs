@@ -12,14 +12,14 @@ impl<W: VortexWrite> VortexWrite for Compat<W> {
         &mut self,
         buffer: B,
     ) -> impl Future<Output = std::io::Result<B>> + Send {
-        Compat::new(self.inner_mut().write_all(buffer))
+        Compat::new(self.enter_mut(|inner| inner.write_all(buffer)))
     }
 
     fn flush(&mut self) -> impl Future<Output = std::io::Result<()>> + Send {
-        Compat::new(self.inner_mut().flush())
+        Compat::new(self.enter_mut(|inner| inner.flush()))
     }
 
     fn shutdown(&mut self) -> impl Future<Output = std::io::Result<()>> + Send {
-        Compat::new(self.inner_mut().shutdown())
+        Compat::new(self.enter_mut(|inner| inner.shutdown()))
     }
 }

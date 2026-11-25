@@ -14,6 +14,7 @@ use pin_project_lite::pin_project;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::sync::TryAcquireError;
+use tokio::sync::mpsc;
 use vortex_error::VortexExpect;
 
 pin_project! {
@@ -52,6 +53,8 @@ pin_project! {
     pub struct SizeLimitedStream<Fut> {
         #[pin]
         inflight: FuturesUnordered<SizedFut<Fut>>,
+        pending_tx: mpsc::UnboundedSender<SizedFut<Fut>>,
+        pending_rx: mpsc::UnboundedReceiver<SizedFut<Fut>>,
         bytes_available: Arc<Semaphore>,
         max_bytes: usize,
     }
@@ -59,8 +62,11 @@ pin_project! {
 
 impl<Fut> SizeLimitedStream<Fut> {
     pub fn new(max_bytes: usize) -> Self {
+        let (pending_tx, pending_rx) = mpsc::unbounded_channel();
         Self {
             inflight: FuturesUnordered::new(),
+            pending_tx,
+            pending_rx,
             bytes_available: Arc::new(Semaphore::new(max_bytes)),
             max_bytes,
         }
@@ -78,34 +84,43 @@ where
     /// Push a future into the queue after reserving `bytes` of capacity.
     ///
     /// This call may need to wait until there is sufficient capacity available in the stream to
-    /// begin work on this future.
+    /// begin work on this future. The returned future does not borrow `self`, so callers can
+    /// concurrently poll this stream to drain completed work and release permits while waiting for
+    /// capacity. Note that `poll_next` returns `None` once all submitted work has drained and does
+    /// not wait for unsubmitted `push` futures.
     ///
     /// # Panics
     ///
     /// Panics if `bytes` exceeds the stream's configured `max_bytes` capacity or does not fit in a
     /// `u32`.
-    pub async fn push(&self, fut: Fut, bytes: usize) {
+    pub fn push(&self, fut: Fut, bytes: usize) -> impl Future<Output = ()> + use<Fut> {
         assert!(
             bytes <= self.max_bytes,
             "cannot reserve {bytes} bytes in a stream with max_bytes {}",
             self.max_bytes
         );
 
-        // Attempt to acquire enough permits to begin working on a request that will occupy
-        // `bytes` amount of memory when it completes.
-        // Acquiring the permits is what creates backpressure for the producer.
-        let permits = Arc::clone(&self.bytes_available)
-            .acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
-            .await
-            .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
+        let permits_needed: u32 = bytes.try_into().vortex_expect("bytes must fit in u32");
+        let bytes_available = Arc::clone(&self.bytes_available);
+        let pending_tx = self.pending_tx.clone();
 
-        let sized_fut = SizedFut {
-            inner: fut,
-            _permits: permits,
-        };
+        async move {
+            // Attempt to acquire enough permits to begin working on a request that will occupy
+            // `bytes` amount of memory when it completes.
+            // Acquiring the permits is what creates backpressure for the producer.
+            let permits = bytes_available
+                .acquire_many_owned(permits_needed)
+                .await
+                .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
 
-        // push into the pending queue
-        self.inflight.push(sized_fut);
+            let sized_fut = SizedFut {
+                inner: fut,
+                _permits: permits,
+            };
+
+            // Push into the pending queue; ignore send errors if the stream was dropped.
+            drop(pending_tx.send(sized_fut));
+        }
     }
 
     /// Synchronous push method. This method will attempt to push if there is enough capacity
@@ -148,6 +163,10 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
+        while let Poll::Ready(Some(fut)) = this.pending_rx.poll_recv(cx) {
+            this.inflight.push(fut);
+        }
+
         match ready!(this.inflight.poll_next(cx)) {
             None => Poll::Ready(None),
             Some(result) => {
@@ -318,5 +337,29 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), stream.push(make_future(11), 11))
             .await
             .expect("push above capacity should panic immediately, not wait");
+    }
+
+    #[tokio::test]
+    async fn test_push_at_capacity_completes_while_draining() {
+        let mut stream = SizeLimitedStream::new(10);
+        stream.push(make_future(5), 5).await;
+        stream.push(make_future(5), 5).await;
+        assert_eq!(stream.bytes_available(), 0);
+
+        // The returned push future must not borrow `&stream`, so the caller can drain in-flight
+        // items to release permits while the push waits for capacity.
+        let push_fut = stream.push(make_future(5), 5);
+        let ((), first) = tokio::time::timeout(
+            Duration::from_secs(1),
+            futures::future::join(push_fut, stream.next()),
+        )
+        .await
+        .expect("push at capacity should not deadlock when drained concurrently");
+
+        assert_eq!(first, Some(Bytes::from("aaaaa")));
+        assert_eq!(stream.next().await, Some(Bytes::from("aaaaa")));
+        assert_eq!(stream.next().await, Some(Bytes::from("aaaaa")));
+        assert_eq!(stream.next().await, None);
+        assert_eq!(stream.bytes_available(), 10);
     }
 }

@@ -32,7 +32,7 @@ impl<R: VortexReadAt> VortexReadAt for Compat<R> {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        Compat::new(self.inner().size()).boxed()
+        Compat::new(self.enter(|inner| inner.size())).boxed()
     }
 
     fn read_at(
@@ -41,10 +41,10 @@ impl<R: VortexReadAt> VortexReadAt for Compat<R> {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        Compat::new(self.inner().read_at(offset, length, alignment)).boxed()
+        Compat::new(self.enter(|inner| inner.read_at(offset, length, alignment))).boxed()
     }
 
     fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
-        Compat::new(self.inner().read_ranges(requests)).boxed()
+        Compat::new(self.enter(|inner| inner.read_ranges(requests))).boxed()
     }
 }
