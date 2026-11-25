@@ -183,6 +183,15 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
                         }
                     },
+                    TemporalMetadata::Duration(unit) => match unit {
+                        TimeUnit::Nanoseconds => ScalarValue::DurationNanosecond(pv.as_::<i64>()),
+                        TimeUnit::Microseconds => ScalarValue::DurationMicrosecond(pv.as_::<i64>()),
+                        TimeUnit::Milliseconds => ScalarValue::DurationMillisecond(pv.as_::<i64>()),
+                        TimeUnit::Seconds => ScalarValue::DurationSecond(pv.as_::<i64>()),
+                        TimeUnit::Days => {
+                            unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
+                        }
+                    },
                 }
             }
         })
@@ -255,7 +264,11 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         | ScalarValue::TimestampSecond(v, _)
         | ScalarValue::TimestampMillisecond(v, _)
         | ScalarValue::TimestampMicrosecond(v, _)
-        | ScalarValue::TimestampNanosecond(v, _) => {
+        | ScalarValue::TimestampNanosecond(v, _)
+        | ScalarValue::DurationSecond(v)
+        | ScalarValue::DurationMillisecond(v)
+        | ScalarValue::DurationMicrosecond(v)
+        | ScalarValue::DurationNanosecond(v) => {
             let dtype = session
                 .arrow()
                 .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;

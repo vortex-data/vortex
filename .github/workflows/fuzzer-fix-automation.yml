@@ -36,8 +36,8 @@ jobs:
     name: "Attempt to Fix Fuzzer Crash"
     # A called reusable workflow inherits the caller's github.event_name, so the
     # job sees the caller's event, never "workflow_call". Allow each caller:
-    # - workflow_dispatch: a manual run of this workflow or of fuzz.yml.
-    # - schedule: the in-pipeline attempt-fix-* jobs in fuzz.yml.
+    # - workflow_dispatch: a manual run of this workflow or of a fuzz-* workflow.
+    # - schedule: the in-pipeline attempt-fix job in run-fuzzer.yml.
     # - issues: fuzzer-issue-autofix.yml.
     if: |
       github.event_name == 'workflow_dispatch' ||

@@ -62,6 +62,7 @@ use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
 
@@ -137,6 +138,7 @@ impl Default for AggregateFnSession {
         // Temporal extension types compare like their integer storage, so comparison-based
         // aggregates are pushed down into it.
         this.register_storage_ordered(Date);
+        this.register_storage_ordered(Duration);
         this.register_storage_ordered(Time);
         this.register_storage_ordered(Timestamp);
 

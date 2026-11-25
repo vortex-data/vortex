@@ -732,7 +732,7 @@ fn execute_sparse_struct(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let (fill_values, top_level_fill_validity) = match fill_struct.fields_iter() {
-        Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::AllValid),
+        Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::from(nullability)),
         None => (
             struct_fields
                 .fields()
@@ -758,25 +758,24 @@ fn execute_sparse_struct(
         ctx,
     )?;
 
-    Ok(StructArray::try_from_iter_with_validity(
-        names.iter().zip_eq(
-            patch_values_as_struct
-                .iter_unmasked_fields()
-                .cloned()
-                .zip_eq(fill_values)
-                .map(|(patch_values, fill_value)| unsafe {
-                    Sparse::new_unchecked(
-                        unresolved_patches
-                            .clone()
-                            .map_values(|_| Ok(patch_values))
-                            .vortex_expect("Replacing patch values"),
-                        fill_value,
-                    )
-                }),
-        ),
-        validity,
-    )?
-    .into_array())
+    let fields = patch_values_as_struct
+        .iter_unmasked_fields()
+        .cloned()
+        .zip_eq(fill_values)
+        .map(|(patch_values, fill_value)| {
+            sparse_field(unresolved_patches, patch_values, fill_value)
+        })
+        .collect::<Vec<_>>();
+
+    Ok(StructArray::try_new(names.clone(), fields, len, validity)?.into_array())
+}
+
+fn sparse_field(patches: &Patches, values: ArrayRef, fill_value: Scalar) -> ArrayRef {
+    let patches = patches
+        .clone()
+        .map_values(|_| Ok(values))
+        .vortex_expect("Replacing patch values");
+    unsafe { Sparse::new_unchecked(patches, fill_value) }.into_array()
 }
 
 fn execute_sparse_decimal<D: NativeDecimalType>(
@@ -1047,6 +1046,24 @@ mod test {
     }
 
     #[test]
+    fn test_sparse_struct_non_nullable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let patch_values = StructArray::from_fields(&[("a", buffer![10i32].into_array())])?;
+        let fill_scalar = Scalar::default_value(patch_values.dtype());
+        let sparse_struct = Sparse::try_new(
+            buffer![0u64].into_array(),
+            patch_values.into_array(),
+            3,
+            fill_scalar,
+            &mut ctx,
+        )?;
+
+        let expected = StructArray::from_fields(&[("a", buffer![10i32, 0, 0].into_array())])?;
+        assert_arrays_eq!(sparse_struct, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
     fn test_sparse_struct_invalid_fill() {
         let mut ctx = SESSION.create_execution_ctx();
         let field_names = FieldNames::from_iter(["a", "b"]);
@@ -1112,6 +1129,48 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(sparse_struct, expected, &mut ctx);
+    }
+
+    // Regression test for https://github.com/vortex-data/vortex/issues/12035.
+    #[rstest]
+    #[case::valid_fill(true)]
+    #[case::null_fill(false)]
+    fn test_sparse_struct_no_fields(#[case] fill_valid: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let struct_fields = StructFields::empty();
+        let struct_dtype = DType::Struct(struct_fields.clone(), Nullable);
+
+        let indices = buffer![0u64, 1, 7].into_array();
+        let patch_values = StructArray::try_new_with_dtype(
+            Vec::new(),
+            struct_fields.clone(),
+            3,
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+
+        let fill_scalar = if fill_valid {
+            Scalar::struct_(struct_dtype, Vec::new())
+        } else {
+            Scalar::null(struct_dtype)
+        };
+        let len = 10;
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar, &mut ctx)?;
+
+        let valid = (0..len).map(|i| match i {
+            0 | 7 => true,
+            1 => false,
+            _ => fill_valid,
+        });
+        let expected = StructArray::try_new_with_dtype(
+            Vec::new(),
+            struct_fields,
+            len,
+            Validity::from_iter(valid),
+        )?;
+
+        assert_arrays_eq!(sparse_struct, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]

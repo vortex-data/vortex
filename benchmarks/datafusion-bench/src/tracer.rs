@@ -3,8 +3,10 @@
 
 use std::any::Any;
 
-use custom_labels::Labelset;
-use custom_labels::asynchronous::Label;
+#[cfg(target_os = "linux")]
+pub use custom_labels::Labelset;
+#[cfg(target_os = "linux")]
+pub use custom_labels::asynchronous::Label;
 use datafusion::common::runtime::JoinSetTracer;
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -66,3 +68,38 @@ impl JoinSetTracer for LabelsJoinSetTracer {
         Box::new(move || labelset.enter(f))
     }
 }
+
+/// Profiler labels are only recorded on Linux, where `custom-labels` works. Elsewhere these stand in
+/// for its API and do nothing.
+#[cfg(not(target_os = "linux"))]
+mod noop_labels {
+    use std::future::Future;
+
+    #[derive(Clone, Default)]
+    pub struct Labelset;
+
+    impl Labelset {
+        pub fn clone_from_current() -> Self {
+            Self
+        }
+
+        pub fn set(&mut self, _key: impl AsRef<[u8]>, _value: impl AsRef<[u8]>) {}
+
+        pub fn enter<R>(&mut self, f: impl FnOnce() -> R) -> R {
+            f()
+        }
+    }
+
+    pub trait Label: Future + Sized {
+        fn with_labelset(self, _labelset: Labelset) -> Self {
+            self
+        }
+    }
+
+    impl<F: Future> Label for F {}
+}
+
+#[cfg(not(target_os = "linux"))]
+pub use noop_labels::Label;
+#[cfg(not(target_os = "linux"))]
+pub use noop_labels::Labelset;
