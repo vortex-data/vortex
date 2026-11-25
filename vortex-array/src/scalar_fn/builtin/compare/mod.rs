@@ -38,11 +38,9 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::DurationArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -70,6 +68,7 @@ use crate::validity::Validity;
 mod boolean;
 mod bytes;
 mod decimal;
+mod duration;
 
 mod nested;
 pub use nested::RowComparator;
@@ -359,11 +358,7 @@ fn compare_arrays(
         .into_array()),
         DType::Bool(_) => boolean::compare_bool(lhs, rhs, op, nullability, ctx),
         DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, ctx),
-        DType::Duration(..) => {
-            let lhs = lhs.clone().execute::<DurationArray>(ctx)?;
-            let rhs = rhs.clone().execute::<DurationArray>(ctx)?;
-            primitive::compare_primitive(lhs.values(), rhs.values(), op, ctx)
-        }
+        DType::Duration(..) => duration::compare_duration(lhs, rhs, op, ctx),
         DType::Decimal(..) => decimal::compare_decimal(lhs, rhs, op, nullability, ctx),
         DType::Utf8(_) | DType::Binary(_) => bytes::compare_bytes(lhs, rhs, op, nullability, ctx),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Map(..) => {

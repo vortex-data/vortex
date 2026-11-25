@@ -3,6 +3,7 @@
 
 mod bool;
 mod decimal;
+mod duration;
 mod fixed_size_list;
 mod primitive;
 mod varbin;
@@ -19,6 +20,7 @@ use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
+use self::duration::check_duration_sorted;
 use self::fixed_size_list::check_fixed_size_bytes_sorted;
 use self::primitive::check_primitive_sorted;
 use self::varbin::check_varbinview_sorted;
@@ -35,7 +37,6 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
 use crate::arrays::Constant;
 use crate::arrays::Null;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -540,13 +541,7 @@ impl AggregateFnVTable for IsSorted {
                     Canonical::VarBinView(v) => {
                         check_varbinview_sorted(v, args.options.strict, ctx)?
                     }
-                    Canonical::Duration(d) => {
-                        let values = d
-                            .values()
-                            .clone()
-                            .execute::<crate::arrays::PrimitiveArray>(ctx)?;
-                        check_primitive_sorted(&values, args.options.strict, ctx)?
-                    }
+                    Canonical::Duration(d) => check_duration_sorted(d, args.options.strict, ctx)?,
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
                     Canonical::FixedSizeList(f) => {
                         check_fixed_size_bytes_sorted(f, args.options.strict, ctx)?

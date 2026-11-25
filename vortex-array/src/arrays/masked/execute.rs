@@ -54,10 +54,7 @@ pub fn mask_validity_canonical(
         n @ Canonical::Null(_) => n,
         Canonical::Bool(a) => Canonical::Bool(mask_validity_bool(a, validity)?),
         Canonical::Primitive(a) => Canonical::Primitive(mask_validity_primitive(a, validity)?),
-        Canonical::Duration(a) => Canonical::Duration(DurationArray::try_new(
-            a.unit(),
-            a.values().clone().mask(validity.to_array(a.len()))?,
-        )?),
+        Canonical::Duration(a) => Canonical::Duration(mask_validity_duration(a, validity)?),
         Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity)?),
         Canonical::VarBinView(a) => Canonical::VarBinView(mask_validity_varbinview(a, validity)?),
         Canonical::List(a) => Canonical::List(mask_validity_listview(a, validity)?),
@@ -91,6 +88,14 @@ fn mask_validity_primitive(
             new_validity,
         )
     })
+}
+
+fn mask_validity_duration(array: DurationArray, validity: Validity) -> VortexResult<DurationArray> {
+    let values = array
+        .values()
+        .clone()
+        .mask(validity.to_array(array.len()))?;
+    DurationArray::try_new(array.unit(), values)
 }
 
 fn mask_validity_decimal(array: DecimalArray, validity: Validity) -> VortexResult<DecimalArray> {

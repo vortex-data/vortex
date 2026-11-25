@@ -10,7 +10,6 @@ pub use kernel::*;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -26,7 +25,7 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
-use crate::arrays::DurationArray;
+use crate::arrays::Duration;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
@@ -35,12 +34,9 @@ use crate::arrays::Null;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinView;
-use crate::arrays::duration::DurationArrayExt as _;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
@@ -278,16 +274,7 @@ fn cast_canonical(
         CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
         CanonicalView::Bool(a) => <Bool as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Duration(a) => {
-            let DType::Duration(unit, nullability) = dtype else {
-                vortex_bail!("Cannot cast {} to {dtype}", a.dtype());
-            };
-            vortex_ensure_eq!(*unit, a.unit(), "Duration cast requires matching units");
-            let values = a
-                .values()
-                .cast(DType::Primitive(PType::I64, *nullability))?;
-            Ok(Some(DurationArray::try_new(*unit, values)?.into_array()))
-        }
+        CanonicalView::Duration(a) => <Duration as CastReduce>::cast(a, dtype),
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),

@@ -32,15 +32,12 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
-use crate::arrays::DurationArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
 use crate::arrays::Map;
 use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
-use crate::arrays::duration::DurationArrayExt as _;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
@@ -52,6 +49,7 @@ use crate::validity::Validity;
 mod bitbuffer;
 mod bool;
 pub(crate) mod buffer;
+mod duration;
 mod fixed_size_list;
 mod listview;
 mod struct_;
@@ -147,16 +145,7 @@ pub(super) fn execute_filter(
         }
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Union(a) => Canonical::Union(union::filter_union(&a, mask)),
-        Canonical::Duration(a) => {
-            let values = a
-                .values()
-                .filter(Mask::Values(MaskValuesRef::clone(mask)))
-                .vortex_expect("duration values must support filtering");
-            Canonical::Duration(
-                DurationArray::try_new(a.unit(), values)
-                    .vortex_expect("filtering preserves the duration value dtype"),
-            )
-        }
+        Canonical::Duration(a) => Canonical::Duration(duration::filter_duration(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()

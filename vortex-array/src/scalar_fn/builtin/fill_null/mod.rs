@@ -21,16 +21,12 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
-use crate::arrays::DurationArray;
+use crate::arrays::Duration;
 use crate::arrays::Extension;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinView;
-use crate::arrays::duration::DurationArrayExt as _;
-use crate::arrays::duration::DurationArraySlotsExt as _;
-use crate::builtins::ArrayBuiltins as _;
 use crate::dtype::DType;
-use crate::dtype::PType;
 use crate::optimizer::ArrayOptimizer;
 use crate::require_input;
 use crate::scalar::Scalar;
@@ -269,13 +265,8 @@ fn fill_null_canonical(
             <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?
                 .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
         }
-        CanonicalView::Duration(a) => {
-            let fill = Scalar::try_new(
-                DType::Primitive(PType::I64, fill_value.dtype().nullability()),
-                fill_value.value().cloned(),
-            )?;
-            Ok(DurationArray::try_new(a.unit(), a.values().fill_null(fill)?)?.into_array())
-        }
+        CanonicalView::Duration(a) => <Duration as FillNullReduce>::fill_null(a, fill_value)?
+            .ok_or_else(|| vortex_err!("FillNullReduce for DurationArray returned None")),
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         CanonicalView::VarBinView(a) => {

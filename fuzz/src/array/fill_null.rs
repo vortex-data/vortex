@@ -46,6 +46,9 @@ pub fn fill_null_canonical_array(
         Canonical::Primitive(array) => {
             fill_primitive_array(array, fill_value, result_nullability, ctx)
         }
+        Canonical::Duration(array) => {
+            fill_duration_array(array, fill_value, result_nullability, ctx)?
+        }
         Canonical::Decimal(array) => fill_decimal_array(array, fill_value, result_nullability, ctx),
         Canonical::VarBinView(array) => {
             fill_varbinview_array(array, fill_value, result_nullability, ctx)
@@ -58,17 +61,23 @@ pub fn fill_null_canonical_array(
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
-        Canonical::Duration(array) => {
-            let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
-            let primitive_fill = Scalar::try_new(
-                DType::Primitive(PType::I64, result_nullability),
-                fill_value.value().cloned(),
-            )?;
-            let filled = fill_primitive_array(values, &primitive_fill, result_nullability, ctx);
-            DurationArray::try_new(array.unit(), filled)?.into_array()
-        }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
+}
+
+fn fill_duration_array(
+    array: DurationArray,
+    fill_value: &Scalar,
+    result_nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
+    let primitive_fill = Scalar::try_new(
+        DType::Primitive(PType::I64, result_nullability),
+        fill_value.value().cloned(),
+    )?;
+    let filled = fill_primitive_array(values, &primitive_fill, result_nullability, ctx);
+    Ok(DurationArray::try_new(array.unit(), filled)?.into_array())
 }
 
 fn fill_bool_array(

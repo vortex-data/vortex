@@ -43,11 +43,14 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DurationBuilder;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DurationUnit;
 use crate::dtype::PType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::cast::CastReduce;
+use crate::scalar_fn::builtin::fill_null::FillNullReduce;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -212,6 +215,35 @@ impl SliceReduce for Duration {
 impl TakeReduce for Duration {
     fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let values = array.values().take(indices.clone())?;
+        Ok(Some(
+            DurationArray::try_new(array.unit(), values)?.into_array(),
+        ))
+    }
+}
+
+impl CastReduce for Duration {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        let DType::Duration(unit, nullability) = dtype else {
+            vortex_bail!("Cannot cast {} to {dtype}", array.dtype());
+        };
+        vortex_ensure_eq!(*unit, array.unit(), "Duration cast requires matching units");
+        let values = array
+            .values()
+            .cast(DType::Primitive(PType::I64, *nullability))?;
+        Ok(Some(DurationArray::try_new(*unit, values)?.into_array()))
+    }
+}
+
+impl FillNullReduce for Duration {
+    fn fill_null(
+        array: ArrayView<'_, Self>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let fill = Scalar::try_new(
+            DType::Primitive(PType::I64, fill_value.dtype().nullability()),
+            fill_value.value().cloned(),
+        )?;
+        let values = array.values().fill_null(fill)?;
         Ok(Some(
             DurationArray::try_new(array.unit(), values)?.into_array(),
         ))
