@@ -35,6 +35,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
+use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -316,6 +317,7 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
         DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
+        | DType::Duration(..)
         | DType::Utf8(..)
         | DType::Binary(..)
         | DType::Extension(..) => true,
@@ -337,6 +339,7 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
         DType::Bool(_)
             | DType::Primitive(..)
             | DType::Decimal(..)
+            | DType::Duration(..)
             | DType::Utf8(..)
             | DType::Binary(..)
             | DType::Extension(..)
@@ -501,6 +504,20 @@ impl AggregateFnVTable for MinMax {
                 Canonical::Primitive(p) => accumulate_primitive(args, partial, p, ctx),
                 Canonical::Bool(b) => accumulate_bool(args, partial, b, ctx),
                 Canonical::VarBinView(v) => accumulate_varbinview(args, partial, v, ctx),
+                Canonical::Duration(d) => {
+                    let Some(MinMaxResult { min, max }) = min_max(d.counts(), ctx, *args.options)?
+                    else {
+                        return Ok(());
+                    };
+                    let dtype = d.dtype().as_nonnullable();
+                    partial.merge(
+                        args,
+                        Some(MinMaxResult {
+                            min: Scalar::try_new(dtype.clone(), min.into_value())?,
+                            max: Scalar::try_new(dtype, max.into_value())?,
+                        }),
+                    )
+                }
                 Canonical::Decimal(d) => accumulate_decimal(args, partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
                 Canonical::FixedSizeList(f) if is_fixed_size_bytes(f.dtype()) => {

@@ -12,6 +12,7 @@ use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSiz
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Masked;
@@ -19,6 +20,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::duration::DurationArrayExt as _;
+use vortex_array::arrays::duration::DurationArraySlotsExt as _;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -237,6 +240,10 @@ impl CascadingCompressor {
                     fsl_array.len(),
                 )?
                 .into_array())
+            }
+            Canonical::Duration(duration) => {
+                let counts = self.compress(duration.counts(), exec_ctx)?;
+                Ok(DurationArray::try_new(duration.unit(), counts)?.into_array())
             }
             Canonical::Extension(ext_array) => {
                 // Try scheme-based compression first.

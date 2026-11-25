@@ -49,6 +49,10 @@ pub mod decimal;
 pub use decimal::Decimal;
 pub use decimal::DecimalArray;
 
+pub mod duration;
+pub use duration::Duration;
+pub use duration::DurationArray;
+
 pub mod dict;
 pub use dict::Dict;
 pub use dict::DictArray;

@@ -188,6 +188,7 @@ pub fn compare_canonical_array(
         }
         d @ (DType::Null
         | DType::Map(..)
+        | DType::Duration(..)
         | DType::Union(..)
         | DType::Variant(_)
         | DType::Extension(_)) => {

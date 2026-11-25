@@ -27,6 +27,7 @@ use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::DurationArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -34,6 +35,7 @@ use crate::arrays::MapArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
@@ -165,6 +167,11 @@ fn build_values_comparator(
         }
         DType::Primitive(ptype, _) => {
             match_each_native_ptype!(*ptype, |T| { primitive_comparator::<T>(lhs, rhs, ctx)? })
+        }
+        DType::Duration(..) => {
+            let lhs = lhs.clone().execute::<DurationArray>(ctx)?;
+            let rhs = rhs.clone().execute::<DurationArray>(ctx)?;
+            primitive_comparator::<i64>(lhs.counts(), rhs.counts(), ctx)?
         }
         DType::Decimal(dtype, _) => {
             let lhs = lhs.clone().execute::<DecimalArray>(ctx)?;

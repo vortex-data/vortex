@@ -39,6 +39,7 @@ pub(super) fn accumulate_canonical(
         | Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::FixedSizeList(_)
+        | Canonical::Duration(_)
         | Canonical::Variant(_)
         | Canonical::Union(_)
         | Canonical::Map(_) => {

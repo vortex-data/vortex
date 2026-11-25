@@ -18,6 +18,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DurationUnit;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -112,6 +113,18 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             }
                         },
                     }
+                }
+            }
+            DType::Duration(unit, _) => {
+                let value = self
+                    .value()
+                    .map(|v| v.as_primitive().cast::<i64>())
+                    .transpose()?;
+                match unit {
+                    DurationUnit::Seconds => ScalarValue::DurationSecond(value),
+                    DurationUnit::Milliseconds => ScalarValue::DurationMillisecond(value),
+                    DurationUnit::Microseconds => ScalarValue::DurationMicrosecond(value),
+                    DurationUnit::Nanoseconds => ScalarValue::DurationNanosecond(value),
                 }
             }
             // SAFETY: By construction Utf8 scalar values are utf8
@@ -313,11 +326,22 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
                 Scalar::null(DType::Decimal(decimal_dtype, nullable))
             }
         }
+        ScalarValue::DurationSecond(v) => duration_from_df(DurationUnit::Seconds, *v)?,
+        ScalarValue::DurationMillisecond(v) => duration_from_df(DurationUnit::Milliseconds, *v)?,
+        ScalarValue::DurationMicrosecond(v) => duration_from_df(DurationUnit::Microseconds, *v)?,
+        ScalarValue::DurationNanosecond(v) => duration_from_df(DurationUnit::Nanoseconds, *v)?,
         ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), session)?,
         ScalarValue::Struct(array) => struct_from_df(array, session)?,
         ScalarValue::RunEndEncoded(_, _, v) => scalar_from_df(v.as_ref(), session)?,
         _ => vortex_bail!("Can't convert {value:?} value to a Vortex scalar"),
     })
+}
+
+fn duration_from_df(unit: DurationUnit, value: Option<i64>) -> VortexResult<Scalar> {
+    Scalar::try_new(
+        DType::Duration(unit, Nullability::Nullable),
+        value.map(Into::into),
+    )
 }
 
 /// Converts a Vortex struct scalar to a DataFusion `ScalarValue::Struct`.

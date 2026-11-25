@@ -80,7 +80,7 @@ impl Display for DTypePythonRepr<'_> {
                 size,
                 n.python_repr()
             ),
-            DType::Map(..) | DType::Union(..) => write!(f, "{dtype}"),
+            DType::Duration(..) | DType::Map(..) | DType::Union(..) => write!(f, "{dtype}"),
             DType::Struct(st, n) => write!(
                 f,
                 "struct({{{}}}, nullable={})",

@@ -81,6 +81,11 @@ table Map {
     nullable: bool;
 }
 
+table Duration {
+    unit: uint8;
+    nullable: bool;
+}
+
 union Type {
     Null = 1,
     Bool = 2,
@@ -95,6 +100,7 @@ union Type {
     Variant = 11,
     Union = 12,
     Map = 13,
+    Duration = 14,
 }
 
 table DType {

@@ -518,6 +518,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         DType::Map(..) => [Compress, Slice, Take, Filter, Mask, ScalarAt].into(),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         // Currently, no support at all
+        DType::Duration(..) => unreachable!("Duration dtype is not generated"),
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {
             // Extension types delegate to storage dtype, support most operations

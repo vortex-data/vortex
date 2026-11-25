@@ -23,6 +23,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::DurationArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -41,6 +42,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
@@ -184,6 +186,14 @@ pub(crate) fn constant_canonicalize(
             array.array().clone().into_array(),
             None,
         )?),
+        DType::Duration(unit, nullability) => {
+            let count = Scalar::try_new(
+                DType::Primitive(PType::I64, *nullability),
+                scalar.value().cloned(),
+            )?;
+            let counts = ConstantArray::new(count, array.len()).into_array();
+            Canonical::Duration(DurationArray::try_new(*unit, counts)?)
+        }
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();
 

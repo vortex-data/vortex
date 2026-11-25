@@ -35,6 +35,7 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
 use crate::arrays::Constant;
 use crate::arrays::Null;
+use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -285,6 +286,7 @@ impl AggregateFnVTable for IsSorted {
             DType::Bool(_)
             | DType::Primitive(..)
             | DType::Decimal(..)
+            | DType::Duration(..)
             | DType::Utf8(_)
             | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
         }
@@ -306,6 +308,7 @@ impl AggregateFnVTable for IsSorted {
             DType::Bool(_)
             | DType::Primitive(..)
             | DType::Decimal(..)
+            | DType::Duration(..)
             | DType::Utf8(_)
             | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
@@ -536,6 +539,13 @@ impl AggregateFnVTable for IsSorted {
                     Canonical::Bool(b) => check_bool_sorted(b, args.options.strict, ctx)?,
                     Canonical::VarBinView(v) => {
                         check_varbinview_sorted(v, args.options.strict, ctx)?
+                    }
+                    Canonical::Duration(d) => {
+                        let counts = d
+                            .counts()
+                            .clone()
+                            .execute::<crate::arrays::PrimitiveArray>(ctx)?;
+                        check_primitive_sorted(&counts, args.options.strict, ctx)?
                     }
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
                     Canonical::FixedSizeList(f) => {

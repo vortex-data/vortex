@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::DurationArray;
 use crate::arrays::NullArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -140,6 +141,12 @@ fn random_array_chunk(
             PType::F32 => random_primitive::<f32>(u, *n, chunk_len),
             PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
         },
+        DType::Duration(unit, n) => {
+            let counts = random_primitive::<i64>(u, *n, chunk_len)?;
+            Ok(DurationArray::try_new(*unit, counts)
+                .vortex_expect("arbitrary duration has i64 storage")
+                .into_array())
+        }
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
             let mut builder = DecimalBuilder::new_in(

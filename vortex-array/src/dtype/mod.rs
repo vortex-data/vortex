@@ -22,6 +22,7 @@ pub use claim::Claims;
 
 mod decimal;
 mod dtype_impl;
+mod duration;
 pub mod extension;
 mod f16;
 mod field;
@@ -88,6 +89,9 @@ pub enum DType {
     /// See [`DecimalDType`] for more information.
     Decimal(DecimalDType, Nullability),
 
+    /// A signed count of elapsed time in the specified unit.
+    Duration(DurationUnit, Nullability),
+
     /// Logical UTF-8 strings.
     Utf8(Nullability),
 
@@ -149,6 +153,7 @@ impl PartialEq for DType {
             (Self::Bool(a), Self::Bool(b)) => a == b,
             (Self::Primitive(pa, na), Self::Primitive(pb, nb)) => pa == pb && na == nb,
             (Self::Decimal(da, na), Self::Decimal(db, nb)) => da == db && na == nb,
+            (Self::Duration(a, na), Self::Duration(b, nb)) => a == b && na == nb,
             (Self::Utf8(a), Self::Utf8(b)) => a == b,
             (Self::Binary(a), Self::Binary(b)) => a == b,
             (Self::List(da, na), Self::List(db, nb)) => {
@@ -170,6 +175,7 @@ impl PartialEq for DType {
             | (Self::Bool(_), _)
             | (Self::Primitive(..), _)
             | (Self::Decimal(..), _)
+            | (Self::Duration(..), _)
             | (Self::Utf8(_), _)
             | (Self::Binary(_), _)
             | (Self::List(..), _)
@@ -186,6 +192,7 @@ impl PartialEq for DType {
 pub use bigint::*;
 pub use decimal::*;
 pub use dtype_impl::NativeDType;
+pub use duration::DurationUnit;
 pub use f16::*;
 pub use field::*;
 pub use field_mask::*;

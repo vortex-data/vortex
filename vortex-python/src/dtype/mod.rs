@@ -127,6 +127,7 @@ impl PyDType {
             DType::Null => Self::with_subclass(py, dtype, PyNullDType),
             DType::Bool(_) => Self::with_subclass(py, dtype, PyBoolDType),
             DType::Primitive(..) => Self::with_subclass(py, dtype, PyPrimitiveDType),
+            DType::Duration(..) => Bound::new(py, PyDType(dtype)),
             DType::Decimal(..) => Self::with_subclass(py, dtype, PyDecimalDType),
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),

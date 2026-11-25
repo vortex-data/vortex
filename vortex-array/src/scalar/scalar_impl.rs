@@ -241,7 +241,7 @@ impl Scalar {
                 vortex_panic!("non-null value somehow had `DType::Null`")
             }
             DType::Bool(_) => !value.as_bool(),
-            DType::Primitive(..) => value.as_primitive().is_zero(),
+            DType::Primitive(..) | DType::Duration(..) => value.as_primitive().is_zero(),
             DType::Decimal(..) => value.as_decimal().is_zero(),
             DType::Utf8(_) => value.as_utf8().is_empty(),
             DType::Binary(_) => value.as_binary().is_empty(),
@@ -315,6 +315,7 @@ impl Scalar {
             DType::Null => 0,
             DType::Bool(_) => 1,
             DType::Primitive(ptype, _) => ptype.byte_width(),
+            DType::Duration(..) => size_of::<i64>(),
             DType::Decimal(dt, _) => {
                 if dt.precision() <= i128::MAX_PRECISION {
                     size_of::<i128>()

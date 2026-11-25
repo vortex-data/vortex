@@ -158,6 +158,7 @@ pub fn search_sorted_canonical_array(
         }
         d @ (DType::Null
         | DType::Map(..)
+        | DType::Duration(..)
         | DType::Union(..)
         | DType::Variant(_)
         | DType::Extension(_)) => {

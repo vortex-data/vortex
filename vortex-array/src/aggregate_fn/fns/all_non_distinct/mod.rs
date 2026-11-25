@@ -45,6 +45,7 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::fns::all_non_distinct::variant::check_variant_identical;
 use crate::arrays::StructArray;
+use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -280,6 +281,9 @@ fn check_canonical_identical(
         (Canonical::Bool(lhs), Canonical::Bool(rhs)) => check_bool_identical(lhs, rhs),
         (Canonical::Primitive(lhs), Canonical::Primitive(rhs)) => {
             check_primitive_identical(lhs, rhs)
+        }
+        (Canonical::Duration(lhs), Canonical::Duration(rhs)) => {
+            all_non_distinct(lhs.counts(), rhs.counts(), ctx)
         }
         (Canonical::Decimal(lhs), Canonical::Decimal(rhs)) => check_decimal_identical(lhs, rhs),
         (Canonical::VarBinView(lhs), Canonical::VarBinView(rhs)) => {

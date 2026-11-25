@@ -130,6 +130,7 @@ pub fn scalar_at_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             Scalar::try_map(array.dtype().clone(), pairs)?
         }
+        Canonical::Duration(_) => unreachable!("Duration arrays are not fuzzed"),
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

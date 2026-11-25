@@ -47,6 +47,11 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             Some(ScalarValue::Primitive(random_pvalue(u, p)?)),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Duration(..) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Primitive(PValue::I64(u.arbitrary()?))),
+        )
+        .vortex_expect("arbitrary duration has i64 storage"),
         DType::Decimal(decimal_type, _) => {
             Scalar::try_new(dtype.clone(), Some(random_decimal(u, decimal_type)?))
                 .vortex_expect("unable to construct random `Scalar`_")

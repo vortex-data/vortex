@@ -54,6 +54,7 @@ pub fn fill_null_canonical_array(
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
+        Canonical::Duration(_) => unreachable!("Duration arrays are not fuzzed"),
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

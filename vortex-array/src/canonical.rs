@@ -25,6 +25,8 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::arrays::Duration;
+use crate::arrays::DurationArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeList;
@@ -48,6 +50,8 @@ use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolArraySlotsExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::decimal::DecimalDataParts;
+use crate::arrays::duration::DurationArrayExt;
+use crate::arrays::duration::DurationArraySlotsExt;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewDataParts;
@@ -138,6 +142,8 @@ pub enum Canonical {
     Bool(BoolArray),
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
+    /// An array of elapsed-time counts.
+    Duration(DurationArray),
     VarBinView(VarBinViewArray),
     List(ListViewArray),
     Map(MapArray),
@@ -158,6 +164,7 @@ macro_rules! match_each_canonical {
             Canonical::Bool($ident) => $eval,
             Canonical::Primitive($ident) => $eval,
             Canonical::Decimal($ident) => $eval,
+            Canonical::Duration($ident) => $eval,
             Canonical::VarBinView($ident) => $eval,
             Canonical::List($ident) => $eval,
             Canonical::Map($ident) => $eval,
@@ -251,6 +258,13 @@ impl Canonical {
                     Validity::from(n),
                 )
             }),
+            DType::Duration(unit, nullability) => Canonical::Duration(
+                DurationArray::try_new(
+                    *unit,
+                    Canonical::empty(&DType::Primitive(PType::I64, *nullability)).into_array(),
+                )
+                .vortex_expect("empty duration storage has the declared dtype"),
+            ),
             DType::Union(variants, nullability) => {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
@@ -635,6 +649,17 @@ impl Executable for CanonicalValidity {
                     UnionArray::new_unchecked(type_ids, variants, children.iter().cloned())
                 })))
             }
+            Canonical::Duration(duration) => Ok(CanonicalValidity(Canonical::Duration(
+                DurationArray::try_new(
+                    duration.unit(),
+                    duration
+                        .counts()
+                        .clone()
+                        .execute::<CanonicalValidity>(ctx)?
+                        .0
+                        .into_array(),
+                )?,
+            ))),
             Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),
@@ -844,6 +869,17 @@ impl Executable for RecursiveCanonical {
                     UnionArray::new_unchecked(type_ids, variants, children)
                 })))
             }
+            Canonical::Duration(duration) => Ok(RecursiveCanonical(Canonical::Duration(
+                DurationArray::try_new(
+                    duration.unit(),
+                    duration
+                        .counts()
+                        .clone()
+                        .execute::<RecursiveCanonical>(ctx)?
+                        .0
+                        .into_array(),
+                )?,
+            ))),
             Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),
@@ -954,6 +990,18 @@ impl Executable for VarBinViewArray {
         match array.try_downcast::<VarBinView>() {
             Ok(varbinview) => Ok(varbinview),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
+        }
+    }
+}
+
+impl Executable for DurationArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_downcast::<Duration>() {
+            Ok(array) => Ok(array),
+            Err(array) => match array.execute::<Canonical>(ctx)? {
+                Canonical::Duration(array) => Ok(array),
+                other => vortex_panic!("Cannot unwrap DurationArray from {other:?}"),
+            },
         }
     }
 }
@@ -1069,6 +1117,7 @@ pub enum CanonicalView<'a> {
     Bool(ArrayView<'a, Bool>),
     Primitive(ArrayView<'a, Primitive>),
     Decimal(ArrayView<'a, Decimal>),
+    Duration(ArrayView<'a, Duration>),
     VarBinView(ArrayView<'a, VarBinView>),
     List(ArrayView<'a, ListView>),
     Map(ArrayView<'a, Map>),
@@ -1086,6 +1135,7 @@ impl From<CanonicalView<'_>> for Canonical {
             CanonicalView::Bool(a) => Canonical::Bool(a.into_owned()),
             CanonicalView::Primitive(a) => Canonical::Primitive(a.into_owned()),
             CanonicalView::Decimal(a) => Canonical::Decimal(a.into_owned()),
+            CanonicalView::Duration(a) => Canonical::Duration(a.into_owned()),
             CanonicalView::VarBinView(a) => Canonical::VarBinView(a.into_owned()),
             CanonicalView::List(a) => Canonical::List(a.into_owned()),
             CanonicalView::Map(a) => Canonical::Map(a.into_owned()),
@@ -1106,6 +1156,7 @@ impl CanonicalView<'_> {
             CanonicalView::Bool(a) => a.array().clone(),
             CanonicalView::Primitive(a) => a.array().clone(),
             CanonicalView::Decimal(a) => a.array().clone(),
+            CanonicalView::Duration(a) => a.array().clone(),
             CanonicalView::VarBinView(a) => a.array().clone(),
             CanonicalView::List(a) => a.array().clone(),
             CanonicalView::Map(a) => a.array().clone(),
@@ -1157,6 +1208,7 @@ canonical_kinds! {
     Bool => Bool,
     Primitive => Primitive,
     Decimal => Decimal,
+    Duration => Duration,
     Struct => Struct,
     Union => Union,
     List => ListView,

@@ -75,6 +75,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
@@ -101,7 +102,6 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
-use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::validity::Validity;
@@ -117,6 +117,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::dtype::from_arrow_duration_unit;
 use crate::dtype::from_arrow_time_unit;
 use crate::import_nullability::import_leaf;
 use crate::import_nullability::level_validity;
@@ -316,7 +317,7 @@ fn from_arrow_decimal<T: NativeDecimalType>(
 }
 
 /// Conversion of an Arrow timestamp, date, time, or duration array into a Vortex temporal
-/// extension array.
+/// array.
 pub fn from_arrow_temporal<T: ArrowPrimitiveType>(
     value: &ArrowPrimitiveArray<T>,
     nullable: bool,
@@ -344,9 +345,7 @@ where
         DataType::Date32 => TemporalArray::new_date(storage, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(storage, TimeUnit::Milliseconds).into(),
         DataType::Duration(unit) => {
-            let dtype =
-                Duration::try_new(from_arrow_time_unit(*unit), storage.dtype().nullability())?;
-            ExtensionArray::try_new(dtype.erased(), storage)?.into_array()
+            DurationArray::try_new(from_arrow_duration_unit(*unit), storage)?.into_array()
         }
         DataType::Interval(_) => {
             vortex_bail!("Arrow {} arrays are not supported", value.data_type())

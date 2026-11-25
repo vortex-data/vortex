@@ -47,6 +47,7 @@ use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
+use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
@@ -228,6 +229,7 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Null(array) => Ok(null_uncompressed_size_in_bytes(array)),
         Canonical::Bool(array) => bool_uncompressed_size_in_bytes(array, ctx),
         Canonical::Primitive(array) => primitive_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Duration(array) => uncompressed_size_in_bytes_u64(array.counts(), ctx),
         Canonical::Decimal(array) => decimal_uncompressed_size_in_bytes(array, ctx),
         Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, ctx),
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
@@ -255,6 +257,7 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         DType::Primitive(ptype, _) => {
             checked_len_mul(array.len(), ptype.byte_width(), "primitive")?
         }
+        DType::Duration(..) => checked_len_mul(array.len(), size_of::<i64>(), "duration")?,
         DType::Decimal(decimal_type, _) => checked_len_mul(
             array.len(),
             decimal_type.canonical_values_type().byte_width(),
@@ -327,6 +330,7 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
         | DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
+        | DType::Duration(..)
         | DType::Utf8(_)
         | DType::Binary(_) => true,
         DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {

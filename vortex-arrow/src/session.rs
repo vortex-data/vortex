@@ -62,7 +62,6 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::dtype::session::ExtDTypeRegistry;
 use vortex_array::extension::datetime::AnyTemporal;
-use vortex_array::extension::datetime::Duration;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -452,7 +451,7 @@ impl ArrowSession {
                     nullability.is_nullable(),
                 ))
             }
-            DType::Extension(ext) if !ext.is::<AnyTemporal>() && !ext.is::<Duration>() => {
+            DType::Extension(ext) if !ext.is::<AnyTemporal>() => {
                 match self.to_arrow_field_with_exporter(name, ext)? {
                     Some(field) => Ok(field),
                     None => self.to_arrow_storage_field(name, ext),
@@ -522,7 +521,7 @@ impl ArrowSession {
     /// [#11286]: https://github.com/vortex-data/vortex/issues/11286
     pub fn default_arrow_export_field(&self, dtype: &DType) -> VortexResult<Field> {
         match dtype {
-            DType::Extension(ext) if !ext.is::<AnyTemporal>() && !ext.is::<Duration>() => {
+            DType::Extension(ext) if !ext.is::<AnyTemporal>() => {
                 self.to_arrow_field_with_exporter("", ext)?.ok_or_else(|| {
                     vortex_err!(
                         "an Arrow export without a target field needs an extension type with an Arrow plugin, got {ext}"

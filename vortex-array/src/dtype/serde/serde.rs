@@ -23,6 +23,7 @@ use serde::ser::SerializeTupleVariant;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
+use crate::dtype::DurationUnit;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -124,6 +125,12 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
+            DType::Duration(unit, n) => {
+                let mut state = serializer.serialize_tuple_variant("DType", 13, "Duration", 2)?;
+                state.serialize_field(unit)?;
+                state.serialize_field(n)?;
+                state.end()
+            }
             DType::Map(map, n) => {
                 let mut state = serializer.serialize_tuple_variant("DType", 12, "Map", 4)?;
                 state.serialize_field(&map.key_dtype())?;
@@ -204,6 +211,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "Variant",
             "Extension",
             "Map",
+            "Duration",
         ];
 
         struct DTypeVisitor<'a> {
@@ -236,6 +244,12 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                         struct Fields(PType, Nullability);
                         let Fields(ptype, n) = access.newtype_variant()?;
                         Ok(DType::Primitive(ptype, n))
+                    }
+                    "Duration" => {
+                        #[derive(Deserialize)]
+                        struct Fields(DurationUnit, Nullability);
+                        let Fields(unit, n) = access.newtype_variant()?;
+                        Ok(DType::Duration(unit, n))
                     }
                     "Decimal" => {
                         #[derive(Deserialize)]

@@ -354,6 +354,9 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             len,
             ctx,
         )?,
+        DType::Duration(..) => {
+            vortex_bail!("Sparse canonicalization does not support Duration arrays")
+        }
         DType::Union(..) => vortex_bail!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
             vortex_bail!("Sparse canonicalization does not support Variant")

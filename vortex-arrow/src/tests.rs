@@ -26,9 +26,8 @@ use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::Nullability;
-use vortex_array::extension::datetime::Duration;
-use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -93,19 +92,19 @@ fn test_sliced_map_imports_only_its_entries(
 const DURATION_COUNTS: [Option<i64>; 4] = [Some(i64::MIN), None, Some(42), Some(i64::MAX)];
 
 #[rstest]
-#[case::seconds(TimeUnit::Seconds, Arc::new(DurationSecondArray::from(DURATION_COUNTS.to_vec())))]
-#[case::milliseconds(TimeUnit::Milliseconds, Arc::new(DurationMillisecondArray::from(DURATION_COUNTS.to_vec())))]
-#[case::microseconds(TimeUnit::Microseconds, Arc::new(DurationMicrosecondArray::from(DURATION_COUNTS.to_vec())))]
-#[case::nanoseconds(TimeUnit::Nanoseconds, Arc::new(DurationNanosecondArray::from(DURATION_COUNTS.to_vec())))]
+#[case::seconds(DurationUnit::Seconds, Arc::new(DurationSecondArray::from(DURATION_COUNTS.to_vec())))]
+#[case::milliseconds(DurationUnit::Milliseconds, Arc::new(DurationMillisecondArray::from(DURATION_COUNTS.to_vec())))]
+#[case::microseconds(DurationUnit::Microseconds, Arc::new(DurationMicrosecondArray::from(DURATION_COUNTS.to_vec())))]
+#[case::nanoseconds(DurationUnit::Nanoseconds, Arc::new(DurationNanosecondArray::from(DURATION_COUNTS.to_vec())))]
 fn test_native_duration_round_trip(
-    #[case] unit: TimeUnit,
+    #[case] unit: DurationUnit,
     #[case] input: ArrowArrayRef,
 ) -> VortexResult<()> {
     let session = VortexSession::empty();
     let arrow = session.arrow();
     let mut ctx = session.create_execution_ctx();
     let field = Field::new("elapsed", input.data_type().clone(), true);
-    let expected = DType::Extension(Duration::try_new(unit, Nullability::Nullable)?.erased());
+    let expected = DType::Duration(unit, Nullability::Nullable);
 
     assert_eq!(arrow.from_arrow_field(&field)?, expected);
     let imported = arrow.from_arrow_array(Arc::clone(&input), &field)?;

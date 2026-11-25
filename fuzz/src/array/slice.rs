@@ -135,7 +135,11 @@ pub fn slice_canonical_array(
             }
             Ok(builder.finish())
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        d @ (DType::Null
+        | DType::Duration(..)
+        | DType::Union(..)
+        | DType::Variant(_)
+        | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

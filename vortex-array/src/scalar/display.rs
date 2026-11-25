@@ -15,6 +15,10 @@ impl Display for Scalar {
             DType::Null => write!(f, "null"),
             DType::Bool(_) => write!(f, "{}", self.as_bool()),
             DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
+            DType::Duration(unit, _) => match self.value() {
+                Some(value) => write!(f, "{}{unit}", value.as_primitive()),
+                None => f.write_str("null"),
+            },
             DType::Decimal(..) => write!(f, "{}", self.as_decimal()),
             DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
             DType::Binary(_) => write!(f, "{}", self.as_binary()),

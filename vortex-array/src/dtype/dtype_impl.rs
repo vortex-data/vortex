@@ -62,6 +62,7 @@ impl DType {
             Bool(null)
             | Primitive(_, null)
             | Decimal(_, null)
+            | Duration(_, null)
             | Utf8(null)
             | Binary(null)
             | List(_, null)
@@ -96,6 +97,7 @@ impl DType {
             Bool(_) => Bool(nullability),
             Primitive(pdt, _) => Primitive(*pdt, nullability),
             Decimal(ddt, _) => Decimal(*ddt, nullability),
+            Duration(unit, _) => Duration(*unit, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
@@ -121,6 +123,7 @@ impl DType {
             (Bool(_), Bool(_)) => true,
             (Primitive(lhs_ptype, _), Primitive(rhs_ptype, _)) => lhs_ptype == rhs_ptype,
             (Decimal(lhs, _), Decimal(rhs, _)) => lhs == rhs,
+            (Duration(lhs, _), Duration(rhs, _)) => lhs == rhs,
             (Utf8(_), Utf8(_)) => true,
             (Binary(_), Binary(_)) => true,
             (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
@@ -148,6 +151,7 @@ impl DType {
             Null | Bool(_) | Utf8(_) | Binary(_) | Variant(_) => {}
             Primitive(ptype, _) => ptype.hash(state),
             Decimal(decimal, _) => decimal.hash(state),
+            Duration(unit, _) => unit.hash(state),
             List(element, _) => element.hash_ignore_nullability(state),
             FixedSizeList(element, size, _) => {
                 element.hash_ignore_nullability(state);
@@ -315,6 +319,7 @@ impl DType {
             Null => Some(0),
             Bool(_) => Some(1),
             Primitive(ptype, _) => Some(ptype.byte_width()),
+            Duration(..) => Some(size_of::<i64>()),
             Decimal(decimal, _) => Some(decimal.canonical_values_type().byte_width()),
             Utf8(_) | Binary(_) | List(..) | Map(..) => None,
             FixedSizeList(elem_dtype, list_size, _) => {
@@ -550,6 +555,7 @@ impl Display for DType {
             Bool(null) => write!(f, "bool{null}"),
             Primitive(pdt, null) => write!(f, "{pdt}{null}"),
             Decimal(ddt, null) => write!(f, "{ddt}{null}"),
+            Duration(unit, null) => write!(f, "duration[{unit}]{null}"),
             Utf8(null) => write!(f, "utf8{null}"),
             Binary(null) => write!(f, "binary{null}"),
             List(edt, null) => write!(f, "list({edt}){null}"),

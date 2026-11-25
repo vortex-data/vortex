@@ -965,6 +965,9 @@ fn slice_cast_targets(dtype: &DType) -> Vec<DType> {
             }
             targets
         }
+        DType::Duration(unit, nullability) => {
+            vec![DType::Duration(*unit, (!nullability.is_nullable()).into())]
+        }
         DType::Decimal(decimal_type, nullability) => {
             let opposite = match nullability {
                 Nullability::NonNullable => Nullability::Nullable,

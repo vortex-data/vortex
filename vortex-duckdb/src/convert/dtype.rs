@@ -264,6 +264,7 @@ impl TryFrom<&DType> for LogicalType {
                 return LogicalType::map_type(&key_logical_type, &value_logical_type);
             }
             // TODO(connor): Union
+            DType::Duration(..) => vortex_bail!("Vortex Duration is not supported in DuckDB"),
             DType::Union(..) => vortex_bail!("Vortex Union isn't supported"),
             DType::Variant(_) => {
                 vortex_bail!("Vortex Variant array aren't supported")

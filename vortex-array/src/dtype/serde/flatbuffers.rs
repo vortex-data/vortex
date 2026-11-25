@@ -16,6 +16,7 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::DurationUnit;
 use crate::dtype::FieldDType;
 use crate::dtype::FieldNames;
 use crate::dtype::MapDType;
@@ -280,6 +281,15 @@ impl TryFrom<ViewedDType> for DType {
                     UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
                 Ok(Self::Union(variants, fb_union.nullable().into()))
             }
+            fb::Type::Duration => {
+                let duration = fb
+                    .type__as_duration()
+                    .ok_or_else(|| vortex_err!("failed to parse duration from flatbuffer"))?;
+                Ok(Self::Duration(
+                    DurationUnit::try_from(duration.unit())?,
+                    duration.nullable().into(),
+                ))
+            }
             fb::Type::Variant => {
                 let fb_variant = fb
                     .type__as_variant()
@@ -472,6 +482,14 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::Duration(unit, n) => fb::Duration::create(
+                fbb,
+                &fb::DurationArgs {
+                    unit: u8::from(*unit),
+                    nullable: (*n).into(),
+                },
+            )
+            .as_union_value(),
             Self::Variant(n) => fb::Variant::create(
                 fbb,
                 &fb::VariantArgs {
@@ -508,6 +526,7 @@ impl WriteFlatBuffer for DType {
             Self::Struct(..) => fb::Type::Struct_,
             Self::Union(..) => fb::Type::Union,
             Self::Variant(_) => fb::Type::Variant,
+            Self::Duration(..) => fb::Type::Duration,
             Self::Extension { .. } => fb::Type::Extension,
         };
 

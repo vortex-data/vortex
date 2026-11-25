@@ -297,6 +297,7 @@ fn has_builder(dtype: &DType) -> bool {
         | DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
+        | DType::Duration(..)
         | DType::Utf8(_)
         | DType::Binary(_)
         | DType::Variant(_) => true,

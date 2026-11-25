@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::dtype::MapDType;
+use crate::dtype::PType;
 use crate::dtype::UnionVariants;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -51,6 +52,7 @@ impl Scalar {
             (DType::Primitive(ptype, _), ScalarValue::Primitive(pvalue)) => {
                 pvalue.ptype() == *ptype
             }
+            (DType::Duration(..), ScalarValue::Primitive(pvalue)) => pvalue.ptype() == PType::I64,
             _ => Self::is_compatible_nested(dtype, value),
         }
     }
@@ -222,6 +224,12 @@ impl Scalar {
                 for (field, field_value) in fields.field_dtypes().zip(values.iter()) {
                     Self::validate_detailed(field, field_value.as_ref())?;
                 }
+            }
+            DType::Duration(..) => {
+                Self::validate_detailed(
+                    &DType::Primitive(PType::I64, dtype.nullability()),
+                    Some(value),
+                )?;
             }
             DType::Union(variants, _) => Self::validate_union(variants, value)?,
             DType::Variant(_) => {
