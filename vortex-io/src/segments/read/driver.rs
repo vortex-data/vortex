@@ -337,25 +337,26 @@ impl State {
 mod tests {
     use futures::StreamExt;
     use futures::channel::mpsc;
-    use futures::channel::oneshot;
     use futures::stream;
-    use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
-    use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_metrics::DefaultMetricsRegistry;
     use vortex_metrics::MetricValue;
     use vortex_metrics::MetricsRegistry;
 
     use super::*;
+    use crate::segments::SharedSegment;
     use crate::segments::read::request::IoRequestInner;
+    use crate::segments::shared::Completer;
 
-    fn create_request(
-        id: usize,
-        offset: u64,
-        length: usize,
-    ) -> (ReadRequest, oneshot::Receiver<VortexResult<BufferHandle>>) {
-        let (tx, rx) = oneshot::channel();
+    /// A completer and the read it fills, which the request is canceled without.
+    fn channel() -> (Completer, SharedSegment) {
+        let (shared, completer) = SharedSegment::filled(None);
+        (completer, shared)
+    }
+
+    fn create_request(id: usize, offset: u64, length: usize) -> (ReadRequest, SharedSegment) {
+        let (tx, rx) = channel();
         (
             ReadRequest {
                 id,
@@ -551,8 +552,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_coalesce_alignment_adjustment() {
-        let (tx1, _rx1) = oneshot::channel();
-        let (tx2, _rx2) = oneshot::channel();
+        let (tx1, _rx1) = channel();
+        let (tx2, _rx2) = channel();
 
         let req1 = ReadRequest {
             id: 1,
@@ -624,8 +625,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_cancelled_requests() {
-        let (tx1, rx1) = oneshot::channel();
-        let (tx2, _rx2) = oneshot::channel();
+        let (tx1, rx1) = channel();
+        let (tx2, _rx2) = channel();
 
         // Drop rx1 to cancel request 1
         drop(rx1);
@@ -664,7 +665,7 @@ mod tests {
         let mut state = State::new(metrics, Alignment::none());
 
         // Cancel before registration: request should never enter state indexes.
-        let (tx1, rx1) = oneshot::channel();
+        let (tx1, rx1) = channel();
         drop(rx1);
         let req1 = ReadRequest {
             id: 1,
@@ -679,7 +680,7 @@ mod tests {
         assert!(state.requests_by_offset.is_empty());
 
         // Cancel after registration but before first poll: should be removed on Polled event.
-        let (tx2, rx2) = oneshot::channel();
+        let (tx2, rx2) = channel();
         let req2 = ReadRequest {
             id: 2,
             offset: 20,

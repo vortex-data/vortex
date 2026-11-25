@@ -150,6 +150,9 @@
     "varbinview_zip": 2,
     "zip_dtypes": 9
   },
+  "vortex-io": {
+    "shared_segment": 0
+  },
   "vortex-layout": {
     "aggregate_partial_merge": 3,
     "bloom_filter": 8,

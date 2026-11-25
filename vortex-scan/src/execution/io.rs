@@ -13,12 +13,9 @@ use futures::TryFutureExt;
 use futures::future::AbortHandle;
 use futures::future::Aborted;
 use futures::future::BoxFuture;
-use futures::future::Shared;
 use futures::future::abortable;
 use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
-use vortex_array::buffer::BufferHandle;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -31,6 +28,7 @@ use vortex_io::request::IoResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::segments::SharedSegment;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::execution::SegmentLocation;
@@ -95,7 +93,7 @@ pub(super) struct SegmentIoSource {
 }
 
 /// A read started ahead of the fetch that needs it.
-type Prefetched = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
+type Prefetched = SharedSegment;
 
 impl SegmentIoSource {
     pub(super) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
@@ -148,15 +146,13 @@ impl IoSource for SegmentIoSource {
             }
             if request.intent == IoIntent::Prefetch {
                 prefetched.entry(segment).or_insert_with(|| {
-                    let read = self
-                        .announced
-                        .lock()
-                        .get_mut(&segment)
-                        .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared();
+                    let read = SharedSegment::new(
+                        self.announced
+                            .lock()
+                            .get_mut(&segment)
+                            .and_then(VecDeque::pop_front)
+                            .unwrap_or_else(|| self.segments.request(segment)),
+                    );
                     // Polling registers the read as wanted, so the source starts it now.
                     drop(
                         read.clone()
@@ -172,14 +168,13 @@ impl IoSource for SegmentIoSource {
             let mut bytes = prefetched
                 .entry(segment)
                 .or_insert_with(|| {
-                    self.announced
-                        .lock()
-                        .get_mut(&segment)
-                        .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared()
+                    SharedSegment::new(
+                        self.announced
+                            .lock()
+                            .get_mut(&segment)
+                            .and_then(VecDeque::pop_front)
+                            .unwrap_or_else(|| self.segments.request(segment)),
+                    )
                 })
                 .clone()
                 .map_err(move |err| vortex_err!("read of segment {segment} failed: {err}"))

@@ -11937,6 +11937,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bytes",
+ "codspeed-divan-compat",
  "crossbeam-channel",
  "custom-labels",
  "futures",
