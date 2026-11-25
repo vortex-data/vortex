@@ -32,6 +32,7 @@ use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexResult;
+use vortex_fastlanes::FoR;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
@@ -312,10 +313,7 @@ fn test_v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()>
             .as_ref(),
         "vortex.runend"
     );
-    assert_ne!(
-        full.compress(&i64_chunk, &mut ctx)?.encoding_id(),
-        for_v1_id()
-    );
+    assert!(!full.compress(&i64_chunk, &mut ctx)?.is::<FoR>());
 
     let i32_chunk = PrimitiveArray::from_iter((0..122_880i32).map(|i| (i / 4) + 1)).into_array();
     assert_eq!(
@@ -325,10 +323,7 @@ fn test_v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()>
             .as_ref(),
         "vortex.runend"
     );
-    assert_ne!(
-        full.compress(&i32_chunk, &mut ctx)?.encoding_id(),
-        for_v1_id()
-    );
+    assert!(!full.compress(&i32_chunk, &mut ctx)?.is::<FoR>());
     Ok(())
 }
 
