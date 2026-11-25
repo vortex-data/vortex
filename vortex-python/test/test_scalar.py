@@ -212,6 +212,32 @@ def test_timestamp_scalar_rejects_precision_loss() -> None:
         _ = vx.scalar(datetime.datetime(1970, 1, 1, 0, 0, 0, 1), dtype=vx.timestamp("s"))
 
 
+def test_duration_scalar_defaults_to_microseconds() -> None:
+    scalar = vx.scalar(datetime.timedelta(seconds=1, microseconds=500))
+    assert scalar.dtype == vx.duration("us")
+    assert scalar.as_py() == 1_000_500
+
+
+@pytest.mark.parametrize(
+    "unit,expected",
+    [
+        ("s", -2),
+        ("ms", -2_000),
+        ("us", -2_000_000),
+        ("ns", -2_000_000_000),
+    ],
+)
+def test_duration_scalar_respects_dtype_unit(unit: str, expected: int) -> None:
+    scalar = vx.scalar(datetime.timedelta(seconds=-2), dtype=vx.duration(unit))  # ty: ignore[invalid-argument-type]
+    assert scalar.dtype == vx.duration(unit)  # ty: ignore[invalid-argument-type]
+    assert scalar.as_py() == expected
+
+
+def test_duration_scalar_rejects_precision_loss() -> None:
+    with pytest.raises(ValueError, match="without losing precision"):
+        _ = vx.scalar(datetime.timedelta(microseconds=1), dtype=vx.duration("s"))
+
+
 @pytest.mark.parametrize(
     "value,precision,scale",
     [

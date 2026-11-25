@@ -339,6 +339,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::extension::datetime::Date;
+    use crate::extension::datetime::Duration;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
@@ -468,9 +469,11 @@ mod tests {
         let aggregate_fns = session.aggregate_fns();
         for id in [
             ExtensionStoragePushdown::new(IsSorted, Date).id(),
+            ExtensionStoragePushdown::new(IsSorted, Duration).id(),
             ExtensionStoragePushdown::new(IsSorted, Time).id(),
             ExtensionStoragePushdown::new(IsSorted, Timestamp).id(),
             ExtensionStoragePushdown::new(MinMax, Date).id(),
+            ExtensionStoragePushdown::new(MinMax, Duration).id(),
             ExtensionStoragePushdown::new(MinMax, Time).id(),
             ExtensionStoragePushdown::new(MinMax, Timestamp).id(),
         ] {

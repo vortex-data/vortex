@@ -21,6 +21,7 @@ use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::datetime::AnyTemporal;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
@@ -116,6 +117,21 @@ impl TemporalData {
         Self {
             ext: ExtensionArray::new(
                 Timestamp::new_with_tz(time_unit, time_zone, array.dtype().nullability()).erased(),
+                array,
+            ),
+        }
+    }
+
+    /// Creates a duration array with the given time unit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `array` does not have primitive i64 storage, or if
+    /// [`Duration::try_new`] rejects the unit.
+    pub fn new_duration(array: ArrayRef, time_unit: TimeUnit) -> Self {
+        Self {
+            ext: ExtensionArray::new(
+                Duration::new(time_unit, array.dtype().nullability()).erased(),
                 array,
             ),
         }
