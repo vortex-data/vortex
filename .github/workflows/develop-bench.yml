@@ -121,7 +121,7 @@ jobs:
         benchmark: [random-access-bench, compress-bench, string-bench]
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo-{1}', github.run_id, matrix.benchmark)
+          && format('runs-on={0}/region=us-east-1/runner=arm64-fuzz/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo-{1}', github.run_id, matrix.benchmark)
           || 'ubuntu-latest' }}
     steps:
       - parallel:

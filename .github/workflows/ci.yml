@@ -36,16 +36,10 @@ jobs:
   lightweight-checks:
     name: "Formatting, Python lint and script tests"
     if: github.event.pull_request.draft != true
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
-          || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - parallel:
           - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
             with:

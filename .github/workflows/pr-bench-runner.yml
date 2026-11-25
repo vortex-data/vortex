@@ -85,7 +85,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo-{1}', github.run_id, inputs.benchmark_id)
+          && format('runs-on={0}/region=us-east-1/runner=arm64-fuzz/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo-{1}', github.run_id, inputs.benchmark_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
