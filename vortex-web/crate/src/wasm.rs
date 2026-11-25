@@ -59,13 +59,13 @@ struct BlobReadAt {
     size: u64,
 }
 
-// SAFETY: WASM is single-threaded — Blob is never accessed from multiple threads.
+// SAFETY: BlobReadAt stays on its creating Web Worker; WasmRuntime uses spawn_local.
 unsafe impl Send for BlobReadAt {}
 unsafe impl Sync for BlobReadAt {}
 
 /// Wrapper to mark a `JsFuture` as `Send`.
 ///
-/// SAFETY: WASM is single-threaded, so `JsFuture` is never accessed from multiple threads.
+/// SAFETY: The future stays on its creating Web Worker, driven by `WasmRuntime`'s `spawn_local`.
 struct SendFuture(JsFuture);
 
 unsafe impl Send for SendFuture {}
@@ -105,7 +105,7 @@ impl VortexReadAt for BlobReadAt {
             .blob
             .slice_with_f64_and_f64(start, end)
             .expect("Blob.slice() failed");
-        // SAFETY: WASM is single-threaded so the non-Send JsFuture is safe to wrap.
+        // SAFETY: WasmRuntime polls and drops this future on its creating Web Worker.
         let future = SendFuture(JsFuture::from(slice.array_buffer()));
         async move {
             let array_buffer = future.await.expect("Blob.arrayBuffer() failed");

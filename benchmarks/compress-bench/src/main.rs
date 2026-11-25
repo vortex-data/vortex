@@ -312,7 +312,7 @@ async fn run_compress(
 
     let sparse_wide = SparseWide::ALL;
     // Keep the full cohort and nested genotype fields, sampling only the variant rows.
-    let statpopgen = StatPopGenBenchmark::new(10)?;
+    let statpopgen = StatPopGenBenchmark::new(10, None)?;
     let all_datasets: Vec<&dyn Dataset> = [
         &statpopgen as &dyn Dataset,
         &TaxiData as &dyn Dataset,

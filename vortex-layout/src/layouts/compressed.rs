@@ -81,8 +81,11 @@ impl CompressingStrategy {
         }
     }
 
+    /// Sets the number of chunks compressed concurrently.
+    ///
+    /// Values less than 1 are clamped to 1. Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency;
+        self.concurrency = concurrency.max(1);
         self
     }
 
@@ -173,6 +176,7 @@ impl LayoutStrategy for CompressingStrategy {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
@@ -183,6 +187,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutStrategy;
@@ -232,6 +237,29 @@ mod tests {
         assert!(size_scope.compression_ratio() < 64.0 / input_bytes);
         assert_eq!(size_scope.uncompressed_bytes(), 0);
         assert_eq!(buffered_bytes.buffered_bytes(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn compressing_completes_with_zero_concurrency() -> VortexResult<()> {
+        let src = Buffer::from_iter(0..10u64).into_array();
+        let ctx = LayoutWriterContext::new(ArrayContext::empty());
+        let strategy = CompressingStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            constant_compressor,
+        )
+        .with_concurrency(0);
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = src.to_array_stream().sequenced(ptr);
+        let session = new_session().with_handle(TokioRuntime::current());
+        let layout = tokio::time::timeout(
+            Duration::from_secs(5),
+            strategy.write_stream(ctx, segments, stream, eof, &session),
+        )
+        .await
+        .expect("compression write stalled")?;
+        assert_eq!(layout.row_count(), 10);
         Ok(())
     }
 }

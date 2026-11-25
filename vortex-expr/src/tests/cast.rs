@@ -3,6 +3,7 @@
 
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
@@ -11,6 +12,10 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::Time;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::cast::Cast;
@@ -141,4 +146,45 @@ fn test_display() {
 
     let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
     assert_eq!(expr2.to_string(), "cast($ as bool?)");
+}
+
+const NON_NULLABLE: Nullability = Nullability::NonNullable;
+
+#[rstest]
+#[case::coarser_unit(
+    DType::Extension(Timestamp::new_with_tz(
+        TimeUnit::Milliseconds, Some("UTC".into()), NON_NULLABLE,
+    ).erased()),
+    "change_time_unit",
+)]
+#[case::change_zone(
+    DType::Extension(Timestamp::new_with_tz(
+        TimeUnit::Nanoseconds, Some("+01:00".into()), NON_NULLABLE,
+    ).erased()),
+    "convert_time_zone",
+)]
+#[case::remove_zone(
+    DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, NON_NULLABLE).erased()),
+    "replace_time_zone",
+)]
+#[case::date(
+    DType::Extension(Date::new(TimeUnit::Days, NON_NULLABLE).erased()),
+    "timestamp_to_date",
+)]
+#[case::time(
+    DType::Extension(Time::new(TimeUnit::Nanoseconds, NON_NULLABLE).erased()),
+    "timestamp_to_time",
+)]
+#[case::storage(DType::Primitive(PType::I64, NON_NULLABLE), "ext_storage")]
+fn test_unsupported_timestamp_cast_suggests_conversion(
+    #[case] target: DType,
+    #[case] function: &str,
+) {
+    let input = DType::Extension(
+        Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some("UTC".into()), NON_NULLABLE).erased(),
+    );
+    let error = cast(root(), target)
+        .bind(&input)
+        .expect_err("the conversion requires a named function");
+    assert!(error.to_string().contains(function), "{error}");
 }

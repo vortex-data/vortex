@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
 use itertools::Itertools;
@@ -38,7 +38,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
@@ -122,13 +122,13 @@ impl Clone for BindState {
         Self {
             dtype: self.dtype.clone(),
             first_file_row_count: self.first_file_row_count,
-            filters: vec![],
+            filters: self.filters.clone(),
             columns: self.columns.clone(),
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
-            no_footer_caches: false,
+            no_footer_caches: self.no_footer_caches,
         }
     }
 }
@@ -398,7 +398,7 @@ fn build_partials(
 }
 
 pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     {
         unsafe {
             use custom_labels::sys;
@@ -823,4 +823,24 @@ pub fn deserialize(
         field.projection_expr = Some(expr);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::expr::col;
+    use vortex::expr::gt;
+    use vortex::expr::lit;
+
+    use super::BindState;
+
+    #[test]
+    fn test_bind_state_clone_preserves_filters_and_cache_flag() {
+        let mut state = BindState::empty();
+        state.filters = vec![gt(col("a"), lit(10i32))];
+        state.no_footer_caches = true;
+
+        let cloned = state.clone();
+        assert_eq!(cloned.filters, state.filters);
+        assert!(cloned.no_footer_caches);
+    }
 }

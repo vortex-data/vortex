@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -304,17 +303,24 @@ pub fn runend_decode_primitive(
 ///
 /// This is the core decode loop shared by primitive and varbinview run-end decoding.
 fn runend_decode_slice<T: Copy + Default>(
-    run_ends: impl Iterator<Item = usize>,
+    run_ends: impl ExactSizeIterator<Item = usize>,
     values: &[T],
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
     allocator: &BufferAllocatorRef,
 ) -> (Buffer<T>, Validity) {
+    // Checked once here so the loops can use `zip`, which unlike `zip_eq` compiles to a single
+    // counted loop over the slices instead of checking both iterators for their end on every run.
+    assert_eq!(
+        run_ends.len(),
+        values.len(),
+        "run ends and values must have the same length"
+    );
     match values_validity {
         Mask::AllTrue(_) => {
             let mut decoded = RunWriter::new(length, allocator);
-            for (end, &value) in run_ends.zip_eq(values) {
+            for (end, &value) in run_ends.zip(values) {
                 decoded.write_run(value, end);
             }
             (decoded.finish(), values_nullability.into())
@@ -327,7 +333,7 @@ fn runend_decode_slice<T: Copy + Default>(
             let mut decoded_validity = BitBufferMut::full(true, length);
             let mut null_start = None;
             for (end, (&value, is_valid)) in
-                run_ends.zip_eq(values.iter().zip(mask.bit_buffer().iter()))
+                run_ends.zip(values.iter().zip(mask.bit_buffer().iter()))
             {
                 let start = decoded.len();
                 decoded.write_run(if is_valid { value } else { T::default() }, end);
@@ -426,7 +432,7 @@ impl<T: Copy> RunWriter<T> {
 }
 
 pub fn runend_decode_typed_primitive<T: NativePType>(
-    run_ends: impl Iterator<Item = usize>,
+    run_ends: impl ExactSizeIterator<Item = usize>,
     values: &[T],
     values_validity: Mask,
     values_nullability: Nullability,
@@ -528,6 +534,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -538,8 +545,10 @@ mod tests {
     use crate::arrays::bool::BoolArrayExt;
     use crate::arrays::runend::compress::bool_run_count;
     use crate::arrays::runend::compress::runend_decode_primitive;
+    use crate::arrays::runend::compress::runend_decode_typed_primitive;
     use crate::arrays::runend::compress::runend_encode;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -671,5 +680,19 @@ mod tests {
         )?;
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "run ends and values must have the same length")]
+    fn typed_primitive_rejects_mismatched_run_ends() {
+        let ctx = SESSION.create_execution_ctx();
+        runend_decode_typed_primitive(
+            [1, 3, 4].into_iter(),
+            &[1i32, 2],
+            Mask::AllTrue(2),
+            Nullability::NonNullable,
+            4,
+            ctx.allocator(),
+        );
     }
 }

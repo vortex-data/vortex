@@ -244,11 +244,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self.concurrency.max
     }
 
-    /// The number of row splits to make progress on concurrently per-thread, must
-    /// be greater than 0.
+    /// The number of row splits to make progress on concurrently per-thread.
+    ///
+    /// Values less than 1 are clamped to 1.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        assert!(concurrency > 0);
-        self.concurrency.per_worker = concurrency;
+        self.concurrency.per_worker = concurrency.max(1);
         self
     }
 

@@ -13,6 +13,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::Distribution;
 use rand_distr::Exp;
+use url::form_urlencoded::byte_serialize;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Target;
@@ -276,14 +277,28 @@ fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) 
     }
 }
 
-fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAccessRun) {
-    // v3 records have no storage field, so S3 runs get their own dataset name. Otherwise they
-    // would share a measurement ID with, and overwrite, the local-disk rows.
-    let dataset = if run.timing.storage == STORAGE_S3 {
-        format!("{}-s3", run.dataset)
-    } else {
-        run.dataset.clone()
-    };
+/// Revision of the work inside the S3 timer. Revision 2 opens the fixture directly, so timed
+/// reopens use only the remote files. Bump this when the timed work changes.
+const S3_TIMING_VERSION: u8 = 2;
+
+/// Identify the fixture and timing revision in the ingest dataset name, which has no storage
+/// field. Encode the fixture URI as one component so the next component is the access pattern.
+fn s3_dataset_suffix(remote: &RemoteDataDir) -> Result<String> {
+    let uri = remote.uri("")?;
+    let fixture: String = byte_serialize(uri.as_bytes()).collect();
+    Ok(format!("-read-v{S3_TIMING_VERSION}-{fixture}-s3"))
+}
+
+fn push_v3_random_access_record(
+    records: &mut Vec<v3::V3Record>,
+    run: &RandomAccessRun,
+    remote_dataset_suffix: Option<&str>,
+) {
+    let dataset = format!(
+        "{}{}",
+        run.dataset,
+        remote_dataset_suffix.unwrap_or_default()
+    );
     let dataset = v3_random_access_dataset_name(&dataset, run.pattern);
     let open_mode = if run.reopen { "reopen" } else { "cached" };
     records.push(v3::random_access_record(&run.timing, &dataset, open_mode));
@@ -310,8 +325,7 @@ async fn dataset_path(dataset: &dyn BenchDataset, format: Format) -> Result<Path
 
 /// Materialize every local data file needed for `datasets` and `formats`.
 ///
-/// Remote runs read data that must already exist in the remote directory, so this is run first
-/// (locally) and the resulting files uploaded verbatim.
+/// Use this to create local benchmark data or to build a snapshot for uploading to S3.
 pub async fn prepare_data(datasets: &[Box<dyn BenchDataset>], formats: &[Format]) -> Result<()> {
     for dataset in datasets {
         for format in formats {
@@ -322,10 +336,6 @@ pub async fn prepare_data(datasets: &[Box<dyn BenchDataset>], formats: &[Format]
     Ok(())
 }
 
-/// Open a random accessor for any supported format.
-///
-/// For Vortex and Parquet, the path comes from [`BenchDataset::path`].
-/// For Lance (behind the `lance` feature), the path is resolved from lance-bench helpers.
 async fn open_accessor(
     dataset: &dyn BenchDataset,
     format: Format,
@@ -337,42 +347,67 @@ async fn open_accessor(
         format.ext(),
         source_suffix(remote.is_some())
     );
+
+    if let Some(remote) = remote {
+        return open_s3_accessor(dataset, format, remote, name).await;
+    }
+
     match format {
         Format::ArrowIpc => {
-            if remote.is_some() {
-                anyhow::bail!("Arrow IPC random access is only supported from local disk");
-            }
             let path = dataset.path(format).await?;
             Ok(Box::new(ArrowIpcRandomAccessor::open(path, name)?))
         }
         Format::OnDiskVortex | Format::VortexCompact => {
             let path = dataset_path(dataset, format).await?;
-            Ok(match remote {
-                Some(remote) => Box::new(
-                    VortexRandomAccessor::open_object_store(remote, &path, name, format).await?,
-                ),
-                None => Box::new(VortexRandomAccessor::open(path, name, format).await?),
-            })
+            Ok(Box::new(
+                VortexRandomAccessor::open(path, name, format).await?,
+            ))
         }
         Format::Parquet => {
             let path = dataset_path(dataset, format).await?;
-            Ok(match remote {
-                Some(remote) => {
-                    Box::new(ParquetRandomAccessor::open_object_store(remote, &path, name).await?)
-                }
-                None => Box::new(ParquetRandomAccessor::open(path, name).await?),
-            })
+            Ok(Box::new(ParquetRandomAccessor::open(path, name).await?))
         }
         #[cfg(feature = "lance")]
         Format::Lance => {
-            use lance_bench::random_access;
             let path = dataset_path(dataset, format).await?;
-            Ok(match remote {
-                Some(remote) => Box::new(
-                    random_access::LanceRandomAccessor::open_uri(&remote.uri(&path)?, name).await?,
-                ),
-                None => Box::new(random_access::LanceRandomAccessor::open(path, name).await?),
-            })
+            Ok(Box::new(
+                lance_bench::random_access::LanceRandomAccessor::open(path, name).await?,
+            ))
+        }
+        other => anyhow::bail!("open_accessor not implemented for {other}"),
+    }
+}
+
+/// Resolve all S3 paths from dataset metadata so timed reopens only touch the remote files.
+async fn open_s3_accessor(
+    dataset: &dyn BenchDataset,
+    format: Format,
+    remote: &RemoteDataDir,
+    name: String,
+) -> Result<Box<dyn RandomAccessor>> {
+    match format {
+        Format::OnDiskVortex | Format::VortexCompact => {
+            let relative_path = dataset.relative_path(format);
+            Ok(Box::new(
+                VortexRandomAccessor::open_object_store(remote, &relative_path, name, format)
+                    .await?,
+            ))
+        }
+        Format::Parquet => {
+            let relative_path = dataset.relative_path(format);
+            Ok(Box::new(
+                ParquetRandomAccessor::open_object_store(remote, &relative_path, name).await?,
+            ))
+        }
+        #[cfg(feature = "lance")]
+        Format::Lance => {
+            let uri = remote.uri(&dataset.relative_path(format))?;
+            Ok(Box::new(
+                lance_bench::random_access::LanceRandomAccessor::open_uri(&uri, name).await?,
+            ))
+        }
+        Format::ArrowIpc => {
+            anyhow::bail!("Arrow IPC random access is only supported from local disk");
         }
         other => anyhow::bail!("open_accessor not implemented for {other}"),
     }
@@ -424,6 +459,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
     } = config;
 
     let remote = remote_data_dir.as_ref();
+    let remote_dataset_suffix = remote.map(s3_dataset_suffix).transpose()?;
     let storage = if remote.is_some() {
         STORAGE_S3
     } else {
@@ -473,7 +509,11 @@ pub async fn run(config: RunConfig) -> Result<()> {
                     )
                     .await?;
 
-                    push_v3_random_access_record(&mut v3_records, &run);
+                    push_v3_random_access_record(
+                        &mut v3_records,
+                        &run,
+                        remote_dataset_suffix.as_deref(),
+                    );
                     runs.push(run);
                     progress.inc(1);
                 }
@@ -502,7 +542,11 @@ pub async fn run(config: RunConfig) -> Result<()> {
                     )
                     .await?;
 
-                    push_v3_random_access_record(&mut v3_records, &run);
+                    push_v3_random_access_record(
+                        &mut v3_records,
+                        &run,
+                        remote_dataset_suffix.as_deref(),
+                    );
                     runs.push(run);
                     progress.inc(1);
                 }
@@ -567,14 +611,16 @@ mod tests {
     fn v3_random_access_records_include_open_modes() {
         let mut records = Vec::new();
 
-        push_v3_random_access_record(&mut records, &fake_run("taxi", None, false));
+        push_v3_random_access_record(&mut records, &fake_run("taxi", None, false), None);
         push_v3_random_access_record(
             &mut records,
             &fake_run("taxi", Some(AccessPattern::Uniform), false),
+            None,
         );
         push_v3_random_access_record(
             &mut records,
             &fake_run("taxi", Some(AccessPattern::Correlated), true),
+            None,
         );
 
         assert_eq!(records.len(), 3);
@@ -602,17 +648,29 @@ mod tests {
     }
 
     #[test]
-    fn v3_random_access_records_keep_s3_runs_apart() {
-        let mut run = fake_run("taxi", Some(AccessPattern::Uniform), false);
+    fn v3_random_access_records_include_the_fixture_and_timing_revision() -> Result<()> {
+        let mut run = fake_run("taxi", Some(AccessPattern::Uniform), true);
         run.timing.storage = STORAGE_S3.to_string();
-        let mut records = Vec::new();
 
-        push_v3_random_access_record(&mut records, &run);
+        for version in ["v1", "v2"] {
+            let url = url::Url::parse(&format!("s3://bucket/random-access/{version}/"))?;
+            let remote = RemoteDataDir::try_new(url)?;
+            let suffix = s3_dataset_suffix(&remote)?;
 
-        match &records[0] {
-            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi-s3/uniform"),
-            other => panic!("expected random-access record, got {other:?}"),
+            let mut records = Vec::new();
+            push_v3_random_access_record(&mut records, &run, Some(&suffix));
+
+            let [v3::V3Record::RandomAccessTime(record)] = records.as_slice() else {
+                panic!("expected one random-access record, got {records:?}");
+            };
+            assert_eq!(
+                record.dataset,
+                format!("taxi-read-v2-s3%3A%2F%2Fbucket%2Frandom-access%2F{version}-s3/uniform")
+            );
+            assert_eq!(record.open_mode, "reopen");
         }
+
+        Ok(())
     }
 
     #[test]

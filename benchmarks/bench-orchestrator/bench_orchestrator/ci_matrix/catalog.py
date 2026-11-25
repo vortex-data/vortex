@@ -303,6 +303,20 @@ BENCHMARKS = (
         },
     ),
     BenchmarkCase(
+        id="statpopgen-s3",
+        benchmark=Benchmark.STATPOPGEN,
+        name="Statistical and Population Genetics on S3",
+        storage=Storage.S3,
+        scale_factor=100,
+        local_dir="vortex-bench/data/statpopgen",
+        remote_key="statpopgen",
+        runs={
+            "pr-compact": COMPACT,
+            "pr-full": STANDARD,
+            "develop": STANDARD,
+        },
+    ),
+    BenchmarkCase(
         id="fineweb",
         benchmark=Benchmark.FINEWEB,
         name="FineWeb NVMe",
