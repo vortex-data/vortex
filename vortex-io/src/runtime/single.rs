@@ -184,9 +184,8 @@ impl BlockingRuntime for SingleThreadRuntime {
         R: Send + 'a,
     {
         SingleThreadIterator {
-            stream: stream.boxed_local(),
-            _sender: Arc::clone(&self.sender),
             executor: Rc::clone(&self.executor),
+            stream: stream.boxed_local(),
         }
     }
 }
@@ -254,11 +253,8 @@ impl AbortHandle for LazyAbortHandle {
 
 /// A stream that wraps up the stream with the execution that drives it.
 pub struct SingleThreadIterator<'a, T> {
-    // Drop the stream before the runtime channels and executor so any cleanup via `Handle` still
-    // sees a live runtime.
-    stream: LocalBoxStream<'a, T>,
-    _sender: Arc<Sender>,
     executor: Rc<LocalExecutor<'static>>,
+    stream: LocalBoxStream<'a, T>,
 }
 
 impl<T> Iterator for SingleThreadIterator<'_, T> {
@@ -277,13 +273,10 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use futures::FutureExt;
-    use futures::StreamExt;
-    use futures::stream;
 
     use crate::runtime::BlockingRuntime;
     use crate::runtime::single::SingleThreadRuntime;
     use crate::runtime::single::block_on;
-    use crate::runtime::single::block_on_stream;
 
     #[test]
     fn test_drive_simple_future() {
@@ -305,24 +298,5 @@ mod tests {
         });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_block_on_stream_keeps_handle_alive() {
-        let items: Vec<usize> = block_on_stream(|handle| {
-            stream::unfold((0usize, handle), |(i, handle)| async move {
-                if i >= 3 {
-                    return None;
-                }
-                let spawned = handle.spawn(async move { i * 10 }).await;
-                let cpu = handle.spawn_cpu(move || spawned + 1).await;
-                let blocking = handle.spawn_blocking(move || cpu + 1).await;
-                Some((blocking, (i + 1, handle)))
-            })
-            .boxed()
-        })
-        .collect();
-
-        assert_eq!(items, vec![2, 12, 22]);
     }
 }

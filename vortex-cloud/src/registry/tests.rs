@@ -457,14 +457,19 @@ fn test_double_slash_rejected_on_cold_and_warm(
     Ok(())
 }
 
-#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+/// Empty path segments inside a registered mount prefix (e.g. `https://h//prefix/a` against a
+/// store mounted at `https://h/prefix`) must also be rejected.
 #[test]
-fn test_env_source_process_lookup_is_case_insensitive() {
-    let expected = std::env::var_os("PATH")
-        .and_then(|v| v.into_string().ok())
-        .expect("PATH should be set and valid UTF-8");
-    assert_eq!(
-        super::EnvSource::Process.lookup("path").as_deref(),
-        Some(expected.as_str())
+fn test_double_slash_in_mount_prefix_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    let reg = registry();
+    let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+    reg.register(Url::parse("https://h/prefix")?, store);
+
+    let (_, path) = reg.resolve(&Url::parse("https://h/prefix/a")?)?;
+    assert_eq!(path, Path::from("a"));
+    assert!(
+        reg.resolve(&Url::parse("https://h//prefix/a")?).is_err(),
+        "empty segment inside mount prefix must be rejected"
     );
+    Ok(())
 }

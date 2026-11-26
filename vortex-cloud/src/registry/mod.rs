@@ -13,8 +13,6 @@
 //!    `oss://`, and `goosefs://`, and the Hugging Face Hub's `hf://` — are served by the crate's
 //!    `opendal` and `hf` modules under the matching service feature.
 
-#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
-use std::env::VarError;
 use std::sync::Arc;
 
 use object_store::ObjectStore;
@@ -102,15 +100,7 @@ impl EnvSource {
     #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
-            EnvSource::Process => match std::env::var(key) {
-                Ok(v) => Some(v),
-                Err(VarError::NotUnicode(_)) => None,
-                Err(VarError::NotPresent) => std::env::vars_os().find_map(|(k, v)| {
-                    k.to_str()
-                        .filter(|k| k.eq_ignore_ascii_case(key))
-                        .and_then(|_| v.into_string().ok())
-                }),
-            },
+            EnvSource::Process => std::env::var(key).ok(),
             EnvSource::Fixed(vars) => vars
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(key))
