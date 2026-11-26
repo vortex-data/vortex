@@ -275,7 +275,8 @@ impl NativeWriter {
         if let Some(mut handle) = self.handle.take() {
             drop(RUNTIME.block_on(std::future::poll_fn(|cx| handle.poll_join(cx))));
             // Drain cancelled subtasks scheduled when `write_fut` dropped so they release
-            // their Arrow buffers on `CurrentThreadRuntime` before `abort` returns.
+            // their Arrow buffers before `abort` returns. Relies on `CurrentThreadRuntime`'s
+            // FIFO task queue running those cancelled tasks ahead of this newly spawned one.
             RUNTIME.block_on(self.session.handle().spawn(async {}));
         }
     }
