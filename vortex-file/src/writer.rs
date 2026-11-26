@@ -201,9 +201,10 @@ impl VortexWriteOptions {
     /// [`FileDecryption`](crate::encryption::FileDecryption).
     ///
     /// The file-level statistics of a field are protected like its segments: encrypted with the
-    /// field's own key when it has one, and with the footer key otherwise. A reader only sees the
-    /// statistics of the fields it can decrypt. This holds for custom strategies too, since the
-    /// keys are taken from the segments each field wrote.
+    /// field's own key when it has one, with the footer key otherwise, and stored in plaintext for
+    /// a plaintext field of a file with a plaintext footer. A reader only sees the statistics of
+    /// the fields it can decrypt. This holds for custom strategies too, since the keys are taken
+    /// from the segments each field wrote.
     pub fn with_encryption(mut self, encryption: FileEncryption) -> Self {
         self.encryption = Some(encryption);
         self
@@ -515,7 +516,7 @@ impl VortexWriteOptions {
         // Assemble the Footer object now that we have all the segments.
         let statistics_encryption =
             StatisticsEncryption::new(self.encryption.as_ref(), &layout, &segment_specs, &dtype)?;
-        let statistics = if omit_statistics {
+        let statistics = if omit_statistics || statistics_encryption.omit_all {
             None
         } else if write_nested_statistics {
             Some(FileStatistics::new_with_dtype(
@@ -546,8 +547,10 @@ impl VortexWriteOptions {
 
         // Emit the footer buffers and EOF.
         let mut serializer = footer.clone().into_serializer(&self.session);
-        if let Some(cipher) = cipher {
-            serializer = serializer.with_cipher(cipher).with_key_ciphers(key_ciphers);
+        if let (Some(encryption), Some(cipher)) = (&self.encryption, cipher) {
+            serializer = serializer
+                .with_cipher(cipher, encryption.is_plaintext_footer())
+                .with_key_ciphers(key_ciphers);
         }
         let (footer_buffers, metadata, approx_byte_size) = serializer
             .with_layout_context(new_layout_context(&self.session, enforce_editions))
@@ -625,19 +628,22 @@ impl VortexWriteOptions {
 
 /// Where the file-level statistics of each top-level field are stored, so that no reader sees
 /// the statistics of a field it cannot decrypt.
-struct StatisticsEncryption {
+pub(crate) struct StatisticsEncryption {
     /// Fields whose statistics are encrypted with the key at the given encryption spec index,
     /// in a segment of their own.
-    keyed: Vec<(u32, u16)>,
+    pub(crate) keyed: Vec<(u32, u16)>,
     /// Fields whose statistics are omitted, because their segments use several keys.
-    omitted: Vec<u32>,
+    pub(crate) omitted: Vec<u32>,
+    /// Whether all file statistics must be omitted (e.g. an encrypted non-struct root array with a
+    /// plaintext footer, where there are no struct fields to carry per-field encrypted statistics).
+    pub(crate) omit_all: bool,
 }
 
 impl StatisticsEncryption {
     /// Attribute every segment of the layout tree to its top-level field, and route each field's
     /// statistics by the keys of its segments: a field encrypted with the key that protects the
-    /// shared statistics segment keeps its statistics there.
-    fn new(
+    /// shared statistics segment, or stored in plaintext, keeps its statistics there.
+    pub(crate) fn new(
         encryption: Option<&FileEncryption>,
         layout: &LayoutRef,
         segments: &[SegmentSpec],
@@ -646,8 +652,15 @@ impl StatisticsEncryption {
         let mut result = Self {
             keyed: Vec::new(),
             omitted: Vec::new(),
+            omit_all: false,
         };
-        let (Some(encryption), Some(fields)) = (encryption, dtype.as_struct_fields_opt()) else {
+        let Some(encryption) = encryption else {
+            return Ok(result);
+        };
+        let Some(fields) = dtype.as_struct_fields_opt() else {
+            if encryption.is_plaintext_footer() && segments.iter().any(|s| s.encryption != 0) {
+                result.omit_all = true;
+            }
             return Ok(result);
         };
         // The shared statistics segment is readable by the footer's readers.
@@ -695,7 +708,7 @@ impl StatisticsEncryption {
 ///
 /// The encoding tree holds values of the array, such as constants and frame-of-reference bases,
 /// which would be visible to every reader of the footer.
-fn reject_inlined_arrays(
+pub(crate) fn reject_inlined_arrays(
     layout: &LayoutRef,
     segments: &[SegmentSpec],
     footer_spec_index: u16,
@@ -751,7 +764,9 @@ fn encrypting_sink(
     // holds the footer key, even if no data segment uses it.
     let mut encryption_specs = vec![EncryptionSpec::plaintext(), cipher.spec().clone()];
     let mut key_ciphers = HashMap::from_iter([(1, cipher.clone())]);
-    segments = segments.with_default_cipher(cipher.clone(), 1);
+    if !encryption.is_plaintext_fields() {
+        segments = segments.with_default_cipher(cipher.clone(), 1);
+    }
     // The named keys are sorted, so that the footer is deterministic.
     for (name, key) in encryption.named_keys() {
         let named = encryption.file_cipher(key)?;
@@ -1239,11 +1254,14 @@ mod tests {
     /// An inline array encoding tree would reveal a field's values to readers of the footer, so
     /// it is rejected for segments protected differently from the footer.
     #[rstest]
-    #[case::plaintext(0, true)]
-    #[case::footer_key(1, true)]
-    #[case::field_key(2, false)]
+    #[case::plaintext(0, 1, true)]
+    #[case::footer_key(1, 1, true)]
+    #[case::field_key(2, 1, false)]
+    #[case::plaintext_footer_with_plaintext_segment(0, 0, true)]
+    #[case::plaintext_footer_with_footer_key(1, 0, false)]
     fn rejects_inlined_arrays_of_field_keys(
         #[case] encryption: u16,
+        #[case] footer_spec_index: u16,
         #[case] accepted: bool,
     ) -> VortexResult<()> {
         let layout = FlatLayout::new_with_metadata(
@@ -1261,7 +1279,7 @@ mod tests {
             encryption,
         }];
         assert_eq!(
-            reject_inlined_arrays(&layout, &segments, 1).is_ok(),
+            reject_inlined_arrays(&layout, &segments, footer_spec_index).is_ok(),
             accepted
         );
         Ok(())

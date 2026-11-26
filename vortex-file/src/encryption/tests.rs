@@ -49,6 +49,8 @@ use crate::WriteStrategyBuilder;
 use crate::flatbuffers::footer as fb;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
+use crate::multi::MultiFileSession;
+use crate::multi::open_cached;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
@@ -672,6 +674,91 @@ async fn field_key_requires_default_strategy() -> VortexResult<()> {
     Ok(())
 }
 
+/// Fields without their own key are stored in plaintext, while the footer stays encrypted.
+#[tokio::test]
+async fn plaintext_fields() -> VortexResult<()> {
+    let encryption = with_column_key(FileEncryption::new(footer_key()).with_plaintext_fields());
+    let bytes = write(Some(encryption)).await?;
+    assert!(contains(&bytes, VISIBLE.as_bytes()));
+    assert!(!contains(&bytes, SECRET.as_bytes()));
+    assert!(!contains(&bytes, SECRET_COLUMN.as_bytes()));
+
+    let file = open(bytes, Some(decryption()))?;
+    let footer = file.footer();
+    // Slot 2 holds the visible column.
+    let visible_field = footer.layout().slot(2)?.vortex_expect("visible column");
+    for layout in visible_field.depth_first_traversal() {
+        for id in layout?.segment_ids() {
+            assert_eq!(footer.segment_map()[*id as usize].encryption, 0);
+        }
+    }
+    assert_reads_all(&file).await
+}
+
+/// With a plaintext footer, readers without keys can read the plaintext fields, and readers with
+/// the footer key verify its signature.
+#[tokio::test]
+async fn plaintext_footer() -> VortexResult<()> {
+    let encryption = with_column_key(
+        FileEncryption::new(footer_key())
+            .with_plaintext_footer()
+            .with_plaintext_fields(),
+    );
+    let bytes = write(Some(encryption)).await?;
+    // The schema is visible, but not the data or user metadata of the encrypted column.
+    assert!(contains(&bytes, SECRET_COLUMN.as_bytes()));
+    assert!(contains(&bytes, VISIBLE.as_bytes()));
+    assert!(!contains(&bytes, SECRET.as_bytes()));
+
+    // A reader without encryption support reads the plaintext fields.
+    let file = SESSION.open_options().open_buffer(bytes.clone())?;
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates()[0].is_empty());
+    assert!(!stats.aggregates()[2].is_empty());
+    let expected = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4].into_array())])?;
+    assert_arrays_eq!(
+        read_field(&file, "numbers").await?,
+        expected,
+        &mut SESSION.create_execution_ctx()
+    );
+    expect_err(read_field(&file, SECRET_COLUMN).await, "no FileDecryption");
+
+    let file = open(bytes, Some(decryption()))?;
+    assert_eq!(
+        file.metadata_segment("meta").map(ByteBuffer::as_slice),
+        Some(SECRET.as_bytes())
+    );
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates().iter().all(|stats| !stats.is_empty()));
+    assert_reads_all(&file).await
+}
+
+/// With a plaintext footer and every field encrypted with the footer key, the file statistics
+/// are encrypted with the footer key.
+#[tokio::test]
+async fn plaintext_footer_with_encrypted_fields() -> VortexResult<()> {
+    let bytes = write(Some(
+        FileEncryption::new(footer_key()).with_plaintext_footer(),
+    ))
+    .await?;
+    assert!(contains(&bytes, SECRET_COLUMN.as_bytes()));
+    assert!(!contains(&bytes, VISIBLE.as_bytes()));
+
+    let file = SESSION.open_options().open_buffer(bytes.clone())?;
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates().iter().all(|stats| stats.is_empty()));
+    assert_eq!(
+        file.footer().statistics_encryption().as_ref(),
+        [(0, 1), (1, 1), (2, 1)]
+    );
+    expect_err(read_field(&file, "numbers").await, "no FileDecryption");
+
+    let file = open(bytes, Some(decryption()))?;
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates().iter().all(|stats| !stats.is_empty()));
+    assert_reads_all(&file).await
+}
+
 /// A custom strategy that encrypts a field with a named key gets the same statistics protection,
 /// since the keys are taken from the segments each field wrote.
 #[tokio::test]
@@ -698,6 +785,34 @@ async fn custom_strategy_statistics_encryption() -> VortexResult<()> {
     let stats = file.footer().statistics().vortex_expect("file statistics");
     assert!(stats.aggregates().iter().all(|stats| !stats.is_empty()));
     assert_reads_all(&file).await
+}
+
+#[tokio::test]
+async fn plaintext_footer_signature() -> VortexResult<()> {
+    let bytes = write(Some(
+        FileEncryption::new(footer_key())
+            .with_plaintext_footer()
+            .with_plaintext_fields(),
+    ))
+    .await?;
+
+    // A wrong footer key fails verification.
+    let wrong_keys: Arc<dyn KeyRetriever> = Arc::new(EncryptionKey::from([0; 32]));
+    let wrong = FileDecryption::new(wrong_keys);
+    expect_err(open(bytes.clone(), Some(wrong)), "verify the signature");
+
+    // A modified schema fails verification.
+    let offset = bytes
+        .windows(SECRET_COLUMN.len())
+        .position(|window| window == SECRET_COLUMN.as_bytes())
+        .vortex_expect("plaintext schema");
+    let mut tampered = ByteBufferMut::copy_from(&bytes);
+    tampered[offset] ^= 1;
+    expect_err(
+        open(tampered.freeze(), Some(decryption())),
+        "verify the signature",
+    );
+    Ok(())
 }
 
 #[tokio::test]
@@ -757,6 +872,35 @@ fn edit_postscript(
     out.extend_from_slice(&u16::try_from(edited.len())?.to_le_bytes());
     out.extend_from_slice(&bytes[eof + 4..]);
     Ok(out.freeze())
+}
+
+/// Stripping the signatures of a plaintext footer would let an attacker modify the footer, so a
+/// reader configured for decryption rejects it.
+#[tokio::test]
+async fn rejects_stripped_footer_signatures() -> VortexResult<()> {
+    let bytes = write(Some(
+        FileEncryption::new(footer_key())
+            .with_plaintext_footer()
+            .with_plaintext_fields(),
+    ))
+    .await?;
+    let stripped = edit_postscript(&bytes, |postscript| {
+        for segment in [&mut postscript.layout, &mut postscript.footer]
+            .into_iter()
+            .chain(postscript.dtype.as_mut())
+            .chain(postscript.statistics.as_mut())
+        {
+            segment.encryption = EncryptionSpec::plaintext();
+            segment.signature = None;
+        }
+    })?;
+    expect_err(
+        open(stripped.clone(), Some(decryption())),
+        "not protected by its footer key",
+    );
+    // A reader without keys cannot tell, as for any plaintext footer it cannot verify.
+    SESSION.open_options().open_buffer(stripped)?;
+    Ok(())
 }
 
 /// Replacing the encrypted footer segments with their plaintext would let an attacker who once
@@ -1107,5 +1251,120 @@ async fn rejects_mismatched_postscript_keys_before_retrieving() -> VortexResult<
         "not protected by its footer key",
     );
     assert!(counting.0.lock().is_empty());
+    Ok(())
+}
+
+/// Keyless `open_cached` must not cache an unverified plaintext footer for later keyed opens.
+#[tokio::test]
+async fn open_cached_does_not_reuse_unverified_plaintext_footer() -> VortexResult<()> {
+    let bytes = write(Some(
+        FileEncryption::new(footer_key()).with_plaintext_footer(),
+    ))
+    .await?;
+    let mut tampered = bytes.as_slice().to_vec();
+    let pos = tampered
+        .windows(SECRET_COLUMN.len())
+        .position(|w| w == SECRET_COLUMN.as_bytes())
+        .vortex_expect("plaintext footer contains column name");
+    tampered[pos] ^= 1;
+    let tampered = ByteBuffer::from(tampered);
+
+    let session = VortexSession::empty()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>()
+        .with::<MultiFileSession>();
+    crate::register_default_encodings(&session);
+    crate::enable_all_registered_array_encodings(&session);
+
+    let source: Arc<dyn vortex_io::VortexReadAt> = Arc::new(tampered);
+    open_cached(
+        &session,
+        Some("tampered.vortex"),
+        Arc::clone(&source),
+        None,
+        &|o| o,
+    )
+    .await?;
+    expect_err(
+        open_cached(&session, Some("tampered.vortex"), source, None, &|o| {
+            o.with_decryption(decryption())
+        })
+        .await,
+        "verify the signature",
+    );
+    Ok(())
+}
+
+/// With a plaintext footer, an encrypted non-struct root array must not expose statistics.
+#[tokio::test]
+async fn plaintext_footer_omits_encrypted_root_array_statistics() -> VortexResult<()> {
+    let root_array = VarBinArray::from(vec![SECRET, VISIBLE]).into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_encryption(FileEncryption::new(footer_key()).with_plaintext_footer())
+        .write(&mut buf, root_array.to_array_stream())
+        .await?;
+    let bytes = buf.freeze();
+    assert!(!contains(&bytes, SECRET.as_bytes()));
+    assert!(open(bytes.clone(), None)?.footer().statistics().is_none());
+    let file = open(bytes, Some(decryption()))?;
+    assert_arrays_eq!(
+        read_all(&file).await?,
+        root_array,
+        &mut SESSION.create_execution_ctx()
+    );
+
+    // When the root array is itself stored in plaintext, its statistics remain available.
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_encryption(
+            FileEncryption::new(footer_key())
+                .with_plaintext_footer()
+                .with_plaintext_fields(),
+        )
+        .write(&mut buf, root_array.to_array_stream())
+        .await?;
+    assert!(open(buf.freeze(), None)?.footer().statistics().is_some());
+    Ok(())
+}
+
+/// Reserializing an encrypted footer as a standalone plaintext footer moves footer-key column
+/// statistics out of the shared plaintext segment.
+#[tokio::test]
+async fn standalone_plaintext_footer_encrypts_footer_key_statistics() -> VortexResult<()> {
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
+    let footer = open(bytes, Some(decryption()))?.footer().clone();
+
+    let plaintext_encryption =
+        with_column_key(FileEncryption::new(footer_key())).with_plaintext_footer();
+    let footer_bytes = footer
+        .into_serializer(&SESSION)
+        .with_encryption(&plaintext_encryption)?
+        .serialize()?
+        .iter()
+        .flat_map(|buffer| buffer.as_slice().iter().copied())
+        .collect::<Vec<u8>>();
+    assert!(!contains(&footer_bytes, SECRET.as_bytes()));
+    assert!(!contains(&footer_bytes, VISIBLE.as_bytes()));
+
+    let DeserializeStep::Done(keyless) =
+        Footer::deserializer(ByteBuffer::copy_from(&footer_bytes), SESSION.clone())
+            .with_size(footer_bytes.len() as u64)
+            .deserialize()?
+    else {
+        vortex_bail!("keyless plaintext standalone footer should deserialize in one step");
+    };
+    let keyless_stats = keyless.statistics().vortex_expect("file statistics");
+    for agg in keyless_stats.aggregates().iter() {
+        assert!(agg.is_empty());
+    }
+
+    let keyed = deserialize_footer(&footer_bytes, decryption()).await?;
+    let keyed_stats = keyed.statistics().vortex_expect("file statistics");
+    assert!(!keyed_stats.aggregates()[0].is_empty());
+    assert!(!keyed_stats.aggregates()[1].is_empty());
+    assert!(!keyed_stats.aggregates()[2].is_empty());
     Ok(())
 }

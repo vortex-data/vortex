@@ -263,14 +263,17 @@ pub async fn open_cached(
         options = options.with_file_size(size);
     }
 
-    {
-        if let Some(footer) = session.multi_file().get_footer(key) {
-            options = options.with_footer(footer);
-        }
+    let has_decryption = options.has_decryption();
+    if !has_decryption && let Some(footer) = session.multi_file().get_footer(key) {
+        options = options.with_footer(footer);
     }
 
     let file = options.open(source).await?;
-    session.multi_file().put_footer(key, file.footer().clone());
+    // Only cache footers of unencrypted files opened without decryption so keyless opens never
+    // serve unverified footers to keyed opens and keyed opens never leak decrypted metadata.
+    if !has_decryption && file.footer().encryption_specs().is_empty() {
+        session.multi_file().put_footer(key, file.footer().clone());
+    }
     Ok(file)
 }
 

@@ -192,6 +192,10 @@ impl VortexOpenOptions {
         self
     }
 
+    pub(crate) fn has_decryption(&self) -> bool {
+        self.decryption.is_some()
+    }
+
     /// Include user-defined metadata segments when opening the file.
     ///
     /// By default, opening a file reads only the metadata required to interpret the layout.
