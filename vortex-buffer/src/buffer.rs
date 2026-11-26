@@ -24,6 +24,7 @@ use crate::BufferAllocatorRef;
 use crate::BufferBacking;
 use crate::BufferMut;
 use crate::ByteBuffer;
+use crate::Owner;
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
 
@@ -289,6 +290,37 @@ impl<T> Buffer<T> {
         T: Copy,
     {
         BufferMut::full_in(item, len, allocator).freeze()
+    }
+
+    /// Adopt the values `owner` holds without copying them, keeping `owner` alive until the last
+    /// buffer reading them is dropped.
+    ///
+    /// The buffer only ever reads `owner.as_ref()`, so [`try_into_mut`](Self::try_into_mut) will
+    /// not hand it out for writing. Adopt with [`BufferMut::from_owner`] to write in place.
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use vortex_buffer::Buffer;
+    ///
+    /// let shared: Arc<[i32]> = Arc::from(vec![1, 2, 3]);
+    /// let buffer = Buffer::from_owner(Arc::clone(&shared));
+    /// assert_eq!(buffer.as_ptr(), shared.as_ptr());
+    /// ```
+    pub fn from_owner<O>(owner: O) -> Self
+    where
+        O: AsRef<[T]> + Send + 'static,
+    {
+        const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
+        let (owner, (ptr, length)) = Owner::new(owner, |owner| {
+            let values = owner.as_ref();
+            (NonNull::from(values).cast::<T>(), values.len())
+        });
+        Self {
+            ptr,
+            length,
+            alignment: Alignment::of::<T>(),
+            backing: Some(Arc::new(BufferBacking::External(owner))),
+        }
     }
 
     /// Create a `Buffer<T>` zero-copy from a `ByteBuffer`.
@@ -823,21 +855,12 @@ where
 {
     fn from(value: Vec<T>) -> Self {
         const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
-        let length = value.len();
-        let alignment = Alignment::of::<T>();
         if std::mem::needs_drop::<T>() {
             // Keep the typed owner so its elements are dropped.
-            Self {
-                ptr: NonNull::new(value.as_ptr().cast_mut())
-                    .vortex_expect("a Vec always has a non-null pointer"),
-                length,
-                alignment,
-                backing: Some(Arc::new(BufferBacking::External {
-                    _owner: Box::new(value),
-                })),
-            }
+            Self::from_owner(value)
         } else {
-            Self::from_allocation(Allocation::from_vec(value), 0, length, alignment)
+            let length = value.len();
+            Self::from_allocation(Allocation::from_vec(value), 0, length, Alignment::of::<T>())
         }
     }
 }

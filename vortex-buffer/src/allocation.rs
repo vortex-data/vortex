@@ -4,7 +4,6 @@
 //! Allocator-backed storage for Vortex buffers.
 
 use std::alloc::Layout;
-use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
 use std::mem::ManuallyDrop;
@@ -235,13 +234,61 @@ unsafe impl Allocator for StaticBufferAllocator {
 
 static STATIC_ALLOCATOR: BufferAllocatorRef = BufferAllocatorRef(None);
 
+/// A value that owns memory a buffer has adopted, and releases it when dropped.
+///
+/// The owner is boxed and held as a raw pointer rather than a `Box`. Pointers into its memory are
+/// derived from the boxed value, and moving a `Box` asserts unique access to its contents, which
+/// would invalidate them. Holding it raw, as `bytes::Bytes::from_owner` does, means nothing moves
+/// it again until it is dropped.
+pub(crate) struct Owner {
+    ptr: NonNull<()>,
+    drop: unsafe fn(NonNull<()>),
+}
+
+// SAFETY: the owner is `Send`, and is only ever dropped, never referenced, once boxed.
+unsafe impl Send for Owner {}
+// SAFETY: as above; shared access to an `Owner` reaches nothing.
+unsafe impl Sync for Owner {}
+
+impl Owner {
+    /// Box `owner` for good, and return it along with whatever `view` reads off the boxed value.
+    pub(crate) fn new<O, R>(owner: O, view: impl FnOnce(&mut O) -> R) -> (Self, R)
+    where
+        O: Send + 'static,
+    {
+        unsafe fn drop_box<O>(ptr: NonNull<()>) {
+            // SAFETY: `ptr` came from leaking a `Box<O>`, and this runs exactly once.
+            drop(unsafe { Box::from_raw(ptr.cast::<O>().as_ptr()) });
+        }
+
+        let ptr = NonNull::from(Box::leak(Box::new(owner)));
+        // SAFETY: we just leaked the box, so nothing else can reach the owner.
+        let view = view(unsafe { &mut *ptr.as_ptr() });
+        let owner = Self {
+            ptr: ptr.cast(),
+            drop: drop_box::<O>,
+        };
+        (owner, view)
+    }
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        // SAFETY: `drop` matches the type `ptr` was leaked as, and nothing uses it afterwards.
+        unsafe { (self.drop)(self.ptr) }
+    }
+}
+
 pub(crate) struct Allocation {
     ptr: NonNull<u8>,
     layout: Layout,
     allocator: BufferAllocatorRef,
+    /// Set when the memory was adopted from an owner rather than allocated. It belongs to the
+    /// owner then, and is never grown, shrunk or freed through `allocator`.
+    owner: Option<Owner>,
 }
 
-// SAFETY: Allocation owns its memory, and its allocator is Send + Sync.
+// SAFETY: Allocation owns its memory, and its allocator and owner are Send + Sync.
 unsafe impl Send for Allocation {}
 // SAFETY: shared access to Allocation never permits mutation of the allocation.
 unsafe impl Sync for Allocation {}
@@ -268,6 +315,18 @@ impl Allocation {
             ptr,
             layout,
             allocator: BufferAllocatorRef::statically_allocated(),
+            owner: None,
+        }
+    }
+
+    /// Adopt `size` bytes at `ptr`, which `owner` keeps alive.
+    pub(crate) fn from_owner(ptr: NonNull<u8>, size: usize, owner: Owner) -> Self {
+        Self {
+            ptr,
+            layout: Layout::from_size_align(size, 1)
+                .unwrap_or_else(|_| unreachable!("an owner's memory always has a valid layout")),
+            allocator: BufferAllocatorRef::statically_allocated(),
+            owner: Some(owner),
         }
     }
 
@@ -277,6 +336,7 @@ impl Allocation {
                 ptr: layout.dangling_ptr(),
                 layout,
                 allocator,
+                owner: None,
             };
         }
 
@@ -291,6 +351,7 @@ impl Allocation {
             ptr: allocation.cast(),
             layout,
             allocator,
+            owner: None,
         }
     }
 
@@ -330,7 +391,8 @@ impl Allocation {
             debug_assert_eq!(len, 0);
             return Ok(Vec::new());
         }
-        if !self.allocator.is_statically_allocated()
+        if self.owner.is_some()
+            || !self.allocator.is_statically_allocated()
             || self.layout.align() != align_of::<T>()
             || !self.layout.size().is_multiple_of(size_of::<T>())
         {
@@ -346,6 +408,10 @@ impl Allocation {
     }
 
     pub(crate) fn grow(&mut self, new_layout: Layout) {
+        debug_assert!(
+            self.owner.is_none(),
+            "adopted memory reports the global allocator, which never grows in place"
+        );
         let allocation = if self.layout.size() == 0 {
             self.allocator.allocate(new_layout)
         } else {
@@ -364,6 +430,9 @@ impl Allocation {
     /// leaves the allocation unchanged if the allocator cannot shrink it.
     pub(crate) fn shrink(&mut self, new_size: usize) -> bool {
         debug_assert!(new_size > 0 && new_size <= self.layout.size());
+        if self.owner.is_some() {
+            return false;
+        }
 
         let Ok(new_layout) = Layout::from_size_align(new_size, self.layout.align()) else {
             return false;
@@ -384,7 +453,8 @@ impl Allocation {
 
 impl Drop for Allocation {
     fn drop(&mut self) {
-        if self.layout.size() == 0 {
+        // Adopted memory is released by dropping `owner`, which happens after this.
+        if self.layout.size() == 0 || self.owner.is_some() {
             return;
         }
         // SAFETY: ptr and layout describe a live block allocated by self.allocator.
@@ -397,9 +467,8 @@ pub(crate) enum BufferBacking {
     Bytes(bytes::Bytes),
     #[cfg(feature = "arrow")]
     Arrow(arrow_buffer::Buffer),
-    External {
-        _owner: Box<dyn Any + Send + Sync>,
-    },
+    /// Read-only memory adopted from an owner.
+    External(#[expect(dead_code, reason = "held only to keep the memory alive")] Owner),
 }
 
 impl BufferBacking {
@@ -408,7 +477,7 @@ impl BufferBacking {
     pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
         match self {
             Self::Owned(allocation) => allocation.allocator(),
-            Self::Bytes(_) | Self::External { .. } => &STATIC_ALLOCATOR,
+            Self::Bytes(_) | Self::External(_) => &STATIC_ALLOCATOR,
             #[cfg(feature = "arrow")]
             Self::Arrow(_) => &STATIC_ALLOCATOR,
         }

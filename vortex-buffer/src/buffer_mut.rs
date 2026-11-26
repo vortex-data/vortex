@@ -20,6 +20,7 @@ use crate::BitBuffer;
 use crate::Buffer;
 use crate::BufferAllocatorRef;
 use crate::ByteBufferMut;
+use crate::Owner;
 use crate::debug::TruncatedDebug;
 use crate::trusted_len::TrustedLen;
 
@@ -933,6 +934,45 @@ impl<T> BufferMut<T> {
             length: self.length * size_of::<T>(),
             capacity,
             alignment: self.alignment,
+            _marker: Default::default(),
+        }
+    }
+
+    /// Adopt the values `owner` holds without copying them, to read and write in place. The
+    /// buffer keeps `owner` alive until it, and anything frozen from it, is dropped, so
+    /// [`Buffer::try_into_mut`] can hand the same memory back for writing.
+    ///
+    /// The buffer's capacity is the owner's values. Growing past them moves the data into memory
+    /// the global allocator provides and releases the owner.
+    ///
+    /// ```
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// let owner: Box<[u32]> = Box::new([1, 2, 3]);
+    /// let mut buffer = BufferMut::from_owner(owner);
+    /// buffer[0] = 7;
+    /// let ptr = buffer.as_ptr();
+    /// let buffer = buffer.freeze().try_into_mut().expect("the sole handle can write again");
+    /// assert_eq!(buffer.as_ptr(), ptr);
+    /// assert_eq!(buffer.as_slice(), &[7, 2, 3]);
+    /// ```
+    pub fn from_owner<O>(owner: O) -> Self
+    where
+        O: AsMut<[T]> + Send + 'static,
+        T: Copy,
+    {
+        const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
+        let (owner, (ptr, length)) = Owner::new(owner, |owner| {
+            let values = owner.as_mut();
+            let length = values.len();
+            (std::ptr::NonNull::from(values).cast::<T>(), length)
+        });
+        Self {
+            allocation: Allocation::from_owner(ptr.cast(), length * size_of::<T>(), owner),
+            ptr,
+            length,
+            capacity: length,
+            alignment: Alignment::of::<T>(),
             _marker: Default::default(),
         }
     }
