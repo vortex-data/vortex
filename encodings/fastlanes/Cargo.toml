@@ -106,7 +106,7 @@ name = "delta_decode"
 harness = false
 
 [[bench]]
-name = "decode_chains"
+name = "for_stack_decode"
 harness = false
 
 [[bench]]

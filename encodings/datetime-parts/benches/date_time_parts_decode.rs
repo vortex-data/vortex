@@ -5,7 +5,7 @@
 //! full-length buffer of days that DateTimeParts then combines with the time parts, and with block
 //! fusion, which combines each block of days as it is unpacked.
 //!
-//! Run with `cargo bench -p vortex-datetime-parts --bench decode_chains`.
+//! Run with `cargo bench -p vortex-datetime-parts --bench date_time_parts_decode`.
 
 #![expect(clippy::unwrap_used)]
 
