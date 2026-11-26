@@ -16,23 +16,23 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 
+/// The largest user-defined metadata, in bytes, that the cache keeps for one file.
+///
+/// Larger metadata would take the room of many footers, so it is read again on each open.
+const MAX_CACHED_METADATA_BYTES: usize = 1024 * 1024;
+
 /// Session state for multi-file scanning.
 ///
 /// Provides a shared, in-memory footer cache so that repeated scans over the same files
 /// avoid redundant footer I/O. A file opened with its user-defined metadata also keeps that
-/// metadata in the cache, up to [`MAX_CACHED_METADATA_BYTES`] per file, so later opens that
-/// include metadata do not read it again. The cache is bounded by size and lives as long as the
+/// metadata in the cache, up to 1 MiB per file, so later opens that include metadata do not
+/// read it again. The cache is bounded by size and lives as long as the
 /// [`VortexSession`](vortex_session::VortexSession).
 ///
 /// # Future Work
 ///
 /// Consider generalizing this cache into [`VortexOpenOptions`](crate::VortexOpenOptions) so
 /// that single-file opens also benefit from session-level footer caching.
-/// The largest user-defined metadata, in bytes, that the cache keeps for one file.
-///
-/// Larger metadata would take the room of many footers, so it is read again on each open.
-const MAX_CACHED_METADATA_BYTES: usize = 1024 * 1024;
-
 #[derive(Clone)]
 pub struct MultiFileSession {
     footer_cache: moka::sync::Cache<String, CachedFile>,
