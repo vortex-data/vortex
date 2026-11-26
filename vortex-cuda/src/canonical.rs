@@ -262,14 +262,14 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[crate::test]
-    fn device_extrema_are_cache_only() -> VortexResult<()> {
+    fn device_stats_are_cache_only() -> VortexResult<()> {
         let cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let values = cuda_ctx.stream().copy_to_device(&[3i64, -4])?;
         let array = PrimitiveArray::from_buffer_handle(values, PType::I64, Validity::NonNullable);
         let stats = array.statistics();
         let mut ctx = SESSION.create_execution_ctx();
-        for stat in [Stat::Min, Stat::Max] {
-            assert!(stats.compute_stat(stat, &mut ctx)?.is_none());
+        for stat in Stat::all() {
+            assert!(stats.compute_stat(stat, &mut ctx)?.is_none(), "{stat}");
         }
         stats.set(Stat::Min, Precision::exact(-4i64));
         assert_eq!(stats.compute_min::<i64>(&mut ctx), Some(-4));
