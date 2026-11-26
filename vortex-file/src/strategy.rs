@@ -194,10 +194,10 @@ impl WriteStrategyBuilder {
     /// [`CdcRepartitionStrategy`]), so files written from
     /// edited versions of the same data stay mostly byte-identical and deduplicate well on
     /// content-addressed stores such as Hugging Face Xet, which chunk files with the same
-    /// GEAR rolling hash. Files written this way contain no zone maps (zones require
-    /// fixed-size blocks) and no cross-chunk dictionary layer (dictionary state shared
-    /// across chunks would couple a chunk's bytes to data outside it); BtrBlocks' per-chunk
-    /// dictionary schemes still apply.
+    /// GEAR rolling hash. Zone maps are still written over fixed row blocks; only the
+    /// cross-chunk dictionary layer is omitted (dictionary state shared across chunks would
+    /// couple a chunk's bytes to data outside it), and BtrBlocks' per-chunk dictionary
+    /// schemes still apply.
     pub fn with_content_defined_chunking(mut self, options: ContentDefinedChunkingOptions) -> Self {
         self.content_defined_chunking = Some(options);
         self
@@ -259,11 +259,13 @@ impl WriteStrategyBuilder {
         };
 
         // Experimental: repartition columns at content-defined boundaries so files written from
-        // edited versions of the same data deduplicate well on content-addressed stores. This
-        // pipeline intentionally omits the zoned statistics layer (zones require fixed-size
-        // blocks) and the cross-chunk dictionary layer (a chunk's bytes must depend only on the
-        // chunk's own content); the full BtrBlocks compressor, including its per-chunk dictionary
-        // schemes, still runs on every chunk.
+        // edited versions of the same data deduplicate well on content-addressed stores. Zone
+        // maps are kept: statistics are computed over the fixed row blocks produced upstream of
+        // the CDC repartitioner, which is free to re-chunk the data child afterwards because
+        // ZonedLayout maps rows to zones by zone length alone. Only the cross-chunk dictionary
+        // layer is omitted (a chunk's bytes must depend only on the chunk's own content); the
+        // full BtrBlocks compressor, including its per-chunk dictionary schemes, still runs on
+        // every chunk.
         if let Some(cdc_options) = self.content_defined_chunking {
             let full_compressor = self.compressor.into_compressors().full;
             // No BufferedStrategy here: it regroups chunks by accumulated byte counts, so an
@@ -275,10 +277,34 @@ impl WriteStrategyBuilder {
             let cdc = CdcRepartitionStrategy::new(compressing, cdc_options);
 
             let compress_then_flat = CompressingStrategy::new(flat, full_compressor);
-            let validity_strategy = CollectStrategy::new(compress_then_flat);
 
-            let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(cdc))
-                .with_field_writers(self.field_writers);
+            let row_block_size =
+                NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
+            let stats = ZonedStrategy::new(
+                cdc,
+                compress_then_flat.clone(),
+                ZonedLayoutOptions {
+                    block_size: row_block_size,
+                    ..Default::default()
+                },
+            );
+            // One fixed-size chunk per zone for the stats accumulator; the CDC repartitioner
+            // below re-cuts the same rows at content-defined boundaries, which is invariant to
+            // how the incoming stream is split.
+            let repartition = RepartitionStrategy::new(
+                stats,
+                RepartitionWriterOptions {
+                    block_size_minimum: 0,
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: None,
+                    canonicalize: false,
+                },
+            );
+
+            let validity_strategy = CollectStrategy::new(compress_then_flat);
+            let table_strategy =
+                TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+                    .with_field_writers(self.field_writers);
             return Arc::new(table_strategy);
         }
 
