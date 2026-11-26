@@ -10,6 +10,8 @@
 
 use std::ffi::c_int;
 use std::sync::Arc;
+use std::sync::LazyLock;
+use std::sync::Weak;
 
 use async_lock::Semaphore;
 use bytes::Bytes;
@@ -36,6 +38,8 @@ use vortex::error::vortex_err;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::Handle;
+use vortex::utils::aliases::hash_map::Entry;
+use vortex::utils::aliases::hash_map::HashMap;
 
 /// Default number of concurrent upcalls for an object implementing the positional `read_into`
 /// protocol. Matches the JNI readable and object-store defaults, since the backing storage is
@@ -56,6 +60,65 @@ enum Protocol {
     Read,
 }
 
+/// Per-object seek locks shared by every [`PyReadable`] handle wrapping the same seekable Python
+/// file object. Entries are keyed by object pointer (`id(obj)`) and removed when the last handle
+/// and in-flight read drop, while `obj` is still alive.
+static SEEK_LOCKS: LazyLock<Mutex<HashMap<usize, Weak<SeekLock>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+struct SeekLock {
+    key: usize,
+    semaphore: Arc<Semaphore>,
+}
+
+impl Drop for SeekLock {
+    fn drop(&mut self) {
+        let mut locks = SEEK_LOCKS.lock();
+        if let Entry::Occupied(entry) = locks.entry(self.key)
+            && entry.get().strong_count() == 0
+        {
+            entry.remove();
+        }
+    }
+}
+
+fn seek_lock_for(obj: &Bound<'_, PyAny>) -> Arc<SeekLock> {
+    let key = obj.as_ptr() as usize;
+    let mut locks = SEEK_LOCKS.lock();
+    if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(SeekLock {
+        key,
+        semaphore: Arc::new(Semaphore::new(1)),
+    });
+    locks.insert(key, Arc::downgrade(&lock));
+    lock
+}
+
+#[derive(Clone)]
+enum ReadGate {
+    Positional(Arc<Semaphore>),
+    Seekable(Arc<SeekLock>),
+}
+
+impl ReadGate {
+    fn semaphore(&self) -> &Arc<Semaphore> {
+        match self {
+            Self::Positional(semaphore) => semaphore,
+            Self::Seekable(lock) => &lock.semaphore,
+        }
+    }
+}
+
+fn positional_concurrency(concurrency: Option<usize>) -> PyResult<usize> {
+    match concurrency {
+        None => Ok(DEFAULT_CONCURRENCY),
+        Some(0) => Err(PyValueError::new_err("concurrency must be at least 1")),
+        Some(concurrency) => Ok(concurrency),
+    }
+}
+
 /// A [`VortexReadAt`] backed by a Python object.
 ///
 /// Three shapes of object are accepted:
@@ -66,7 +129,8 @@ enum Protocol {
 /// - Objects with `size() -> int` and `read_into(offset, buffer) -> int`. These are positional and
 ///   stateless too.
 /// - Binary file objects with `seek` and `readinto` (or `read`). Seeking makes these stateful, so
-///   reads are serialized. The size is taken from `seek(0, SEEK_END)` at construction time.
+///   reads (and size discovery) are serialized across all handles sharing the same object. The size
+///   is taken from `seek(0, SEEK_END)` at construction time.
 ///
 /// Up to `concurrency` positional reads (default [`DEFAULT_CONCURRENCY`]) may be in flight at once.
 ///
@@ -74,13 +138,15 @@ enum Protocol {
 /// Rust allocation exposed to Python through the buffer protocol, so `readinto`-style readers write
 /// straight into the buffer handed to the scan. Short reads are retried until the range is filled.
 pub(crate) struct PyReadable {
+    // Declared ahead of `obj` so the shared seek lock entry is released while the Python object is
+    // still alive and its address cannot be reused.
+    gate: ReadGate,
     obj: Arc<Py<PyAny>>,
     protocol: Protocol,
     len: u64,
     uri: Option<Arc<str>>,
     handle: Handle,
     concurrency: usize,
-    semaphore: Arc<Semaphore>,
 }
 
 impl PyReadable {
@@ -96,12 +162,26 @@ impl PyReadable {
         let py = obj.py();
         let has = |name| obj.hasattr(name);
 
-        let (protocol, len) = if has(intern!(py, "read_at"))? && has(intern!(py, "size"))? {
+        let (protocol, concurrency, gate, len) = if has(intern!(py, "read_at"))?
+            && has(intern!(py, "size"))?
+        {
+            let concurrency = positional_concurrency(concurrency)?;
             let len = obj.call_method0(intern!(py, "size"))?.extract::<u64>()?;
-            (Protocol::Owned, len)
+            (
+                Protocol::Owned,
+                concurrency,
+                ReadGate::Positional(Arc::new(Semaphore::new(concurrency))),
+                len,
+            )
         } else if has(intern!(py, "read_into"))? && has(intern!(py, "size"))? {
+            let concurrency = positional_concurrency(concurrency)?;
             let len = obj.call_method0(intern!(py, "size"))?.extract::<u64>()?;
-            (Protocol::Positional, len)
+            (
+                Protocol::Positional,
+                concurrency,
+                ReadGate::Positional(Arc::new(Semaphore::new(concurrency))),
+                len,
+            )
         } else if has(intern!(py, "seek"))? {
             let protocol = if has(intern!(py, "readinto"))? {
                 Protocol::ReadInto
@@ -110,28 +190,23 @@ impl PyReadable {
             } else {
                 return Err(not_readable(obj));
             };
+            if concurrency.is_some() {
+                return Err(PyTypeError::new_err(
+                    "concurrency requires a vortex.io.ReadAt or vortex.io.ReadBytesAt reader; reads \
+                         from a file object are serialized because each one must seek first",
+                ));
+            }
+            let lock = seek_lock_for(obj);
+            // Acquire without the GIL so an in-flight read on another handle can take the GIL
+            // and release its permit.
+            let _permit = py.detach(|| lock.semaphore.acquire_arc_blocking());
             // `io.SEEK_END`
             let len = obj
                 .call_method1(intern!(py, "seek"), (0, 2))?
                 .extract::<u64>()?;
-            (protocol, len)
+            (protocol, 1, ReadGate::Seekable(lock), len)
         } else {
             return Err(not_readable(obj));
-        };
-
-        let concurrency = match (protocol, concurrency) {
-            (Protocol::Owned | Protocol::Positional, None) => DEFAULT_CONCURRENCY,
-            (Protocol::Owned | Protocol::Positional, Some(0)) => {
-                return Err(PyValueError::new_err("concurrency must be at least 1"));
-            }
-            (Protocol::Owned | Protocol::Positional, Some(concurrency)) => concurrency,
-            (Protocol::ReadInto | Protocol::Read, None) => 1,
-            (Protocol::ReadInto | Protocol::Read, Some(_)) => {
-                return Err(PyTypeError::new_err(
-                    "concurrency requires a vortex.io.ReadAt or vortex.io.ReadBytesAt reader; reads \
-                     from a file object are serialized because each one must seek first",
-                ));
-            }
         };
 
         // File objects conventionally expose their path as `name`. `io.FileIO` also allows an
@@ -142,13 +217,13 @@ impl PyReadable {
             .map(Arc::from);
 
         Ok(Self {
+            gate,
             obj: Arc::new(obj.clone().unbind()),
             protocol,
             len,
             uri,
             handle,
             concurrency,
-            semaphore: Arc::new(Semaphore::new(concurrency)),
         })
     }
 }
@@ -196,7 +271,7 @@ impl VortexReadAt for PyReadable {
         let protocol = self.protocol;
         let len = self.len;
         let handle = self.handle.clone();
-        let semaphore = Arc::clone(&self.semaphore);
+        let gate = self.gate.clone();
 
         async move {
             // Reject an invalid range before it waits for a permit or occupies a blocking thread.
@@ -208,15 +283,17 @@ impl VortexReadAt for PyReadable {
             }
 
             // Take a permit before occupying a blocking thread. For file objects the single permit
-            // also keeps each `seek` paired with its read, and is taken without the GIL, so a
-            // waiter never holds the GIL that the current reader needs to finish.
-            let permit = semaphore.acquire_arc().await;
+            // also keeps each `seek` paired with its read across shared handles, and is taken
+            // without the GIL, so a waiter never holds the GIL that the current reader needs to
+            // finish.
+            let permit = gate.semaphore().acquire_arc().await;
 
             handle
                 .spawn_blocking(move || {
-                    // Keep the permit with the blocking work: dropping the read future cannot
-                    // interrupt an upcall that has already started.
-                    let _permit = permit;
+                    // Keep the permit and gate with the blocking work: dropping the read future
+                    // cannot interrupt an upcall that has already started, and keeping `gate` alive
+                    // prevents the shared seek lock from being removed while a read is running.
+                    let _guard = (permit, gate);
 
                     let buffer = Python::attach(|py| {
                         let obj = obj.bind(py);

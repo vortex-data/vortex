@@ -400,6 +400,9 @@ impl ArrayRef {
     }
 
     /// Writes the array into the canonical builder.
+    ///
+    /// If this returns `Err`, the builder's contents are unspecified and callers must discard it
+    /// (see [`ArrayBuilder`]).
     pub fn append_to_builder(
         &self,
         builder: &mut dyn ArrayBuilder,

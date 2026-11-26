@@ -22,7 +22,10 @@ jobs:
     with:
       fuzz_target: file_corruption
       jobs: 4
+      max_time: 9000
+      cycle_hours: 3
       rss_limit_mb: 2048
+      seed_merge_timeout: 60
       fuzzer_artifact: ${{ github.event.workflow_run.id && format('cpu-fuzzers-{0}-{1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) || '' }}
       fuzzer_run_id: ${{ github.event.workflow_run.id || '' }}
     secrets: inherit

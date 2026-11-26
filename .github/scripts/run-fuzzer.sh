@@ -36,18 +36,70 @@ stop_checkpoint_loop() {
 }
 trap stop_checkpoint_loop EXIT
 
+# A scheduled run must finish before the next cron slot, however late GitHub
+# started it, so cap the budget at the time left until 10 minutes before that slot.
+# libFuzzer treats -max_total_time=0 as unlimited, so the budget stays at least 60.
+if [ "${CYCLE_HOURS:-0}" -gt 0 ]; then
+  CYCLE_SECS=$((CYCLE_HOURS * 3600))
+  NOW=$(date -u +%s)
+  NEXT_SLOT=$(((NOW / CYCLE_SECS + 1) * CYCLE_SECS))
+  REMAINING=$((NEXT_SLOT - NOW - 600))
+  if [ "$REMAINING" -lt "$MAX_TIME" ]; then
+    MAX_TIME=$((REMAINING > 60 ? REMAINING : 60))
+    echo "Capping fuzz time at ${MAX_TIME}s to finish before the next scheduled run"
+  fi
+fi
+
 # Fork mode replays the saved corpus to establish coverage, then replaces failed
 # workers without ending exploration. Artifacts still fail the job after the budget.
 FORK_FLAGS=("-fork=$FUZZ_JOBS" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1)
 
+start_fuzzer() {
+  local budget=$1
+  shift
+  env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
+    timeout --signal=INT --kill-after=60 "$((budget + 480))" \
+    "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
+    "${FORK_FLAGS[@]}" "-max_total_time=$budget" "-rss_limit_mb=${RSS_LIMIT_MB:-0}" \
+    -print_final_stats=1 \
+    -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
+    "$@" > >(tee -a fuzz_output.log) 2>&1 &
+  FUZZ_PID=$!
+}
+
+SEED_MERGE_TIMEOUT=${SEED_MERGE_TIMEOUT:-0}
+MAX_ERRORS=10
+: > fuzz_output.log
 set +e
-env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
-  "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
-  "${FORK_FLAGS[@]}" "-max_total_time=$MAX_TIME" "-rss_limit_mb=${RSS_LIMIT_MB:-0}" \
-  -print_final_stats=1 \
-  -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
-  2>&1 | tee fuzz_output.log
-FUZZ_STATUS=${PIPESTATUS[0]}
+start_fuzzer "$MAX_TIME"
+if [ "$SEED_MERGE_TIMEOUT" -gt 0 ]; then
+  WAITED=0
+  while [ "$WAITED" -lt "$SEED_MERGE_TIMEOUT" ] && kill -0 "$FUZZ_PID" 2>/dev/null &&
+    ! grep -q "seed inputs, starting to fuzz" fuzz_output.log; do
+    sleep 1
+    WAITED=$((WAITED + 1))
+  done
+  if kill -0 "$FUZZ_PID" 2>/dev/null &&
+    ! grep -q "seed inputs, starting to fuzz" fuzz_output.log; then
+    echo "Corpus processing timeout. Restarting without processing the corpus"
+    kill -KILL -- "-$FUZZ_PID" 2>/dev/null
+    wait "$FUZZ_PID" 2>/dev/null
+    start_fuzzer "$((MAX_TIME - SEED_MERGE_TIMEOUT))" -keep_seed=1
+  fi
+fi
+while kill -0 "$FUZZ_PID" 2>/dev/null; do
+  ERROR_COUNT=$(find "fuzz/artifacts/${FUZZ_NAME}" -type f | wc -l)
+  if [ "$ERROR_COUNT" -gt "$MAX_ERRORS" ]; then
+    echo "Found $ARTIFACT_COUNT errors, stopping"
+    kill -INT -- "-$FUZZ_PID" 2>/dev/null
+    timeout 30 tail --pid="$FUZZ_PID" -f /dev/null
+    kill -KILL -- "-$FUZZ_PID" 2>/dev/null
+    break
+  fi
+  sleep 5
+done
+wait "$FUZZ_PID"
+FUZZ_STATUS=$?
 set -e
 
 stop_checkpoint_loop
