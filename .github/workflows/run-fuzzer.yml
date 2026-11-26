@@ -17,6 +17,13 @@ on:
         required: false
         type: number
         default: 5400
+      cycle_hours:
+        description: >-
+          Hours between the caller's scheduled runs (its cron interval). Scheduled runs stop
+          fuzzing 10 minutes before the next slot, so they never overlap it. 0 disables this.
+        required: false
+        type: number
+        default: 0
       runner:
         description: "Runner name from .github-private runs-on.yml (e.g., arm64-fuzz, gpu)"
         required: false
@@ -92,6 +99,9 @@ jobs:
       EXTRA_ENV: ${{ inputs.extra_env }}
       FUZZ_JOBS: ${{ inputs.jobs }}
       MAX_TIME: ${{ inputs.max_time }}
+      CYCLE_HOURS: >-
+        ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run')
+            && inputs.cycle_hours || 0 }}
       RSS_LIMIT_MB: ${{ inputs.rss_limit_mb }}
     timeout-minutes: 180
     runs-on: >-
