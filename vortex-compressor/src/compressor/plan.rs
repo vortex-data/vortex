@@ -49,6 +49,11 @@ impl CompressionPlan {
             .get([].as_slice())
             .map(|planned| planned.decision)
     }
+
+    #[cfg(test)]
+    pub(crate) fn decision(&self, position: &[(SchemeId, usize)]) -> Option<Decision> {
+        self.decisions.get(position).map(|planned| planned.decision)
+    }
 }
 
 /// Returns `true` if `ratio` is between `baseline * (1 - max_deviation)` and
@@ -98,6 +103,35 @@ impl PlanState {
             .lock()
             .decisions
             .insert(position.to_vec(), Planned { decision, ratio });
+    }
+
+    /// Removes and returns all recorded decisions at or beneath `prefix`.
+    pub(crate) fn take_subtree(
+        &self,
+        prefix: &[(SchemeId, usize)],
+    ) -> FxHashMap<CascadePosition, Planned> {
+        let mut recorded = self.recorded.lock();
+        let mut taken = FxHashMap::default();
+        recorded.decisions.retain(|pos, planned| {
+            if pos.starts_with(prefix) {
+                taken.insert(pos.clone(), *planned);
+                false
+            } else {
+                true
+            }
+        });
+        taken
+    }
+
+    /// Replaces all recorded decisions at or beneath `prefix` with `snapshot`.
+    pub(crate) fn restore_subtree(
+        &self,
+        prefix: &[(SchemeId, usize)],
+        snapshot: FxHashMap<CascadePosition, Planned>,
+    ) {
+        let mut recorded = self.recorded.lock();
+        recorded.decisions.retain(|pos, _| !pos.starts_with(prefix));
+        recorded.decisions.extend(snapshot);
     }
 
     /// Consumes the state and returns the recorded plan.

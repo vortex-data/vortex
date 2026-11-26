@@ -483,6 +483,7 @@ impl CascadingCompressor {
 
                     // The child data changed: select again and keep the smaller result.
                     let replayed_decision = replayed.decision(id);
+                    let replayed_subtree = plan.take_subtree(compress_ctx.cascade_history());
                     let selected = self.select_and_compress(
                         &eligible_schemes,
                         array,
@@ -494,6 +495,7 @@ impl CascadingCompressor {
                         return Ok(selected);
                     }
 
+                    plan.restore_subtree(compress_ctx.cascade_history(), replayed_subtree);
                     record_decision(&compress_ctx, replayed_decision, replayed_ratio);
                     return Ok(replayed);
                 }

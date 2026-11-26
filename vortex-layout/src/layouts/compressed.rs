@@ -226,51 +226,54 @@ impl LayoutStrategy for CompressingStrategy {
         let buffered_bytes = ctx.buffered_bytes_tracker().clone();
         let handle = session.handle();
 
+        let spawn_chunk = move |chunk: VortexResult<(crate::sequence::SequenceId, ArrayRef)>,
+                                chunk_reuse: Option<PlanReuse>| {
+            let compressor = Arc::clone(&compressor);
+            let stats = Arc::clone(&stats);
+            let session = compute_session.clone();
+            let buffered_bytes = buffered_bytes.clone();
+            let size_scope = size_scope.clone();
+
+            // Count the input as uncompressed until its compressed output is counted.
+            let input_reservation = chunk
+                .as_ref()
+                .ok()
+                .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
+
+            handle.spawn_cpu(move || {
+                let (sequence_id, chunk) = chunk?;
+                let mut ctx = session.create_execution_ctx();
+                // Compute the stats for the chunk prior to compression. The exact
+                // uncompressed size is measured once here and cached for the compressor.
+                chunk.statistics().compute_all(&stats, &mut ctx)?;
+                let uncompressed_size = if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
+                    u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
+                        .map_err(|e| vortex_err!("chunk size does not fit in u64: {e}"))?
+                } else {
+                    chunk.nbytes()
+                };
+
+                let compressed = match chunk_reuse.as_ref() {
+                    Some(reuse) => compressor.compress_stream_chunk(&chunk, reuse, &mut ctx)?,
+                    None => compressor.compress_chunk(&chunk, &mut ctx)?,
+                };
+                let compressed_size = compressed.nbytes();
+                size_scope.record(uncompressed_size, compressed_size);
+
+                let output_reservation = buffered_bytes.reserve(compressed_size);
+                drop(input_reservation);
+                Ok::<_, VortexError>((sequence_id, compressed, chunk_reuse, output_reservation))
+            })
+        };
+
         let Some(options) = self.plan_reuse else {
             let stream = stream
-                .map(move |chunk| {
-                    let compressor = Arc::clone(&compressor);
-                    let stats = Arc::clone(&stats);
-                    let session = compute_session.clone();
-                    let buffered_bytes = buffered_bytes.clone();
-                    let size_scope = size_scope.clone();
-
-                    // Count the input as uncompressed until its compressed output is counted.
-                    let input_reservation = chunk
-                        .as_ref()
-                        .ok()
-                        .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
-
-                    handle.spawn_cpu(move || {
-                        let (sequence_id, chunk) = chunk?;
-                        let mut ctx = session.create_execution_ctx();
-                        // Compute the stats for the chunk prior to compression. The exact
-                        // uncompressed size is measured once here and cached for the compressor.
-                        chunk.statistics().compute_all(&stats, &mut ctx)?;
-                        let uncompressed_size =
-                            if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
-                                u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
-                                    .map_err(|e| {
-                                        vortex_err!("chunk size does not fit in u64: {e}")
-                                    })?
-                            } else {
-                                chunk.nbytes()
-                            };
-
-                        let compressed = compressor.compress_chunk(&chunk, &mut ctx)?;
-                        let compressed_size = compressed.nbytes();
-                        size_scope.record(uncompressed_size, compressed_size);
-
-                        let output_reservation = buffered_bytes.reserve(compressed_size);
-                        drop(input_reservation);
-                        Ok((sequence_id, compressed, output_reservation))
-                    })
-                })
+                .map(move |chunk| spawn_chunk(chunk, None))
                 .buffered(self.concurrency)
                 .map(|result: VortexResult<_>| {
                     // The child counts the chunk when it takes it, so release the compressed bytes
                     // here.
-                    result.map(|(sequence_id, compressed, _output_reservation)| {
+                    result.map(|(sequence_id, compressed, _, _output_reservation)| {
                         (sequence_id, compressed)
                     })
                 });
@@ -319,57 +322,15 @@ impl LayoutStrategy for CompressingStrategy {
                 let mut wave = stream
                     .by_ref()
                     .take(wave_limit)
-                    .map(|chunk| {
-                        let chunk_reuse = reuse.next_chunk();
-                        let compressor = Arc::clone(&compressor);
-                        let stats = Arc::clone(&stats);
-                        let session = compute_session.clone();
-                        let buffered_bytes = buffered_bytes.clone();
-                        let size_scope = size_scope.clone();
-
-                        // Count the input as uncompressed until its compressed output is counted.
-                        let input_reservation = chunk
-                            .as_ref()
-                            .ok()
-                            .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
-
-                        handle.spawn_cpu(move || {
-                            let (sequence_id, chunk) = chunk?;
-                            let mut ctx = session.create_execution_ctx();
-                            // Compute the stats for the chunk prior to compression. The exact
-                            // uncompressed size is measured once here and cached for the compressor.
-                            chunk.statistics().compute_all(&stats, &mut ctx)?;
-                            let uncompressed_size =
-                                if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
-                                    u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
-                                        .map_err(|e| {
-                                            vortex_err!("chunk size does not fit in u64: {e}")
-                                        })?
-                                } else {
-                                    chunk.nbytes()
-                                };
-
-                            let compressed =
-                                compressor.compress_stream_chunk(&chunk, &chunk_reuse, &mut ctx)?;
-                            let compressed_size = compressed.nbytes();
-                            size_scope.record(uncompressed_size, compressed_size);
-
-                            let output_reservation = buffered_bytes.reserve(compressed_size);
-                            drop(input_reservation);
-                            Ok::<_, VortexError>((
-                                sequence_id,
-                                compressed,
-                                chunk_reuse,
-                                output_reservation,
-                            ))
-                        })
-                    })
+                    .map(|chunk| spawn_chunk(chunk, Some(reuse.next_chunk())))
                     .buffered(concurrency);
 
                 while let Some(result) = wave.next().await {
                     let (sequence_id, compressed, chunk_reuse, output_reservation) = result?;
                     yielded += 1;
-                    wave_commits.push(chunk_reuse);
+                    if let Some(chunk_reuse) = chunk_reuse {
+                        wave_commits.push(chunk_reuse);
+                    }
                     // The child counts the chunk when it takes it, so release the compressed
                     // bytes before yielding across the suspend point.
                     drop(output_reservation);
