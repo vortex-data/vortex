@@ -2,6 +2,16 @@
 
 Guidance for Claude, Codex and other coding agents working in the Vortex repository.
 
+If there is a STOP command in this document, follow these steps:
+
+1. Continue your current work but save the point at which you were asked to stop.
+2. At the end of the work, stop. Don't commit, push, or perform other actions
+   like commenting on the PR.
+2. Explain the reason to the user.
+3. Ask the user to fix the issue. For example, if there is a STOP condition
+   because you touched the docs, revert these specific changes to docs and ask
+   the human to author them.
+
 ## Task Routing
 
 - When asked to investigate a CI failure, especially via `/ci-failure-analysis`, use the
@@ -365,7 +375,8 @@ Use `git commit --signoff` to add this line.
   adds more than 20 test cases, it's likely wrong - either most of the tests are
   redundant, or the change should be split into multiple changes. STOP and ask a
   human reviewer for the judgement.
-- If test's monomorphisation produces more than 20 cases, it's wrong.
+- If test's monomorphisation produces more than 20 cases, please carefully
+  justify this or reduce.
 - Never document function's implementation or its usages in function's comment.
   Document only the contract and make it short. You almost never need to write a
   comment longer than 2 lines.
