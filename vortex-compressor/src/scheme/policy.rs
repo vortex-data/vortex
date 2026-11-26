@@ -102,10 +102,14 @@ pub trait CompressionPolicy: Debug + Send + Sync {
     ///
     /// Called once per compression site, after its children were compressed. At an extension or
     /// fixed-size list root it reports the scheme-level attempt, which the compressor can still
-    /// discard for a smaller result with compressed storage or elements. Under
-    /// [`SchemeSelection::Best`], the children of every tried scheme are reported, each under its
-    /// own cascade history, so a recorder keeps only those below the schemes their parents
-    /// applied.
+    /// discard for a smaller result with compressed storage or elements.
+    ///
+    /// It also fires for the children of schemes that were tried and then discarded: estimates
+    /// that compress in full (such as dictionary encoding), forced
+    /// [`Scheme`](SchemeSelection::Scheme) selections that fall back to estimation, and every
+    /// candidate of [`SchemeSelection::Best`]. Each is reported under its own cascade history, so
+    /// a policy that counts or labels sites should key on the history and keep only paths below
+    /// the scheme each parent applied, as [`RecordPlan`](crate::plan::RecordPlan) does.
     fn observe(&self, _outcome: &SiteOutcome<'_>) {}
 
     /// Observes one candidate tried under [`SchemeSelection::Best`], winner or not, with its full

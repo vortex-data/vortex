@@ -27,6 +27,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
 use crate::scheme::CompressionPolicy;
+use crate::scheme::MAX_CASCADE;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -84,7 +85,7 @@ impl Plan {
             rest: text,
             schemes,
         };
-        let plan = parser.plan()?;
+        let plan = parser.plan(0)?;
         parser.skip_space();
         if !parser.rest.is_empty() {
             vortex_bail!("unexpected `{}` after plan", parser.rest);
@@ -142,8 +143,14 @@ impl Parser<'_> {
         }
     }
 
-    /// Parses one plan.
-    fn plan(&mut self) -> VortexResult<Plan> {
+    /// Parses one plan, `depth` levels below the root.
+    ///
+    /// No cascade reaches below [`MAX_CASCADE`], so deeper text is rejected before it can
+    /// exhaust the stack.
+    fn plan(&mut self, depth: usize) -> VortexResult<Plan> {
+        if depth > MAX_CASCADE {
+            vortex_bail!("plan is nested deeper than {MAX_CASCADE} levels");
+        }
         self.skip_space();
         let end = self
             .rest
@@ -165,7 +172,7 @@ impl Parser<'_> {
                 let mut children = Vec::new();
                 if self.eat('(') {
                     loop {
-                        children.push(self.plan()?);
+                        children.push(self.plan(depth + 1)?);
                         if self.eat(')') {
                             break;
                         }
