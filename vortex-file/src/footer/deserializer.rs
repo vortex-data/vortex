@@ -230,6 +230,10 @@ impl FooterDeserializer {
             });
         }
 
+        // Reject stripped or mismatched protection before retrieving keys or parsing footer
+        // segments.
+        self.validate_postscript_protection(postscript)?;
+
         // Retrieve the keys of the footer segments before reading them.
         if self
             .footer_specs()
@@ -238,13 +242,6 @@ impl FooterDeserializer {
         {
             return Ok(DeserializeStep::NeedKeys);
         }
-        let postscript = self
-            .postscript
-            .as_ref()
-            .vortex_expect("postscript parsed above");
-
-        // Reject stripped protection before parsing any footer segment.
-        self.validate_postscript_protection(postscript)?;
 
         // Now we read our initial segments.
         let segments = InitialSegments {
@@ -359,13 +356,13 @@ impl FooterDeserializer {
         self.require_footer_protection(postscript, footer_key)
     }
 
-    /// Reject an encrypted footer whose other footer segments are not protected like it, before
-    /// any of them is parsed.
+    /// Reject a postscript whose footer segments do not share the footer's encryption spec, before
+    /// retrieving keys or parsing any of them.
     ///
     /// [`validate_footer_protection`](Self::validate_footer_protection) then checks that this
     /// protection is the footer key's, once the footer is decrypted.
     fn validate_postscript_protection(&self, postscript: &Postscript) -> VortexResult<()> {
-        if self.resolver.decryption().is_none() || !postscript.footer.encryption.is_encrypted() {
+        if self.resolver.decryption().is_none() {
             return Ok(());
         }
         self.require_footer_protection(postscript, &postscript.footer.encryption)

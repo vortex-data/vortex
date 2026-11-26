@@ -767,3 +767,29 @@ async fn retrieves_each_key_once() -> VortexResult<()> {
     assert_eq!(counts.get(FOOTER_KEY_METADATA), Some(&1));
     Ok(())
 }
+
+/// A postscript whose footer segments disagree on their encryption spec is rejected before any
+/// key is requested from the [`KeyRetriever`].
+#[tokio::test]
+async fn rejects_mismatched_postscript_keys_before_retrieving() -> VortexResult<()> {
+    let bytes = write(Some(FileEncryption::new(footer_key()))).await?;
+    let tampered = edit_postscript(&bytes, |postscript| {
+        postscript
+            .statistics
+            .as_mut()
+            .vortex_expect("file has statistics")
+            .encryption
+            .key_metadata = b"kms://keys/attacker".as_slice().into();
+    })?;
+    let counting = Arc::new(CountingKeys(Mutex::default()));
+    expect_err(
+        SESSION
+            .open_options()
+            .with_decryption(FileDecryption::new(Arc::clone(&counting) as _))
+            .open_read(tampered)
+            .await,
+        "not protected by its footer key",
+    );
+    assert!(counting.0.lock().is_empty());
+    Ok(())
+}
