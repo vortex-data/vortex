@@ -109,7 +109,8 @@
   },
   "vortex-expr": {
     "expr_large_struct_pack": 4,
-    "expr_optimize": 1
+    "expr_optimize": 1,
+    "stats_rewrite": 8
   },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
@@ -134,7 +135,7 @@
   },
   "vortex-fsst": {
     "chunked_dict_fsst_builder": 12,
-    "fsst_compress": 22,
+    "fsst_compress": 30,
     "fsst_like": 14,
     "fsst_take": 24,
     "fsst_url_compare": 8
