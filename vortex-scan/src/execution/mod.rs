@@ -34,6 +34,7 @@ use std::sync::Arc;
 
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
+use vortex_io::request::SourceId;
 pub use vortex_io::segments::SegmentLocation;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -89,6 +90,8 @@ pub struct PreparedScan {
     pub(crate) cache: ScanCache,
     /// The location of every segment, indexed by segment id.
     pub(crate) locations: Arc<[SegmentLocation]>,
+    /// The source every request of the scan's planners names.
+    pub(crate) source: SourceId,
     /// The optimized projection plan, over the scan's root row domain.
     pub(crate) projection: PlanRef,
     /// The filter's conjuncts, their plans and their pruning plans.
@@ -120,13 +123,20 @@ impl PreparedScan {
         self.file_ordinal
     }
 
+    /// The source every request of the scan's planners names.
+    pub fn source(&self) -> SourceId {
+        self.source
+    }
+
     /// The filter's plans, when the scan has a filter.
     pub fn filter(&self) -> Option<&FilterPlans> {
         self.filter.as_deref()
     }
 
-    /// The service a driver takes IO sessions from: every read a planner of the scan requests is
-    /// served from it by segment.
+    /// The service a driver of this scan alone takes IO sessions from: every read a planner of
+    /// the scan requests is served from it by segment, whatever source the request names. A
+    /// driver of several sources reads through their
+    /// [`SourcesIoService`](vortex_io::request::SourcesIoService) instead.
     pub fn io(&self) -> Arc<dyn IoService> {
         Arc::new(SegmentScanIo::new(
             Arc::clone(&self.segments),

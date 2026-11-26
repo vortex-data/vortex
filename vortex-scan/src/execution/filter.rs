@@ -28,7 +28,6 @@ use vortex_session::VortexSession;
 
 use super::FILTERED_ROWS_PER_CHUNK;
 use super::PreparedScan;
-use super::SegmentLocation;
 use super::SelectedRows;
 use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
@@ -223,7 +222,7 @@ impl FilterPlanner {
 
 /// Publishes a hint for each of `segments` not in `seen`, and adds it there.
 pub(super) fn hint(
-    locations: &[SegmentLocation],
+    scan: &PreparedScan,
     next_hint: &mut u32,
     intent: IoIntent,
     segments: &[SegmentId],
@@ -235,9 +234,10 @@ pub(super) fn hint(
             continue;
         }
         batch.push(IoRequest {
+            source: scan.source,
             intent,
             request: IoRequestId(*next_hint),
-            target: segment_target(&locations[*segment as usize]),
+            target: segment_target(&scan.locations[*segment as usize]),
         });
         *next_hint -= 1;
     }
@@ -296,9 +296,8 @@ impl Planner for FilterPlanner {
             )?;
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
-            let locations = &self.scan.locations;
             hint(
-                locations,
+                &self.scan,
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &predicates,
@@ -306,7 +305,7 @@ impl Planner for FilterPlanner {
                 &mut batch,
             );
             hint(
-                locations,
+                &self.scan,
                 &mut self.next_hint,
                 IoIntent::Announce,
                 &projection,
@@ -387,7 +386,7 @@ impl Planner for FilterPlanner {
             self.active = Some((
                 index,
                 version,
-                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
+                ScanAdaptor::new(scan, &self.scan),
             ));
             return Ok(PlannerOutput::Continue);
         }

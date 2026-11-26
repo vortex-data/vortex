@@ -87,6 +87,9 @@ impl<R: BlockingRuntime + Send + Sync> IoSource for ReadAtIoSource<R> {
                 .runtime
                 .block_on(self.read.read_at(offset, len, alignment))
                 .map(IoResult::Bytes),
+            IoTarget::Open(open) => Err(vortex_err!(
+                "ReadAtIoSource: {open:?} is addressed to a source, not a service"
+            )),
         };
         Ok(Completion {
             owner: work,

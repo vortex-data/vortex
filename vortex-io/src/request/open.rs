@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Opening a table's files.
+//! Byte sources a planner opens mid-plan.
 //!
-//! A scan asks for an [`Openable`] for each file it plans and awaits the opens together. Opening
-//! is async because the stores that need it most, object stores and completion-based local IO
-//! such as io_uring, are async. A source that is open already is ready at once, through
+//! Opening is async because the stores that need it most, object stores and completion-based
+//! local IO such as io_uring, are async. A source that is open already is ready at once, through
 //! [`ReadAtOpenable`].
 
 use std::fmt;
@@ -15,17 +14,35 @@ use futures::FutureExt;
 use futures::future;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
-use vortex_io::VortexReadAt;
-use vortex_io::filesystem::FileSystemRef;
 
-/// A byte source that can be opened for positional reads, such as one file of a table.
+use super::IoService;
+use super::ReadAtIoService;
+use crate::VortexReadAt;
+use crate::filesystem::FileSystemRef;
+
+/// Something a planner can turn into a byte source, carried by an
+/// [`IoTarget::Open`](super::IoTarget::Open).
+///
+/// The planner builds it, so a plan can open sources of any backend without the plan's
+/// [`SourcesIoService`](super::SourcesIoService) knowing about it: a path on a
+/// [`FileSystem`](crate::filesystem::FileSystem), a reader that is already open, or a backend
+/// with its own submission queue such as io_uring.
 pub trait Openable: Send + Sync + fmt::Debug + 'static {
-    /// What identifies the source, such as its URI. Opens with the same key open the same
-    /// source.
+    /// What identifies the source, such as its URI. Opens with the same key within one service
+    /// share one source and its id.
     fn key(&self) -> &Arc<str>;
 
     /// Opens the source for positional reads.
     fn open(&self) -> BoxFuture<'static, VortexResult<Arc<dyn VortexReadAt>>>;
+
+    /// The service the opened source's requests are served by. Reads straight from
+    /// [`open`](Self::open)'s reader unless overridden, for example by a backend that batches the
+    /// reads of every source it opened into one submission.
+    fn open_service(&self) -> BoxFuture<'static, VortexResult<Arc<dyn IoService>>> {
+        self.open()
+            .map(|read| read.map(|read| Arc::new(ReadAtIoService::new(read)) as Arc<dyn IoService>))
+            .boxed()
+    }
 }
 
 /// A source that is open already, such as an in-memory buffer.
@@ -61,7 +78,7 @@ impl Openable for ReadAtOpenable {
     }
 }
 
-/// A path on a [`FileSystem`](vortex_io::filesystem::FileSystem), local or an object store.
+/// A path on a [`FileSystem`](crate::filesystem::FileSystem), local or an object store.
 #[derive(Clone)]
 pub struct FileSystemOpenable {
     fs: FileSystemRef,
@@ -69,7 +86,7 @@ pub struct FileSystemOpenable {
 }
 
 impl FileSystemOpenable {
-    /// Opens `path` on `fs`. The path is the key.
+    /// Opens `path` on `fs`. The path is the key, so it must be unique within the plan.
     pub fn new(fs: FileSystemRef, path: impl Into<Arc<str>>) -> Self {
         Self {
             fs,

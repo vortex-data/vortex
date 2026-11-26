@@ -12,10 +12,12 @@ use vortex_buffer::buffer;
 
 use super::*;
 use crate::request::IoRequestId;
+use crate::request::SourceId;
 use crate::runtime::current::CurrentThreadRuntime;
 
 fn request(intent: IoIntent) -> IoRequest {
     IoRequest {
+        source: SourceId(1),
         intent,
         request: IoRequestId(0),
         target: IoTarget::range(0, 4),
@@ -69,6 +71,7 @@ fn a_range_is_read_at_its_alignment() -> VortexResult<()> {
     source.submit(
         IoOwnerId(0),
         vec![IoRequest {
+            source: SourceId(1),
             intent: IoIntent::Fetch,
             request: IoRequestId(0),
             target: IoTarget::Range {

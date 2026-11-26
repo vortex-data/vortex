@@ -32,6 +32,9 @@ use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::request::ReadAtIoService;
+use vortex_io::request::SourceId;
+use vortex_io::request::SourcesIoService;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -351,11 +354,11 @@ impl RecordingIoSource {
 impl IoSource for RecordingIoSource {
     fn submit(&self, work: IoOwnerId, batch: Vec<IoRequest>) -> VortexResult<()> {
         for request in batch {
-            self.submissions.lock().push((work, request));
+            self.submissions.lock().push((work, request.clone()));
             if request.intent != IoIntent::Fetch {
                 continue;
             }
-            self.performed.lock().push(request.target);
+            self.performed.lock().push(request.target.clone());
             let result = match self.canned.lock().get(&request.target) {
                 Some(Canned::Bytes(bytes)) => {
                     Ok(IoResult::Bytes(BufferHandle::new_host(bytes.clone())))
@@ -411,6 +414,17 @@ pub fn array_of(n: u64) -> ArrayRef {
 /// An execution context over a bare array session, for `assert_arrays_eq!`.
 pub fn ctx() -> ExecutionCtx {
     SESSION.create_execution_ctx()
+}
+
+/// The id of a source registered with a service of its own, for requests whose source the
+/// scripted IO ignores.
+pub fn source_id() -> SourceId {
+    static SOURCE: LazyLock<SourceId> = LazyLock::new(|| {
+        SourcesIoService::new().register(Arc::new(ReadAtIoService::new(Arc::new(
+            ByteBuffer::empty(),
+        ))))
+    });
+    *SOURCE
 }
 
 pub fn scope(rows: Range<u64>) -> WorkScope {
