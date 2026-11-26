@@ -213,7 +213,8 @@ fn fold_filter_equalities(
     scope: &DType,
 ) -> Expression {
     filters.iter().fold(projection, |projection, filter| {
-        if filter.as_opt::<Compare>() != Some(&CompareOperator::Eq) {
+        if filter.as_opt::<Compare>().map(|options| options.operator()) != Some(CompareOperator::Eq)
+        {
             return projection;
         }
         let (expr, literal) = match (

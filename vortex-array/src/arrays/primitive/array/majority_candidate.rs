@@ -10,10 +10,11 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::builtins::ArrayBuiltins;
 use crate::match_each_native_ptype;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::stats::majority::majority_candidate;
 
@@ -44,12 +45,16 @@ impl PrimitiveArray {
             Scalar::primitive_value(top, top.ptype(), self.dtype().nullability()),
             self.len(),
         );
-        let equal = self
-            .clone()
-            .into_array()
-            .compare(top_array.into_array(), CompareOperator::Eq)?
-            .execute::<BoolArray>(ctx)?
-            .to_bit_buffer();
+        // The candidate is a bit pattern, so `-0.0` and `+0.0` must count as different values.
+        let equal = Compare::try_new_with_mode(
+            self.clone().into_array(),
+            top_array.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?
+        .into_array()
+        .execute::<BoolArray>(ctx)?
+        .to_bit_buffer();
         let count = match mask.bit_buffer() {
             AllOr::All => equal.true_count(),
             AllOr::None => 0,
@@ -140,6 +145,12 @@ mod tests {
         let array = PrimitiveArray::new(values, Validity::NonNullable);
         let (top, count) = candidate(&array)?.vortex_expect("array has valid values");
         assert_eq!(f64::try_from(top)?.to_bits(), (-0.0f64).to_bits());
+        assert_eq!(count, 2);
+
+        let values: Buffer<f64> = [0.0, -0.0, 0.0].into_iter().collect();
+        let array = PrimitiveArray::new(values, Validity::NonNullable);
+        let (top, count) = candidate(&array)?.vortex_expect("array has valid values");
+        assert_eq!(f64::try_from(top)?.to_bits(), 0.0f64.to_bits());
         assert_eq!(count, 2);
         Ok(())
     }
