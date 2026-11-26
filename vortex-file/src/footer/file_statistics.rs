@@ -68,7 +68,7 @@ pub struct FileStatistics {
 }
 
 impl FileStatistics {
-    /// Estimates heap-backed contents; Footer accounts for the inline FileStatistics wrapper.
+    /// Estimates statistics storage; Footer accounts for the root dtype and inline wrapper.
     pub(crate) fn approx_resident_bytes(&self) -> usize {
         let mut bytes = self.aggregates.len().saturating_mul(size_of::<AggregateStats>());
         bytes = bytes
@@ -79,17 +79,11 @@ impl FileStatistics {
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(self.dtypes.len().saturating_mul(size_of::<DType>()))
-            .saturating_add(
-                self.dtypes
-                    .iter()
-                    .map(DType::approx_resident_bytes)
-                    .fold(0usize, usize::saturating_add),
-            )
             .saturating_add(self.paths.len().saturating_mul(size_of::<FieldPath>()))
             .saturating_add(
                 self.paths
                     .iter()
-                    .map(FieldPath::approx_resident_bytes)
+                    .map(Self::approx_field_path_storage_bytes)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -100,7 +94,7 @@ impl FileStatistics {
             .saturating_add(
                 self.path_index
                     .keys()
-                    .map(FieldPath::approx_resident_bytes)
+                    .map(Self::approx_field_path_storage_bytes)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -115,6 +109,16 @@ impl FileStatistics {
                     .fold(0usize, usize::saturating_add),
             );
         bytes
+    }
+
+    fn approx_field_path_storage_bytes(path: &FieldPath) -> usize {
+        let name_bytes = path
+            .parts()
+            .iter()
+            .filter_map(|part| part.as_name())
+            .map(str::len)
+            .fold(0usize, usize::saturating_add);
+        path.approx_resident_bytes().saturating_sub(name_bytes)
     }
 
     /// Builds `path_index` from `paths` and assembles the final struct. The single place that
@@ -660,6 +664,48 @@ mod tests {
         assert!(
             path.approx_resident_bytes()
                 >= path.parts().len() * size_of::<vortex_array::dtype::Field>() + expected_names
+        );
+    }
+
+    #[test]
+    fn test_approx_resident_bytes_list_struct_schema() {
+        let make_stats = |nested_name: &str, path_name: &str| {
+            let element_dtype =
+                DType::struct_([(nested_name, i32_dtype())], Nullability::NonNullable);
+            let file_dtype = DType::struct_(
+                [(
+                    path_name,
+                    DType::list(element_dtype, Nullability::NonNullable),
+                )],
+                Nullability::NonNullable,
+            );
+            let statistics = FileStatistics::new_with_dtype(
+                Arc::from([AggregateStats::default()]),
+                Arc::from([]),
+                &file_dtype,
+            );
+            (file_dtype, statistics)
+        };
+
+        let (_, short_nested_stats) = make_stats("a", "items");
+        let (_, long_nested_stats) = make_stats("long_nested_field_name", "items");
+        assert_eq!(
+            short_nested_stats.approx_resident_bytes(),
+            long_nested_stats.approx_resident_bytes()
+        );
+
+        let (short_path_dtype, short_path_stats) = make_stats("element", "x");
+        let (long_path_dtype, long_path_stats) = make_stats("element", "longer_path_name");
+        let short_total = short_path_dtype
+            .approx_resident_bytes()
+            .saturating_add(short_path_stats.approx_resident_bytes());
+        let long_total = long_path_dtype
+            .approx_resident_bytes()
+            .saturating_add(long_path_stats.approx_resident_bytes());
+
+        assert_eq!(
+            long_total.saturating_sub(short_total),
+            "longer_path_name".len() - "x".len()
         );
     }
 
