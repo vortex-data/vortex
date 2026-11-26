@@ -151,9 +151,10 @@ impl StatDerivation for CastStatDerivation {
             return stat_expr(input, aggregate_fn, session)
                 .map(|stat| cast(stat, expr.as_::<Cast>().clone()));
         }
-        // A cast keeps NaNs as NaNs. It changes the sum's dtype and the size of each value, so
-        // neither carries over from the input.
-        if aggregate_fn.is::<NanCount>() {
+        // A cast keeps NaNs as NaNs and nulls as nulls. A cast to a non-nullable dtype fails on a
+        // null input, so it does not change the null count either. A cast changes the sum's dtype
+        // and the size of each value, so neither carries over from the input.
+        if aggregate_fn.is::<NanCount>() || aggregate_fn.is::<NullCount>() {
             return stat_expr(input, aggregate_fn, session);
         }
         None
@@ -830,6 +831,22 @@ mod tests {
             Some(or(
                 gt(cast(stat(col("a"), Stat::Min), dtype.clone()), lit(42i64)),
                 gt(lit(42i64), cast(stat(col("a"), Stat::Max), dtype)),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn satisfies_comparison_through_cast() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let expr = gt(cast(col("a"), dtype.clone()), lit(10i64));
+
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                gt(cast(stat(col("a"), Stat::Min), dtype), lit(10i64)),
             ))
         );
         Ok(())
