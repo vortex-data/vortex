@@ -10,7 +10,6 @@ use gearhash::DEFAULT_TABLE;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -48,6 +47,7 @@ use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialArrayStreamExt;
+use crate::test::SESSION;
 use crate::test::new_session;
 
 /// A tiny deterministic PRNG so tests do not depend on the `rand` crate.
@@ -69,7 +69,7 @@ fn random_rows(seed: u64, len: usize) -> Vec<u64> {
 }
 
 fn digests_of(rows: &[u64]) -> VortexResult<Vec<RowDigest>> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::from_iter(rows.iter().copied());
     row_digests(&Canonical::Primitive(array), &mut ctx)
 }
@@ -252,7 +252,7 @@ fn strategy_emits_content_defined_blocks() -> VortexResult<()> {
 }
 
 /// A four-row canonical array of `kind`, whose rows all differ in content.
-fn sample_rows(kind: &str) -> VortexResult<Canonical> {
+fn sample_rows(kind: &str, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
     Ok(match kind {
         "null" => Canonical::Null(NullArray::new(4)),
         "bool" => Canonical::Bool(BoolArray::from_iter([true, false, true, true])),
@@ -270,6 +270,7 @@ fn sample_rows(kind: &str) -> VortexResult<Canonical> {
             PrimitiveArray::from_iter([2u32, 0, 3, 1]).into_array(),
             PrimitiveArray::from_iter([2u32, 1, 3, 2]).into_array(),
             Validity::NonNullable,
+            ctx,
         )),
         "map" => {
             let map_dtype = MapDType::try_new(
@@ -286,6 +287,7 @@ fn sample_rows(kind: &str) -> VortexResult<Canonical> {
                 PrimitiveArray::from_iter([0u32, 2, 3, 5]).into_array(),
                 PrimitiveArray::from_iter([2u32, 1, 2, 1]).into_array(),
                 Validity::NonNullable,
+                ctx,
             );
             Canonical::Map(MapArray::try_new(map_dtype, entries)?)
         }
@@ -359,8 +361,8 @@ fn digests_distinguish_rows_of_every_value_type(
     )]
     kind: &str,
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
-    let array = sample_rows(kind)?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = sample_rows(kind, &mut ctx)?;
     let digests = row_digests(&array, &mut ctx)?;
 
     assert_eq!(digests.len(), array.len());
@@ -389,7 +391,7 @@ fn digests_distinguish_rows_of_every_value_type(
 /// padding, and letting it reach the digest would tie boundaries to how nulls were encoded.
 #[test]
 fn null_rows_ignore_the_values_behind_them() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter([true, false, true]);
     let mut digests = |values: [i64; 3]| -> VortexResult<Vec<RowDigest>> {
         let array = PrimitiveArray::new(buffer![values[0], values[1], values[2]], validity.clone());
@@ -406,7 +408,7 @@ fn null_rows_ignore_the_values_behind_them() -> VortexResult<()> {
 /// The same holds one level down: the fields behind a null struct are undefined too.
 #[test]
 fn null_struct_rows_ignore_their_fields() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let mut digests = |hidden: i32| -> VortexResult<Vec<RowDigest>> {
         let field = PrimitiveArray::from_iter([1i32, hidden, 3]).into_array();
         let array = StructArray::try_new(

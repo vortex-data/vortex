@@ -4264,18 +4264,24 @@ async fn test_content_defined_chunking_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
-/// Content-defined chunking shares the rest of the write pipeline, list layout included.
+/// Content-defined chunking shares the rest of the write pipeline, list layout included: `SESSION`
+/// enables the `vortex.list` layout, so the builder decomposes list columns.
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_content_defined_chunking_with_list_layout() -> VortexResult<()> {
     let len = 20_000u32;
     let elements = PrimitiveArray::from_iter((0..len * 3).map(|i| i as i32)).into_array();
     let offsets = PrimitiveArray::from_iter((0..=len).map(|i| i * 3)).into_array();
-    let lists = ListArray::try_new(elements, offsets, Validity::NonNullable)?.into_array();
+    let lists = ListArray::try_new(
+        elements,
+        offsets,
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    )?
+    .into_array();
     let st = StructArray::from_fields(&[("lists", lists)])?.into_array();
 
     let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
-        .with_list_layout()
         .with_content_defined_chunking(ContentDefinedChunkingOptions {
             min_chunk_bytes: 16 * 1024,
             max_chunk_bytes: 64 * 1024,
