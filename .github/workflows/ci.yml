@@ -184,7 +184,10 @@ jobs:
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
+          # Each crate is documented into its own directory: merging them into one is what makes
+          # `cargo doc` slow, and nothing here uses the merged output. See the script for details.
+          RUSTDOC="${GITHUB_WORKSPACE}/.github/scripts/rustdoc-unmerged.sh" \
+            cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
           # nextest doesn't support doc tests, so we run it here
           cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
