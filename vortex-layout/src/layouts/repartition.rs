@@ -38,6 +38,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -375,7 +376,13 @@ fn concat_allowed(
     allowed: &[ArrayId],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let chunks: Vec<ArrayRef> = chunks.into_iter().filter(|c| !c.is_empty()).collect();
+    // Repartitioning slices chunks at block boundaries. Reducing a slice of a dictionary gives back
+    // a dictionary over the sliced codes, which the merges below need.
+    let chunks = chunks
+        .into_iter()
+        .filter(|c| !c.is_empty())
+        .map(|c| c.optimize_ctx(ctx))
+        .collect::<VortexResult<Vec<_>>>()?;
     if chunks.is_empty() {
         return Ok(Canonical::empty(dtype).into_array());
     }
@@ -1010,6 +1017,26 @@ mod tests {
             .as_opt::<Dict>()
             .vortex_expect("block stays a dictionary");
         assert_eq!(dict.values().len(), 2);
+        assert_arrays_eq!(&block, &expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Repartitioning cuts chunks at block boundaries, and a partial slice of a dictionary is a lazy
+    /// slice, which must still merge as a dictionary.
+    #[test]
+    fn concat_dicts_merges_sliced_dicts() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Utf8(NonNullable);
+        let chunks = vec![
+            str_dict(&[0, 1, 0, 1], &["x", "y"])?.slice(1..3)?,
+            str_dict(&[1, 0], &["z", "x"])?,
+        ];
+        let expected = ChunkedArray::try_new(chunks.clone(), dtype.clone())?;
+
+        let block = finish_block(chunks, &dtype, &[Dict.id()], &mut ctx)?
+            .vortex_expect("block is not empty");
+
+        assert!(block.is::<Dict>(), "{}", block.display_tree());
         assert_arrays_eq!(&block, &expected, &mut ctx);
         Ok(())
     }
