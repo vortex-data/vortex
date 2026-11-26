@@ -50,6 +50,7 @@ use vortex_pivco::pow2_sym_and_ebits;
 use super::FoRScheme;
 use super::IntDictScheme;
 use super::RunEndScheme;
+use super::ZigZagScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
@@ -271,7 +272,22 @@ fn pivco_expected_compression_ratio(
             }
 
             let primitive = data.array_as_primitive();
-            let dict_available = compressor.is_scheme_eligible(IntDictScheme.id(), &compress_ctx);
+            let dict_id = IntDictScheme.id();
+            let has_ancestor = |id| {
+                compress_ctx
+                    .cascade_history()
+                    .iter()
+                    .any(|&(ancestor, _)| ancestor == id)
+            };
+            // `ZigZag` and `FoR` are bijective transforms that exclude `IntDict` only in their
+            // descendants because `IntDict` already competes as their sibling at the parent level.
+            let dict_available = compressor.is_scheme_eligible(dict_id, &compress_ctx)
+                || (!has_ancestor(dict_id)
+                    && (has_ancestor(ZigZagScheme.id()) || has_ancestor(FoRScheme::v1().id()))
+                    && compressor
+                        .allowed_schemes()
+                        .iter()
+                        .any(|s| s.id() == dict_id));
 
             let Some(samples) =
                 collect_dual_sampled_histograms(primitive, !min_is_negative, bias_min, exec_ctx)?
