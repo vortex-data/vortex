@@ -47,6 +47,7 @@
 //! [`UncompressedSizeInBytes`]: crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
 
 use num_traits::AsPrimitive;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -133,15 +134,25 @@ pub fn list_elements_mask(
     // Offsets are non-negative, so they can be read as unsigned.
     let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
 
-    let mut buffer = BitBufferMut::new_unset(elements_len);
-    match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        let offsets = offsets.as_slice::<O>();
-        // Offsets are monotonic, so a run of defined lists covers one contiguous element range.
-        for_each_defined_run(lists, |start, end| {
-            fill_elements(&mut buffer, offsets[start].as_(), offsets[end].as_());
-        });
+    let elements = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+        referenced_elements(offsets.as_slice::<O>(), lists, elements_len)
     });
-    Ok(Mask::from_buffer(buffer.freeze()))
+    Ok(Mask::from_buffer(elements))
+}
+
+/// The elements that the lists `lists` selects reference, given the lists' `offsets`.
+///
+/// Offsets are monotonic, so a run of selected lists covers one contiguous element range.
+fn referenced_elements<O: AsPrimitive<usize>>(
+    offsets: &[O],
+    lists: &Mask,
+    elements_len: usize,
+) -> BitBuffer {
+    let mut buffer = BitBufferMut::new_unset(elements_len);
+    for_each_defined_run(lists, |start, end| {
+        fill_elements(&mut buffer, offsets[start].as_(), offsets[end].as_());
+    });
+    buffer.freeze()
 }
 
 /// The elements of `array` that belong to its logical elements column: the `list_size` elements of
