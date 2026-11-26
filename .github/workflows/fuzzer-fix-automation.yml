@@ -44,10 +44,14 @@ jobs:
     # - workflow_dispatch: a manual run of this workflow or of a fuzz-* workflow.
     # - schedule: the in-pipeline attempt-fix job in run-fuzzer.yml.
     # - issues: fuzzer-issue-autofix.yml.
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
-      github.event_name == 'issues'
+    # The write federation rule trusts this workflow on the default branch.
+    # To handle a crash reported on another ref, dispatch this workflow on the
+    # default branch with the crash issue number.
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'issues')
 
     runs-on: ubuntu-latest
     # The fix session builds the fuzz target, runs tests and clippy, and runs up
