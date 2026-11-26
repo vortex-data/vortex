@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Byte sources a planner opens mid-plan.
+//!
+//! Opening is async because the stores that need it most, object stores and completion-based
+//! local IO such as io_uring, are async. A source that is open already is ready at once, through
+//! [`ReadAtOpenable`].
 
 use std::fmt;
 use std::sync::Arc;

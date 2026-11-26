@@ -11,16 +11,15 @@
 //! out the filter, and runs each kept file's ordinary scan, in table order. See `examples/table_scan.rs`.
 
 pub mod manifest;
-pub mod open;
 pub mod scan;
 
 pub use manifest::Manifest;
 pub use manifest::ManifestEntry;
-pub use open::FileSystemOpenable;
-pub use open::Openable;
-pub use open::ReadAtOpenable;
 pub use scan::PlannedFile;
 pub use scan::TableScan;
+pub use vortex_io::request::FileSystemOpenable;
+pub use vortex_io::request::Openable;
+pub use vortex_io::request::ReadAtOpenable;
 
 #[cfg(test)]
 mod tests;
