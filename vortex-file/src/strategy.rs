@@ -15,6 +15,7 @@ use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::VTable;
 use vortex_layout::layouts::buffered::BufferedStrategy;
@@ -211,6 +212,11 @@ impl WriteStrategyBuilder {
     /// may step into list elements; without the list layout, the column holding the list keeps the
     /// encodings inside it.
     ///
+    /// # Panics
+    ///
+    /// [`build`](Self::build) panics if a [field writer](Self::with_field_writer) is set on the
+    /// column that keeps the encodings, or on a path inside or around it.
+    ///
     /// [`Dict`]: vortex_array::arrays::Dict
     pub fn with_allow_encodings(
         mut self,
@@ -347,6 +353,7 @@ impl WriteStrategyBuilder {
             .flat_map(|(_, ids)| ids.iter().copied())
             .collect();
         let mut field_writers = self.field_writers;
+        let user_paths: Vec<FieldPath> = field_writers.keys().cloned().collect();
         let mut allowed_columns: HashMap<FieldPath, Vec<(FieldPath, Vec<ArrayId>)>> =
             HashMap::new();
         for (field, ids) in self.allowed_encodings {
@@ -402,6 +409,13 @@ impl WriteStrategyBuilder {
                 },
             )
             .with_allowed_encodings(column_ids);
+            // Overlapping writers would otherwise end in either one silently replacing the other
+            // or a later panic, depending on whether the paths are equal.
+            if let Some(user_path) = user_paths.iter().find(|path| path.overlap(&column)) {
+                vortex_panic!(
+                    "field writer for {user_path} conflicts with the allowed encodings written at {column}"
+                );
+            }
             field_writers.insert(column, Arc::new(allowed_writer));
         }
 

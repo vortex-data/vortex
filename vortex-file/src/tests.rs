@@ -3975,6 +3975,19 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     Ok(())
 }
 
+/// A field writer on the column that keeps allowed encodings, or on a path inside it, is rejected
+/// the same way instead of one writer silently replacing the other.
+#[rstest]
+#[case::same_column(field_path!(name))]
+#[case::inside_column(field_path!(name.inner))]
+#[should_panic(expected = "conflicts with the allowed encodings")]
+fn field_writer_conflicting_with_allowed_encodings_panics(#[case] writer_path: FieldPath) {
+    crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+        .with_field_writer(writer_path, Arc::new(FlatLayoutStrategy::default()))
+        .with_allow_encodings(field_path!(name), [Dict.id()])
+        .build();
+}
+
 /// Columns allowed to keep `Dict` with `with_allow_encodings`, including one inside a list's
 /// elements, keep the dictionaries they were written with. The values are all distinct, so the default path would
 /// not dictionary-encode them.
