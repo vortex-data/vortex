@@ -184,15 +184,11 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override how many compressed bytes each column holds back so that its chunks are written
-    /// next to each other.
+    /// Override how many compressed bytes each column buffers so its chunks are written next to
+    /// each other.
     ///
-    /// Once a column's held chunks reach twice this size, it passes the oldest on to be written
-    /// contiguously until at most this size remains, and it passes on the rest when the column
-    /// ends. So an open file holds less than twice this size plus one chunk for each column, which
-    /// the [buffered bytes tracker](crate::VortexWriteOptions::buffered_bytes_tracker) counts.
-    /// Smaller values hold less memory but write each column in shorter contiguous runs. Zero
-    /// passes each chunk on as soon as the next one arrives. Defaults to 2 MiB.
+    /// Each column holds up to about twice this size. Larger values write longer contiguous runs;
+    /// smaller values hold less memory. Defaults to 2 MiB.
     pub fn with_column_buffer_bytes(mut self, bytes: u64) -> Self {
         self.column_buffer_bytes = bytes;
         self
