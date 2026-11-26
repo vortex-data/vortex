@@ -1016,7 +1016,7 @@ mod tests {
                 len,
                 &wrong_dtype_slots,
             ),
-            "right: bool",
+            "validity.dtype() == &Validity::DTYPE",
         );
 
         // validity_child has wrong length.
@@ -1030,7 +1030,7 @@ mod tests {
                 len,
                 &wrong_len_slots,
             ),
-            "left: 2",
+            "validity.len() == len",
         );
 
         // validity_child is None but extra slots exist.
