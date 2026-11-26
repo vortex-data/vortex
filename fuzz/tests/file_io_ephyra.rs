@@ -8,18 +8,21 @@
 
 #![cfg(test)]
 
+use ephyra::Config;
 use ephyra::TestResult;
 use vortex_fuzz::FileIoPlan;
 use vortex_fuzz::ephyra_driver::PlanOutcome;
 use vortex_fuzz::ephyra_driver::check_plan;
 use vortex_fuzz::ephyra_driver::dtype_kind;
+use vortex_fuzz::ephyra_driver::finish;
 use vortex_fuzz::ephyra_driver::run_corpus;
 use vortex_fuzz::ephyra_driver::run_plans;
 use vortex_fuzz::run_file_io;
 
-#[ephyra::test(tests = 200)]
-fn file_io(plan: FileIoPlan) -> TestResult {
-    check(plan)
+#[test]
+fn file_io() {
+    let config = Config::default().name("file_io").tests(200);
+    finish(ephyra::check(&config, ephyra::any::<FileIoPlan>(), check));
 }
 
 #[test]

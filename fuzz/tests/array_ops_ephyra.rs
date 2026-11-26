@@ -15,20 +15,23 @@
 
 #![cfg(test)]
 
+use ephyra::Config;
 use ephyra::TestResult;
 use vortex_fuzz::ActionType;
 use vortex_fuzz::ArrayOpsPlan;
 use vortex_fuzz::ephyra_driver::PlanOutcome;
 use vortex_fuzz::ephyra_driver::check_plan;
 use vortex_fuzz::ephyra_driver::dtype_kind;
+use vortex_fuzz::ephyra_driver::finish;
 use vortex_fuzz::ephyra_driver::run_corpus;
 use vortex_fuzz::ephyra_driver::run_plans;
 use vortex_fuzz::error::VortexFuzzError;
 use vortex_fuzz::run_fuzz_action;
 
-#[ephyra::test(tests = 500)]
-fn array_ops(plan: ArrayOpsPlan) -> TestResult {
-    check(plan)
+#[test]
+fn array_ops() {
+    let config = Config::default().name("array_ops").tests(500);
+    finish(ephyra::check(&config, ephyra::any::<ArrayOpsPlan>(), check));
 }
 
 #[test]

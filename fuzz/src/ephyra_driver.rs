@@ -24,7 +24,10 @@ use std::panic;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::sync::Once;
+use std::time::Duration;
+use std::time::Instant;
 
 use ephyra::BoxGen;
 use ephyra::Config;
@@ -36,6 +39,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vortex_array::dtype::DType;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// How one plan fared.
 pub enum PlanOutcome {
@@ -59,6 +63,9 @@ thread_local! {
 }
 
 static PANIC_HOOK: Once = Once::new();
+
+/// Failure signatures this process has seen, so each is announced once.
+static SEEN_SIGNATURES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
 /// Remember where the last panic on this thread happened, then hand over to the hook before.
 ///
@@ -137,9 +144,19 @@ fn write_json<T: Serialize>(path: &Path, value: &T) {
 ///
 /// Shrinking tests ever smaller candidates, so the file ends with the shrunk plan.
 fn save_crash<T: Serialize>(plan: &T, signature: &str) {
+    let first = SEEN_SIGNATURES.lock().insert(signature.to_string());
     let Some(dir) = std::env::var_os("EPHYRA_CRASH_DIR").map(PathBuf::from) else {
+        if first {
+            eprintln!("ephyra: NEW FAILURE `{signature}`");
+        }
         return;
     };
+    if first {
+        eprintln!(
+            "ephyra: NEW FAILURE `{signature}` (smallest plan kept in {})",
+            dir.display()
+        );
+    }
     let Ok(plan_json) = serde_json::to_vec(plan) else {
         return;
     };
@@ -256,8 +273,9 @@ where
     let mut run = Run::new(&config, generator, property);
     let mut drawn = 0usize;
     let mut mutate = false;
-    let mut added = 0usize;
+    let mut progress = Progress::new(name);
     while run.wants_more() {
+        progress.maybe_print(replay);
         let parent = if drawn >= replay {
             mutate = !mutate;
             if mutate { run.pool_pick() } else { None }
@@ -275,15 +293,110 @@ where
             continue;
         };
         let tested = run.test(&input);
+        progress.record(&tested, parent.is_some());
         if tested.passed() && tested.novelty() > 0 {
-            if save_entry(&corpus_dir, &input.value) {
-                added += 1;
-            }
+            let saved = save_entry(&corpus_dir, &input.value);
+            progress.novel(tested.novelty(), saved, drawn <= replay);
             run.keep_always(input.value, f64::from(tested.novelty()));
         }
     }
-    eprintln!("ephyra: added {added} corpus entries");
-    run.finish().assert_passed();
+    progress.print(replay);
+    eprintln!("ephyra: added {} corpus entries", progress.added);
+    finish(run.finish());
+}
+
+/// Print the full report, passing or not, then fail the test if the run failed.
+pub fn finish(report: ephyra::Report) {
+    eprintln!("{report}");
+    report.assert_passed();
+}
+
+/// Counts for the progress lines a corpus search prints every 30 seconds.
+struct Progress<'a> {
+    name: &'a str,
+    started: Instant,
+    last: Instant,
+    tests: u64,
+    discarded: u64,
+    failed: u64,
+    mutants: u64,
+    novel_inputs: u64,
+    novelty: u64,
+    added: usize,
+}
+
+impl<'a> Progress<'a> {
+    const EVERY: Duration = Duration::from_secs(30);
+
+    fn new(name: &'a str) -> Self {
+        let now = Instant::now();
+        Self {
+            name,
+            started: now,
+            last: now,
+            tests: 0,
+            discarded: 0,
+            failed: 0,
+            mutants: 0,
+            novel_inputs: 0,
+            novelty: 0,
+            added: 0,
+        }
+    }
+
+    fn record(&mut self, tested: &ephyra::Tested, mutant: bool) {
+        self.tests += 1;
+        self.mutants += u64::from(mutant);
+        self.discarded += u64::from(tested.discarded());
+        self.failed += u64::from(tested.failed());
+    }
+
+    /// An input reached new code: announce the first hundred new corpus entries, then every
+    /// hundredth, so a fresh corpus does not flood the log.
+    fn novel(&mut self, novelty: u32, saved: bool, replaying: bool) {
+        self.novel_inputs += 1;
+        self.novelty += u64::from(novelty);
+        if saved && !replaying {
+            self.added += 1;
+            if self.added <= 100 || self.added.is_multiple_of(100) {
+                eprintln!(
+                    "ephyra: new coverage (+{novelty} regions) at test {}; corpus entry {} added",
+                    self.tests, self.added
+                );
+            }
+        }
+    }
+
+    fn maybe_print(&mut self, replay: usize) {
+        if self.last.elapsed() >= Self::EVERY {
+            self.print(replay);
+        }
+    }
+
+    fn print(&mut self, replay: usize) {
+        self.last = Instant::now();
+        let secs = self.started.elapsed().as_secs_f64();
+        let rate = if secs > 0.0 {
+            self.tests as f64 / secs
+        } else {
+            0.0
+        };
+        let seen = SEEN_SIGNATURES.lock().len();
+        eprintln!(
+            "ephyra: [{}] {:.0}s: {} tests ({rate:.0}/s, {} mutants, {} discarded), \
+             {} failing inputs over {seen} signature(s), {} inputs with new coverage \
+             (+{} regions), corpus {replay} replayed + {} added",
+            self.name,
+            secs,
+            self.tests,
+            self.mutants,
+            self.discarded,
+            self.failed,
+            self.novel_inputs,
+            self.novelty,
+            self.added,
+        );
+    }
 }
 
 /// Check every plan in the files or directories that `EPHYRA_PLAN` names, separated by `:`.
