@@ -99,7 +99,7 @@
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
-    "decode_chains": 1,
+    "decode_chains": 2,
     "split_temporal": 6
   },
   "vortex-decimal-byte-parts": {
