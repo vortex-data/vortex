@@ -29,6 +29,7 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::proto::expr as pb;
 use vortex_array::proto::expr::variant_path_element;
+use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -223,13 +224,9 @@ impl ScalarFnVTable for VariantGet {
 /// array over itself.
 ///
 /// The kernel of such an array extracts from its core storage, which is `input`. That builds the
-/// same extraction again, so the caller must extract row by row. An array of the same encoding
-/// counts as `input` too, so that an encoding that builds a new copy of itself cannot recurse.
+/// same extraction again, so the caller must extract row by row.
 fn wraps_input(canonical: &VariantArray, input: &ArrayRef) -> bool {
-    let core = canonical.core_storage();
-
-    canonical.shredded().is_none()
-        && (ArrayRef::ptr_eq(core, input) || core.encoding_id() == input.encoding_id())
+    canonical.shredded().is_none() && ArrayRef::ptr_eq(canonical.core_storage(), input)
 }
 
 fn variant_get_scalar(
@@ -350,7 +347,8 @@ fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Opti
     Ok(value
         .cast(output_dtype)
         .ok()
-        .or_else(|| convert_to_bool(&value, output_dtype)))
+        .or_else(|| convert_to_bool(&value, output_dtype))
+        .or_else(|| convert_to_decimal(&value, output_dtype)))
 }
 
 /// Converts a number or a string to a Boolean as Arrow's Variant conversion does. A Vortex cast
@@ -375,6 +373,52 @@ pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> 
         _ => return None,
     };
     Some(Scalar::bool(boolean, dtype.nullability()))
+}
+
+/// Converts a float or a decimal to a decimal as Arrow's Variant conversion does, where a Vortex
+/// cast fails: both round half away from zero. Returns `None` if the result does not fit.
+pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+    let DType::Decimal(target, nullability) = dtype else {
+        return None;
+    };
+
+    let value = if scalar.dtype().is_variant() {
+        scalar.as_variant().value()?
+    } else {
+        scalar
+    };
+
+    let unscaled = match value.dtype() {
+        DType::Primitive(ptype, _) if ptype.is_float() => {
+            let float = value.as_primitive().as_::<f64>()?;
+            let scaled = (10f64.powi(i32::from(target.scale())) * float).round();
+            i128_from_f64(scaled)?
+        }
+        DType::Decimal(source, _) => {
+            let dropped_digits =
+                u32::try_from(i16::from(source.scale()) - i16::from(target.scale())).ok()?;
+            let unscaled = value.as_decimal().decimal_value()?.cast::<i128>()?;
+            let divisor = 10i128.checked_pow(dropped_digits)?;
+
+            let mut rounded = unscaled / divisor;
+            if (unscaled % divisor).unsigned_abs() * 2 >= divisor.unsigned_abs() {
+                rounded += unscaled.signum();
+            }
+            rounded
+        }
+        _ => return None,
+    };
+
+    Scalar::try_decimal(DecimalValue::I128(unscaled), *target, *nullability).ok()
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the value is checked to be in range"
+)]
+fn i128_from_f64(float: f64) -> Option<i128> {
+    // `i128::MAX as f64` rounds up to 2^127, so the upper bound is exclusive.
+    (float >= i128::MIN as f64 && float < i128::MAX as f64).then_some(float as i128)
 }
 
 /// Reads a string as a Boolean with the spellings that Arrow's string cast accepts, ignoring case

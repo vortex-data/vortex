@@ -345,6 +345,7 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType as VortexDType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -1434,6 +1435,11 @@ mod tests {
     )]
     // Arrow reads the string "y" as true, so the shredded strings must convert as it does.
     #[case::strings_as_boolean(DataType::Utf8, VortexDType::Bool(Nullability::Nullable))]
+    // Arrow rounds 12.345 to 12.35, so the shredded decimals must round as it does.
+    #[case::decimal_to_smaller_scale(
+        DataType::Decimal128(12, 3),
+        VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
+    )]
     fn test_variant_get_fills_rows_the_shredded_column_lacks(
         #[case] shredded_type: DataType,
         #[case] requested: VortexDType,
@@ -1445,6 +1451,7 @@ mod tests {
             Some(r#"{"a":"y"}"#),
             Some(r#"{"a":8}"#),
             Some(r#"{"a":true}"#),
+            Some(r#"{"a":12.345}"#),
         ];
         let unshredded = make_unshredded_json_array(rows.clone())?;
 

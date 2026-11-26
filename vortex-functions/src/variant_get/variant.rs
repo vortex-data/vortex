@@ -43,6 +43,7 @@ use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
 use crate::variant_get::convert_to_bool;
+use crate::variant_get::convert_to_decimal;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -336,6 +337,7 @@ fn convert_typed(typed: ArrayRef, dtype: &DType, ctx: &mut ExecutionCtx) -> Vort
             .cast(dtype)
             .ok()
             .or_else(|| convert_to_bool(&scalar, dtype))
+            .or_else(|| convert_to_decimal(&scalar, dtype))
             .unwrap_or_else(|| Scalar::null(dtype.clone()));
         builder.append_scalar(&converted)?;
     }
@@ -429,7 +431,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -439,13 +440,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VariantBuilder;
     use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldName;
-    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::StructFields;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -457,6 +454,8 @@ mod tests {
     use crate::expr::variant_get;
     use crate::variant_get::VariantPath;
     use crate::variant_get::VariantPathElement;
+    use crate::variant_get::tests::variant_object;
+    use crate::variant_get::tests::variant_rows;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -470,38 +469,6 @@ mod tests {
 
     fn int(value: i32) -> Scalar {
         Scalar::primitive(value, Nullability::NonNullable)
-    }
-
-    /// An object with the given fields, as a Variant holds it.
-    fn object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> VortexResult<Scalar> {
-        let fields = fields.into_iter().collect::<Vec<_>>();
-        let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
-        let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
-        let values = fields
-            .into_iter()
-            .map(|(_, value)| Scalar::variant(value).into_value())
-            .collect();
-        Scalar::try_new(
-            DType::Struct(StructFields::new(names, dtypes), Nullability::NonNullable),
-            Some(ScalarValue::Tuple(values)),
-        )
-    }
-
-    /// Core storage with one Variant row for each value. `None` is a null Variant row.
-    fn core(rows: impl IntoIterator<Item = Option<Scalar>>) -> VortexResult<ArrayRef> {
-        let dtype = DType::Variant(Nullability::Nullable);
-        let chunks = rows
-            .into_iter()
-            .map(|row| {
-                let row = match row {
-                    Some(row) => Scalar::variant(row).cast(&dtype)?,
-                    None => Scalar::null(dtype.clone()),
-                };
-                Ok(ConstantArray::new(row, 1).into_array())
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
     }
 
     /// A Variant whose objects have the field `name` shredded as `typed`, over `core`.
@@ -628,10 +595,10 @@ mod tests {
     #[test]
     fn fills_absent_rows_from_core() -> VortexResult<()> {
         let typed = PrimitiveArray::from_option_iter([Some(10i32), None, None]).into_array();
-        let core = core([
-            Some(object([])?),
-            Some(object([("a", int(5))])?),
-            Some(object([("b", int(6))])?),
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([("a", int(5))])),
+            Scalar::variant(variant_object([("b", int(6))])),
         ])?;
         let array = shredded("a", typed, core)?;
 
@@ -664,11 +631,11 @@ mod tests {
     ) -> VortexResult<()> {
         let typed =
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None]).into_array();
-        let core = core([
-            Some(object([])?),
-            Some(object([("a", int(5))])?),
-            Some(object([])?),
-            Some(object([("a", int(7))])?),
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([("a", int(5))])),
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([("a", int(7))])),
         ])?;
         let array = shredded("a", typed, core)?;
         let array = match shape {
@@ -693,12 +660,16 @@ mod tests {
     #[test]
     fn reads_path_through_shredded_variant() -> VortexResult<()> {
         let nested_typed = PrimitiveArray::from_option_iter([Some(1i32), None, None]).into_array();
-        let nested_core = core([Some(object([])?), Some(object([("c", int(2))])?), None])?;
+        let nested_core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([("c", int(2))])),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
         let nested = shredded("c", nested_typed, nested_core)?;
-        let core = core([
-            Some(object([])?),
-            Some(object([])?),
-            Some(object([("b", object([("c", int(3))])?)])?),
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([("b", variant_object([("c", int(3))]))])),
         ])?;
         let array = shredded("b", nested, core)?;
 
@@ -733,7 +704,10 @@ mod tests {
             vec![Scalar::variant(int(30)), Scalar::variant(int(40))],
             Nullability::NonNullable,
         );
-        let core = core([Some(object([])?), Some(object([("items", list)])?)])?;
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([("items", list)])),
+        ])?;
 
         shredded("items", items, core)
     }
@@ -806,11 +780,14 @@ mod tests {
         )?
         .into_array();
         let dtype = s.dtype().clone();
-        let core = core([
-            Some(object([])?),
-            Some(object([])?),
-            Some(object([("s", object([("x", int(5)), ("y", int(6))])?)])?),
-            Some(object([])?),
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([])),
+            Scalar::variant(variant_object([(
+                "s",
+                variant_object([("x", int(5)), ("y", int(6))]),
+            )])),
+            Scalar::variant(variant_object([])),
         ])?;
         let array = shredded("s", s, core)?;
 

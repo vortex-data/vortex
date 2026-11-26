@@ -24,12 +24,14 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar_is_null;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -51,6 +53,7 @@ use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
+use crate::variant_get::convert_to_decimal;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -62,7 +65,9 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
+pub(super) fn variant_object(
+    fields: impl IntoIterator<Item = (&'static str, Scalar)>,
+) -> Scalar {
     let fields = fields.into_iter().collect::<Vec<_>>();
     let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
     let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
@@ -77,7 +82,7 @@ fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> S
     .unwrap()
 }
 
-fn variant_rows(rows: impl IntoIterator<Item = Scalar>) -> VortexResult<ArrayRef> {
+pub(super) fn variant_rows(rows: impl IntoIterator<Item = Scalar>) -> VortexResult<ArrayRef> {
     let dtype = DType::Variant(Nullability::Nullable);
     let chunks = rows
         .into_iter()
@@ -1137,4 +1142,27 @@ fn variant_get_extracts_from_lazy_constants(
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
     Ok(())
+}
+
+#[rstest]
+#[case::rounds_up(12_345, Some(1_235))]
+#[case::rounds_down(12_344, Some(1_234))]
+#[case::rounds_negative_away_from_zero(-12_345, Some(-1_235))]
+#[case::too_wide_for_precision(99_999_995, None)]
+fn converts_decimals_to_a_smaller_scale(#[case] unscaled: i64, #[case] expected: Option<i64>) {
+    let value = Scalar::decimal(
+        DecimalValue::I64(unscaled),
+        DecimalDType::new(8, 3),
+        Nullability::NonNullable,
+    );
+    let target = DecimalDType::new(6, 2);
+
+    assert_eq!(
+        convert_to_decimal(&value, &DType::Decimal(target, Nullability::Nullable)),
+        expected.map(|expected| Scalar::decimal(
+            DecimalValue::I128(i128::from(expected)),
+            target,
+            Nullability::Nullable,
+        ))
+    );
 }
