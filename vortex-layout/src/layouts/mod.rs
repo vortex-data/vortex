@@ -9,6 +9,7 @@ use vortex_array::ArrayRef;
 use vortex_error::SharedVortexResult;
 
 pub mod buffered;
+pub mod cdc;
 pub mod chunked;
 pub mod collect;
 pub mod compressed;
