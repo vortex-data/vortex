@@ -99,12 +99,11 @@ impl DictCounter for FreqCounter<'_> {
     #[inline]
     fn record<Code: UnsignedPType>(&mut self, code: Code, n: u64) {
         let idx = code.as_();
-        if idx == self.0.len() {
-            self.0.push(n);
+        if let Some(slot) = self.0.get_mut(idx) {
+            *slot += n;
         } else {
-            // SAFETY: dictionary builders assign codes sequentially starting at 0, so any
-            // existing code is strictly less than `self.0.len()`.
-            unsafe { *self.0.get_unchecked_mut(idx) += n };
+            debug_assert_eq!(idx, self.0.len());
+            self.0.push(n);
         }
     }
 }
