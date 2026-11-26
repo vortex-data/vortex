@@ -41,8 +41,6 @@ ephyra = [
     "dep:serde",
     "dep:serde_json",
 ]
-# Coverage-guided corpus search; needs a `-C instrument-coverage` build.
-ephyra-coverage = ["ephyra", "ephyra/coverage"]
 
 [dependencies]
 # Always needed - arbitrary is used for input generation

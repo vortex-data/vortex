@@ -3,9 +3,8 @@
 
 """Summarize ephyra JSON reports and file their failures as GitHub issues.
 
-`summary TARGET REPORT [--work-dir D]` prints Markdown for `$GITHUB_STEP_SUMMARY`: throughput,
-timing, coverage per worker when the build is instrumented, failures, health warnings and the
-input distributions. `issues TARGET REPORT --repo R
+`summary TARGET REPORT` prints Markdown for `$GITHUB_STEP_SUMMARY`: throughput, timing,
+failures, health warnings and the input distributions. `issues TARGET REPORT --repo R
 --run-url U --commit C [--crash-dir D]` opens one issue per failure signature unless an open issue
 already has that exact title, so a failure that recurs on every run until it is fixed files one
 issue and no comments. Failures are merged across the workers' reports first. With `--crash-dir`,
@@ -14,7 +13,6 @@ each issue carries the saved plan that reproduces it.
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -93,23 +91,6 @@ def fmt_ms(duration: Report | None) -> str:
     return f"{seconds(duration) * 1000:.2f}"
 
 
-def corpus_counts(work_dir: str | None) -> dict[int, tuple[str, str]]:
-    """Corpus entries each worker replayed and added, from its log in `work_dir/N/output.log`."""
-    counts: dict[int, tuple[str, str]] = {}
-    if not work_dir or not Path(work_dir).is_dir():
-        return counts
-    for log in Path(work_dir).glob("*/output.log"):
-        replayed = added = "-"
-        text = log.read_text(errors="replace")
-        if match := re.search(r"ephyra: replaying (\d+) corpus entries", text):
-            replayed = match.group(1)
-        if match := re.search(r"ephyra: added (\d+) corpus entries", text):
-            added = match.group(1)
-        if log.parent.name.isdigit():
-            counts[int(log.parent.name)] = (replayed, added)
-    return counts
-
-
 def summary(args: argparse.Namespace) -> None:
     reports = load(args.report)
     tests = sum(r["tests"] for r in reports)
@@ -119,54 +100,19 @@ def summary(args: argparse.Namespace) -> None:
     rate = f", {tests / wall:,.0f} tests/s" if wall else ""
     print(f"{tests:,} tests over {len(reports)} worker(s) in {wall:,.0f} s{rate}\n")
 
-    corpus = corpus_counts(args.work_dir)
     print(
         "| worker | status | tests | tests/s | discarded | property median / p90 / max (ms) "
-        "| corpus replayed / added | seed |"
+        "| seed |"
     )
-    print("|---|---|---|---|---|---|---|---|")
+    print("|---|---|---|---|---|---|---|")
     for i, r in enumerate(reports):
         secs = seconds(r["duration"])
         prop = (r.get("timing") or {}).get("prop") or {}
-        replayed, added = corpus.get(i, ("-", "-"))
         print(
             f"| {i} | {r['status']} | {r['tests']:,} | {r['tests'] / secs if secs else 0:,.0f} "
             f"| {r['discarded']:,} | {fmt_ms(prop.get('median'))} / {fmt_ms(prop.get('p90'))} / "
-            f"{fmt_ms(prop.get('max'))} | {replayed} / {added} | `{r['seed']}` |"
+            f"{fmt_ms(prop.get('max'))} | `{r['seed']}` |"
         )
-
-    covered = [r for r in reports if r.get("coverage")]
-    if covered:
-        print("\n#### Coverage\n")
-        print(
-            "| worker | crate | functions reached | regions hit | inputs with new coverage "
-            "| last growth at input |"
-        )
-        print("|---|---|---|---|---|---|")
-        for i, r in enumerate(reports):
-            c = r.get("coverage")
-            if not c:
-                continue
-            fn_pct = 100 * c["functions_reached"] / max(c["functions_total"], 1)
-            ct_pct = 100 * c["counters_hit"] / max(c["counters_total"], 1)
-            print(
-                f"| {i} | `{c['filter'] or 'all'}` "
-                f"| {c['functions_reached']:,} / {c['functions_total']:,} ({fn_pct:.1f}%) "
-                f"| {c['counters_hit']:,} / {c['counters_total']:,} ({ct_pct:.1f}%) "
-                f"| {c['novel_inputs']:,} | {c['last_novelty_at']:,} |"
-            )
-        for i, r in enumerate(reports):
-            c = r.get("coverage")
-            if not c or not (c.get("partial") or c.get("unreached")):
-                continue
-            print(f"\n<details><summary>Worker {i} (`{c['filter']}`): least covered</summary>\n")
-            for name, hit, total in (c.get("partial") or [])[:15]:
-                print(f"- `{name}`: {hit} / {total} regions")
-            unreached = c.get("unreached") or []
-            if unreached:
-                shown = ", ".join(f"`{n}`" for n in unreached[:15])
-                print(f"\nNever reached ({len(unreached):,}): {shown}")
-            print("\n</details>")
 
     found_failures = merged_failures(reports)
     if found_failures:
@@ -301,7 +247,6 @@ def main() -> int:
     s = sub.add_parser("summary")
     s.add_argument("target")
     s.add_argument("report")
-    s.add_argument("--work-dir", help="worker directories, for corpus counts from their logs")
     s.set_defaults(func=summary)
     i = sub.add_parser("issues")
     i.add_argument("target")

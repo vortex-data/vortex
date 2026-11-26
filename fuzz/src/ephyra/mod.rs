@@ -5,28 +5,22 @@
 //!
 //! Each target has a plan, a plain-data description of a fuzz case that ephyra can shrink and
 //! mutate, which materializes into the input of the matching libFuzzer target, and a `check` that
-//! runs that target's checks on it: [`array_ops`] and [`file_io`]. The drivers here add what
-//! libFuzzer gives the `cargo fuzz` targets:
+//! runs that target's checks on it: [`array_ops`] and [`file_io`]. The drivers:
 //!
-//! - [`run_corpus`] is a coverage-guided search over a corpus directory of JSON plans. It
-//!   replays the corpus first to establish coverage, then alternates fresh plans with mutants of
-//!   plans that reached new code, and writes every plan that reaches new code back to the corpus.
-//!   Coverage needs the `ephyra-coverage` feature and a `-C instrument-coverage` build; without
-//!   them it is a plain random search that adds nothing to the corpus.
+//! - [`run_random`] is a random search that prints progress every 30 seconds and its full report
+//!   at the end. Pull requests run it with a fixed seed, and the scheduled CI search with a time
+//!   budget and a fresh seed per worker.
 //! - [`check_plan`] saves the smallest failing plan for each failure signature to
-//!   `VORTEX_FUZZ_CRASH_DIR`, so a failure reproduces from its file whatever seed or corpus found it.
+//!   `VORTEX_FUZZ_CRASH_DIR`, so a failure reproduces from its file whatever seed found it.
 //! - [`run_plans`] replays the plans named by `VORTEX_FUZZ_PLAN`.
-//! - [`run_random`] is a plain random search, the fixed-seed check that pull requests run.
 
 pub mod array_ops;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod file_io;
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fs;
-use std::ops::ControlFlow;
 use std::panic;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
@@ -36,11 +30,8 @@ use std::sync::Once;
 use std::time::Duration;
 use std::time::Instant;
 
-use ephyra::BoxGen;
 use ephyra::Config;
-use ephyra::Gen;
 use ephyra::Run;
-use ephyra::Source;
 use ephyra::TestResult;
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -188,18 +179,6 @@ fn save_crash<T: Serialize>(plan: &T, signature: &str) {
     }
 }
 
-/// Save a corpus entry named by its content, so the same plan is never stored twice.
-fn save_entry<T: Serialize>(dir: &Path, plan: &T) -> bool {
-    let Ok(json) = serde_json::to_vec(plan) else {
-        return false;
-    };
-    let path = dir.join(format!("{:016x}.json", fnv1a(&json)));
-    if path.exists() {
-        return false;
-    }
-    write_atomic(&path, &json)
-}
-
 /// Every plan in `dir` that parses, in file-name order. Crash files hold their plan in `plan`.
 fn load_plans<T: DeserializeOwned>(dir: &Path) -> Vec<T> {
     let Ok(entries) = fs::read_dir(dir) else {
@@ -225,100 +204,13 @@ fn load_plan<T: DeserializeOwned>(path: &Path) -> Option<T> {
         .ok()
 }
 
-/// Yields the corpus, in order, before handing over to the plan type's own generator.
-///
-/// Shrinking and mutation always use the plan generator, so shrunk and mutated plans stay in
-/// its support.
-struct CorpusGen<T> {
-    corpus: Mutex<VecDeque<T>>,
-    plans: BoxGen<T>,
-}
-
-impl<T: Send + Sync> Gen for CorpusGen<T> {
-    type Value = T;
-
-    fn generate(&self, g: &mut Source) -> T {
-        let next = self.corpus.lock().pop_front();
-        next.unwrap_or_else(|| self.plans.generate(g))
-    }
-
-    fn shrink(&self, value: &T, visitor: &mut dyn FnMut(T) -> ControlFlow<()>) -> ControlFlow<()> {
-        self.plans.shrink(value, visitor)
-    }
-
-    fn mutate(&self, value: &T, g: &mut Source) -> T {
-        self.plans.mutate(value, g)
-    }
-}
-
-/// Coverage-guided search over the corpus in `VORTEX_FUZZ_CORPUS_DIR`; see the module documentation.
-///
-/// The run's budget, seed and failure count come from the usual `EPHYRA_*` variables, and
-/// `EPHYRA_COVERAGE_FILTER` picks the crate whose coverage counts as new.
-pub fn run_corpus<T, P>(name: &str, property: P)
-where
-    T: ephyra::Arbitrary + Clone + Debug + Serialize + DeserializeOwned + Send + Sync,
-    P: FnMut(T) -> TestResult,
-{
-    let Some(corpus_dir) = std::env::var_os("VORTEX_FUZZ_CORPUS_DIR").map(PathBuf::from) else {
-        eprintln!("ephyra: set VORTEX_FUZZ_CORPUS_DIR to run the corpus search");
-        return;
-    };
-    if let Err(e) = fs::create_dir_all(&corpus_dir) {
-        eprintln!("ephyra: cannot create {}: {e}", corpus_dir.display());
-        return;
-    }
-    let corpus = load_plans::<T>(&corpus_dir);
-    let replay = corpus.len();
-    eprintln!("ephyra: replaying {replay} corpus entries");
-
-    let config = Config::default().name(name).no_regressions();
-    let generator = CorpusGen {
-        corpus: Mutex::new(corpus.into()),
-        plans: ephyra::any::<T>(),
-    };
-    let mut run = Run::new(&config, generator, property);
-    let mut drawn = 0usize;
-    let mut mutate = false;
-    let mut progress = Progress::new(name);
-    while run.wants_more() {
-        progress.maybe_print(replay);
-        let parent = if drawn >= replay {
-            mutate = !mutate;
-            if mutate { run.pool_pick() } else { None }
-        } else {
-            None
-        };
-        let input = match &parent {
-            Some(parent) => run.mutate(parent),
-            None => {
-                drawn += 1;
-                run.draw()
-            }
-        };
-        let Some(input) = input else {
-            continue;
-        };
-        let tested = run.test(&input);
-        progress.record(&tested, parent.is_some());
-        if tested.passed() && tested.novelty() > 0 {
-            let saved = save_entry(&corpus_dir, &input.value);
-            progress.novel(tested.novelty(), saved, drawn <= replay);
-            run.keep_always(input.value, f64::from(tested.novelty()));
-        }
-    }
-    progress.print(replay);
-    eprintln!("ephyra: added {} corpus entries", progress.added);
-    finish(run.finish());
-}
-
 /// Print the full report, passing or not, then fail the test if the run failed.
 pub fn finish(report: ephyra::Report) {
     eprintln!("{report}");
     report.assert_passed();
 }
 
-/// Counts for the progress lines a corpus search prints every 30 seconds.
+/// Counts for the progress lines a search prints every 30 seconds.
 struct Progress<'a> {
     name: &'a str,
     started: Instant,
@@ -326,10 +218,6 @@ struct Progress<'a> {
     tests: u64,
     discarded: u64,
     failed: u64,
-    mutants: u64,
-    novel_inputs: u64,
-    novelty: u64,
-    added: usize,
 }
 
 impl<'a> Progress<'a> {
@@ -344,43 +232,19 @@ impl<'a> Progress<'a> {
             tests: 0,
             discarded: 0,
             failed: 0,
-            mutants: 0,
-            novel_inputs: 0,
-            novelty: 0,
-            added: 0,
         }
     }
 
-    fn record(&mut self, tested: &ephyra::Tested, mutant: bool) {
+    fn record(&mut self, tested: &ephyra::Tested) {
         self.tests += 1;
-        self.mutants += u64::from(mutant);
         self.discarded += u64::from(tested.discarded());
         self.failed += u64::from(tested.failed());
-    }
-
-    /// An input reached new code: announce the first hundred new corpus entries, then every
-    /// hundredth, so a fresh corpus does not flood the log.
-    fn novel(&mut self, novelty: u32, saved: bool, replaying: bool) {
-        self.novel_inputs += 1;
-        self.novelty += u64::from(novelty);
-        if saved && !replaying {
-            self.added += 1;
-            if self.added <= 100 || self.added.is_multiple_of(100) {
-                eprintln!(
-                    "ephyra: new coverage (+{novelty} regions) at test {}; corpus entry {} added",
-                    self.tests, self.added
-                );
-            }
-        }
-    }
-
-    fn maybe_print(&mut self, replay: usize) {
         if self.last.elapsed() >= Self::EVERY {
-            self.print(replay);
+            self.print();
         }
     }
 
-    fn print(&mut self, replay: usize) {
+    fn print(&mut self) {
         self.last = Instant::now();
         let secs = self.started.elapsed().as_secs_f64();
         let rate = if secs > 0.0 {
@@ -390,18 +254,9 @@ impl<'a> Progress<'a> {
         };
         let seen = SEEN_SIGNATURES.lock().len();
         eprintln!(
-            "ephyra: [{}] {:.0}s: {} tests ({rate:.0}/s, {} mutants, {} discarded), \
-             {} failing inputs over {seen} signature(s), {} inputs with new coverage \
-             (+{} regions), corpus {replay} replayed + {} added",
-            self.name,
-            secs,
-            self.tests,
-            self.mutants,
-            self.discarded,
-            self.failed,
-            self.novel_inputs,
-            self.novelty,
-            self.added,
+            "ephyra: [{}] {secs:.0}s: {} tests ({rate:.0}/s, {} discarded), {} failing inputs \
+             over {seen} signature(s)",
+            self.name, self.tests, self.discarded, self.failed,
         );
     }
 }
@@ -452,12 +307,24 @@ pub fn dtype_kind(dtype: &DType) -> String {
     }
 }
 
-/// A random search of `tests` plans, printing the full report; `EPHYRA_*` variables override it.
+/// A random search of `tests` plans; `EPHYRA_*` variables override the count, seed and budget.
 pub fn run_random<T, P>(name: &str, tests: u64, property: P)
 where
     T: ephyra::Arbitrary + Clone + Debug,
     P: FnMut(T) -> TestResult,
 {
     let config = Config::default().name(name).tests(tests);
-    finish(ephyra::check(&config, ephyra::any::<T>(), property));
+    let mut run = Run::new(&config, ephyra::any::<T>(), property);
+    let mut progress = Progress::new(name);
+    if !run.remembered() {
+        while run.wants_more() {
+            let Some(input) = run.draw() else {
+                continue;
+            };
+            let tested = run.test(&input);
+            progress.record(&tested);
+        }
+    }
+    progress.print();
+    finish(run.finish());
 }

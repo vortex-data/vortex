@@ -1,15 +1,14 @@
 name: Run ephyra fuzzer
 
-# Coverage-guided ephyra search for one target in fuzz/tests/<target>_ephyra.rs, the counterpart
-# of run-fuzzer.yml for libFuzzer targets. One worker per core replays and extends the target's
-# corpus (fuzz/corpus/<target>_ephyra, stored in R2 like the libFuzzer corpora), each tracking new
-# coverage in one of `coverage_crates`. Failures are saved as replayable plans and filed as issues.
+# Random ephyra search for one target in fuzz/tests/<target>_ephyra.rs, the counterpart of
+# run-fuzzer.yml for libFuzzer targets. One worker per core searches with its own seed, streaming
+# progress to the log. Failures are shrunk, saved as replayable plans and filed as issues.
 
 on:
   workflow_call:
     inputs:
       target:
-        description: "Target name: the tests are <target>_corpus in fuzz/tests/<target>_ephyra.rs"
+        description: "Target name: the test <target> in fuzz/tests/<target>_ephyra.rs"
         required: true
         type: string
       max_minutes:
@@ -17,10 +16,6 @@ on:
         required: false
         type: number
         default: 150
-      coverage_crates:
-        description: "Space-separated crates whose new coverage grows the corpus, one per worker"
-        required: true
-        type: string
       runner:
         description: "Runner name from .github-private runs-on.yml"
         required: false
@@ -31,11 +26,6 @@ on:
         required: false
         type: boolean
         default: true
-    secrets:
-      R2_FUZZ_ACCESS_KEY_ID:
-        required: true
-      R2_FUZZ_SECRET_ACCESS_KEY:
-        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,8 +37,8 @@ jobs:
   fuzz:
     name: "Run ${{ inputs.target }} (ephyra)"
     concurrency:
-      # Queue behind a run still in progress instead of fuzzing the same corpus twice at once.
-      group: fuzz-corpus-${{ inputs.target }}_ephyra
+      # Queue behind a run still in progress instead of fuzzing the same target twice at once.
+      group: fuzz-ephyra-${{ inputs.target }}
       cancel-in-progress: false
     timeout-minutes: 200
     runs-on: >-
@@ -57,18 +47,13 @@ jobs:
           || 'ubuntu-latest' }}
     env:
       FUZZ_NAME: ${{ inputs.target }}_ephyra
-      TEST_NAME: ${{ inputs.target }}_corpus
+      TEST_NAME: ${{ inputs.target }}
       BUDGET_MINUTES: ${{ inputs.max_minutes }}
-      COVERAGE_CRATES: ${{ inputs.coverage_crates }}
       # The default shrink budget (10,000 steps, 60 s) stops long before a minimal plan. Shrinking
       # runs after the search budget, and the job timeout leaves room for it.
       EPHYRA_SHRINK_MAX_STEPS: "2000000"
       EPHYRA_SHRINK_TIMEOUT_MS: "600000"
       EPHYRA_FAILURES: "3"
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-      AWS_REGION: "us-east-1"
-      AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
     outputs:
       failed: ${{ steps.run.outcome == 'failure' }}
     steps:
@@ -82,7 +67,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ephyra-bin
-          key: ephyra-bin-v1-${{ inputs.target }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          key: ephyra-bin-v2-${{ inputs.target }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
 
       - uses: ./.github/actions/setup-prebuild
         if: steps.binary.outputs.cache-hit != 'true'
@@ -90,13 +75,10 @@ jobs:
           components: ""
           enable-sccache: "false"
 
-      # Coverage instrumentation is what lets the search tell which inputs reach new code.
-      - name: Build instrumented property binary
+      - name: Build property binary
         if: steps.binary.outputs.cache-hit != 'true'
         run: |
-          export RUSTFLAGS="${RUSTFLAGS:-} -C instrument-coverage"
-          export LLVM_PROFILE_FILE="$RUNNER_TEMP/profraw/build-%m-%p.profraw"
-          exe=$(cargo test --locked --release -p vortex-fuzz --features ephyra-coverage \
+          exe=$(cargo test --locked --release -p vortex-fuzz --features ephyra \
             --test "$FUZZ_NAME" --no-run --message-format=json \
             | python3 -c 'import json, os, sys
           for line in sys.stdin:
@@ -111,34 +93,19 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ephyra-bin
-          key: ephyra-bin-v1-${{ inputs.target }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-
-      - name: Restore corpus
-        run: .github/scripts/restore-fuzz-corpus.sh explore
+          key: ephyra-bin-v2-${{ inputs.target }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
 
       - name: Fuzz
         id: run
-        env:
-          CORPUS_KEY: ${{ inputs.target }}_ephyra_corpus.tar.zst
-          LLVM_PROFILE_FILE: ${{ runner.temp }}/profraw/%m-%p.profraw
-        run: |
-          export CORPUS_ETAG_FILE="$RUNNER_TEMP/$FUZZ_NAME.etag"
-          read -r -a crates <<< "$COVERAGE_CRATES"
-          .github/scripts/run-ephyra-fuzz.sh "$PWD/ephyra-bin/$FUZZ_NAME" "$TEST_NAME" \
-            "$((BUDGET_MINUTES * 60 * 1000))" "$(nproc)" \
-            "fuzz/corpus/$FUZZ_NAME" "fuzz/artifacts/$FUZZ_NAME" "${crates[@]}"
+        run: >-
+          .github/scripts/run-ephyra-fuzz.sh "$PWD/ephyra-bin/$FUZZ_NAME" "$TEST_NAME"
+          "$((BUDGET_MINUTES * 60 * 1000))" "$(nproc)" "fuzz/artifacts/$FUZZ_NAME"
 
       - name: Summarize
         if: always() && hashFiles('ephyra-report.jsonl') != ''
         run: >-
           python3 .github/scripts/ephyra_report.py summary "${{ inputs.target }}" ephyra-report.jsonl
-          --work-dir ephyra-work >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Persist corpus
-        if: always() && steps.run.outcome != 'skipped'
-        run: >-
-          .github/scripts/checkpoint-fuzz-corpus.sh
-          "fuzz/corpus/$FUZZ_NAME" "${FUZZ_NAME}_corpus.tar.zst" "$RUNNER_TEMP/${FUZZ_NAME}.etag"
+          >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
         if: always() && steps.run.outcome != 'skipped'
