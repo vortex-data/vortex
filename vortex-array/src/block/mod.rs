@@ -13,7 +13,7 @@
 //! edits the block's words; the output's validity is the source's mask unless an op edits a block,
 //! so ops that leave validity alone pass the mask through untouched.
 //!
-//! Blocks are borrowed bytes and a [`PType`]. Viewing them as values is the job of `cast`, which
+//! Blocks are borrowed bytes and a [`BlockType`]. Viewing them as values is the job of `cast`, which
 //! holds the runtime's reinterpretations of memory.
 
 use std::mem::MaybeUninit;
@@ -32,7 +32,6 @@ use vortex_mask::Mask;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
@@ -42,9 +41,13 @@ mod program;
 #[cfg(test)]
 mod tests;
 mod validity;
+mod value;
 
 pub use program::BlockProgram;
 pub use validity::BlockValidity;
+pub use value::BlockType;
+pub use value::BlockValue;
+pub(crate) use value::sealed;
 
 /// The most rows a block holds.
 pub const BLOCK_LEN: usize = 1024;
@@ -64,7 +67,7 @@ impl BlockBuf {
     /// # Panics
     ///
     /// Panics if `len` is more than [`BLOCK_LEN`].
-    pub fn values_mut<T: NativePType>(&mut self, len: usize) -> &mut [T] {
+    pub fn values_mut<T: BlockValue>(&mut self, len: usize) -> &mut [T] {
         assert!(len <= BLOCK_LEN, "a block holds at most {BLOCK_LEN} rows");
         &mut cast::values_mut(&mut self.0)[..len]
     }
@@ -75,12 +78,12 @@ impl BlockBuf {
 pub struct BlockIn<'a> {
     bytes: &'a [u8],
     len: usize,
-    ptype: PType,
+    ty: BlockType,
 }
 
 impl<'a> BlockIn<'a> {
     /// A block over `values`.
-    pub(crate) fn from_slice<T: NativePType>(values: &'a [T]) -> Self {
+    pub(crate) fn from_slice<T: BlockValue>(values: &'a [T]) -> Self {
         assert!(
             values.len() <= BLOCK_LEN,
             "a block holds at most {BLOCK_LEN} rows"
@@ -88,7 +91,7 @@ impl<'a> BlockIn<'a> {
         Self {
             bytes: cast::bytes(values),
             len: values.len(),
-            ptype: T::PTYPE,
+            ty: T::BLOCK_TYPE,
         }
     }
 
@@ -98,8 +101,8 @@ impl<'a> BlockIn<'a> {
     ///
     /// Panics if `T` is not the block's type.
     #[inline]
-    pub fn as_slice<T: NativePType>(&self) -> &'a [T] {
-        assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
+    pub fn as_slice<T: BlockValue>(&self) -> &'a [T] {
+        assert_eq!(T::BLOCK_TYPE, self.ty, "block holds {}", self.ty);
         cast::values(self.bytes)
     }
 }
@@ -108,7 +111,7 @@ impl<'a> BlockIn<'a> {
 pub struct BlockOut<'a> {
     bytes: &'a mut [MaybeUninit<u8>],
     len: usize,
-    ptype: PType,
+    ty: BlockType,
     /// The rows written so far.
     filled: usize,
 }
@@ -120,8 +123,8 @@ impl<'a> BlockOut<'a> {
     ///
     /// Panics if `T` is not the type the block must hold, or `input` runs past the block.
     #[inline]
-    pub fn push_map<S: NativePType, T: NativePType>(&mut self, input: &[S], f: impl Fn(S) -> T) {
-        assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
+    pub fn push_map<S: BlockValue, T: BlockValue>(&mut self, input: &[S], f: impl Fn(S) -> T) {
+        assert_eq!(T::BLOCK_TYPE, self.ty, "block holds {}", self.ty);
         let rows = self.filled..self.filled + input.len();
         input.map_into(&mut cast::uninit_values_mut::<T>(self.bytes)[rows], f);
         self.filled += input.len();
@@ -135,7 +138,7 @@ impl<'a> BlockOut<'a> {
             // SAFETY: `push_map` wrote rows `0..filled`, which is every row.
             bytes: unsafe { cast::assume_init_mut(self.bytes) },
             len: self.len,
-            ptype: self.ptype,
+            ty: self.ty,
         })
     }
 
@@ -149,17 +152,17 @@ impl<'a> BlockOut<'a> {
     ///
     /// Panics if `T` is not the type the block must hold.
     #[inline]
-    pub unsafe fn fill_with<T: NativePType>(
+    pub unsafe fn fill_with<T: BlockValue>(
         self,
         f: impl FnOnce(&mut [MaybeUninit<T>]),
     ) -> Written<'a> {
-        assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
+        assert_eq!(T::BLOCK_TYPE, self.ty, "block holds {}", self.ty);
         f(cast::uninit_values_mut::<T>(self.bytes));
         Written {
             // SAFETY: the caller guarantees `f` initialized every value.
             bytes: unsafe { cast::assume_init_mut(self.bytes) },
             len: self.len,
-            ptype: self.ptype,
+            ty: self.ty,
         }
     }
 }
@@ -169,8 +172,8 @@ impl<'a> BlockOut<'a> {
 pub struct BlockInOut<'a> {
     bytes: &'a mut [u8],
     len: usize,
-    in_ptype: PType,
-    out_ptype: PType,
+    in_type: BlockType,
+    out_type: BlockType,
 }
 
 impl<'a> BlockInOut<'a> {
@@ -180,13 +183,13 @@ impl<'a> BlockInOut<'a> {
     ///
     /// Panics if the block does not read and write `T`.
     #[inline]
-    pub fn as_mut_slice<T: NativePType>(&mut self) -> &mut [T] {
-        assert_eq!(T::PTYPE, self.in_ptype, "block holds {}", self.in_ptype);
+    pub fn as_mut_slice<T: BlockValue>(&mut self) -> &mut [T] {
+        assert_eq!(T::BLOCK_TYPE, self.in_type, "block holds {}", self.in_type);
         assert_eq!(
-            T::PTYPE,
-            self.out_ptype,
+            T::BLOCK_TYPE,
+            self.out_type,
             "block must hold {}",
-            self.out_ptype
+            self.out_type
         );
         cast::values_mut(self.bytes)
     }
@@ -197,13 +200,14 @@ impl<'a> BlockInOut<'a> {
         Written {
             bytes: self.bytes,
             len: self.len,
-            ptype: self.out_ptype,
+            ty: self.out_type,
         }
     }
 }
 
 /// One block of values for a [`BlockOp`] to transform: from an input into separate memory, or in
 /// place.
+#[non_exhaustive]
 pub enum Values<'a> {
     /// Read `input` and write `out`, which never alias.
     Copy {
@@ -226,7 +230,7 @@ impl<'a> Values<'a> {
     ///
     /// Panics if the block does not read `S` and write `T`.
     #[inline]
-    pub fn map<S: NativePType, T: NativePType>(self, f: impl Fn(S) -> T) -> Written<'a> {
+    pub fn map<S: BlockValue, T: BlockValue>(self, f: impl Fn(S) -> T) -> Written<'a> {
         match self {
             Values::Copy { input, mut out } => {
                 out.push_map(input.as_slice::<S>(), f);
@@ -234,12 +238,17 @@ impl<'a> Values<'a> {
                     .vortex_expect("the program sizes a block's output to its input")
             }
             Values::InPlace(block) => {
-                assert_eq!(S::PTYPE, block.in_ptype, "block holds {}", block.in_ptype);
                 assert_eq!(
-                    T::PTYPE,
-                    block.out_ptype,
+                    S::BLOCK_TYPE,
+                    block.in_type,
+                    "block holds {}",
+                    block.in_type
+                );
+                assert_eq!(
+                    T::BLOCK_TYPE,
+                    block.out_type,
                     "block must hold {}",
-                    block.out_ptype
+                    block.out_type
                 );
                 // Each value is overwritten with the bits of its output, which `written` then
                 // views as `T`.
@@ -269,7 +278,7 @@ impl<'a> Block<'a> {
 
     /// Write `f(value)` for every value, leaving validity as it is. See [`Values::map`].
     #[inline]
-    pub fn map<S: NativePType, T: NativePType>(self, f: impl Fn(S) -> T) -> Written<'a> {
+    pub fn map<S: BlockValue, T: BlockValue>(self, f: impl Fn(S) -> T) -> Written<'a> {
         self.values.map(f)
     }
 }
@@ -278,7 +287,7 @@ impl<'a> Block<'a> {
 pub struct Written<'a> {
     bytes: &'a mut [u8],
     len: usize,
-    ptype: PType,
+    ty: BlockType,
 }
 
 impl Written<'_> {
@@ -288,13 +297,14 @@ impl Written<'_> {
     ///
     /// Panics if the block does not hold `T`.
     #[inline]
-    pub fn as_mut_slice<T: NativePType>(&mut self) -> &mut [T] {
-        assert_eq!(T::PTYPE, self.ptype, "block holds {}", self.ptype);
+    pub fn as_mut_slice<T: BlockValue>(&mut self) -> &mut [T] {
+        assert_eq!(T::BLOCK_TYPE, self.ty, "block holds {}", self.ty);
         cast::values_mut(self.bytes)
     }
 }
 
 /// Where a [`BlockSource`] put the values of a block.
+#[non_exhaustive]
 pub enum SourceBlock<'s> {
     /// In the scratch the program handed it, as `len` values of the source's type starting at
     /// value `offset`. The program may overwrite them in place.
@@ -429,7 +439,7 @@ pub struct BlockPatches<T> {
     cursor: usize,
 }
 
-impl<T: NativePType> BlockPatches<T> {
+impl<T: BlockValue> BlockPatches<T> {
     /// Execute `patches` and map each patch value with `map(row, value)`.
     pub fn try_new<S: NativePType>(
         patches: &Patches,

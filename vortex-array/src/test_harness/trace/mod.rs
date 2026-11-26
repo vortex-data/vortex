@@ -677,8 +677,8 @@ pub(crate) fn record_block_op(
     shape: &'static str,
     from: &'static str,
     to: &'static str,
-    input: crate::dtype::PType,
-    output: crate::dtype::PType,
+    input: crate::block::BlockType,
+    output: crate::block::BlockType,
 ) {
     record(TraceEvent::BlockOp {
         op_idx,
@@ -949,8 +949,8 @@ enum TraceEvent {
         shape: &'static str,
         from: &'static str,
         to: &'static str,
-        input: crate::dtype::PType,
-        output: crate::dtype::PType,
+        input: crate::block::BlockType,
+        output: crate::block::BlockType,
     },
     ExecuteDone {
         array: ArraySummary,
