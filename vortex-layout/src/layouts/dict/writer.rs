@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Reverse;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -24,15 +25,19 @@ use futures::stream::iter;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encode_by_frequency_with_constraints;
@@ -40,7 +45,9 @@ use vortex_array::builders::dict::dict_encoder_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::UnsignedPType;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_buffer::Buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex_error::VortexError;
@@ -624,10 +631,12 @@ fn probe_dict_codes(compressed: &ArrayRef) -> Option<ArrayRef> {
 /// Pre-seeds a [`DictEncoder`] with the probe sample's distinct entries ordered by descending
 /// frequency.
 ///
-/// Reuses the probe dictionary's values directly when the probe compressor already returned a
-/// frequency-ordered `Dict` with matching dtype, non-nullable codes, and all values referenced;
-/// otherwise falls back to frequency-encoding `sample` directly (e.g. for `DecimalByteParts` or
-/// nullable codes where nulls live outside `values`).
+/// When the probe compressor already returned a `Dict` with matching dtype, non-nullable codes,
+/// and all values referenced, counts occurrences directly from its codes instead of re-hashing
+/// `sample`, reusing `dict.values()` in place when already frequency-ordered and reordering only
+/// if the probe produced another order (e.g. first-seen or hash-set order). Falls back to
+/// frequency-encoding `sample` for `DecimalByteParts` or nullable codes where nulls live outside
+/// `values`.
 ///
 /// Every entry comes from the leading rows that `peek_probe_sample` placed back in front of the
 /// stream, so as long as all entries fit within `constraints`, the first dictionary run is
@@ -646,10 +655,13 @@ fn seed_encoder_from_probe(
         if dict.values().is_empty() {
             return Ok(None);
         }
-        dict.values().clone()
+        order_probe_values_by_frequency(dict.values(), dict.codes(), ctx)?
     } else {
-        let sorted = dict_encode_by_frequency_with_constraints(sample, constraints, ctx)?;
-        if sorted.len() < sample.len() || sorted.values().is_empty() {
+        let Some(sorted) = dict_encode_by_frequency_with_constraints(sample, constraints, ctx)?
+        else {
+            return Ok(None);
+        };
+        if sorted.values().is_empty() {
             return Ok(None);
         }
         sorted.values().clone()
@@ -661,6 +673,45 @@ fn seed_encoder_from_probe(
         return Ok(None);
     }
     Ok(Some(encoder))
+}
+
+fn order_probe_values_by_frequency(
+    values: &ArrayRef,
+    codes: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let dict_len = values.len();
+    if dict_len <= 1 || codes.is_empty() {
+        return Ok(values.clone());
+    }
+    let codes = codes.clone().execute::<PrimitiveArray>(ctx)?;
+    let counts = match codes.ptype() {
+        PType::U8 => count_codes::<u8>(&codes, dict_len),
+        PType::U16 => count_codes::<u16>(&codes, dict_len),
+        PType::U32 => count_codes::<u32>(&codes, dict_len),
+        PType::U64 => count_codes::<u64>(&codes, dict_len),
+        _ => return Ok(values.clone()),
+    };
+    if counts.windows(2).all(|w| w[0] >= w[1]) {
+        return Ok(values.clone());
+    }
+    let mut order: Vec<usize> = (0..dict_len).collect();
+    order.sort_by_key(|&old_code| Reverse(counts[old_code]));
+    let take_indices = Buffer::<u64>::from_iter(order.into_iter().map(|i| i as u64)).into_array();
+    Ok(DictArray::try_new(take_indices, values.clone())?
+        .into_array()
+        .execute::<Canonical>(ctx)?
+        .into_array())
+}
+
+fn count_codes<Code: UnsignedPType>(codes: &PrimitiveArray, dict_len: usize) -> Vec<u64> {
+    let mut counts = vec![0u64; dict_len];
+    for &code in codes.as_slice::<Code>() {
+        if let Some(count) = counts.get_mut(code.as_()) {
+            *count += 1;
+        }
+    }
+    counts
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
@@ -739,7 +790,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
-    use vortex_array::builders::dict::dict_encode_by_frequency;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -1109,7 +1159,7 @@ mod tests {
     fn probe_seeds_dictionary_values_in_frequency_order() -> VortexResult<()> {
         let probe = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
             let chunk = chunk.clone().execute::<Canonical>(ctx)?.into_array();
-            Ok(dict_encode_by_frequency(&chunk, ctx)?.into_array())
+            Ok(dict_encode(&chunk, ctx)?.into_array())
         };
         let strategy = DictStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),

@@ -139,9 +139,9 @@ fn compress_dictionary(
     let compressed_values =
         compressor.compress_child(dict.values(), &compress_ctx, scheme.id(), 0, exec_ctx)?;
 
-    // Codes = child 1. Every dictionary reaching here came from `dict_encode` or
-    // `dict_encode_with_constraints`, which already hand back the narrowest codes that can
-    // address the dictionary, so there is nothing left to narrow here.
+    // Codes = child 1. Every dictionary reaching here came from `dict_encode_by_frequency` or
+    // `dict_encode_by_frequency_with_constraints`, which already hand back the narrowest codes
+    // that can address the dictionary, so there is nothing left to narrow here.
     let compressed_codes =
         compressor.compress_child(dict.codes(), &compress_ctx, scheme.id(), 1, exec_ctx)?;
 
@@ -474,8 +474,7 @@ fn build_candidate(
         max_bytes: MAX_DICTIONARY_BYTES,
         max_len: MAX_DICTIONARY_ENTRIES,
     };
-    let dictionary = dict_encode_by_frequency_with_constraints(array, &constraints, exec_ctx)?;
-    Ok((dictionary.len() == array.len()).then_some(dictionary))
+    dict_encode_by_frequency_with_constraints(array, &constraints, exec_ctx)
 }
 
 /// Returns the complete value referenced by a binary view.

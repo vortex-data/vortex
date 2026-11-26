@@ -215,6 +215,7 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
 /// Encode an array as a [`DictArray`] subject to `constraints`, ordering dictionary values by
 /// descending occurrence count so the hottest entries receive codes `0, 1, ...`.
 ///
+/// Returns `Ok(None)` without sorting or remapping if `array` exceeds `constraints`.
 /// Counts are tracked during dictionary construction, and code remapping is fused with code
 /// narrowing (or performed in place when the code width does not change). Ties are broken stably
 /// by first-seen order.
@@ -222,22 +223,25 @@ pub fn dict_encode_by_frequency_with_constraints(
     array: &ArrayRef,
     constraints: &DictConstraints,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<DictArray> {
+) -> VortexResult<Option<DictArray>> {
     let constraints = DictConstraints {
         max_bytes: constraints.max_bytes,
         max_len: constraints.max_len.min(array.len().max(1)),
     };
     let mut encoder = dict_encoder_with_counts_in(array, &constraints, ctx.allocator().clone());
     let codes = encoder.encode(array, ctx)?;
+    if codes.len() < array.len() {
+        return Ok(None);
+    }
     let (values, counts) = encoder.reset_with_counts();
     let dict_len = values.len();
 
     if dict_len <= 1 || codes.is_empty() {
         let codes = narrow_codes(codes, dict_len, ctx)?;
         // SAFETY: the encoder only emits codes in `0..dict_len` and references every entry.
-        return Ok(unsafe {
+        return Ok(Some(unsafe {
             DictArray::new_unchecked(codes.into_array(), values).set_all_values_referenced(true)
-        });
+        }));
     }
 
     debug_assert_eq!(counts.len(), dict_len);
@@ -250,9 +254,9 @@ pub fn dict_encode_by_frequency_with_constraints(
     {
         let codes = narrow_codes(codes, dict_len, ctx)?;
         // SAFETY: the encoder only emits codes in `0..dict_len` and references every entry.
-        return Ok(unsafe {
+        return Ok(Some(unsafe {
             DictArray::new_unchecked(codes.into_array(), values).set_all_values_referenced(true)
-        });
+        }));
     }
 
     let target_ptype = codes_ptype_for_max_len(dict_len as u64);
@@ -266,9 +270,9 @@ pub fn dict_encode_by_frequency_with_constraints(
 
     // SAFETY: `order` is a bijection on `0..dict_len`, every code in `new_codes` was remapped
     // through its inverse, and every dictionary entry was referenced during encoding.
-    Ok(unsafe {
+    Ok(Some(unsafe {
         DictArray::new_unchecked(new_codes.into_array(), new_values).set_all_values_referenced(true)
-    })
+    }))
 }
 
 /// Encode an entire array as a frequency-ordered [`DictArray`].
@@ -276,15 +280,13 @@ pub fn dict_encode_by_frequency(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
-    let dict_array = dict_encode_by_frequency_with_constraints(array, &UNCONSTRAINED, ctx)?;
-    if dict_array.len() != array.len() {
-        vortex_bail!(
-            "must have encoded all {} elements, but only encoded {}",
+    match dict_encode_by_frequency_with_constraints(array, &UNCONSTRAINED, ctx)? {
+        Some(dict_array) => Ok(dict_array),
+        None => vortex_bail!(
+            "must have encoded all {} elements under unconstrained dictionary limits",
             array.len(),
-            dict_array.len(),
-        );
+        ),
     }
-    Ok(dict_array)
 }
 
 /// Remaps `codes` through the inverse of `order` while narrowing to `target_ptype` in one pass.
@@ -469,12 +471,20 @@ mod tests {
             max_bytes: usize::MAX,
             max_len: 16,
         };
-        let constrained = dict_encode_by_frequency_with_constraints(&prim, &constraints, &mut ctx)?;
+        let constrained = dict_encode_by_frequency_with_constraints(&prim, &constraints, &mut ctx)?
+            .expect("2 distinct values fit within max_len=16");
         assert_eq!(
             constrained.values().as_::<Primitive>().as_slice::<i32>(),
             &[42, 99]
         );
         assert_arrays_eq!(constrained, prim, &mut ctx);
+
+        // Exceeding constraints returns Ok(None).
+        let tight = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len: 1,
+        };
+        assert!(dict_encode_by_frequency_with_constraints(&prim, &tight, &mut ctx)?.is_none());
         Ok(())
     }
 }
