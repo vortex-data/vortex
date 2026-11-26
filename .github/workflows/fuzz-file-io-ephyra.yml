@@ -7,6 +7,9 @@ on:
   workflow_run:
     workflows: ["Fuzz Build"]
     types: [completed]
+  # TEMPORARY: runs the search from this branch before merge; remove before merging.
+  push:
+    branches: [ji/funny-wozniak-ejefg3]
   workflow_dispatch:
     inputs:
       max_minutes:
@@ -19,7 +22,7 @@ jobs:
   fuzz:
     name: "IO Fuzz (ephyra)"
     if: >-
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' || github.event_name == 'push'
       || github.event.workflow_run.conclusion == 'success'
     permissions:
       actions: read
