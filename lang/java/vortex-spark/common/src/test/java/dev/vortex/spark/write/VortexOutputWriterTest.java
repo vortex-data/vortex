@@ -109,10 +109,10 @@ final class VortexOutputWriterTest {
         for (String value : List.of("0", "-1", "lots")) {
             VortexOptions options = options(Map.of("vortex.write.batch.bytes", value));
 
-            assertTrue(assertThrows(
-                            IllegalArgumentException.class, () -> VortexOutputWriter.configuredBatchBytes(options))
-                    .getMessage()
-                    .contains("vortex.write.batch.bytes"));
+            assertTrue(
+                    assertThrows(IllegalArgumentException.class, () -> VortexOutputWriter.configuredBatchBytes(options))
+                            .getMessage()
+                            .contains("vortex.write.batch.bytes"));
         }
     }
 
