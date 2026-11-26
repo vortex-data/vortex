@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The [`VTable`] of [`Unary`] arrays.
+
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -22,6 +24,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -144,14 +147,22 @@ impl VTable for Unary {
 
 /// Decode every value with one walk over the unset bits.
 fn unary_decode(array: &UnaryArray) -> PrimitiveArray {
-    let len = array.len();
+    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
+        unary_decode_typed::<T>(array)
+    })
+}
+
+/// [`unary_decode`] for the values of one unsigned type.
+fn unary_decode_typed<T: UnsignedPType>(array: &UnaryArray) -> PrimitiveArray
+where
+    usize: AsPrimitive<T>,
+{
+    let mut values = BufferMut::<T>::with_capacity(array.len());
 
     // `validate` keeps every value within the ptype, so the loop has nothing to check.
-    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        let mut values = BufferMut::<T>::with_capacity(len);
-        array.for_each_value(|value| values.push(AsPrimitive::<T>::as_(value)));
-        PrimitiveArray::new(values, Validity::NonNullable)
-    })
+    array.for_each_value(|value| values.push(AsPrimitive::<T>::as_(value)));
+
+    PrimitiveArray::new(values, Validity::NonNullable)
 }
 
 /// Unary encoding for non-nullable unsigned integers, in any order.

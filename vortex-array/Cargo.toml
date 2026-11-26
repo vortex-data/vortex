@@ -100,6 +100,10 @@ vortex-bench-support = { workspace = true }
 vortex-functions = { path = "../vortex-functions" }
 
 [[bench]]
+name = "block_program"
+harness = false
+
+[[bench]]
 name = "aggregate_max"
 harness = false
 
@@ -193,16 +197,6 @@ harness = false
 
 [[bench]]
 name = "varbinview_compact"
-harness = false
-
-[[bench]]
-name = "expr_large_struct_pack"
-path = "benches/expr/large_struct_pack.rs"
-harness = false
-
-[[bench]]
-name = "expr_optimize"
-path = "benches/expr/optimize_bench.rs"
 harness = false
 
 [[bench]]
@@ -314,6 +308,10 @@ harness = false
 
 [[bench]]
 name = "run_end_null_count"
+harness = false
+
+[[bench]]
+name = "primitive_majority_candidate"
 harness = false
 
 [[bench]]

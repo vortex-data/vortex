@@ -19,9 +19,11 @@ fsst-rs = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, optional = true }
+simdutf8 = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-functions = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
@@ -36,6 +38,7 @@ rand = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-expr = { workspace = true }
 
 [[bench]]
 name = "fsst_compress"

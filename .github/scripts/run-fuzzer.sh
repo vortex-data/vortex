@@ -36,6 +36,20 @@ stop_checkpoint_loop() {
 }
 trap stop_checkpoint_loop EXIT
 
+# A scheduled run must finish before the next cron slot, however late GitHub
+# started it, so cap the budget at the time left until 10 minutes before that slot.
+# libFuzzer treats -max_total_time=0 as unlimited, so the budget stays at least 60.
+if [ "${CYCLE_HOURS:-0}" -gt 0 ]; then
+  CYCLE_SECS=$((CYCLE_HOURS * 3600))
+  NOW=$(date -u +%s)
+  NEXT_SLOT=$(((NOW / CYCLE_SECS + 1) * CYCLE_SECS))
+  REMAINING=$((NEXT_SLOT - NOW - 600))
+  if [ "$REMAINING" -lt "$MAX_TIME" ]; then
+    MAX_TIME=$((REMAINING > 60 ? REMAINING : 60))
+    echo "Capping fuzz time at ${MAX_TIME}s to finish before the next scheduled run"
+  fi
+fi
+
 # Fork mode replays the saved corpus to establish coverage, then replaces failed
 # workers without ending exploration. Artifacts still fail the job after the budget.
 FORK_FLAGS=("-fork=$FUZZ_JOBS" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1)
@@ -43,7 +57,8 @@ FORK_FLAGS=("-fork=$FUZZ_JOBS" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms
 set +e
 env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
   "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
-  "${FORK_FLAGS[@]}" "-max_total_time=$MAX_TIME" -rss_limit_mb=0 -print_final_stats=1 \
+  "${FORK_FLAGS[@]}" "-max_total_time=$MAX_TIME" "-rss_limit_mb=${RSS_LIMIT_MB:-0}" \
+  -print_final_stats=1 \
   -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
   2>&1 | tee fuzz_output.log
 FUZZ_STATUS=${PIPESTATUS[0]}

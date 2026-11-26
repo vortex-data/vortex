@@ -13,8 +13,8 @@ use async_channel::bounded;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use futures::future::Fuse;
-use futures::future::LocalBoxFuture;
 use futures::future::ready;
 use futures::pin_mut;
 use futures::select;
@@ -234,7 +234,7 @@ impl VortexWriteOptions {
     /// By default only the legacy statistics are written, and readers see the file the way they
     /// see one written before nested file stats existed: with statistics for top-level fields
     /// only. Since the legacy format has a fixed slot per
-    /// [`Stat`](vortex_array::expr::stats::Stat), aggregates without one are not recorded.
+    /// [`Stat`](vortex_array::stats::Stat), aggregates without one are not recorded.
     pub fn include_nested_statistics(mut self) -> Self {
         self.write_nested_statistics = true;
         self
@@ -536,7 +536,7 @@ impl VortexWriteOptions {
         let bytes_written = write.counter();
         let size = self.size.clone();
         let deferred_metadata = self.deferred_metadata.clone();
-        let future = self.write(write, arrays).boxed_local().fuse();
+        let future = self.write(write, arrays).boxed().fuse();
 
         Writer {
             arrays: Some(arrays_send),
@@ -683,11 +683,14 @@ fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexR
 type QueuedArray = (VortexResult<ArrayRef>, BufferedBytesReservation);
 
 /// An async API for writing Vortex files.
+///
+/// The writer and the futures of [`Self::push`], [`Self::push_stream`] and [`Self::finish`] are
+/// `Send`, so a task on a multi-threaded executor can hold the writer across `.await` points.
 pub struct Writer<'w> {
     // The input channel for sending arrays to the writer.
     arrays: Option<Sender<QueuedArray>>,
     // The writer task that ultimately produces the footer.
-    future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
+    future: Fuse<BoxFuture<'w, VortexResult<WriteSummary>>>,
     // The first terminal error observed from the writer task.
     terminal_error: Option<VortexError>,
     // The bytes written so far.
@@ -994,9 +997,11 @@ impl WriteSummary {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::VTable;
     use vortex_array::arrays::Bool;
     use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_buffer::ByteBuffer;
     use vortex_edition::ComponentKind;
     use vortex_edition::Edition;
@@ -1195,5 +1200,20 @@ mod tests {
     #[test]
     fn validate_metadata_accepts_no_metadata() -> VortexResult<()> {
         write_options_with_keys(&[]).validate_metadata()
+    }
+
+    /// Callers hold a `Writer` inside `Send` futures; this only compiles while that holds.
+    #[test]
+    fn writer_and_its_futures_are_send() {
+        fn assert_send<T: Send>(_: &T) {}
+
+        let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let mut writer = VortexSession::empty()
+            .write_options()
+            .writer(Vec::<u8>::new(), array.dtype().clone());
+        assert_send(&writer);
+        assert_send(&writer.push(array.clone()));
+        assert_send(&writer.push_stream(ArrayStreamExt::boxed(array.to_array_stream())));
+        assert_send(&writer.finish());
     }
 }

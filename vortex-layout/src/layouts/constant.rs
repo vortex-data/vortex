@@ -116,6 +116,7 @@ impl LayoutStrategy for ConstantStrategy {
 
             match run.as_mut() {
                 None => {
+                    ctx.size_scope().record_constant(chunk.nbytes());
                     run = Some(ConstantRun {
                         sequence_id,
                         scalar,
@@ -123,6 +124,7 @@ impl LayoutStrategy for ConstantStrategy {
                     });
                 }
                 Some(current) if current.scalar == scalar => {
+                    ctx.size_scope().record_constant(chunk.nbytes());
                     // Replacing the sequence ID drops the earlier one.
                     current.sequence_id = sequence_id;
                     current.len += chunk.len();
@@ -208,10 +210,10 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
 

@@ -1,0 +1,29 @@
+name: Fuzz file_io
+
+on:
+  workflow_run:
+    workflows: ["Fuzz Build"]
+    types: [completed]
+  workflow_dispatch: { }
+
+jobs:
+  fuzz:
+    name: "IO Fuzz"
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: file_io
+      jobs: 4
+      max_time: 9000
+      cycle_hours: 3
+      fuzzer_artifact: ${{ github.event.workflow_run.id && format('cpu-fuzzers-{0}-{1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) || '' }}
+      fuzzer_run_id: ${{ github.event.workflow_run.id || '' }}
+    secrets: inherit

@@ -36,6 +36,7 @@ use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::PrimitiveGroupedSumEncodingKernel;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::sum_v2::BoolGroupedSumV2EncodingKernel;
 use crate::aggregate_fn::fns::sum_v2::PrimitiveGroupedSumV2EncodingKernel;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
@@ -43,6 +44,7 @@ use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
 use crate::array::VTable;
+use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::Primitive;
@@ -60,6 +62,7 @@ use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
 
@@ -135,6 +138,7 @@ impl Default for AggregateFnSession {
         // Temporal extension types compare like their integer storage, so comparison-based
         // aggregates are pushed down into it.
         this.register_storage_ordered(Date);
+        this.register_storage_ordered(Duration);
         this.register_storage_ordered(Time);
         this.register_storage_ordered(Timestamp);
 
@@ -166,6 +170,11 @@ impl Default for AggregateFnSession {
             Primitive.id(),
             SumV2.id(),
             &PrimitiveGroupedSumV2EncodingKernel,
+        );
+        this.register_grouped_encoding_kernel(
+            Bool.id(),
+            SumV2.id(),
+            &BoolGroupedSumV2EncodingKernel,
         );
 
         this

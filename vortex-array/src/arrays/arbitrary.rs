@@ -72,7 +72,11 @@ impl<'a> ArbitraryWith<'a, ArbitraryArrayConfig> for ArbitraryArray {
             Some(dtype) => dtype.clone(),
             None => u.arbitrary()?,
         };
-        let len = u.int_in_range(config.len.clone())?;
+        // When the input runs out, every value reads as zero. Rows past the remaining input
+        // bytes are therefore not controlled by the input, so they only make each run slower.
+        let min_len = *config.len.start();
+        let max_len = (*config.len.end()).min(u.len()).max(min_len);
+        let len = u.int_in_range(min_len..=max_len)?;
 
         random_array(u, &dtype, Some(len)).map(ArbitraryArray)
     }

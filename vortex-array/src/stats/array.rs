@@ -26,11 +26,11 @@ use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 /// Stats are created lazily on read or write.
@@ -248,10 +248,17 @@ impl StatsSetRef<'_> {
 
     /// Returns the value of `stat` by either fetching it from cache if it exists and is [`Precision::Exact`], or falling back to
     /// computation. The underlying compute kernels will cache the computed stat in the latter case.
+    ///
+    /// For arrays with device-resident buffers, returns `None` unless the requested statistic
+    /// is already cached as exact.
     pub fn compute_stat(&self, stat: Stat, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>> {
         // If it's already computed and exact, we can return it.
         if let Precision::Exact(s) = self.get(stat) {
             return Ok(Some(s));
+        }
+
+        if !self.dyn_array_ref.is_host() {
+            return Ok(None);
         }
 
         Ok(match stat {
@@ -417,9 +424,9 @@ mod tests {
     use super::ArrayStats;
     use super::StatsSet;
     use crate::IntoArray;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
 
     #[test]
     fn empty_stats() {

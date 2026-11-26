@@ -25,7 +25,6 @@ dependencies {
     errorprone(libs.errorprone.core)
     errorprone(libs.nopen.checker)
 
-    implementation(libs.guava)
     compileOnly(libs.errorprone.annotations)
     compileOnly(libs.nopen.annotations)
     api(libs.roaringbitmap)
@@ -93,9 +92,8 @@ tasks.withType<Test>().all {
     )
 }
 
-// shade guava and arrow dependencies
+// shade arrow and jackson dependencies
 tasks.withType<ShadowJar> {
-    relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
         // exclude C Data Interface since JNI cannot be relocated
         exclude("org.apache.arrow.c.jni.JniWrapper")

@@ -13,8 +13,8 @@ use std::sync::Arc;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
 use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -258,21 +258,21 @@ mod tests {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::checked_add;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
-    use vortex_array::expr::stats::Precision;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::Scalar;
+    use vortex_array::stats::Precision;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::checked_add;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_functions::dynamic_expression::DynamicExpressionSource;
     use vortex_functions::dynamic_expression::input_field_name;
     use vortex_functions::expr::dynamic_expression;
+    use vortex_functions::expr::is_null;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
@@ -298,9 +298,11 @@ mod tests {
     /// Each test needs its own session: clones of a session share state, and `with_handle`
     /// stores the test's runtime handle in it.
     fn new_session() -> VortexSession {
-        VortexSession::empty()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
-            .with::<RuntimeSession>()
+            .with::<RuntimeSession>();
+        vortex_functions::initialize(&session);
+        session
     }
 
     struct CountingSegments(Arc<TestSegments>, AtomicUsize);
@@ -690,6 +692,81 @@ mod tests {
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn satisfied_predicate_skips_segment_reads() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let struct_array = StructArray::from_fields(
+                [("col", buffer![1i32, 2, 3, 4, 5].into_array())].as_slice(),
+            )?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let counted = Arc::new(CountingSegments(segments, AtomicUsize::new(0)));
+            let child = layout.new_reader(
+                "".into(),
+                Arc::clone(&counted) as Arc<dyn SegmentSource>,
+                &session,
+                &Default::default(),
+            )?;
+
+            let stats = AggregateStats::new(vec![
+                AggregateStat::from_value(
+                    Min.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::exact(Scalar::from(1i32)),
+                ),
+                AggregateStat::from_value(
+                    Max.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::exact(Scalar::from(5i32)),
+                ),
+                AggregateStat::from_value(
+                    NullCount.bind(EmptyOptions),
+                    Precision::exact(Scalar::from(0u64)),
+                ),
+            ]);
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
+                Arc::from([FieldPath::from_name("col")]),
+            );
+            let reader = FileStatsLayoutReader::new(child, file_stats, session);
+
+            // `col > 0` is satisfied by min=1 and null_count=0, so filter evaluation returns the
+            // input mask without reading any segments.
+            let satisfied = gt(get_item("col", root()), lit(0i32)).bind(reader.dtype())?;
+            let selected = Mask::from_iter([true, false, true, false, true]);
+            let result = reader
+                .filter_evaluation(&(0..5), &satisfied, MaskFuture::ready(selected.clone()))?
+                .await?;
+            assert_eq!(result, selected);
+            assert_eq!(counted.1.load(Ordering::Relaxed), 0);
+
+            // `col > 2` is not satisfied by file stats, so evaluation falls through to the child.
+            let partial = gt(get_item("col", root()), lit(2i32)).bind(reader.dtype())?;
+            let result = reader
+                .filter_evaluation(&(0..5), &partial, MaskFuture::new_true(5))?
+                .await?;
+            assert_eq!(result, Mask::from_iter([false, false, true, true, true]));
+            assert!(counted.1.load(Ordering::Relaxed) > 0);
 
             Ok(())
         })

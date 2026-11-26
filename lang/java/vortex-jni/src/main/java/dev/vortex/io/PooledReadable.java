@@ -3,7 +3,6 @@
 
 package dev.vortex.io;
 
-import com.google.common.base.Preconditions;
 import java.io.Closeable;
 import java.io.EOFException;
 import java.io.IOException;
@@ -34,8 +33,12 @@ public abstract class PooledReadable implements NativeReadable {
      * @param length total size of the source in bytes
      */
     protected PooledReadable(String name, long length) {
-        Preconditions.checkArgument(name != null && !name.isEmpty(), "name is required");
-        Preconditions.checkArgument(length >= 0, "length must not be negative: %s", length);
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("name is required");
+        }
+        if (length < 0) {
+            throw new IllegalArgumentException(String.format("length must not be negative: %s", length));
+        }
         this.name = name;
         this.length = length;
     }
@@ -55,7 +58,9 @@ public abstract class PooledReadable implements NativeReadable {
 
     @Override
     public final void readFully(long position, ByteBuffer buffer) throws IOException {
-        Preconditions.checkState(!closed, "Cannot read %s: already closed", name);
+        if (closed) {
+            throw new IllegalStateException(String.format("Cannot read %s: already closed", name));
+        }
         int requested = buffer.remaining();
         if (position < 0 || position + requested > length) {
             throw new EOFException(String.format(

@@ -326,7 +326,6 @@ mod tests {
     use vortex_array::dtype::DType as VortexDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
@@ -334,6 +333,8 @@ mod tests {
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::root;
     use vortex_functions::expr::variant_get;
     use vortex_functions::variant_get::VariantPath;
     use vortex_functions::variant_get::VariantPathElement;
@@ -1089,10 +1090,14 @@ mod tests {
             shredded.unmasked_field_by_name("a")?.dtype(),
             &VortexDType::Variant(Nullability::Nullable)
         );
-        assert!(shredded.unmasked_field_by_name_opt("b").is_none());
+        // `b` has only a `value` column, which holds its value, so it stays as a Variant field.
+        assert_eq!(
+            shredded.unmasked_field_by_name("b")?.dtype(),
+            &VortexDType::Variant(Nullability::Nullable)
+        );
 
         let result = execute_variant_get(
-            canonical,
+            canonical.clone(),
             "$.a",
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
@@ -1100,6 +1105,18 @@ mod tests {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(10), Some(30), None]),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        let result = execute_variant_get(
+            canonical,
+            "$.b",
+            Some(VortexDType::Utf8(Nullability::NonNullable)),
+        )?;
+
+        assert_arrays_eq!(
+            result,
+            VarBinArray::from(vec![Some("left"), Some("right"), Some("missing_a")]),
             &mut SESSION.create_execution_ctx()
         );
         Ok(())

@@ -1,0 +1,30 @@
+name: Fuzz compress_gpu
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"  # every 3 hours; keep in sync with cycle_hours below
+  workflow_dispatch: { }
+
+jobs:
+  fuzz:
+    name: "GPU Compress Fuzz"
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: compress_gpu
+      runner: gpu
+      extra_features: "cuda"
+      # ASan mprotects the shadow gap PROT_NONE by default, which collides with the large
+      # virtual-address range the CUDA driver reserves and makes device init fail with an
+      # OOM-style error. protect_shadow_gap=0 frees that VA range for CUDA.
+      extra_env: "ASAN_OPTIONS=protect_shadow_gap=0"
+      jobs: 1
+      max_time: 9000
+      cycle_hours: 3
+      report: false
+    secrets: inherit

@@ -22,7 +22,8 @@ use crate::runtime::AbortHandleRef;
 const DEFAULT_MAX_THREADS: usize = 500;
 const MIN_MAX_THREADS: usize = 1;
 const MAX_MAX_THREADS: usize = 10_000;
-const KEEP_ALIVE: Duration = Duration::from_millis(500);
+// Same as Tokio. A short time makes JNI workers attach to the JVM again after each pause.
+const KEEP_ALIVE: Duration = Duration::from_secs(10);
 
 /// A dynamically sized pool for blocking I/O owned by a single Vortex runtime.
 pub(crate) struct BlockingPool {

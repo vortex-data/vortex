@@ -37,6 +37,7 @@ use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
+use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
@@ -50,9 +51,11 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::change_time_unit;
 use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
@@ -71,12 +74,13 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::extension::datetime::TemporalRounding;
+use vortex::extension::datetime::Timestamp;
 use vortex::functions::like::Like;
 use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
 use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::builtin::get_item::GetItem;
 use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
@@ -144,6 +148,16 @@ pub trait ExpressionConverter: Send + Sync {
         schema: &Schema,
     ) -> DFResult<Option<Expression>>;
 
+    /// Convert a positive advisory filter. Overrides must filter conservatively
+    /// and introduce no new value errors, including on unused encoded values.
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(self.try_convert(expr, schema)?.filter(is_infallible))
+    }
+
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
     ///
@@ -163,19 +177,40 @@ pub trait ExpressionConverter: Send + Sync {
         {
             return self.no_pushdown_projection(source_projection, input_schema);
         }
-        let mut scan_projection = Vec::with_capacity(source_projection.as_ref().len());
-        for projection in source_projection.as_ref() {
+        // The scan evaluates each distinct expression once. DataFusion can ask for the same
+        // expression under several aliases, such as a `variant_get` that it hoists out of both a
+        // filter and a group key.
+        let output_fields = output_schema.fields();
+        let mut scan_projection: Vec<(String, Expression)> = Vec::new();
+        let mut scan_indices: Vec<usize> = Vec::new();
+        let mut leftover_projection = Vec::with_capacity(source_projection.as_ref().len());
+        for (idx, projection) in source_projection.as_ref().iter().enumerate() {
             let Some(expr) = self.try_convert(&projection.expr, input_schema)? else {
                 return self.no_pushdown_projection(source_projection, input_schema);
             };
-            scan_projection.push((projection.alias.clone(), expr));
+            let output_type = output_fields[idx].data_type();
+            let scan_idx = match scan_projection.iter().zip(&scan_indices).position(
+                |((_, scan), &scan_field_idx)| {
+                    *scan == expr && output_fields[scan_field_idx].data_type() == output_type
+                },
+            ) {
+                Some(scan_idx) => scan_idx,
+                None => {
+                    scan_indices.push(idx);
+                    scan_projection.push((projection.alias.clone(), expr));
+                    scan_projection.len() - 1
+                }
+            };
+            leftover_projection.push(ProjectionExpr::new(
+                Arc::new(df_expr::Column::new(&scan_projection[scan_idx].0, scan_idx)),
+                projection.alias.clone(),
+            ));
         }
         // The output schema names its fields after the projection aliases.
-        let output_indices = (0..scan_projection.len()).collect_vec();
         Ok(ProcessedProjection {
             scan_projection: pack(scan_projection, Nullability::NonNullable),
-            scan_reference_schema: output_schema.clone(),
-            leftover_projection: ProjectionExprs::from_indices(&output_indices, output_schema),
+            scan_reference_schema: output_schema.project(&scan_indices)?,
+            leftover_projection: ProjectionExprs::new(leftover_projection),
         })
     }
 
@@ -479,6 +514,9 @@ impl DefaultExpressionConverter {
                         return Err(Unconverted::Unsupported);
                     }
                     Ok(cast(child, cast_dtype))
+                }
+                CastPushdown::FromTimestamp => {
+                    convert_timestamp_cast(child, &child_dtype, &cast_dtype)
                 }
             };
         }
@@ -1084,6 +1122,9 @@ enum CastPushdown {
     Drop,
     /// The cast becomes a Vortex `cast`.
     Keep,
+    /// The cast starts from a timestamp, and [`convert_timestamp_cast`] picks the conversion from
+    /// the Vortex dtypes, which carry the units and time zones.
+    FromTimestamp,
 }
 
 /// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
@@ -1093,7 +1134,15 @@ fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPu
         return Err(Unconverted::Unsupported);
     }
     let source = cast.expr().data_type(schema)?;
-    classify_cast_types(&source, cast.cast_type())
+    let target = cast.cast_type();
+    // A timestamp cast to the same type takes `classify_cast_types`, which drops it.
+    if matches!(source, DataType::Timestamp(..))
+        && matches!(target, DataType::Int64 | DataType::Timestamp(..))
+        && source != *target
+    {
+        return Ok(CastPushdown::FromTimestamp);
+    }
+    classify_cast_types(&source, target)
 }
 
 fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastPushdown> {
@@ -1140,6 +1189,50 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
         }
         _ => return Err(Unconverted::Unsupported),
     })
+}
+
+/// Converts a cast from a timestamp into the temporal function that returns the same values as
+/// Arrow's cast. Any other cast stays in DataFusion.
+///
+/// The Vortex dtypes decide, because matching Arrow types do not imply matching Vortex dtypes.
+/// The result keeps the nullability of `child` when DataFusion declares the cast nullable over a
+/// non-nullable column, as the [`CastPushdown::Drop`] arm does. DataFusion's schema adapter
+/// declares such a cast when a table field is nullable but the file column is not.
+fn convert_timestamp_cast(
+    child: Expression,
+    child_dtype: &DType,
+    cast_dtype: &DType,
+) -> Conversion<Expression> {
+    let Some(source) = child_dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Timestamp>())
+    else {
+        return Err(Unconverted::Unsupported);
+    };
+
+    // Arrow's cast to `Int64` returns the stored count without scaling it.
+    if matches!(cast_dtype, DType::Primitive(PType::I64, _)) {
+        return Ok(ext_storage(child));
+    }
+
+    let Some(target) = cast_dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Timestamp>())
+    else {
+        return Err(Unconverted::Unsupported);
+    };
+
+    // Arrow truncates the count toward zero when it casts to a coarser unit in the same zone. The
+    // Vortex `TimeUnit` orders units from `Nanoseconds` to `Days`, so a coarser unit is greater.
+    if source.tz == target.tz && target.unit > source.unit {
+        return Ok(change_time_unit(
+            child,
+            target.unit,
+            TemporalRounding::TowardZero,
+        ));
+    }
+
+    Err(Unconverted::Unsupported)
 }
 
 fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
@@ -1213,7 +1306,7 @@ fn supported_data_types(dt: &DataType) -> bool {
         || dt.is_string()
         || matches!(
             dt,
-            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_)
+            Boolean | Date32 | Date64 | Timestamp(_, _) | Time32(_) | Time64(_) | Duration(_)
         );
 
     if !is_supported {
