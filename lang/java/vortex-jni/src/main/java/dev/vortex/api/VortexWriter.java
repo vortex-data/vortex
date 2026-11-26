@@ -407,6 +407,9 @@ public final class VortexWriter implements AutoCloseable {
      */
     public synchronized VortexWriteSummary finish(Map<String, byte[]> metadata) throws IOException {
         Objects.requireNonNull(metadata, "metadata");
+        if (aborted) {
+            throw new IllegalStateException("writer already aborted");
+        }
         if (closed.get()) {
             throw new IllegalStateException("writer already finished; metadata must be given to the first finish");
         }

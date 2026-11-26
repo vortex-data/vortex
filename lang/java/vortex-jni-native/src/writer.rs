@@ -267,14 +267,16 @@ impl NativeWriter {
     }
 
     /// Cancel the write task without writing a footer or flushing the sink, and wait for the
-    /// write task to exit. Any already-dispatched layout or compression subtasks release their
-    /// buffers once they finish or are polled out of the executor.
+    /// write task and any cancelled subtasks on the current-thread executor to exit.
     fn abort(mut self) {
         drop(self.abort_tx.take());
         // Keep `self.sender` connected until the write task exits so the layout task cannot
         // observe EOF and finalize the file before cancellation takes effect.
         if let Some(mut handle) = self.handle.take() {
             drop(RUNTIME.block_on(std::future::poll_fn(|cx| handle.poll_join(cx))));
+            // Drain cancelled subtasks scheduled when `write_fut` dropped so they release
+            // their Arrow buffers on `CurrentThreadRuntime` before `abort` returns.
+            RUNTIME.block_on(self.session.handle().spawn(async {}));
         }
     }
 }
