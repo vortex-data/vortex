@@ -186,6 +186,59 @@ fn constant_chunk_makes_no_plan() -> VortexResult<()> {
 }
 
 #[test]
+fn constant_chunk_preserves_cached_plan_baseline() -> VortexResult<()> {
+    let _lock = LOCK.lock();
+    let compressor = compressor();
+    let reuse = PlanReuse::default();
+
+    let (_, estimates) = compress_counting(&compressor, &low_cardinality(0), &reuse)?;
+    assert!(estimates > 0);
+
+    // A constant chunk short-circuits before scheme selection and must not trigger re-selection
+    // or overwrite the cached baseline ratio.
+    let constant =
+        PrimitiveArray::new(Buffer::<i64>::full(5, 4096), Validity::NonNullable).into_array();
+    let (compressed, estimates) = compress_counting(&compressor, &constant, &reuse)?;
+    assert_eq!(estimates, 0);
+    assert_arrays_eq!(compressed, constant, &mut SESSION.create_execution_ctx());
+
+    // The next Dict-friendly chunk still replays against the original baseline with zero estimates.
+    let next_input = low_cardinality(100);
+    let (next, estimates) = compress_counting(&compressor, &next_input, &reuse)?;
+    assert!(next.is::<Dict>());
+    assert_eq!(estimates, 0);
+    assert_arrays_eq!(next, next_input, &mut SESSION.create_execution_ctx());
+
+    Ok(())
+}
+
+#[test]
+fn unchanged_chunk_preserves_cached_plan_baseline() -> VortexResult<()> {
+    let _lock = LOCK.lock();
+    let compressor = compressor();
+    let reuse = PlanReuse::default();
+
+    let (_, estimates) = compress_counting(&compressor, &low_cardinality(0), &reuse)?;
+    assert!(estimates > 0);
+
+    // An uncompressible chunk still triggers fallback selection, but leaving it unchanged must not
+    // overwrite the cached plan's baseline ratio with 1.0.
+    let unique_input = unique();
+    let (unchanged, estimates) = compress_counting(&compressor, &unique_input, &reuse)?;
+    assert!(estimates > 0);
+    assert!(!unchanged.is::<Dict>());
+    assert_arrays_eq!(unchanged, unique_input, &mut SESSION.create_execution_ctx());
+
+    let next_input = low_cardinality(100);
+    let (next, estimates) = compress_counting(&compressor, &next_input, &reuse)?;
+    assert!(next.is::<Dict>());
+    assert_eq!(estimates, 0);
+    assert_arrays_eq!(next, next_input, &mut SESSION.create_execution_ctx());
+
+    Ok(())
+}
+
+#[test]
 fn detached_chunks_commit_in_order() -> VortexResult<()> {
     let _lock = LOCK.lock();
     let compressor = compressor();
