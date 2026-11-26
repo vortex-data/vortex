@@ -382,6 +382,47 @@ jobs:
           -x :vortex-spark-4.0_2.13:spark41CompatTest
           -x :vortex-spark-4.0_2.13:spark42CompatTest
           -x :vortex-spark-4.0_2.13:spark43CompatTest
+          -x :vortex-spark-3.5_2.12:test
+          -x :vortex-spark-3.5_2.13:test
+          -x :vortex-spark-4.0_2.13:test
+        working-directory: ./lang/java
+
+  # Each Spark project's test suite takes about 2.5 minutes in a single test JVM, which made it
+  # most of "Java (checks)". Each suite runs on its own runner, so they no longer share a host.
+  java-spark-tests:
+    name: "Java (${{ matrix.name }})"
+    if: github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Spark 3.5 Scala 2.12 tests
+            tasks: ":vortex-spark-3.5_2.12:test"
+          - name: Spark 3.5 Scala 2.13 tests
+            tasks: ":vortex-spark-3.5_2.13:test"
+          - name: Spark 4.0 Scala 2.13 tests
+            tasks: ":vortex-spark-4.0_2.13:test"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: "true"
+          - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
+      - name: Run Spark tests
+        env:
+          TASKS: ${{ matrix.tasks }}
+        run: ./gradlew $TASKS
         working-directory: ./lang/java
 
   # The Spark 4.x compat suites all live in one Gradle project, and Gradle runs one project's
@@ -426,10 +467,10 @@ jobs:
         run: ./gradlew $TASKS
         working-directory: ./lang/java
 
-  # Keeps the "Java" check, which now gathers the Java checks and Spark compat jobs.
+  # Keeps the "Java" check, which now gathers the Java checks, Spark test and Spark compat jobs.
   build-java:
     name: "Java"
-    needs: [java-changes, java-tests, java-spark-compat]
+    needs: [java-changes, java-tests, java-spark-tests, java-spark-compat]
     # always(): a cancelled run must fail this check, not skip it (a skipped check passes).
     if: always()
     runs-on: ubuntu-latest
