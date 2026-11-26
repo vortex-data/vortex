@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A structured, shrinkable description of an `array_ops` case for ephyra.
+//! The `array_ops` target as an ephyra plan: a structured, shrinkable description of a case,
+//! and [`check`], the property the tests in `tests/array_ops_ephyra.rs` run.
 //!
 //! [`ArrayOpsPlan`] holds plain data only, so ephyra can shrink and mutate it field by field:
 //! fewer actions, shorter index lists, fewer array bytes. [`ArrayOpsPlan::materialize`] turns it
@@ -12,6 +13,7 @@
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
+use ephyra::TestResult;
 use ephyra::gens;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -35,26 +37,31 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use super::Action;
-use super::ActionType;
-use super::CompressorStrategy;
-use super::ExpectedValue;
-use super::FuzzArrayAction;
-use super::actions_for_dtype;
-use super::cast_canonical_array;
-use super::compare_canonical_array;
-use super::fill_null_canonical_array;
-use super::filter_canonical_array;
-use super::mask_canonical_array;
-use super::min_max_canonical_array;
-use super::scalar_at_canonical_array;
-use super::search_sorted_canonical_array;
-use super::slice_canonical_array;
-use super::sort_canonical_array;
-use super::sum_canonical_array;
-use super::take_canonical_array;
+use super::PlanOutcome;
+use super::check_plan;
+use super::dtype_kind;
 use crate::FUZZ_ARRAY_MAX_LEN;
 use crate::SESSION;
+use crate::array::Action;
+use crate::array::ActionType;
+use crate::array::CompressorStrategy;
+use crate::array::ExpectedValue;
+use crate::array::FuzzArrayAction;
+use crate::array::actions_for_dtype;
+use crate::array::cast_canonical_array;
+use crate::array::compare_canonical_array;
+use crate::array::fill_null_canonical_array;
+use crate::array::filter_canonical_array;
+use crate::array::mask_canonical_array;
+use crate::array::min_max_canonical_array;
+use crate::array::run_fuzz_action;
+use crate::array::scalar_at_canonical_array;
+use crate::array::search_sorted_canonical_array;
+use crate::array::slice_canonical_array;
+use crate::array::sort_canonical_array;
+use crate::array::sum_canonical_array;
+use crate::array::take_canonical_array;
+use crate::error::VortexFuzzError;
 
 /// The initial array, as bytes for [`ArbitraryArray`], followed by the actions to apply to it.
 #[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
@@ -441,6 +448,60 @@ fn compact_strategy() -> CompressorStrategy {
 #[cfg(not(feature = "zstd"))]
 fn compact_strategy() -> CompressorStrategy {
     CompressorStrategy::Default
+}
+
+/// Materialize `plan` and run the libFuzzer target's checks on it.
+///
+/// Failures are signed by error kind, failing action and dtype, such as
+/// `array mismatch after Slice on u16`, so each bug files one issue.
+pub fn check(plan: ArrayOpsPlan) -> TestResult {
+    check_plan(&plan, || {
+        let Some(action) = plan.materialize() else {
+            return PlanOutcome::Discard("no action applies to the generated array");
+        };
+        let dtype = dtype_kind(action.array.dtype());
+        let steps = action
+            .actions
+            .iter()
+            .map(|(step, _)| ActionType::from(step))
+            .collect::<Vec<_>>();
+        ::ephyra::label(format!("dtype: {dtype}"));
+        ::ephyra::feature("array_len", action.array.len() as f64);
+        ::ephyra::feature("actions", action.actions.len() as f64);
+        for step in &steps {
+            ::ephyra::label(format!("action: {step:?}"));
+        }
+        ::ephyra::cover(action.array.is_empty(), "empty array");
+        ::ephyra::cover(action.array.len() > 256, "array longer than 256");
+        match run_fuzz_action(action) {
+            Ok(_) => PlanOutcome::Pass,
+            Err(e) => {
+                // The full message holds arrays and a backtrace; group failures by kind and step.
+                let (kind, step) = error_kind(&e);
+                let step = step.and_then(|i| steps.get(i));
+                PlanOutcome::Fail {
+                    signature: match step {
+                        Some(step) => format!("{kind} after {step:?} on {dtype}"),
+                        None => format!("{kind} on {dtype}"),
+                    },
+                    message: e.to_string(),
+                }
+            }
+        }
+    })
+}
+
+/// The error's variant and, when it has one, the index of the step that failed.
+fn error_kind(error: &VortexFuzzError) -> (&'static str, Option<usize>) {
+    match error {
+        VortexFuzzError::ScalarMismatch(.., step, _) => ("scalar mismatch", Some(*step)),
+        VortexFuzzError::SearchSortedError(.., step, _) => ("search_sorted mismatch", Some(*step)),
+        VortexFuzzError::MinMaxMismatch(.., step, _) => ("min_max mismatch", Some(*step)),
+        VortexFuzzError::ArrayNotEqual(.., step, _) => ("array mismatch", Some(*step)),
+        VortexFuzzError::DTypeMismatch(.., step, _) => ("dtype mismatch", Some(*step)),
+        VortexFuzzError::LengthMismatch(.., step, _) => ("length mismatch", Some(*step)),
+        VortexFuzzError::VortexError(..) => ("vortex error", None),
+    }
 }
 
 #[cfg(test)]

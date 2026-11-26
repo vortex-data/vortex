@@ -4,8 +4,6 @@
 mod corruption;
 #[cfg(feature = "native")]
 mod io;
-#[cfg(feature = "ephyra")]
-mod plan;
 mod settings;
 
 use arbitrary::Arbitrary;
@@ -13,8 +11,6 @@ use arbitrary::Unstructured;
 pub use corruption::*;
 #[cfg(feature = "native")]
 pub use io::run_file_io;
-#[cfg(feature = "ephyra")]
-pub use plan::FileIoPlan;
 pub use settings::*;
 use vortex::expr::Expression;
 use vortex_array::ArrayRef;

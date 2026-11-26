@@ -34,7 +34,7 @@ mod array;
 pub mod arrow_roundtrip;
 pub mod compress;
 #[cfg(feature = "ephyra")]
-pub mod ephyra_driver;
+pub mod ephyra;
 pub mod error;
 pub mod fsst_like;
 mod row;
@@ -47,23 +47,13 @@ pub mod file;
 #[cfg(feature = "cuda")]
 pub mod gpu;
 pub use array::Action;
-#[cfg(feature = "ephyra")]
-pub use array::ActionPlan;
-#[cfg(feature = "ephyra")]
-pub use array::ActionType;
-#[cfg(feature = "ephyra")]
-pub use array::ArrayOpsPlan;
 pub use array::CompressorStrategy;
 pub use array::ExpectedValue;
 pub use array::FuzzArrayAction;
-#[cfg(feature = "ephyra")]
-pub use array::ScalarPlan;
 pub use array::run_fuzz_action;
 pub use array::sort_canonical_array;
 pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
-#[cfg(all(not(target_arch = "wasm32"), feature = "ephyra"))]
-pub use file::FileIoPlan;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
 #[cfg(not(target_arch = "wasm32"))]

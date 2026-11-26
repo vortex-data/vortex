@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Shared drivers for the ephyra properties in `tests/*_ephyra.rs`.
+//! Fuzz targets as ephyra properties, run by `tests/*_ephyra.rs`.
 //!
-//! Each property checks a plan, a plain-data description of a fuzz case that ephyra can shrink
-//! and mutate. The drivers add what libFuzzer gives the `cargo fuzz` targets:
+//! Each target has a plan, a plain-data description of a fuzz case that ephyra can shrink and
+//! mutate, which materializes into the input of the matching libFuzzer target, and a `check` that
+//! runs that target's checks on it: [`array_ops`] and [`file_io`]. The drivers here add what
+//! libFuzzer gives the `cargo fuzz` targets:
 //!
 //! - [`run_corpus`] is a coverage-guided search over a corpus directory of JSON plans. It
 //!   replays the corpus first to establish coverage, then alternates fresh plans with mutants of
@@ -14,6 +16,11 @@
 //! - [`check_plan`] saves the smallest failing plan for each failure signature to
 //!   `EPHYRA_CRASH_DIR`, so a failure reproduces from its file whatever seed or corpus found it.
 //! - [`run_plans`] replays the plans named by `EPHYRA_PLAN`.
+//! - [`run_random`] is a plain random search, the fixed-seed check that pull requests run.
+
+pub mod array_ops;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file_io;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -443,4 +450,14 @@ pub fn dtype_kind(dtype: &DType) -> String {
         DType::Variant(_) => "variant".into(),
         DType::Extension(_) => "extension".into(),
     }
+}
+
+/// A random search of `tests` plans, printing the full report; `EPHYRA_*` variables override it.
+pub fn run_random<T, P>(name: &str, tests: u64, property: P)
+where
+    T: ephyra::Arbitrary + Clone + Debug,
+    P: FnMut(T) -> TestResult,
+{
+    let config = Config::default().name(name).tests(tests);
+    finish(ephyra::check(&config, ephyra::any::<T>(), property));
 }

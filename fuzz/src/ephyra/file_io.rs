@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A structured, shrinkable description of a `file_io` case for ephyra.
+//! The `file_io` target as an ephyra plan: a structured, shrinkable description of a case, and
+//! [`check`], the property the tests in `tests/file_io_ephyra.rs` run.
 //!
 //! Like `ArrayOpsPlan`, a [`FileIoPlan`] is plain data that ephyra shrinks field by field, and it
 //! materializes into the same [`FuzzFileAction`] the libFuzzer target checks.
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
+use ephyra::TestResult;
 use ephyra::gens;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
@@ -18,9 +20,13 @@ use vortex_array::dtype::StructFields;
 use vortex_expr::arbitrary::filter_expr;
 use vortex_expr::arbitrary::projection_expr;
 
-use super::FuzzFileAction;
-use super::WriteSettings;
+use super::PlanOutcome;
+use super::check_plan;
+use super::dtype_kind;
 use crate::FUZZ_FILE_ARRAY_MAX_LEN;
+use crate::file::FuzzFileAction;
+use crate::file::WriteSettings;
+use crate::file::run_file_io;
 
 /// An array to write, the expressions to scan it back with, and the write strategy.
 #[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
@@ -92,4 +98,35 @@ fn write_settings(bytes: &[u8]) -> Option<WriteSettings> {
     settings.disable_editions = false;
     settings.unrestricted = false;
     Some(settings)
+}
+
+/// Round-trip `plan` through a Vortex file and compare the scan with the same expressions applied
+/// in memory.
+pub fn check(plan: FileIoPlan) -> TestResult {
+    check_plan(&plan, || {
+        let Some(action) = plan.materialize() else {
+            return PlanOutcome::Discard("the plan's bytes do not decode to an array");
+        };
+        ::ephyra::label(format!("dtype: {}", dtype_kind(action.array.dtype())));
+        ::ephyra::label(format!(
+            "scan: {} projection, {} filter",
+            if action.projection_expr.is_some() {
+                "with"
+            } else {
+                "no"
+            },
+            if action.filter_expr.is_some() {
+                "with"
+            } else {
+                "no"
+            },
+        ));
+        ::ephyra::feature("array_len", action.array.len() as f64);
+        ::ephyra::cover(action.array.is_empty(), "empty array");
+        if run_file_io(action) {
+            PlanOutcome::Pass
+        } else {
+            PlanOutcome::Discard("the file format does not support the array's dtype")
+        }
+    })
 }

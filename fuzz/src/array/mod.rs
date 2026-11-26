@@ -7,8 +7,6 @@ pub(crate) use fill_null::*;
 pub(crate) use filter::*;
 pub(crate) use mask::*;
 pub(crate) use min_max::*;
-#[cfg(feature = "ephyra")]
-pub use plan::*;
 pub(crate) use scalar_at::*;
 pub(crate) use search_sorted::*;
 pub(crate) use slice::*;
@@ -22,8 +20,6 @@ mod fill_null;
 mod filter;
 mod mask;
 mod min_max;
-#[cfg(feature = "ephyra")]
-mod plan;
 mod scalar_at;
 mod search_sorted;
 mod slice;
@@ -463,7 +459,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     }
 }
 
-fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
+pub(crate) fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
