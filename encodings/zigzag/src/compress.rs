@@ -8,7 +8,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
@@ -54,14 +53,11 @@ where
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
-    let validity = parray
-        .validity()
-        .vortex_expect("zigzag validity should be derivable");
     match parray.ptype() {
-        PType::U8 => zigzag_decode_primitive::<i8>(parray.try_into_buffer_mut(), validity),
-        PType::U16 => zigzag_decode_primitive::<i16>(parray.try_into_buffer_mut(), validity),
-        PType::U32 => zigzag_decode_primitive::<i32>(parray.try_into_buffer_mut(), validity),
-        PType::U64 => zigzag_decode_primitive::<i64>(parray.try_into_buffer_mut(), validity),
+        PType::U8 => zigzag_decode_primitive::<i8>(parray),
+        PType::U16 => zigzag_decode_primitive::<i16>(parray),
+        PType::U32 => zigzag_decode_primitive::<i32>(parray),
+        PType::U64 => zigzag_decode_primitive::<i64>(parray),
         _ => vortex_panic!(
             "ZigZag can only decode unsigned integers, got {}",
             parray.ptype()
@@ -70,13 +66,15 @@ pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
 }
 
 fn zigzag_decode_primitive<T: ExternalZigZag + NativePType>(
-    values: Result<BufferMut<T::UInt>, Buffer<T::UInt>>,
-    validity: Validity,
+    parray: PrimitiveArray,
 ) -> PrimitiveArray
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    let decoded = match values {
+    let validity = parray
+        .validity()
+        .vortex_expect("zigzag validity should be derivable");
+    let decoded = match parray.try_into_buffer_mut::<T::UInt>() {
         Ok(mut values) => {
             values
                 .as_mut_slice()
