@@ -6,9 +6,9 @@
 //! - `array_ops`: a random search, the fixed-seed check that pull requests run. Set
 //!   `EPHYRA_TESTS`, `EPHYRA_BUDGET_MS` or `EPHYRA_SEED`, and replay a failure with its
 //!   `EPHYRA_REPLAY=seed:iteration` line.
-//! - `array_ops_corpus`: the coverage-guided search over `EPHYRA_CORPUS_DIR` that CI runs.
-//! - `array_ops_plan`: replays the plan files that `EPHYRA_PLAN` names, such as the crash files the
-//!   searches write to `EPHYRA_CRASH_DIR`.
+//! - `array_ops_corpus`: the coverage-guided search over `VORTEX_FUZZ_CORPUS_DIR` that CI runs.
+//! - `array_ops_plan`: replays the plan files that `VORTEX_FUZZ_PLAN` names, such as the crash files the
+//!   searches write to `VORTEX_FUZZ_CRASH_DIR`.
 
 #![cfg(test)]
 
@@ -24,13 +24,13 @@ fn array_ops() {
 }
 
 #[test]
-#[ignore = "coverage-guided search over EPHYRA_CORPUS_DIR, run by CI"]
+#[ignore = "coverage-guided search over VORTEX_FUZZ_CORPUS_DIR, run by CI"]
 fn array_ops_corpus() {
     run_corpus("array_ops_corpus", check);
 }
 
 #[test]
-#[ignore = "replays the plans that EPHYRA_PLAN names"]
+#[ignore = "replays the plans that VORTEX_FUZZ_PLAN names"]
 fn array_ops_plan() {
     run_plans(check);
 }

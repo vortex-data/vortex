@@ -14,8 +14,8 @@
 //!   Coverage needs the `ephyra-coverage` feature and a `-C instrument-coverage` build; without
 //!   them it is a plain random search that adds nothing to the corpus.
 //! - [`check_plan`] saves the smallest failing plan for each failure signature to
-//!   `EPHYRA_CRASH_DIR`, so a failure reproduces from its file whatever seed or corpus found it.
-//! - [`run_plans`] replays the plans named by `EPHYRA_PLAN`.
+//!   `VORTEX_FUZZ_CRASH_DIR`, so a failure reproduces from its file whatever seed or corpus found it.
+//! - [`run_plans`] replays the plans named by `VORTEX_FUZZ_PLAN`.
 //! - [`run_random`] is a plain random search, the fixed-seed check that pull requests run.
 
 pub mod array_ops;
@@ -147,12 +147,12 @@ fn write_json<T: Serialize>(path: &Path, value: &T) {
     }
 }
 
-/// Keep the smallest failing plan per signature in `EPHYRA_CRASH_DIR`, if it is set.
+/// Keep the smallest failing plan per signature in `VORTEX_FUZZ_CRASH_DIR`, if it is set.
 ///
 /// Shrinking tests ever smaller candidates, so the file ends with the shrunk plan.
 fn save_crash<T: Serialize>(plan: &T, signature: &str) {
     let first = SEEN_SIGNATURES.lock().insert(signature.to_string());
-    let Some(dir) = std::env::var_os("EPHYRA_CRASH_DIR").map(PathBuf::from) else {
+    let Some(dir) = std::env::var_os("VORTEX_FUZZ_CRASH_DIR").map(PathBuf::from) else {
         if first {
             eprintln!("ephyra: NEW FAILURE `{signature}`");
         }
@@ -251,7 +251,7 @@ impl<T: Send + Sync> Gen for CorpusGen<T> {
     }
 }
 
-/// Coverage-guided search over the corpus in `EPHYRA_CORPUS_DIR`; see the module documentation.
+/// Coverage-guided search over the corpus in `VORTEX_FUZZ_CORPUS_DIR`; see the module documentation.
 ///
 /// The run's budget, seed and failure count come from the usual `EPHYRA_*` variables, and
 /// `EPHYRA_COVERAGE_FILTER` picks the crate whose coverage counts as new.
@@ -260,8 +260,8 @@ where
     T: ephyra::Arbitrary + Clone + Debug + Serialize + DeserializeOwned + Send + Sync,
     P: FnMut(T) -> TestResult,
 {
-    let Some(corpus_dir) = std::env::var_os("EPHYRA_CORPUS_DIR").map(PathBuf::from) else {
-        eprintln!("ephyra: set EPHYRA_CORPUS_DIR to run the corpus search");
+    let Some(corpus_dir) = std::env::var_os("VORTEX_FUZZ_CORPUS_DIR").map(PathBuf::from) else {
+        eprintln!("ephyra: set VORTEX_FUZZ_CORPUS_DIR to run the corpus search");
         return;
     };
     if let Err(e) = fs::create_dir_all(&corpus_dir) {
@@ -406,14 +406,14 @@ impl<'a> Progress<'a> {
     }
 }
 
-/// Check every plan in the files or directories that `EPHYRA_PLAN` names, separated by `:`.
+/// Check every plan in the files or directories that `VORTEX_FUZZ_PLAN` names, separated by `:`.
 pub fn run_plans<T, F>(mut check: F)
 where
     T: DeserializeOwned + Debug,
     F: FnMut(T) -> TestResult,
 {
-    let Some(paths) = std::env::var_os("EPHYRA_PLAN") else {
-        eprintln!("ephyra: set EPHYRA_PLAN to a plan file or directory to replay it");
+    let Some(paths) = std::env::var_os("VORTEX_FUZZ_PLAN") else {
+        eprintln!("ephyra: set VORTEX_FUZZ_PLAN to a plan file or directory to replay it");
         return;
     };
     let mut failed = Vec::new();

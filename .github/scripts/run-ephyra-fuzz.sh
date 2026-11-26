@@ -60,12 +60,13 @@ for worker in $(seq 0 $((WORKERS - 1))); do
     cd "$dir" || exit 1
     EPHYRA_TESTS=1000000000 \
     EPHYRA_BUDGET_MS="$BUDGET_MS" \
-    EPHYRA_CORPUS_DIR="$CORPUS_DIR" \
-    EPHYRA_CRASH_DIR="$CRASH_DIR" \
+    VORTEX_FUZZ_CORPUS_DIR="$CORPUS_DIR" \
+    VORTEX_FUZZ_CRASH_DIR="$CRASH_DIR" \
     EPHYRA_COVERAGE_FILTER="$filter" \
     EPHYRA_REPORT_JSON="$PWD/report.jsonl" \
     EPHYRA_COVERAGE_HTML="$PWD/coverage" \
     RUST_BACKTRACE=1 \
+    RUST_TEST_THREADS=1 \
       "$BINARY" --ignored --exact "$TEST" --nocapture --test-threads=1 2>&1 \
       | tee output.log \
       | sed -u -E "s/^(.{400}).+/\\1 [...]/; s/^/[w$worker] /"

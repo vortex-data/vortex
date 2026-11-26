@@ -14,6 +14,7 @@ each issue carries the saved plan that reproduces it.
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -99,11 +100,11 @@ def corpus_counts(work_dir: str | None) -> dict[int, tuple[str, str]]:
         return counts
     for log in Path(work_dir).glob("*/output.log"):
         replayed = added = "-"
-        for line in log.read_text(errors="replace").splitlines():
-            if line.startswith("ephyra: replaying "):
-                replayed = line.split()[2]
-            elif line.startswith("ephyra: added "):
-                added = line.split()[2]
+        text = log.read_text(errors="replace")
+        if match := re.search(r"ephyra: replaying (\d+) corpus entries", text):
+            replayed = match.group(1)
+        if match := re.search(r"ephyra: added (\d+) corpus entries", text):
+            added = match.group(1)
         if log.parent.name.isdigit():
             counts[int(log.parent.name)] = (replayed, added)
     return counts
@@ -244,8 +245,8 @@ def issue_body(found: Report, plan: str | None, args: argparse.Namespace) -> str
             plan[:MAX_MESSAGE],
             "```",
             "```bash",
-            f"EPHYRA_PLAN=crash.json cargo test -p vortex-fuzz --features ephyra --test {test} "
-            f"-- --ignored --exact {args.target}_plan --nocapture",
+            "VORTEX_FUZZ_PLAN=crash.json cargo test -p vortex-fuzz --features ephyra "
+            f"--test {test} -- --ignored --exact {args.target}_plan --nocapture",
             "```",
         ]
     lines += [

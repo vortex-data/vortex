@@ -19,13 +19,13 @@ fn file_io() {
 }
 
 #[test]
-#[ignore = "coverage-guided search over EPHYRA_CORPUS_DIR, run by CI"]
+#[ignore = "coverage-guided search over VORTEX_FUZZ_CORPUS_DIR, run by CI"]
 fn file_io_corpus() {
     run_corpus("file_io_corpus", check);
 }
 
 #[test]
-#[ignore = "replays the plans that EPHYRA_PLAN names"]
+#[ignore = "replays the plans that VORTEX_FUZZ_PLAN names"]
 fn file_io_plan() {
     run_plans(check);
 }
