@@ -122,6 +122,7 @@
     "chunked_fsl_take": 2,
     "compute_between": 11,
     "delta_decode": 6,
+    "for_compute": 10,
     "for_decode": 0,
     "for_encode": 0,
     "patched_search": 6,
