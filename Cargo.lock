@@ -11140,6 +11140,7 @@ dependencies = [
  "futures",
  "goldenfile",
  "half",
+ "hegeltest",
  "humansize",
  "insta",
  "inventory",
