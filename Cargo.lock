@@ -6080,6 +6080,7 @@ dependencies = [
  "mimalloc",
  "parquet 58.4.2",
  "roaring",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

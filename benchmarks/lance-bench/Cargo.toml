@@ -18,6 +18,7 @@ publish = false
 lance = { version = "14", default-features = false, features = ["aws"] }
 lance-datafusion = { version = "14", default-features = false }
 lance-file = { version = "14", default-features = false }
+lance-index = { version = "14", default-features = false }
 lance-linalg = { version = "14", default-features = false }
 
 anyhow = { workspace = true }
@@ -30,6 +31,7 @@ glob = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { version = "58" }
 roaring = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
@@ -42,7 +44,6 @@ vortex-index-ivf = { workspace = true }
 # Plain criterion, not the workspace's CodSpeed-compatible one: the index benchmark compares Vortex
 # with Lance on one machine, so it is excluded from CodSpeed (see scripts/codspeed_shards.py).
 criterion = { package = "criterion", version = "0.7", default-features = false }
-lance-index = { version = "14", default-features = false }
 
 [lib]
 test = false

@@ -81,6 +81,8 @@ jobs:
             build_args: "--features lance"
           - id: string-bench
             build_args: ""
+          - id: vector-bench
+            build_args: "-p lance-bench"
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -118,7 +120,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        benchmark: [random-access-bench, compress-bench, string-bench]
+        benchmark: [random-access-bench, compress-bench, string-bench, vector-bench]
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo-{1}', github.run_id, matrix.benchmark)
@@ -176,6 +178,9 @@ jobs:
             v4_ingest: true
           - id: string-bench
             name: String Encoding
+            v4_ingest: true
+          - id: vector-bench
+            name: Indexed Vector Search
             v4_ingest: true
     steps:
       - parallel:
@@ -289,7 +294,7 @@ jobs:
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ matrix.benchmark.name }} data
-        if: matrix.benchmark.remote_data_dir == null
+        if: matrix.benchmark.remote_data_dir == null && matrix.benchmark.id != 'vector-bench'
         shell: bash
         env:
           RUST_BACKTRACE: full
@@ -351,6 +356,27 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/string-split.py
+
+      - name: Run indexed vector queries
+        if: matrix.benchmark.id == 'vector-bench'
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          set -euo pipefail
+          bash scripts/bench-taskset.sh target/release_debug/vector-bench --large \
+            --work-dir "$GITHUB_WORKSPACE" --report vector-quality.json --ingest-jsonl results.ingest.jsonl \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save vector latency samples and recall
+        if: matrix.benchmark.id == 'vector-bench'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: vector-results-${{ needs.resolve.outputs.sha }}
+          if-no-files-found: error
+          path: |
+            vector-quality.json
+            results.ingest.jsonl
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website for suites that emit v4 records; a failure here fails the job.

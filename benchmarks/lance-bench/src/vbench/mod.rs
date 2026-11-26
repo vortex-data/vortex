@@ -4,7 +4,9 @@
 //! DataFusion tables for VBench cosine top-k queries, with optional price prefiltering.
 //! Register either or both engines in the same session. Both expose the recipe fields
 //! `id: UInt64`, `emb: FixedSizeList<Float32>`, and `price: Int64`, all non-null.
-//! Calling [`enable_ann`] opts these tables into approximate top-k selection.
+//! [`register_topk`] exposes indexed retrieval as an explicit SQL table function.
+//! The continuous benchmark uses this function with the default DataFusion planner.
+//! Calling [`enable_ann`] opts these tables into approximate selection for the SQL shape below.
 //!
 //! ```sql
 //! SELECT id, cosine_distance(emb, $1) AS distance
@@ -16,6 +18,7 @@
 
 mod planner;
 mod table;
+mod topk;
 
 use std::sync::Arc;
 
@@ -23,6 +26,7 @@ use anyhow::ensure;
 use datafusion::prelude::SessionContext;
 use lance::Dataset;
 use lance::deps::arrow_schema as ls;
+pub use topk::register_topk;
 use vortex::array::dtype::DType;
 use vortex::array::dtype::Nullability::NonNullable;
 use vortex::array::dtype::PType;
