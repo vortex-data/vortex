@@ -706,7 +706,8 @@ fn merge_internal_children(
                 bm_tail,
                 bm_stride,
             )?;
-            merge_cst_vec_in_place(bm_bytes, n, l_sym, k_left, out);
+            // SAFETY: `k_left == n - popcount_bits(bm_bytes, n)`.
+            unsafe { merge_cst_vec_in_place(bm_bytes, n, l_sym, k_left, out) };
             Ok(())
         }
         (ChildSpec::Node(l_idx), ChildSpec::Leaf(r_sym)) => {
@@ -728,7 +729,8 @@ fn merge_internal_children(
                     "Pivco left_subtree_bytes framing mismatch"
                 );
             }
-            merge_vec_cst_in_place(bm_bytes, n, k_right, r_sym, out);
+            // SAFETY: `k_right == popcount_bits(bm_bytes, n)`.
+            unsafe { merge_vec_cst_in_place(bm_bytes, n, k_right, r_sym, out) };
             Ok(())
         }
         (ChildSpec::Node(l_idx), ChildSpec::Node(r_idx)) => {
@@ -765,13 +767,17 @@ fn merge_internal_children(
                     bm_tail,
                     bm_stride,
                 )?;
-                merge_vec_vec_in_place_left(
-                    bm_bytes,
-                    n,
-                    k_right,
-                    &scratch[..k_right + MERGE_OVERREAD],
-                    out,
-                );
+                // SAFETY: `k_right == popcount_bits(bm_bytes, n)` and `scratch` holds `k_right`
+                // decoded right symbols plus `MERGE_OVERREAD` slack bytes.
+                unsafe {
+                    merge_vec_vec_in_place_left(
+                        bm_bytes,
+                        n,
+                        k_right,
+                        &scratch[..k_right + MERGE_OVERREAD],
+                        out,
+                    );
+                }
             } else {
                 // Wire carries `left` first: smaller child (`left`) decodes into `scratch[..k_left]`
                 // using `out[..k_left]` as its writable partner.
@@ -806,13 +812,17 @@ fn merge_internal_children(
                     bm_tail,
                     bm_stride,
                 )?;
-                merge_vec_vec_in_place_right(
-                    bm_bytes,
-                    n,
-                    &scratch[..k_left + MERGE_OVERREAD],
-                    k_left,
-                    out,
-                );
+                // SAFETY: `k_left == n - popcount_bits(bm_bytes, n)` and `scratch` holds `k_left`
+                // decoded left symbols plus `MERGE_OVERREAD` slack bytes.
+                unsafe {
+                    merge_vec_vec_in_place_right(
+                        bm_bytes,
+                        n,
+                        &scratch[..k_left + MERGE_OVERREAD],
+                        k_left,
+                        out,
+                    );
+                }
             }
             Ok(())
         }

@@ -23,7 +23,7 @@
 /// vector loads never read out of bounds or drop out of the fast loop.
 pub(crate) const MERGE_OVERREAD: usize = 16;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[repr(align(16))]
 pub(super) struct AlignedI8Table(pub(super) [[i8; 16]; 256]);
 
@@ -36,11 +36,11 @@ pub(crate) struct AlignedU8Table8(pub(crate) [[u8; 8]; 256]);
 
 /// Low-byte shuffle table for NEON 2-source 16-byte merge (`src = {R16, L16}`), folded with
 /// [`G_MERGE_SHUF1`] via `vabdq_s8(|shuf0 - shuf1|)`.
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub(super) static G_MERGE_SHUF0: AlignedI8Table = build_merge_shuf0();
 
 /// High-byte shuffle table for NEON 2-source 16-byte merge (`src = {R16, L16}`).
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub(super) static G_MERGE_SHUF1: AlignedI8Table = build_merge_shuf1();
 
 /// Low-byte shuffle table for `x86_64` SSE4.1/AVX2 PSHUFB-complement + OR merge (`x86.h:120`):
@@ -59,17 +59,23 @@ pub(crate) static X86_MERGE_SHUF1: AlignedU8Table8 = build_x86_merge_shuf1();
 pub(super) static MERGE_BITS_TAB: AlignedU8Table8 = build_merge_bits_tab();
 
 /// Compresses the indices `0..8` where `(mask >> j) & 1 == 0` (left partition).
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    target_arch = "x86_64"
+))]
 pub(super) static COMPRESS_LEFT_TAB: AlignedU8Table8 = build_compress_tab(false);
 
 /// Compresses the indices `0..8` where `(mask >> j) & 1 == 1` (right partition).
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    target_arch = "x86_64"
+))]
 pub(super) static COMPRESS_RIGHT_TAB: AlignedU8Table8 = build_compress_tab(true);
 
 /// Precomputed byte popcount table (`0..=8`), avoiding GPR->SIMD round-trips on `aarch64`.
 pub(super) static POPCNT8: [u8; 256] = build_popcnt8();
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const fn build_merge_shuf0() -> AlignedI8Table {
     let mut tab = [[0i8; 16]; 256];
     let mut mask = 0usize;
@@ -95,7 +101,7 @@ const fn build_merge_shuf0() -> AlignedI8Table {
     AlignedI8Table(tab)
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 const fn build_merge_shuf1() -> AlignedI8Table {
     let mut tab = [[0i8; 16]; 256];
     let mut mask = 0usize;
@@ -182,7 +188,10 @@ const fn build_merge_bits_tab() -> AlignedU8Table8 {
     AlignedU8Table8(tab)
 }
 
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    target_arch = "x86_64"
+))]
 const fn build_compress_tab(want_one: bool) -> AlignedU8Table8 {
     let mut tab = [[0u8; 8]; 256];
     let mut mask = 0usize;
@@ -215,12 +224,12 @@ const fn build_popcnt8() -> [u8; 256] {
 /// Counts set bits in the first `k` bits of `bm`.
 #[inline]
 pub(crate) fn popcount_bits(bm: &[u8], k: usize) -> usize {
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
         // `popcount_bits_neon` accumulates into 8 `u16` lanes (each <= 65,535 -> safe up to
         // 524,280 bits) and widens horizontally via `vaddlvq_u16` (`u32`).
         if (128..=524_280).contains(&k) && bm.len() >= k.div_ceil(8) {
-            // SAFETY: `aarch64` always provides NEON; `bm` has at least `ceil(k/8)` bytes.
+            // SAFETY: `cfg` guarantees NEON; `bm` has at least `ceil(k/8)` bytes.
             return unsafe { neon::popcount_bits_neon(bm, k) };
         }
     }
@@ -273,10 +282,10 @@ unsafe fn merge_vec_vec_raw(
     r_len: usize,
     out_ptr: *mut u8,
 ) {
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
         if l_len >= 16 && r_len >= 16 {
-            // SAFETY: Preconditions guarantee valid ranges and `aarch64` provides NEON.
+            // SAFETY: Preconditions guarantee valid ranges and `cfg` guarantees NEON.
             unsafe { neon::merge_vec_vec_neon(bm, k, l_base, l_len, r_base, r_len, out_ptr) };
             return;
         }
@@ -350,8 +359,12 @@ pub(crate) fn merge_vec_vec(bm: &[u8], k: usize, left: &[u8], right: &[u8], out:
 
 /// In-place 2-way merge where `left` resides at `buf[k_right..]` (`k_right == popcount(bm, k)`)
 /// and `right` is a separate buffer, writing the merged `k` symbols to `buf[..k]`.
+///
+/// # Safety
+/// - `k_right` must equal `popcount_bits(bm, k)` so the merge consumes exactly `k_right` bytes
+///   from `right` and `k - k_right` bytes from `buf[k_right..]`, and writes never overtake reads.
 #[inline]
-pub(crate) fn merge_vec_vec_in_place_left(
+pub(crate) unsafe fn merge_vec_vec_in_place_left(
     bm: &[u8],
     k: usize,
     k_right: usize,
@@ -360,12 +373,14 @@ pub(crate) fn merge_vec_vec_in_place_left(
 ) {
     assert!(bm.len() * 8 >= k, "bitmap too short for k={k}");
     assert!(
-        k_right <= k && buf.len() >= k,
+        k_right <= k && buf.len() >= k && right.len() >= k_right,
         "in-place left buffer too short"
     );
+    debug_assert_eq!(k_right, popcount_bits(bm, k));
     let l_len = buf.len() - k_right;
     let out_ptr = buf.as_mut_ptr();
-    // SAFETY: `l_base` is derived from `out_ptr` at offset `k_right`, so at every step
+    // SAFETY: Caller guarantees `k_right == popcount(bm, k)`; `right.len() >= k_right` and
+    // `l_base` is derived from `out_ptr` at offset `k_right`, so at every step
     // `k_right + lc >= idx` and writes to `out_ptr[..idx]` never overtake reads from `l_base`.
     unsafe {
         let l_base = out_ptr.add(k_right).cast_const();
@@ -375,8 +390,12 @@ pub(crate) fn merge_vec_vec_in_place_left(
 
 /// In-place 2-way merge where `right` resides at `buf[k_left..]` (`k_left == k - popcount(bm, k)`)
 /// and `left` is a separate buffer, writing the merged `k` symbols to `buf[..k]`.
+///
+/// # Safety
+/// - `k_left` must equal `k - popcount_bits(bm, k)` so the merge consumes exactly `k_left` bytes
+///   from `left` and `k - k_left` bytes from `buf[k_left..]`, and writes never overtake reads.
 #[inline]
-pub(crate) fn merge_vec_vec_in_place_right(
+pub(crate) unsafe fn merge_vec_vec_in_place_right(
     bm: &[u8],
     k: usize,
     left: &[u8],
@@ -385,12 +404,14 @@ pub(crate) fn merge_vec_vec_in_place_right(
 ) {
     assert!(bm.len() * 8 >= k, "bitmap too short for k={k}");
     assert!(
-        k_left <= k && buf.len() >= k,
+        k_left <= k && buf.len() >= k && left.len() >= k_left,
         "in-place right buffer too short"
     );
+    debug_assert_eq!(k_left, k - popcount_bits(bm, k));
     let r_len = buf.len() - k_left;
     let out_ptr = buf.as_mut_ptr();
-    // SAFETY: `r_base` is derived from `out_ptr` at offset `k_left`, so at every step
+    // SAFETY: Caller guarantees `k_left == k - popcount(bm, k)`; `left.len() >= k_left` and
+    // `r_base` is derived from `out_ptr` at offset `k_left`, so at every step
     // `k_left + rc >= idx` and writes to `out_ptr[..idx]` never overtake reads from `r_base`.
     unsafe {
         let r_base = out_ptr.add(k_left).cast_const();
@@ -413,10 +434,10 @@ unsafe fn merge_cst_side_raw<const INVERT: bool>(
     v_len: usize,
     out_ptr: *mut u8,
 ) {
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
         if v_len >= 16 {
-            // SAFETY: Preconditions guarantee valid ranges and `aarch64` provides NEON.
+            // SAFETY: Preconditions guarantee valid ranges and `cfg` guarantees NEON.
             unsafe { neon::merge_cst_side_neon::<INVERT>(bm, k, cst_sym, v_base, v_len, out_ptr) };
             return;
         }
@@ -490,8 +511,12 @@ pub(crate) fn merge_cst_vec(bm: &[u8], k: usize, left_sym: u8, right: &[u8], out
 }
 
 /// In-place `merge_cst_vec` where `right` resides at `buf[k_left..]` (`k_left == k - k_right`).
+///
+/// # Safety
+/// - `k_left` must equal `k - popcount_bits(bm, k)` so the merge consumes exactly `k - k_left`
+///   bytes from `buf[k_left..]` and writes never overtake reads.
 #[inline]
-pub(crate) fn merge_cst_vec_in_place(
+pub(crate) unsafe fn merge_cst_vec_in_place(
     bm: &[u8],
     k: usize,
     left_sym: u8,
@@ -503,9 +528,11 @@ pub(crate) fn merge_cst_vec_in_place(
         k_left <= k && buf.len() >= k,
         "in-place cst_vec buffer too short"
     );
+    debug_assert_eq!(k_left, k - popcount_bits(bm, k));
     let v_len = buf.len() - k_left;
     let out_ptr = buf.as_mut_ptr();
-    // SAFETY: `v_base` is derived from `out_ptr` at offset `k_left`; `k_left + rc >= idx`.
+    // SAFETY: Caller guarantees `k_left == k - popcount(bm, k)`; `v_base` is derived from
+    // `out_ptr` at offset `k_left` so `k_left + rc >= idx`.
     unsafe {
         let v_base = out_ptr.add(k_left).cast_const();
         merge_cst_side_raw::<false>(bm, k, left_sym, v_base, v_len, out_ptr);
@@ -532,8 +559,12 @@ pub(crate) fn merge_vec_cst(bm: &[u8], k: usize, left: &[u8], right_sym: u8, out
 }
 
 /// In-place `merge_vec_cst` where `left` resides at `buf[k_right..]`.
+///
+/// # Safety
+/// - `k_right` must equal `popcount_bits(bm, k)` so the merge consumes exactly `k - k_right`
+///   bytes from `buf[k_right..]` and writes never overtake reads.
 #[inline]
-pub(crate) fn merge_vec_cst_in_place(
+pub(crate) unsafe fn merge_vec_cst_in_place(
     bm: &[u8],
     k: usize,
     k_right: usize,
@@ -545,9 +576,11 @@ pub(crate) fn merge_vec_cst_in_place(
         k_right <= k && buf.len() >= k,
         "in-place vec_cst buffer too short"
     );
+    debug_assert_eq!(k_right, popcount_bits(bm, k));
     let v_len = buf.len() - k_right;
     let out_ptr = buf.as_mut_ptr();
-    // SAFETY: `v_base` is derived from `out_ptr` at offset `k_right`; `k_right + lc >= idx`.
+    // SAFETY: Caller guarantees `k_right == popcount(bm, k)`; `v_base` is derived from
+    // `out_ptr` at offset `k_right` so `k_right + lc >= idx`.
     unsafe {
         let v_base = out_ptr.add(k_right).cast_const();
         merge_cst_side_raw::<true>(bm, k, right_sym, v_base, v_len, out_ptr);
@@ -559,9 +592,9 @@ pub(crate) fn merge_vec_cst_in_place(
 pub(crate) fn merge_cst_cst(bm: &[u8], k: usize, left_sym: u8, right_sym: u8, out: &mut [u8]) {
     let out = &mut out[..k];
     assert!(bm.len() * 8 >= k, "bitmap too short for k={k}");
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
-        // SAFETY: `aarch64` always provides NEON; `bm` covers all `k` bits and `out.len() == k`.
+        // SAFETY: `cfg` guarantees NEON; `bm` covers all `k` bits and `out.len() == k`.
         unsafe { neon::merge_cst_cst_neon(bm, k, left_sym, right_sym, out) };
         return;
     }
@@ -663,7 +696,7 @@ pub(crate) fn merge_vec_cst_scalar(
 pub(crate) fn unpack_flat_codes(d: u8, n: usize, packed: &[u8], c2s: &[u8; 64], out: &mut [u8]) {
     let out = &mut out[..n];
     debug_assert!((2..=6).contains(&d));
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
         if packed.len() >= (n * usize::from(d)).div_ceil(8) {
             match d {
@@ -847,14 +880,14 @@ pub(crate) fn partition_ranks_by_pivot(
     right_out: &mut [u8],
 ) -> usize {
     let len = ranks.len();
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
         if len >= 16
             && bm_out.len() >= len.div_ceil(8)
             && left_out.len() >= len + 8
             && right_out.len() >= len + 8
         {
-            // SAFETY: `aarch64` provides NEON and output slices have >= 8 bytes trailing slack.
+            // SAFETY: `cfg` guarantees NEON and output slices have >= 8 bytes trailing slack.
             return unsafe {
                 neon::partition_ranks_neon(ranks, pivot_rank, bm_out, left_out, right_out)
             };
@@ -920,10 +953,10 @@ pub(crate) fn pack_flat_codes(depth: u8, ranks: &[u8], base_rank: u8, dst: &mut 
     let out = &mut dst[start_len..];
 
     let mut done = 0usize;
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
         if len >= 16 {
-            // SAFETY: `aarch64` provides NEON and all SIMD stores stay within `out[..nbytes]`.
+            // SAFETY: `cfg` guarantees NEON and all SIMD stores stay within `out[..nbytes]`.
             done = unsafe { neon::pack_flat_codes_neon(depth, ranks, base_rank, out) };
         }
     }
@@ -990,9 +1023,9 @@ fn pack_flat_codes_tail_scalar(
 pub(crate) fn pack_64_bytes01(chunk64: &[u8]) -> u64 {
     let chunk64 = &chunk64[..64];
     debug_assert!(chunk64.iter().all(|&b| b <= 1));
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     {
-        // SAFETY: `aarch64` provides NEON and `chunk64.len() == 64`.
+        // SAFETY: `cfg` guarantees NEON and `chunk64.len() == 64`.
         return unsafe { neon::pack_64_bytes01_neon(chunk64) };
     }
     #[cfg(target_arch = "x86_64")]
@@ -1029,7 +1062,7 @@ pub(crate) fn pack_64_bytes01_scalar(chunk64: &[u8]) -> u64 {
     out
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod neon;
 #[cfg(target_arch = "x86_64")]
 mod x86;

@@ -21,6 +21,9 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
@@ -30,6 +33,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
@@ -1633,7 +1637,8 @@ fn simd_merges_and_popcount_match_scalar(#[case] pattern: BitmapPattern, #[case]
         // Verify in-place left and in-place right merges match scalar too!
         let mut buf_l = vec![0xEEu8; len + slack];
         buf_l[k_right_ref..k_right_ref + k_left].copy_from_slice(&left[..k_left]);
-        merge_vec_vec_in_place_left(&bm, len, k_right_ref, &right, &mut buf_l);
+        // SAFETY: `k_right_ref == popcount_bits(&bm, len)` and `right` has >= `k_right_ref` bytes.
+        unsafe { merge_vec_vec_in_place_left(&bm, len, k_right_ref, &right, &mut buf_l) };
         assert_eq!(
             &buf_l[..len],
             out_ref.as_slice(),
@@ -1642,7 +1647,8 @@ fn simd_merges_and_popcount_match_scalar(#[case] pattern: BitmapPattern, #[case]
 
         let mut buf_r = vec![0xEEu8; len + slack];
         buf_r[k_left..k_left + k_right_ref].copy_from_slice(&right[..k_right_ref]);
-        merge_vec_vec_in_place_right(&bm, len, &left, k_left, &mut buf_r);
+        // SAFETY: `k_left == len - popcount_bits(&bm, len)` and `left` has >= `k_left` bytes.
+        unsafe { merge_vec_vec_in_place_right(&bm, len, &left, k_left, &mut buf_r) };
         assert_eq!(
             &buf_r[..len],
             out_ref.as_slice(),
@@ -1654,7 +1660,8 @@ fn simd_merges_and_popcount_match_scalar(#[case] pattern: BitmapPattern, #[case]
         assert_eq!(out_simd, out_ref, "merge_cst_vec mismatch at len={len}");
         let mut buf_cv = vec![0xEEu8; len + slack];
         buf_cv[k_left..k_left + k_right_ref].copy_from_slice(&right[..k_right_ref]);
-        merge_cst_vec_in_place(&bm, len, 0x37, k_left, &mut buf_cv);
+        // SAFETY: `k_left == len - popcount_bits(&bm, len)`.
+        unsafe { merge_cst_vec_in_place(&bm, len, 0x37, k_left, &mut buf_cv) };
         assert_eq!(&buf_cv[..len], out_ref.as_slice());
 
         merge_vec_cst(&bm, len, &left, 0x91, &mut out_simd);
@@ -1662,7 +1669,8 @@ fn simd_merges_and_popcount_match_scalar(#[case] pattern: BitmapPattern, #[case]
         assert_eq!(out_simd, out_ref, "merge_vec_cst mismatch at len={len}");
         let mut buf_vc = vec![0xEEu8; len + slack];
         buf_vc[k_right_ref..k_right_ref + k_left].copy_from_slice(&left[..k_left]);
-        merge_vec_cst_in_place(&bm, len, k_right_ref, 0x91, &mut buf_vc);
+        // SAFETY: `k_right_ref == popcount_bits(&bm, len)`.
+        unsafe { merge_vec_cst_in_place(&bm, len, k_right_ref, 0x91, &mut buf_vc) };
         assert_eq!(&buf_vc[..len], out_ref.as_slice());
 
         merge_cst_cst(&bm, len, 0x12, 0xE4, &mut out_simd);
@@ -1802,4 +1810,300 @@ fn x86_merge_pshufb_tables_exhaustive_16bit() {
         merge_vec_vec_scalar(&bm, 16, &left, &right, &mut expected);
         assert_eq!(actual, expected);
     }
+}
+
+fn fnv1a_128(bytes: &[u8]) -> u128 {
+    let mut hash: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    for &b in bytes {
+        hash ^= u128::from(b);
+        hash = hash.wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b);
+    }
+    hash
+}
+
+/// Pins all 16 static Bernoulli byte-rANS frequency tables (`p_k = (k + 1) / 64`) so any
+/// unintended change to `compute_bernoulli_freqs` fails immediately instead of breaking stored
+/// `vortex.pivco` files.
+#[test]
+fn bernoulli_rans_tables_pinned_for_wire_compat() {
+    const PINNED: [(u128, [u16; 4]); 16] = [
+        (0x91d9_fa87_5923_30cb_b4cc_b39b_046d_c53d, [1779, 2, 1, 1]),
+        (0xa7a1_cafc_913e_de26_ec8c_409f_f035_ac31, [1567, 29, 1, 1]),
+        (0x582e_232d_e7eb_198f_f475_a3aa_9571_9ae4, [1379, 52, 1, 1]),
+        (0x451f_14cf_22d0_d122_7ad6_4716_ee2e_7dbd, [1214, 73, 1, 1]),
+        (0xd55c_229b_df34_4d0b_2706_8576_72ca_8f2f, [1063, 85, 1, 1]),
+        (0x3f3e_b281_9d79_297b_eb45_c92f_cb65_17be, [927, 92, 1, 1]),
+        (0x4c20_73fa_e00d_953c_0577_35a5_b508_7324, [808, 96, 1, 1]),
+        (0xb785_5b15_4cc3_8970_83ed_ed82_5c27_d119, [702, 98, 1, 1]),
+        (0xbea1_a964_4f30_bbbd_976b_e0cf_08fe_eddd, [608, 99, 1, 1]),
+        (0x5648_cd72_d9df_a6d1_f72a_6e3e_6aab_7f77, [525, 96, 1, 1]),
+        (0x4fbf_4d7b_1f77_74ec_973b_e434_c60c_1bae, [452, 93, 1, 1]),
+        (0x3509_bf57_9813_da99_1ef0_ed5c_9815_52ea, [389, 89, 1, 1]),
+        (0xcc3b_ad7d_c514_978e_66f8_9514_0de3_270a, [333, 85, 1, 1]),
+        (0x6692_93c5_0712_d20d_da7f_42fb_fcfc_5d1c, [284, 79, 2, 1]),
+        (0x8767_17d6_92ab_f4eb_514d_a378_a0c5_d9cd, [241, 74, 2, 1]),
+        (0xdb06_a16e_14ab_542f_4bb8_7237_e2cf_8161, [205, 68, 2, 1]),
+    ];
+
+    for (table_idx, &(expected_hash, expected_samples)) in PINNED.iter().enumerate() {
+        let freqs = compute_bernoulli_freqs((table_idx + 1) as u64);
+        let mut le_bytes = [0u8; 512];
+        for (i, &f) in freqs.iter().enumerate() {
+            le_bytes[i * 2..i * 2 + 2].copy_from_slice(&f.to_le_bytes());
+        }
+        assert_eq!(
+            fnv1a_128(&le_bytes),
+            expected_hash,
+            "Bernoulli table {table_idx} changed"
+        );
+        assert_eq!(
+            [freqs[0x00], freqs[0x01], freqs[0x0F], freqs[0xFF]],
+            expected_samples,
+            "Bernoulli table {table_idx} sample entries changed"
+        );
+    }
+}
+
+/// Pins the serialized block bytes for each bitmap marker (`RAW`, `ALL_ZERO`, `ALL_ONE`,
+/// `SPARSE_ONE`, `SPARSE_ZERO`, and `STATIC_BYTE_RANS`) so wire-format regressions are caught.
+#[test]
+fn serialized_block_bytes_pinned_per_bitmap_marker() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // 1. RAW (balanced 50/50 2-symbol block)
+    let raw_vals: Vec<u32> = (0..128u32).map(|i| i & 1).collect();
+    // 2. ALL_ZERO (root bitmap all 0 in block 0, all 1 in block 1 -> covers both ALL_ZERO & ALL_ONE)
+    let mut all_const_vals = vec![0u32; 1024];
+    all_const_vals.extend(std::iter::repeat_n(1u32, 1024));
+    // 3. SPARSE_ONE (2048 rows, only 4 ones -> density 4/2048 < 1/64)
+    let mut sparse_one_vals = vec![0u32; 2048];
+    for &idx in &[17usize, 503, 1029, 2001] {
+        sparse_one_vals[idx] = 1;
+    }
+    // 4. SPARSE_ZERO (2048 rows, only 4 zeros -> density 4/2048 < 1/64)
+    let mut sparse_zero_vals = vec![1u32; 2048];
+    for &idx in &[19usize, 509, 1031, 2003] {
+        sparse_zero_vals[idx] = 0;
+    }
+    // 5. STATIC_BYTE_RANS (4096 rows, ~10% ones -> hits 32-lane static Bernoulli byte-rANS)
+    let mut rng = StdRng::seed_from_u64(0x91A5_0001);
+    let rans_vals: Vec<u32> = (0..4096)
+        .map(|_| u32::from(rng.random_range(0..100u32) < 10))
+        .collect();
+
+    struct MarkerCase {
+        name: &'static str,
+        vals: Vec<u32>,
+        shift: u8,
+        expected_marker: u8,
+        hdr_len: usize,
+        hdr_hash: u128,
+        pay_len: usize,
+        pay_hash: u128,
+    }
+
+    let cases = [
+        MarkerCase {
+            name: "raw",
+            vals: raw_vals,
+            shift: 10,
+            expected_marker: BM_MARKER_RAW,
+            hdr_len: 8,
+            hdr_hash: 0x9c9b_b7d2_9465_995b_e47d_da30_756f_9b19,
+            pay_len: 20,
+            pay_hash: 0xc377_3c18_fb73_cb7b_e1fd_b982_5d9b_26bd,
+        },
+        MarkerCase {
+            name: "all_zero_one",
+            vals: all_const_vals,
+            shift: 10,
+            expected_marker: BM_MARKER_ALL_ZERO,
+            hdr_len: 12,
+            hdr_hash: 0x0770_fc1a_976d_2f23_958e_3fae_44c4_b191,
+            pay_len: 8,
+            pay_hash: 0x59c6_7af5_0465_9956_a33c_86e2_207a_66ee,
+        },
+        MarkerCase {
+            name: "sparse_one",
+            vals: sparse_one_vals,
+            shift: 11,
+            expected_marker: BM_MARKER_SPARSE_ONE,
+            hdr_len: 8,
+            hdr_hash: 0x9cd7_557a_f465_995b_e47d_da42_cc2f_26a1,
+            pay_len: 12,
+            pay_hash: 0xf1a2_eeb7_a91b_a82d_199c_4315_f242_aa36,
+        },
+        MarkerCase {
+            name: "sparse_zero",
+            vals: sparse_zero_vals,
+            shift: 11,
+            expected_marker: BM_MARKER_SPARSE_ZERO,
+            hdr_len: 8,
+            hdr_hash: 0x9cd7_557a_f465_995b_e47d_da42_cc2f_26a1,
+            pay_len: 12,
+            pay_hash: 0x20b6_7ba9_6a53_d308_16fc_519b_94ab_817d,
+        },
+        MarkerCase {
+            name: "static_rans",
+            vals: rans_vals,
+            shift: 12,
+            expected_marker: 0x86,
+            hdr_len: 8,
+            hdr_hash: 0x9dc5_c791_a965_995b_e47d_da8c_2550_677e,
+            pay_len: 364,
+            pay_hash: 0xc918_bd93_e68a_22db_c1f1_4cd8_488f_1207,
+        },
+    ];
+
+    for case in cases {
+        let name = case.name;
+        let prim = PrimitiveArray::new(Buffer::from_iter(case.vals), Validity::NonNullable);
+        let opts = PivcoOptions::pha().with_block_shift(case.shift);
+        let enc = Pivco::encode_with_options(&prim, opts, &mut ctx)?;
+        let tree_bytes = enc.data().to_metadata().tree_bytes;
+        let headers = enc.data().block_headers().as_host();
+        let payload = enc.data().tree_payload().as_host();
+        assert_eq!(tree_bytes, [1, 0, 0, 0, 1], "{name}: tree bytes changed");
+        assert_eq!(payload[0], case.expected_marker, "{name}: marker mismatch");
+        if name == "all_zero_one" {
+            // Second block starts at 4-byte-aligned offset 4 and uses BM_MARKER_ALL_ONE.
+            assert_eq!(payload[4], BM_MARKER_ALL_ONE);
+        }
+        assert_eq!(headers.len(), case.hdr_len, "{name}: header length changed");
+        assert_eq!(
+            fnv1a_128(headers.as_ref()),
+            case.hdr_hash,
+            "{name}: header bytes changed"
+        );
+        assert_eq!(
+            payload.len(),
+            case.pay_len,
+            "{name}: payload length changed"
+        );
+        assert_eq!(
+            fnv1a_128(payload.as_ref()),
+            case.pay_hash,
+            "{name}: payload bytes changed"
+        );
+        assert_arrays_eq!(enc.into_array(), prim.into_array(), &mut ctx);
+    }
+    Ok(())
+}
+
+/// Proves that `CompareKernel`, `FilterKernel`, and `TakeExecute` execute their PIVCO pushdown
+/// paths (`Some(...)`) rather than returning `Ok(None)` and falling back to full decompression.
+#[test]
+fn compute_pushdowns_execute_without_fallback() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let vals: Vec<u32> = (0..4096u32).map(|i| (i * 17) % 12).collect();
+    let prim = PrimitiveArray::new(Buffer::from_iter(vals), Validity::NonNullable);
+    let pivco = Pivco::encode_with_options(&prim, PivcoOptions::op_pha(), &mut ctx)?;
+
+    // Compare pushdown: Eq and Lt on OP-PHA must return Some(_).
+    let rhs = ConstantArray::new(Scalar::from(5u32), pivco.len()).into_array();
+    for op in [
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte,
+    ] {
+        let direct = <Pivco as CompareKernel>::compare(pivco.as_view(), &rhs, op, &mut ctx)?;
+        let direct = direct.vortex_expect("CompareKernel must push down on OP-PHA");
+        let expected = prim.clone().into_array().compare(rhs.clone(), op)?;
+        assert_arrays_eq!(direct, expected, &mut ctx);
+    }
+
+    // Filter pushdown: sparse mask (< 12.5% selectivity) must return Some(_).
+    let mask = Mask::from_indices(pivco.len(), (0..pivco.len()).step_by(32));
+    let filtered = <Pivco as FilterKernel>::filter(pivco.as_view(), &mask, &mut ctx)?;
+    let filtered = filtered.vortex_expect("FilterKernel must push down for sparse mask");
+    let expected_filtered = prim.clone().into_array().filter(mask)?;
+    assert_arrays_eq!(filtered, expected_filtered, &mut ctx);
+
+    // Take pushdown: sparse indices (< 12.5% selectivity) must return Some(_).
+    let indices = PrimitiveArray::new(
+        Buffer::from_iter((0..128u32).map(|i| (i * 29) % 4096)),
+        Validity::NonNullable,
+    )
+    .into_array();
+    let taken = <Pivco as TakeExecute>::take(pivco.as_view(), &indices, &mut ctx)?;
+    let taken = taken.vortex_expect("TakeExecute must push down for sparse indices");
+    let expected_taken = prim.into_array().take(indices)?;
+    assert_arrays_eq!(taken, expected_taken, &mut ctx);
+    Ok(())
+}
+
+/// Covers compare pushdown at `block_shift = 13`, `u64` values `>= 2^32`, constant on the left,
+/// and root-only compare tail-bit masking when `len % 8 != 0`.
+#[test]
+fn compare_edge_cases_shift13_u64_const_left_and_root_tail_mask() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // block_shift = 13 (8,192 rows/block) with u64 values >= 2^32 across 2 blocks.
+    let vals: Vec<u64> = (0..10_000u64)
+        .map(|i| match i % 5 {
+            0 => 0,
+            1 => 1u64 << 32,
+            2 => (1u64 << 40) + (i % 16),
+            3 => u64::MAX - 1,
+            _ => u64::MAX,
+        })
+        .collect();
+    let prim = PrimitiveArray::new(Buffer::from_iter(vals), Validity::NonNullable);
+    let opts = PivcoOptions::op_pha().with_block_shift(13);
+    let pivco = Pivco::encode_with_options(&prim, opts, &mut ctx)?;
+
+    for target in [0u64, 1u64 << 32, (1u64 << 40) + 7, u64::MAX - 1, u64::MAX] {
+        let cst = ConstantArray::new(Scalar::from(target), pivco.len()).into_array();
+        for op in [
+            CompareOperator::Eq,
+            CompareOperator::NotEq,
+            CompareOperator::Lt,
+            CompareOperator::Lte,
+            CompareOperator::Gt,
+            CompareOperator::Gte,
+        ] {
+            // Pivco on left, constant on right.
+            let lr = pivco.clone().into_array().compare(cst.clone(), op)?;
+            let lr_exp = prim.clone().into_array().compare(cst.clone(), op)?;
+            assert_arrays_eq!(lr, lr_exp, &mut ctx);
+
+            // Constant on left, Pivco on right.
+            let rl = cst.clone().compare(pivco.clone().into_array(), op)?;
+            let rl_exp = cst.clone().compare(prim.clone().into_array(), op)?;
+            assert_arrays_eq!(rl, rl_exp, &mut ctx);
+        }
+    }
+
+    // Root-only compare with `len % 8 != 0`: verify trailing bits past `len` in the last byte
+    // are zeroed for both inverted and non-inverted outcomes.
+    let small: Vec<u32> = vec![0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0]; // len = 13 (5 bits in last byte)
+    let small_prim = PrimitiveArray::new(Buffer::from_iter(small), Validity::NonNullable);
+    let small_pivco = Pivco::encode_with_options(&small_prim, PivcoOptions::op_pha(), &mut ctx)?;
+    for (target, op) in [
+        (0u32, CompareOperator::Eq),
+        (0u32, CompareOperator::NotEq),
+        (1u32, CompareOperator::Eq),
+        (1u32, CompareOperator::Lt),
+    ] {
+        let rhs = ConstantArray::new(Scalar::from(target), small_pivco.len()).into_array();
+        let res = <Pivco as CompareKernel>::compare(small_pivco.as_view(), &rhs, op, &mut ctx)?
+            .vortex_expect("root-only compare must push down");
+        let bool_arr = res.execute::<BoolArray>(&mut ctx)?;
+        let last_byte = *bool_arr
+            .to_bit_buffer()
+            .inner()
+            .last()
+            .vortex_expect("non-empty");
+        assert_eq!(
+            last_byte & !((1u8 << (13 & 7)) - 1),
+            0,
+            "stale tail bits set in root-only compare for target={target}, op={op:?}: 0x{last_byte:02x}"
+        );
+        let expected = small_prim.clone().into_array().compare(rhs, op)?;
+        assert_arrays_eq!(bool_arr.into_array(), expected, &mut ctx);
+    }
+    Ok(())
 }
