@@ -442,3 +442,49 @@ fn compact_strategy() -> CompressorStrategy {
 fn compact_strategy() -> CompressorStrategy {
     CompressorStrategy::Default
 }
+
+#[cfg(test)]
+mod tests {
+    use strum::IntoEnumIterator;
+
+    use super::ActionPlan;
+    use super::ActionType;
+    use super::ScalarPlan;
+
+    /// Every libFuzzer action has a plan. The match is exhaustive over [`ActionType`], so a new
+    /// `Action` variant fails to compile here until `ActionPlan` covers it.
+    #[test]
+    fn every_action_has_a_plan() {
+        for action_type in ActionType::iter() {
+            let plan = match action_type {
+                ActionType::Compress => ActionPlan::Compress { compact: false },
+                ActionType::Slice => ActionPlan::Slice { start: 0, len: 0 },
+                ActionType::Take => ActionPlan::Take {
+                    indices: vec![Some(0)],
+                },
+                ActionType::SearchSorted => ActionPlan::SearchSorted {
+                    value: ScalarPlan::FromArray(0),
+                    left: true,
+                },
+                ActionType::Filter => ActionPlan::Filter { pattern: vec![] },
+                ActionType::Compare => ActionPlan::Compare {
+                    value: ScalarPlan::FromArray(0),
+                    nullable: false,
+                    op: 0,
+                },
+                ActionType::Cast => ActionPlan::Cast {
+                    ptype: 0,
+                    nullable: false,
+                },
+                ActionType::Sum => ActionPlan::Sum,
+                ActionType::MinMax => ActionPlan::MinMax,
+                ActionType::FillNull => ActionPlan::FillNull {
+                    value: ScalarPlan::FromArray(0),
+                },
+                ActionType::Mask => ActionPlan::Mask { pattern: vec![] },
+                ActionType::ScalarAt => ActionPlan::ScalarAt { indices: vec![0] },
+            };
+            assert_eq!(plan.action_type(), action_type);
+        }
+    }
+}
