@@ -712,6 +712,29 @@ fn run_model_keeps_default_estimate_for_mostly_null_values() -> VortexResult<()>
     Ok(())
 }
 
+#[rstest]
+#[case(RunModel::for_bandwidth(f64::NAN))]
+#[case(RunModel::for_bandwidth(0.0))]
+#[case(RunModel { runend_ns_per_run: -1.0, ..RunModel::size_only() })]
+fn run_model_invalid_keeps_default_estimates(#[case] model: RunModel) -> VortexResult<()> {
+    assert!(!model.is_valid());
+    let input = wide_runs_of_two();
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(model)
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert_eq!(
+        compressed.display_tree().to_string(),
+        default.display_tree().to_string()
+    );
+    Ok(())
+}
+
 #[test]
 fn run_model_reuses_schemes_for_equal_models() {
     let a = modeled_schemes(RunModel::for_bandwidth(2e9));

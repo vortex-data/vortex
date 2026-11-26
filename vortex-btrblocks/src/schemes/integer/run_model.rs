@@ -102,6 +102,26 @@ impl RunModel {
         model
     }
 
+    /// Whether the model's estimates mean anything: a finite, positive bandwidth if one is set,
+    /// and finite, non-negative costs and cutoffs.
+    ///
+    /// The modeled schemes keep the default estimates under a model that is not valid.
+    pub fn is_valid(&self) -> bool {
+        let bandwidth_ok = self.bandwidth.is_none_or(|b| b.is_finite() && b > 0.0);
+        bandwidth_ok
+            && [
+                self.baseline_ns_per_value,
+                self.runend_ns_per_run,
+                self.rle_ns_per_value,
+                self.sparse_ns_per_value,
+                self.sparse_ns_per_patch,
+                self.rle_min_average_run,
+                self.runend_min_average_run,
+            ]
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0)
+    }
+
     /// The model's fields as bits, so equal models, NaNs included, share one cache entry.
     fn key(&self) -> [u64; 9] {
         [
@@ -351,6 +371,11 @@ impl Scheme for Modeled {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        if !self.model.is_valid() {
+            return self
+                .inner
+                .expected_compression_ratio(data, compress_ctx, exec_ctx);
+        }
         match self.kind {
             Kind::RunEnd => self.runend(data, compress_ctx, exec_ctx),
             Kind::Rle => self.rle(data, compress_ctx, exec_ctx),

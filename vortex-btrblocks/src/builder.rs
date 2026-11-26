@@ -218,7 +218,8 @@ impl BtrBlocksCompressorBuilder {
     ///
     /// The model sizes each scheme's output from bit widths, and with a bandwidth set also charges
     /// its decode time. See [`RunModel`](integer::RunModel). Off by default. Only schemes already
-    /// in the builder are affected.
+    /// in the builder are affected. A model that is not [valid](integer::RunModel::is_valid)
+    /// leaves the default estimates in place.
     pub fn with_run_model(mut self, model: integer::RunModel) -> Self {
         self.run_model = Some(Box::new(model));
         self
