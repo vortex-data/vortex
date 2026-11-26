@@ -387,8 +387,7 @@ jobs:
           -x :vortex-spark-4.0_2.13:test
         working-directory: ./lang/java
 
-  # Each Spark project's test suite takes about 2.5 minutes in a single test JVM, which made it
-  # most of "Java (checks)". Each suite runs on its own runner, so they no longer share a host.
+  # Each Spark test suite gets its own runner.
   java-spark-tests:
     name: "Java (${{ matrix.name }})"
     if: github.event.pull_request.draft != true
