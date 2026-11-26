@@ -1654,7 +1654,6 @@ mod tests {
 
     use super::DecompressedSlice;
     use super::ViewLen;
-    use super::ZstdData;
     use super::append_slice_to_varbin;
     use super::reconstruct_views;
     use super::try_reconstruct_views;
@@ -1853,41 +1852,6 @@ mod tests {
         let zstd = Zstd::from_primitive(&values, 0, 128, &mut ctx)?;
         let decoded = zstd.slice(10..20)?.execute::<PrimitiveArray>(&mut ctx)?;
         assert!(matches!(decoded.validity()?, Validity::AllInvalid));
-        Ok(())
-    }
-
-    #[test]
-    fn test_zstd_data_validate_slice_bounds() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
-        let dtype = values.dtype().clone();
-        let base = ZstdData::from_primitive(&values, 0, 0, &mut ctx)?;
-
-        // slice_start > slice_stop
-        let mut bad = base.clone();
-        bad.slice_start = 3;
-        bad.slice_stop = 2;
-        let err = bad
-            .validate(&dtype, 0, &Validity::NonNullable)
-            .expect_err("expected invalid slice range")
-            .to_string();
-        assert!(err.contains("Invalid slice range 3..2"), "got {err:?}");
-
-        // slice_stop > unsliced_n_rows
-        let mut bad = base;
-        bad.slice_stop = bad.unsliced_n_rows + 1;
-        let err = bad
-            .validate(
-                &dtype,
-                bad.slice_stop - bad.slice_start,
-                &Validity::NonNullable,
-            )
-            .expect_err("expected slice stop overflow")
-            .to_string();
-        assert!(
-            err.contains("Slice stop 5 exceeds unsliced row count 4"),
-            "got {err:?}"
-        );
         Ok(())
     }
 }

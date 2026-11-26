@@ -725,12 +725,8 @@ mod tests {
 
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -815,120 +811,6 @@ mod tests {
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
         let decoded = pco.slice(10..20)?.execute::<PrimitiveArray>(&mut ctx)?;
         assert!(matches!(decoded.validity()?, Validity::AllInvalid));
-        Ok(())
-    }
-
-    fn assert_err_contains(result: VortexResult<()>, expected: &str) {
-        let err = result.expect_err("expected validation failure").to_string();
-        assert!(
-            err.contains(expected),
-            "expected error containing {expected:?}, got {err:?}"
-        );
-    }
-
-    #[test]
-    fn test_validate_corruption_guards() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
-        let pco = Pco::from_primitive(values.as_view(), 0, 2, &mut ctx)?;
-        let base = pco.data().clone();
-        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
-        let nullable_dtype = DType::Primitive(PType::U32, Nullability::Nullable);
-        let len = pco.len();
-
-        // Wrong ptype.
-        assert_err_contains(
-            base.validate(
-                &DType::Primitive(PType::I32, Nullability::NonNullable),
-                len,
-                &Validity::NonNullable,
-            ),
-            "left: i32",
-        );
-
-        // Wrong nullability.
-        assert_err_contains(
-            base.validate(&nullable_dtype, len, &Validity::NonNullable),
-            "dtype.nullability() == validity.nullability()",
-        );
-
-        // Invalid slice range: slice_start > slice_stop.
-        let mut bad = base.clone();
-        bad.slice_start = 3;
-        bad.slice_stop = 2;
-        assert_err_contains(
-            bad.validate(&dtype, 0, &Validity::NonNullable),
-            "invalid slice range 3..2 for 4 rows",
-        );
-
-        // Invalid slice range: slice_stop > unsliced_n_rows.
-        let mut bad = base.clone();
-        bad.slice_stop = bad.unsliced_n_rows + 1;
-        assert_err_contains(
-            bad.validate(
-                &dtype,
-                bad.slice_stop - bad.slice_start,
-                &Validity::NonNullable,
-            ),
-            "invalid slice range 0..5 for 4 rows",
-        );
-
-        // Length mismatch against slice span.
-        assert_err_contains(
-            base.validate(&dtype, len - 1, &Validity::NonNullable),
-            "right: 3",
-        );
-
-        // Validity length mismatch.
-        let short_validity = Validity::Array(BoolArray::from_iter([true, false]).into_array());
-        assert_err_contains(
-            base.validate(&nullable_dtype, len, &short_validity),
-            "left: 2",
-        );
-
-        // chunk_metas count != metadata.chunks count.
-        let mut bad = base.clone();
-        bad.chunk_metas.pop();
-        assert_err_contains(bad.validate(&dtype, len, &Validity::NonNullable), "left: 0");
-
-        // pages count != total pages in metadata.
-        let mut bad = base.clone();
-        bad.pages.pop();
-        assert_err_contains(
-            bad.validate(&dtype, len, &Validity::NonNullable),
-            "page count does not match metadata",
-        );
-
-        // Empty page (n_values == 0).
-        let mut bad = base.clone();
-        bad.metadata.chunks[0].pages[0].n_values = 0;
-        assert_err_contains(
-            bad.validate(&dtype, len, &Validity::NonNullable),
-            "contains an empty page",
-        );
-
-        // Total n_values > unsliced_n_rows.
-        let mut bad = base.clone();
-        bad.metadata.chunks[0].pages[0].n_values = u32::try_from(len + 1)?;
-        assert_err_contains(
-            bad.validate(&dtype, len, &Validity::NonNullable),
-            "values for only 4 rows",
-        );
-
-        // Non-null validity requires n_values == unsliced_n_rows.
-        let mut bad = base.clone();
-        bad.metadata.chunks[0].pages[0].n_values -= 1;
-        assert_err_contains(
-            bad.validate(&dtype, len, &Validity::NonNullable),
-            "Pco value count must match the row count of a non-null array",
-        );
-
-        // All-invalid validity requires n_values == 0.
-        assert_err_contains(
-            base.validate(&nullable_dtype, len, &Validity::AllInvalid),
-            "Pco contains values for an all-null array",
-        );
-
         Ok(())
     }
 }

@@ -91,6 +91,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::FL_CHUNK_SIZE;
@@ -247,7 +248,7 @@ mod tests {
             rle_int.as_view(),
             &DType::Primitive(PType::F32, Nullability::Nullable),
         )?
-        .expect("int-to-float cast should push down to RLE values");
+        .ok_or_else(|| vortex_err!("int-to-float cast should push down to RLE values"))?;
         assert!(reduced_int.is::<RLE>());
         assert_arrays_eq!(
             reduced_int,
@@ -261,7 +262,7 @@ mod tests {
             rle_f64.as_view(),
             &DType::Primitive(PType::F32, Nullability::NonNullable),
         )?
-        .expect("float narrowing cast should push down to RLE values");
+        .ok_or_else(|| vortex_err!("float narrowing cast should push down to RLE values"))?;
         assert!(reduced_f64.is::<RLE>());
         assert_arrays_eq!(
             reduced_f64,

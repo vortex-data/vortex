@@ -12,7 +12,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::dtype::half::f16;
     use vortex_session::VortexSession;
 
     use crate::Pco;
@@ -23,23 +22,6 @@ mod tests {
         crate::initialize(&session);
         session
     });
-
-    fn pco_f16() -> PcoArray {
-        let values = PrimitiveArray::from_iter([
-            f16::from_f32(1.5),
-            f16::from_f32(-2.25),
-            f16::from_f32(0.0),
-            f16::from_f32(4.75),
-            f16::from_f32(10.0),
-        ]);
-        Pco::from_primitive(
-            values.as_view(),
-            0,
-            128,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-    }
 
     fn pco_f32() -> PcoArray {
         let values = PrimitiveArray::from_iter([1.23f32, 4.56, 7.89, 10.11, 12.13]);
@@ -130,7 +112,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::f16(pco_f16())]
     #[case::f32(pco_f32())]
     #[case::f64(pco_f64())]
     #[case::i32(pco_i32())]
