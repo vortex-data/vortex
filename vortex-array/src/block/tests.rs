@@ -125,6 +125,16 @@ impl BlockOp for Widen {
     }
 }
 
+/// Converts i32 to f32, which keeps the width, so it may run in place.
+struct ToFloat;
+
+impl BlockOp for ToFloat {
+    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+        #[expect(clippy::cast_precision_loss, reason = "the test values are small")]
+        Ok(block.map(|v: i32| v as f32))
+    }
+}
+
 /// Nulls every row whose index is a multiple of `every`, keeping values.
 struct NullEvery(usize);
 
@@ -230,6 +240,33 @@ fn width_change_copies_between_scratch_blocks() -> VortexResult<()> {
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i64 scratch0 -> scratch1
 block_op 2 copy i64->i64 scratch1 -> output"
+    );
+    Ok(())
+}
+
+/// An op that changes the type but not the width overwrites its block in place with its output's
+/// bits, and the ops after it read them as the new type.
+#[test]
+fn type_change_of_one_width_runs_in_place() -> VortexResult<()> {
+    let program = counter_program(
+        -5,
+        2500,
+        vec![
+            (add_one::<i32>(true), PType::I32),
+            (Box::new(ToFloat), PType::F32),
+            (add_one::<f32>(true), PType::F32),
+        ],
+    );
+    let (output, trace) = run(program, &Mask::new_true(2500), Nullability::NonNullable)?;
+    #[expect(clippy::cast_precision_loss, reason = "the test values are small")]
+    let expected = PrimitiveArray::from_iter((-3..2497i32).map(|v| v as f32));
+    assert_arrays_eq!(output, expected, &mut ctx());
+    assert_eq!(
+        trace,
+        "drive ops=3 len=2500
+block_op 0 in_place i32->i32 scratch0 -> scratch0
+block_op 1 in_place i32->f32 scratch0 -> scratch0
+block_op 2 copy f32->f32 scratch0 -> output"
     );
     Ok(())
 }

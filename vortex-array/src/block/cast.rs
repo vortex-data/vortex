@@ -94,3 +94,16 @@ pub(super) unsafe fn assume_init_mut(bytes: &mut [MaybeUninit<u8>]) -> &mut [u8]
     // SAFETY: the caller guarantees every byte is initialized.
     unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast(), bytes.len()) }
 }
+
+/// The bits of `value` as a value of `S`, a native type of the same width: how an op that keeps
+/// the width but changes the type writes its output over its input in place.
+///
+/// # Panics
+///
+/// Panics if `T` and `S` differ in size.
+#[inline]
+pub(super) fn bitcast<T: NativePType, S: NativePType>(value: T) -> S {
+    assert_eq!(size_of::<T>(), size_of::<S>(), "a bit cast keeps the width");
+    // SAFETY: both are native types of the same size, so the bits of a `T` are an `S`.
+    unsafe { std::mem::transmute_copy(&value) }
+}

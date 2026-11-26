@@ -25,7 +25,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
-use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -276,7 +275,8 @@ impl<'a> Values<'a> {
     }
 
     /// Write `f(value)` for every value, with the lane kernels level-wise execution uses:
-    /// `map_into` from the input, or `map_into_in_place` over the block itself.
+    /// `map_into` from the input, or `map_into_in_place` over the block itself, writing each
+    /// output's bits over its input when the type changes but the width does not.
     ///
     /// # Panics
     ///
@@ -297,7 +297,10 @@ impl<'a> Values<'a> {
                     "block must hold {}",
                     block.out_ptype
                 );
-                ReinterpretSink::<S, T>::new(cast::values_mut(block.bytes)).map_into_in_place(f);
+                // Each value is overwritten with the bits of its output, which `written` then
+                // views as `T`.
+                cast::values_mut::<S>(block.bytes)
+                    .map_into_in_place(|value| cast::bitcast::<T, S>(f(value)));
                 block.written()
             }
         }
