@@ -10,6 +10,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
@@ -172,9 +173,21 @@ macro_rules! match_each_canonical {
 
 impl Canonical {
     /// Create an empty canonical array of the given dtype.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dtype has no canonical form yet. Use [`Canonical::try_empty`] to get an
+    /// error instead.
     pub fn empty(dtype: &DType) -> Canonical {
-        match dtype {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        Self::try_empty(dtype).vortex_expect("dtype has an empty canonical form")
+    }
+
+    /// Create an empty canonical array of the given dtype.
+    ///
+    /// Returns an error if the dtype, or a dtype nested in it, has no canonical form yet.
+    pub fn try_empty(dtype: &DType) -> VortexResult<Canonical> {
+        Ok(match dtype {
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => Canonical::Null(NullArray::new(0)),
             DType::Bool(n) => Canonical::Bool(unsafe {
                 BoolArray::new_unchecked(BitBuffer::empty(), Validity::from(n))
@@ -215,7 +228,7 @@ impl Canonical {
             }),
             DType::List(dtype, n) => Canonical::List(unsafe {
                 ListViewArray::new_unchecked(
-                    Canonical::empty(dtype).into_array(),
+                    Canonical::try_empty(dtype)?.into_array(),
                     Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
                         .into_array(),
                     Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
@@ -227,33 +240,32 @@ impl Canonical {
             }),
             DType::Map(map_dtype, nullability) => Canonical::Map(MapArray::new(
                 map_dtype.clone(),
-                Canonical::empty(&DType::List(
+                Canonical::try_empty(&DType::List(
                     Arc::new(map_dtype.entries_dtype()),
                     *nullability,
-                ))
+                ))?
                 .into_listview(),
             )),
             DType::FixedSizeList(elem_dtype, list_size, null) => Canonical::FixedSizeList(unsafe {
                 FixedSizeListArray::new_unchecked(
-                    Canonical::empty(elem_dtype).into_array(),
+                    Canonical::try_empty(elem_dtype)?.into_array(),
                     *list_size,
                     Validity::from(null),
                     0,
                 )
             }),
-            DType::Struct(struct_dtype, n) => Canonical::Struct(unsafe {
-                StructArray::new_unchecked(
-                    struct_dtype
-                        .fields()
-                        .map(|f| Canonical::empty(&f).into_array())
-                        .collect::<Vec<_>>(),
-                    struct_dtype.clone(),
-                    0,
-                    Validity::from(n),
-                )
-            }),
+            DType::Struct(struct_dtype, n) => {
+                let fields = struct_dtype
+                    .fields()
+                    .map(|f| Ok(Canonical::try_empty(&f)?.into_array()))
+                    .collect::<VortexResult<Vec<_>>>()?;
+
+                Canonical::Struct(unsafe {
+                    StructArray::new_unchecked(fields, struct_dtype.clone(), 0, Validity::from(n))
+                })
+            }
             DType::Union(variants, nullability) => {
-                Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
+                Canonical::Union(UnionArray::try_empty(variants.clone(), *nullability)?)
             }
             DType::Variant(n) => Canonical::Variant(
                 VariantBuilder::new(*n)
@@ -262,9 +274,9 @@ impl Canonical {
             ),
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
-                Canonical::empty(ext_dtype.storage_dtype()).into_array(),
+                Canonical::try_empty(ext_dtype.storage_dtype())?.into_array(),
             )),
-        }
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -1192,6 +1204,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -1288,6 +1301,29 @@ mod tests {
         assert!(array.is_empty());
         assert_eq!(array.dtype(), &dtype);
         assert_eq!(array.len(), 0);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::flat(|fsb| fsb)]
+    #[case::struct_field(|fsb| DType::struct_([("a", fsb)], Nullability::NonNullable))]
+    #[case::list_element(|fsb| DType::List(Arc::new(fsb), Nullability::Nullable))]
+    #[case::fixed_size_list_element(|fsb| {
+        DType::FixedSizeList(Arc::new(fsb), 2, Nullability::NonNullable)
+    })]
+    #[case::union_variant(|fsb| {
+        DType::Union(
+            UnionVariants::new(["a"].into(), vec![fsb]).vortex_expect("valid union variants"),
+            Nullability::Nullable,
+        )
+    })]
+    fn try_empty_rejects_fixed_size_binary(#[case] wrap: fn(DType) -> DType) -> VortexResult<()> {
+        let dtype = wrap(DType::FixedSizeBinary(16, Nullability::NonNullable));
+
+        let err = Canonical::try_empty(&dtype)
+            .err()
+            .ok_or_else(|| vortex_err!("try_empty must reject {dtype}"))?;
+        assert!(err.to_string().contains("FixedSizeBinary"), "{err}");
         Ok(())
     }
 
