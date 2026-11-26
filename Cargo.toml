@@ -24,7 +24,7 @@ members = [
     "vortex-layout",
     "vortex-scan",
     "vortex-file",
-    "vortex-index",
+    "vortex-index/core",
     "vortex-table",
     "vortex-ipc",
     "vortex",
@@ -323,6 +323,7 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-functions = { version = "0.1.0", path = "./vortex-functions", default-features = false }
+vortex-index = { version = "0.1.0", path = "./vortex-index/core", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
