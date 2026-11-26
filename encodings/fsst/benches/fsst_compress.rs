@@ -235,6 +235,9 @@ fn needle(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Scalar {
 const NON_ASCII_CHARS: [char; 8] = ['é', 'ü', 'ñ', 'ö', 'α', 'β', '中', '文'];
 
 /// Helper function to generate random UTF-8 string data.
+///
+/// `avg_len` counts characters rather than bytes, so `non_ascii` cases hold 2–3x more bytes than
+/// the corresponding ASCII cases (with `unique_chars <= 4` drawing only 2-byte characters).
 fn generate_utf8_test_data(
     string_count: usize,
     avg_len: usize,
@@ -243,12 +246,13 @@ fn generate_utf8_test_data(
 ) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
     let mut strings = Vec::with_capacity(string_count);
+    let non_ascii_alphabet = (unique_chars as usize).clamp(1, NON_ASCII_CHARS.len());
 
     for _ in 0..string_count {
         let len = avg_len * rng.random_range(50..=150) / 100;
         let s: String = if non_ascii {
             (0..len)
-                .map(|_| NON_ASCII_CHARS[rng.random_range(0..unique_chars as usize)])
+                .map(|_| NON_ASCII_CHARS[rng.random_range(0..non_ascii_alphabet)])
                 .collect()
         } else {
             (0..len)
