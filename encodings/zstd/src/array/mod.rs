@@ -1391,6 +1391,24 @@ impl ZstdData {
         dtype: &DType,
         n_stored_values: usize,
     ) -> VortexResult<usize> {
+        if dtype.is_primitive() {
+            // Fixed-width primitive values make the uncompressed byte size an exact value count.
+            // Deriving it from `uncompressed_size` also handles legacy files where overaligned
+            // primitive frame splitting left `n_values` smaller than the actual values stored in
+            // each frame, as well as older metadata that left `n_values` at zero.
+            let uncompressed_size = frame_uncompressed_size(frame_meta)?;
+            let byte_width = Self::byte_width(dtype);
+            vortex_ensure_eq!(
+                uncompressed_size % byte_width,
+                0,
+                "Corrupt zstd metadata: primitive frame uncompressed size {} is not a multiple of \
+                 byte width {}",
+                uncompressed_size,
+                byte_width
+            );
+            return Ok(uncompressed_size / byte_width);
+        }
+
         if frame_meta.n_values != 0 {
             return usize::try_from(frame_meta.n_values).map_err(|_| {
                 vortex_err!(
@@ -1398,12 +1416,6 @@ impl ZstdData {
                     frame_meta.n_values
                 )
             });
-        }
-
-        if dtype.is_primitive() {
-            // Possibly older primitive-only metadata that just didn't store this. Fixed-width
-            // values make the byte count an exact value count.
-            return Ok(frame_uncompressed_size(frame_meta)? / Self::byte_width(dtype));
         }
 
         // The same fallback would read a byte count as a value count for variable-width
