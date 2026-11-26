@@ -525,6 +525,7 @@ mod tests {
     use crate::expr::case_when_no_else;
     use crate::expr::is_null;
     use crate::expr::nested_case_when;
+    use crate::expr::try_nested_case_when;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -867,6 +868,13 @@ mod tests {
         assert_eq!(proto.id, "vortex.case_when");
         assert_eq!(Expression::from_proto(&proto, &SESSION)?, expression);
         Ok(())
+    }
+
+    #[test]
+    fn test_try_nested_case_when_rejects_empty_pairs() {
+        // `nested_case_when` still panics on empty pairs; the fallible constructor reports it.
+        assert!(try_nested_case_when(vec![], None).is_err());
+        assert!(try_nested_case_when(vec![], Some(lit(0i32))).is_err());
     }
 
     // ==================== Display Tests ====================

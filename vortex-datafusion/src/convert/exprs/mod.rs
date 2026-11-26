@@ -37,6 +37,7 @@ use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
+use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
@@ -147,6 +148,16 @@ pub trait ExpressionConverter: Send + Sync {
         schema: &Schema,
     ) -> DFResult<Option<Expression>>;
 
+    /// Convert a positive advisory filter. Overrides must filter conservatively
+    /// and introduce no new value errors, including on unused encoded values.
+    fn try_convert_dynamic(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(self.try_convert(expr, schema)?.filter(is_infallible))
+    }
+
     /// Split a projection into Vortex expressions that can be pushed down and leftover
     /// DataFusion projections that need to be evaluated after the scan.
     ///
@@ -166,19 +177,40 @@ pub trait ExpressionConverter: Send + Sync {
         {
             return self.no_pushdown_projection(source_projection, input_schema);
         }
-        let mut scan_projection = Vec::with_capacity(source_projection.as_ref().len());
-        for projection in source_projection.as_ref() {
+        // The scan evaluates each distinct expression once. DataFusion can ask for the same
+        // expression under several aliases, such as a `variant_get` that it hoists out of both a
+        // filter and a group key.
+        let output_fields = output_schema.fields();
+        let mut scan_projection: Vec<(String, Expression)> = Vec::new();
+        let mut scan_indices: Vec<usize> = Vec::new();
+        let mut leftover_projection = Vec::with_capacity(source_projection.as_ref().len());
+        for (idx, projection) in source_projection.as_ref().iter().enumerate() {
             let Some(expr) = self.try_convert(&projection.expr, input_schema)? else {
                 return self.no_pushdown_projection(source_projection, input_schema);
             };
-            scan_projection.push((projection.alias.clone(), expr));
+            let output_type = output_fields[idx].data_type();
+            let scan_idx = match scan_projection.iter().zip(&scan_indices).position(
+                |((_, scan), &scan_field_idx)| {
+                    *scan == expr && output_fields[scan_field_idx].data_type() == output_type
+                },
+            ) {
+                Some(scan_idx) => scan_idx,
+                None => {
+                    scan_indices.push(idx);
+                    scan_projection.push((projection.alias.clone(), expr));
+                    scan_projection.len() - 1
+                }
+            };
+            leftover_projection.push(ProjectionExpr::new(
+                Arc::new(df_expr::Column::new(&scan_projection[scan_idx].0, scan_idx)),
+                projection.alias.clone(),
+            ));
         }
         // The output schema names its fields after the projection aliases.
-        let output_indices = (0..scan_projection.len()).collect_vec();
         Ok(ProcessedProjection {
             scan_projection: pack(scan_projection, Nullability::NonNullable),
-            scan_reference_schema: output_schema.clone(),
-            leftover_projection: ProjectionExprs::from_indices(&output_indices, output_schema),
+            scan_reference_schema: output_schema.project(&scan_indices)?,
+            leftover_projection: ProjectionExprs::new(leftover_projection),
         })
     }
 

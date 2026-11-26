@@ -696,4 +696,79 @@ mod tests {
             Ok(())
         })
     }
+
+    #[test]
+    fn satisfied_predicate_skips_segment_reads() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let struct_array = StructArray::from_fields(
+                [("col", buffer![1i32, 2, 3, 4, 5].into_array())].as_slice(),
+            )?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let counted = Arc::new(CountingSegments(segments, AtomicUsize::new(0)));
+            let child = layout.new_reader(
+                "".into(),
+                Arc::clone(&counted) as Arc<dyn SegmentSource>,
+                &session,
+                &Default::default(),
+            )?;
+
+            let stats = AggregateStats::new(vec![
+                AggregateStat::from_value(
+                    Min.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::exact(Scalar::from(1i32)),
+                ),
+                AggregateStat::from_value(
+                    Max.bind(NumericalAggregateOpts::skip_nans()),
+                    Precision::exact(Scalar::from(5i32)),
+                ),
+                AggregateStat::from_value(
+                    NullCount.bind(EmptyOptions),
+                    Precision::exact(Scalar::from(0u64)),
+                ),
+            ]);
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
+                Arc::from([FieldPath::from_name("col")]),
+            );
+            let reader = FileStatsLayoutReader::new(child, file_stats, session);
+
+            // `col > 0` is satisfied by min=1 and null_count=0, so filter evaluation returns the
+            // input mask without reading any segments.
+            let satisfied = gt(get_item("col", root()), lit(0i32)).bind(reader.dtype())?;
+            let selected = Mask::from_iter([true, false, true, false, true]);
+            let result = reader
+                .filter_evaluation(&(0..5), &satisfied, MaskFuture::ready(selected.clone()))?
+                .await?;
+            assert_eq!(result, selected);
+            assert_eq!(counted.1.load(Ordering::Relaxed), 0);
+
+            // `col > 2` is not satisfied by file stats, so evaluation falls through to the child.
+            let partial = gt(get_item("col", root()), lit(2i32)).bind(reader.dtype())?;
+            let result = reader
+                .filter_evaluation(&(0..5), &partial, MaskFuture::new_true(5))?
+                .await?;
+            assert_eq!(result, Mask::from_iter([false, false, true, true, true]));
+            assert!(counted.1.load(Ordering::Relaxed) > 0);
+
+            Ok(())
+        })
+    }
 }
