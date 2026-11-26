@@ -127,7 +127,7 @@ def select_user_attachment(body: str, crash_file: str) -> str:
         if name == crash_file:
             return 0
         if lower.endswith(ARCHIVE_SUFFIXES):
-            if crash_file.lower() in lower:
+            if crash_file.lower() in lower and "log" not in lower:
                 return 1
             if crash_kind and crash_kind in lower and "log" not in lower:
                 return 3

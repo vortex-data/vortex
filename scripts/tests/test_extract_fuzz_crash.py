@@ -205,7 +205,10 @@ def test_select_user_attachment_fallback_archive_and_raw_extension():
     body_log = f"https://github.com/user-attachments/files/5/{crash_file}.log"
     assert efc.select_user_attachment(body_log, crash_file) == ""
 
-    # Crash-named archive beats checksum/suffixed non-archive attachments.
+    # Checksum-only attachment is rejected; crash-named archive beats suffixed non-archives.
+    body_checksum_only = f"https://github.com/user-attachments/files/6/{crash_file}.sha256"
+    assert efc.select_user_attachment(body_checksum_only, crash_file) == ""
+
     body_archive_and_checksum = (
         f"https://github.com/user-attachments/files/6/{crash_file}.sha256\n"
         f"https://github.com/user-attachments/files/7/{crash_file}.tgz\n"
@@ -213,6 +216,16 @@ def test_select_user_attachment_fallback_archive_and_raw_extension():
     assert (
         efc.select_user_attachment(body_archive_and_checksum, crash_file)
         == f"https://github.com/user-attachments/files/7/{crash_file}.tgz"
+    )
+
+    # Suffixed raw crash input beats a log archive containing the crash name.
+    body_log_archive_and_raw = (
+        f"https://github.com/user-attachments/files/8/{crash_file}-logs.tgz\n"
+        f"https://github.com/user-attachments/files/9/{crash_file}.bin\n"
+    )
+    assert (
+        efc.select_user_attachment(body_log_archive_and_raw, crash_file)
+        == f"https://github.com/user-attachments/files/9/{crash_file}.bin"
     )
 
 
