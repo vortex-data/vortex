@@ -15,6 +15,7 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::EncodingSubclass;
@@ -84,26 +85,19 @@ impl PyChunkedArray {
         chunks: Vec<PyArrayRef>,
         dtype: Option<Bound<PyDType>>,
     ) -> PyVortexResult<PyArrayRef> {
-        let mut flat: Vec<ArrayRef> = Vec::with_capacity(chunks.len());
-
-        for chunk in chunks {
-            let chunk = chunk.into_inner();
-
-            match chunk.as_opt::<Chunked>() {
-                Some(chunked) => flat.extend(chunked.iter_chunks().cloned()),
-                None => flat.push(chunk),
-            }
-        }
-
-        let dtype = match (dtype, flat.first()) {
+        let dtype = match (dtype, chunks.first()) {
             (Some(dtype), _) => dtype.get().inner().clone(),
 
             // A chunk with nulls makes the result nullable.
-            (None, Some(first)) if flat.iter().any(|chunk| chunk.dtype().is_nullable()) => {
-                first.dtype().as_nullable()
+            (None, Some(first))
+                if chunks
+                    .iter()
+                    .any(|chunk| chunk.inner().dtype().is_nullable()) =>
+            {
+                first.inner().dtype().as_nullable()
             }
 
-            (None, Some(first)) => first.dtype().clone(),
+            (None, Some(first)) => first.inner().dtype().clone(),
 
             (None, None) => {
                 return Err(PyValueError::new_err(
@@ -113,10 +107,21 @@ impl PyChunkedArray {
             }
         };
 
-        let flat = flat
-            .into_iter()
-            .map(|chunk| as_nullable_chunk(chunk, &dtype))
-            .collect::<VortexResult<Vec<_>>>()?;
+        let mut flat: Vec<ArrayRef> = Vec::with_capacity(chunks.len());
+
+        for chunk in chunks {
+            let chunk = chunk.into_inner();
+            validate_chunk_dtype(chunk.dtype(), &dtype)?;
+
+            match chunk.as_opt::<Chunked>() {
+                Some(chunked) => {
+                    for child in chunked.iter_chunks() {
+                        flat.push(as_nullable_chunk(child.clone(), &dtype)?);
+                    }
+                }
+                None => flat.push(as_nullable_chunk(chunk, &dtype)?),
+            }
+        }
 
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(flat, dtype)?.into_array(),
@@ -124,10 +129,18 @@ impl PyChunkedArray {
     }
 }
 
+/// Reject an input chunk whose declared dtype does not match `dtype` (allowing non-nullable
+/// inputs into a nullable target of the same type).
+fn validate_chunk_dtype(chunk_dtype: &DType, dtype: &DType) -> VortexResult<()> {
+    if chunk_dtype == dtype || (!chunk_dtype.is_nullable() && &chunk_dtype.as_nullable() == dtype) {
+        return Ok(());
+    }
+    vortex_bail!("expected type: {dtype} but instead got {chunk_dtype}");
+}
+
 /// Cast a non-nullable chunk to `dtype` if `dtype` is the same type, but nullable.
 ///
-/// The cast changes only the nullability, so it copies no data. Other chunks do not change, and
-/// `ChunkedArray::try_new` rejects a chunk of a different type.
+/// The cast changes only the nullability, so it copies no data.
 fn as_nullable_chunk(chunk: ArrayRef, dtype: &DType) -> VortexResult<ArrayRef> {
     if chunk.dtype().is_nullable() || &chunk.dtype().as_nullable() != dtype {
         return Ok(chunk);
