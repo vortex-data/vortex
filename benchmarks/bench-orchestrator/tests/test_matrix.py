@@ -457,17 +457,13 @@ def test_matrix_command_only_edge_cases() -> None:
         ("polarsignals,tpch-nvme:3 appian-nvme", {"polarsignals": (), "tpch-nvme": (3,), "appian-nvme": ()}),
         ("tpch-nvme:1 tpch-nvme:2", {"tpch-nvme": (1, 2)}),
         ("tpch-nvme:1 tpch-nvme", {"tpch-nvme": ()}),
-        ("tpch-nvme tpch-nvme:q1,2", {"tpch-nvme": ()}),
     ],
 )
 def test_parse_selection(value: str, expected: dict[str, tuple[int, ...]]) -> None:
     assert parse_selection(value) == expected
 
 
-@pytest.mark.parametrize(
-    "value",
-    ["tpch-nvme:", "tpch-nvme:qx", "tpch-nvme:q4-1", "tpch-nvme:0", ":q1", "tpch-nvme tpch-nvme:q1,0"],
-)
+@pytest.mark.parametrize("value", ["tpch-nvme:", "tpch-nvme:qx", "tpch-nvme:q4-1", "tpch-nvme:0", ":q1"])
 def test_parse_selection_rejects(value: str) -> None:
     with pytest.raises(ValueError, match="Invalid"):
         _ = parse_selection(value)

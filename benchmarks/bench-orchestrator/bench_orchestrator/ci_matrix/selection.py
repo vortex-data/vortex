@@ -28,17 +28,13 @@ def parse_selection(value: str | None) -> dict[str, tuple[int, ...]]:
     adds to the previous benchmark's queries, because benchmark IDs never look like queries.
     """
     selection: dict[str, set[int] | None] = {}
-    # The previous benchmark when it named queries, which a bare query token extends even if
-    # that benchmark was already selected for all queries.
-    current: str | None = None
+    # The queries of the previous benchmark when it named some, which a bare query token extends.
+    current: tuple[str, set[int]] | None = None
     tokens: list[str] = [token for token in re.split(r"[\s;,]+", value or "") if token]
     for token in tokens:
         benchmark_id, colon, queries = token.partition(":")
         if not colon and current is not None and _QUERIES.fullmatch(token):
-            parsed = _parse_queries(token, current)
-            existing = selection[current]
-            if existing is not None:
-                existing.update(parsed)
+            current[1].update(_parse_queries(token, current[0]))
             continue
         if not benchmark_id or (colon and not queries):
             raise ValueError(f"Invalid benchmark selection {token!r}; expected e.g. tpch-nvme or tpch-nvme:q1-4")
@@ -48,5 +44,5 @@ def parse_selection(value: str | None) -> dict[str, tuple[int, ...]]:
             previous = selection[benchmark_id]
             new = None if previous is None or new is None else previous | new
         selection[benchmark_id] = new
-        current = benchmark_id if colon else None
+        current = None if new is None else (benchmark_id, new)
     return {benchmark_id: tuple(sorted(queries or ())) for benchmark_id, queries in selection.items()}

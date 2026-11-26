@@ -3,7 +3,6 @@
 
 """Benchmark binary execution."""
 
-import os
 import selectors
 import subprocess
 from collections import deque
@@ -225,72 +224,43 @@ class BenchmarkExecutor:
             if progress is not None:
                 progress.add_task(f"Running {self.backend.value} {benchmark.value}...", total=None)
 
-            # Keep stdout and stderr on separate unbuffered pipes and drain both via a selector so
-            # verbose logs cannot fill a pipe buffer, interleave mid-line with JSON results, or
-            # stall behind TextIOWrapper read-ahead buffering.
+            # Merge stderr into stdout so verbose benchmark logs cannot fill a separate pipe and
+            # block the child process before it emits JSON results.
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
             )
 
             assert process.stdout is not None
-            assert process.stderr is not None
             selector = selectors.DefaultSelector()
-            buffers: dict[int, bytearray] = {
-                process.stdout.fileno(): bytearray(),
-                process.stderr.fileno(): bytearray(),
-            }
-            selector.register(process.stdout, selectors.EVENT_READ, data=True)
-            selector.register(process.stderr, selectors.EVENT_READ, data=False)
-
-            def handle_line(raw: bytes, is_stdout: bool) -> None:
-                line = raw.decode("utf-8", errors="replace").rstrip()
-                if not line:
-                    return
-                if is_stdout and line.startswith("{"):
-                    results.append(line)
-                    if on_result:
-                        on_result(line)
-                else:
-                    diagnostic_lines.append(line)
-                    # soft_wrap keeps long log lines intact instead of folding them at the
-                    # console width.
-                    console.print(line, markup=False, highlight=False, soft_wrap=True)
+            selector.register(process.stdout, selectors.EVENT_READ)
 
             try:
                 while selector.get_map():
                     for key, _mask in selector.select(timeout=0.1):
-                        fd = key.fd
-                        is_stdout = bool(key.data)
-                        chunk = os.read(fd, 8192)
-                        buf = buffers[fd]
-                        if not chunk:
+                        line = key.fileobj.readline()
+                        if line == "":
                             selector.unregister(key.fileobj)
-                            if buf:
-                                handle_line(bytes(buf), is_stdout)
-                                buf.clear()
                             continue
 
-                        buf.extend(chunk)
-                        while (newline := buf.find(b"\n")) != -1:
-                            raw_line = bytes(buf[:newline])
-                            del buf[: newline + 1]
-                            handle_line(raw_line, is_stdout)
-            except BaseException:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
-                raise
+                        line = line.rstrip()
+                        if not line:
+                            continue
+
+                        if line.startswith("{"):
+                            results.append(line)
+                            if on_result:
+                                on_result(line)
+                        else:
+                            diagnostic_lines.append(line)
+                            # soft_wrap keeps long log lines intact instead of folding them at the
+                            # console width.
+                            console.print(line, markup=False, highlight=False, soft_wrap=True)
             finally:
                 selector.close()
-                process.stdout.close()
-                process.stderr.close()
 
             ret_code = process.wait()
 
