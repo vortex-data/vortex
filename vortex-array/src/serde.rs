@@ -237,9 +237,9 @@ impl ArraySerializationTree {
             );
         };
 
-        // Reject a node before resolving children that normalization may discard. Leaf IDs
-        // are checked when interned, since they have no children that can mask the rejection.
-        if !serialization.children.is_empty() && !ctx.permits(&serialization.serialized_id) {
+        // Reject disallowed wire IDs before resolving children that normalization may discard,
+        // and before flatbuffer encoding interns any ancestor or sibling IDs into `ctx`.
+        if !ctx.permits(&serialization.serialized_id) {
             return Err(VortexError::external(WireRejection::DisallowedId(
                 serialization.serialized_id,
             )));
@@ -859,6 +859,8 @@ mod tests {
     use crate::ArrayVTable;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::RunEnd;
@@ -1153,6 +1155,36 @@ mod tests {
                 .contains("Serialized array ID vortex.runend not permitted by ctx"),
             "unexpected error: {error}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn serialization_rejects_disallowed_leaf_before_interning_ancestors() -> VortexResult<()> {
+        let session = versioned_primitive_session();
+        let array = StructArray::from_fields(&[
+            ("a", BoolArray::from_iter([true; 8]).into_array()),
+            ("b", PrimitiveArray::from_iter(0..8i32).into_array()),
+        ])?
+        .into_array();
+        let ctx = ArrayContext::empty().with_allowed_ids(
+            [
+                ArrayVTable::id(&Struct),
+                ArrayVTable::id(&Bool),
+                old_primitive_id(),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        let error = array
+            .serialize_with_fallback(&ctx, &session, &SerializeOptions::default())
+            .expect_err("the leaf emits a disallowed wire ID");
+        assert!(error.to_string().contains("not permitted by ctx"));
+        assert!(
+            ctx.to_ids().is_empty(),
+            "a failed write must not leave ancestor or sibling IDs interned in ctx"
+        );
+
         Ok(())
     }
 

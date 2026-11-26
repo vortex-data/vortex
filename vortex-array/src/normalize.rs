@@ -27,7 +27,6 @@ use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
 use crate::array::ArraySerialization;
 use crate::arrays::write_parent_reductions;
-use crate::executor::max_iterations;
 use crate::serde::WireRejection;
 use crate::session::ArraySessionExt;
 
@@ -161,6 +160,10 @@ impl ArrayRef {
         target: NormalizeTarget<'_>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        if matches!(wire_children, Some([])) {
+            return Ok(self);
+        }
+
         let slots = self.slots();
         let mut normalized_slots = SmallVec::with_capacity(slots.len());
         let mut changed = false;
@@ -204,7 +207,7 @@ fn normalize_wire(
     let dtype = array.dtype().clone();
     let len = array.len();
 
-    for _ in 0..max_iterations() {
+    for _ in 0..ctx.max_iterations() {
         let session = ctx.session();
         match serialize_if_registered(&array, session)? {
             Some(serialized) if write_context.permits(&serialized.serialized_id) => {

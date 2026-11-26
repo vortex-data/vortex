@@ -398,6 +398,45 @@ fn restricted_write_executes_lazy_child_of_rejected_widen() -> VortexResult<()> 
 }
 
 #[test]
+fn restricted_write_normalizes_nested_validity_through_widen_decimal() -> VortexResult<()> {
+    let mut exec = SESSION.create_execution_ctx();
+    let validity = RunEnd::try_new(
+        buffer![2u32, 4].into_array(),
+        BoolArray::from_iter([true, false]).into_array(),
+        &mut exec,
+    )?
+    .into_array();
+    let decimal = DecimalArray::new(
+        buffer![10i32, 20, 30, 40],
+        DecimalDType::new(9, 2),
+        Validity::Array(validity),
+        &mut exec,
+    )
+    .into_array();
+    let widened = widen_over(
+        decimal,
+        DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable),
+    )?;
+
+    let decimal_id = ArrayVTable::id(&Decimal);
+    let bool_id = ArrayVTable::id(&Bool);
+    let (serialized, read_ctx) = serialize_restricted(&widened, [decimal_id, bool_id])?;
+
+    assert_eq!(read_ctx.resolve(serialized.encoding_id()), Some(decimal_id));
+    assert_eq!(serialized.buffer(0)?.len(), 4 * size_of::<i32>());
+    assert_eq!(serialized.nchildren(), 1);
+    assert_eq!(
+        read_ctx.resolve(serialized.child(0).encoding_id()),
+        Some(bool_id)
+    );
+
+    let actual = serialized.decode(widened.dtype(), widened.len(), &read_ctx, &SESSION)?;
+    assert_arrays_eq!(actual, widened, &mut exec);
+
+    Ok(())
+}
+
+#[test]
 fn test_widen_wire_id_requires_permission() -> VortexResult<()> {
     let widen = widen_over(buffer![1i8, 2, 3], DType::from(PType::I64))?;
     let restricted =
