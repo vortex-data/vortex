@@ -13,6 +13,10 @@
 //!    `oss://`, and `goosefs://`, and the Hugging Face Hub's `hf://` — are served by the crate's
 //!    `opendal` and `hf` modules under the matching service feature.
 
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+use std::env::VarError;
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use object_store::ObjectStore;
@@ -100,7 +104,9 @@ impl EnvSource {
     #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
-            EnvSource::Process => std::env::var(key).ok(),
+            EnvSource::Process => {
+                lookup_env_case_insensitive(key, std::env::var(key), std::env::vars_os())
+            }
             EnvSource::Fixed(vars) => vars
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(key))
@@ -119,6 +125,23 @@ impl EnvSource {
                 .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
                 .collect(),
         }
+    }
+}
+
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+fn lookup_env_case_insensitive(
+    key: &str,
+    exact: Result<String, VarError>,
+    vars: impl IntoIterator<Item = (OsString, OsString)>,
+) -> Option<String> {
+    match exact {
+        Ok(v) => Some(v),
+        Err(VarError::NotUnicode(_)) => None,
+        Err(VarError::NotPresent) => vars.into_iter().find_map(|(k, v)| {
+            k.to_str()
+                .filter(|k| k.eq_ignore_ascii_case(key))
+                .and_then(|_| v.into_string().ok())
+        }),
     }
 }
 

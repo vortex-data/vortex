@@ -410,3 +410,55 @@ fn test_cos_cold_lookup_validates_url_path() -> Result<(), Box<dyn std::error::E
     assert_eq!(path, Path::from("a/b"));
     Ok(())
 }
+
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+#[test]
+fn test_lookup_env_case_insensitive() {
+    let vars = || {
+        vec![
+            (
+                std::ffi::OsString::from("HF_TOKEN"),
+                std::ffi::OsString::from("upper"),
+            ),
+            (
+                std::ffi::OsString::from("OTHER"),
+                std::ffi::OsString::from("ignored"),
+            ),
+        ]
+    };
+
+    // Exact match wins without falling back to the scan.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Ok("exact".to_string()), vars()).as_deref(),
+        Some("exact")
+    );
+
+    // Missing exact key falls back to case-insensitive scan.
+    assert_eq!(
+        super::lookup_env_case_insensitive(
+            "hf_token",
+            Err(std::env::VarError::NotPresent),
+            vars(),
+        )
+        .as_deref(),
+        Some("upper")
+    );
+
+    // Non-Unicode exact match returns None instead of falling back.
+    assert_eq!(
+        super::lookup_env_case_insensitive(
+            "hf_token",
+            Err(std::env::VarError::NotUnicode(std::ffi::OsString::from(
+                "bad"
+            ))),
+            vars(),
+        ),
+        None
+    );
+
+    // Absent key returns None.
+    assert_eq!(
+        super::lookup_env_case_insensitive("missing", Err(std::env::VarError::NotPresent), vars()),
+        None
+    );
+}
