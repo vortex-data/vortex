@@ -221,7 +221,7 @@ fn unchanged_chunk_preserves_cached_plan_baseline() -> VortexResult<()> {
     let (_, estimates) = compress_counting(&compressor, &low_cardinality(0), &reuse)?;
     assert!(estimates > 0);
 
-    // An uncompressible chunk still triggers fallback selection, but leaving it unchanged must not
+    // An incompressible chunk still triggers fallback selection, but leaving it unchanged must not
     // overwrite the cached plan's baseline ratio with 1.0.
     let unique_input = unique();
     let (unchanged, estimates) = compress_counting(&compressor, &unique_input, &reuse)?;
