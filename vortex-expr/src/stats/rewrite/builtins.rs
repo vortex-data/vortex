@@ -413,6 +413,7 @@ mod tests {
     use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::stats::Stat;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::ArrayExprExt;
@@ -708,7 +709,8 @@ mod tests {
 
         let target = DType::Primitive(PType::I64, Nullability::NonNullable);
         let expr = gt(cast(col("a"), target), lit(42i64));
-        let falsifier = falsify(&expr)?.expect("cast comparison should have falsifier");
+        let falsifier =
+            falsify(&expr)?.ok_or_else(|| vortex_err!("cast comparison should have falsifier"))?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let lowered_missing = bind_stats(falsifier.clone(), &MissingStatBinder)?;
