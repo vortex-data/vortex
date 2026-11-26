@@ -108,8 +108,23 @@ pub fn list_elements_definedness(
         array.len(),
         "Definedness mask length must match the list length",
     );
-    let elements_len = array.elements().len();
     let lists = valid_definedness(&array.validity()?, defined, ctx)?;
+    list_elements_mask(array, &lists, ctx)
+}
+
+/// The elements of `array` referenced by the lists selected by `lists`, where `lists` already
+/// incorporates the list array's validity.
+pub fn list_elements_mask(
+    array: &ListArray,
+    lists: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Mask> {
+    vortex_ensure_eq!(
+        lists.len(),
+        array.len(),
+        "Definedness mask length must match the list length",
+    );
+    let elements_len = array.elements().len();
     if lists.all_false() || elements_len == 0 {
         return Ok(Mask::new_false(elements_len));
     }
@@ -122,7 +137,7 @@ pub fn list_elements_definedness(
     match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
         let offsets = offsets.as_slice::<O>();
         // Offsets are monotonic, so a run of defined lists covers one contiguous element range.
-        for_each_defined_run(&lists, |start, end| {
+        for_each_defined_run(lists, |start, end| {
             fill_elements(&mut buffer, offsets[start].as_(), offsets[end].as_());
         });
     });

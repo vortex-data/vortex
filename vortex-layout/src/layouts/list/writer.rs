@@ -15,6 +15,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::definedness::list_elements_mask;
 use vortex_array::aggregate_fn::definedness::valid_definedness;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
@@ -31,7 +32,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar::NumericOperator;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -314,31 +314,24 @@ fn drop_absent_elements(
     if lists.all_true() {
         return Ok(list);
     }
+    let elements = list_elements_mask(&list, &lists, exec_ctx)?;
+    if elements.all_true() {
+        return Ok(list);
+    }
 
     let offsets = list
         .offsets()
         .clone()
         .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
         .execute::<PrimitiveArray>(exec_ctx)?;
-    let offsets = offsets.as_slice::<u64>();
     let mut kept = BufferMut::<u64>::with_capacity(offsets.len());
     kept.push(0);
     let mut end = 0u64;
-    let mut elements = BitBufferMut::new_unset(list.elements().len());
-    for (row, bounds) in offsets.windows(2).enumerate() {
+    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
         if lists.value(row) {
-            let start = usize::try_from(bounds[0])?;
-            let stop = usize::try_from(bounds[1])?;
-            if start < stop {
-                elements.fill_range(start, stop, true);
-            }
             end += bounds[1] - bounds[0];
         }
         kept.push(end);
-    }
-    let elements = Mask::from_buffer(elements.freeze());
-    if elements.all_true() {
-        return Ok(list);
     }
     // Writers serialize what they receive, so the filter is executed rather than left lazy.
     let elements = list
