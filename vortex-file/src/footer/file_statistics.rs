@@ -24,6 +24,7 @@ use vortex_array::flatbuffers::array::ArrayStats;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::stats::StatsSet;
+use vortex_array::stats::flatbuffers::StatsInterner;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -495,11 +496,12 @@ impl WriteFlatBuffer for FileStatistics {
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         // The legacy `ArrayStats` format has a fixed slot per stat rather than open-ended
         // aggregates.
+        let mut stats = StatsInterner::default();
         let field_stats = self
             .legacy_aggregates
             .iter()
-            .map(|aggregates| aggregates.to_stats_set().write_flatbuffer(fbb))
-            .collect::<VortexResult<Vec<_>>>()?;
+            .map(|aggregates| stats.write(fbb, &aggregates.to_stats_set()))
+            .collect::<Vec<_>>();
         let field_stats = fbb.create_vector(field_stats.as_slice());
 
         if !self.write_nested {
@@ -1076,5 +1078,38 @@ mod tests {
             FileStatistics::new_with_dtype(Arc::from([]), Arc::from([legacy]), &file_dtype);
 
         assert!(!file_stats.is_empty());
+    }
+
+    #[test]
+    fn equal_field_stats_are_written_once() -> VortexResult<()> {
+        let file_dtype = DType::struct_(
+            [("a", i32_dtype()), ("b", i32_dtype()), ("c", i32_dtype())],
+            Nullability::NonNullable,
+        );
+        let field = AggregateStats::new(vec![min(1), null_count(0, &i32_dtype())]);
+        let file_stats = FileStatistics::new_legacy_only(
+            Arc::from([field.clone(), field.clone(), field]),
+            &file_dtype,
+        );
+
+        let bytes = file_stats.write_flatbuffer_bytes()?;
+        let fb = flatbuffers::root::<fb::FileStatistics>(bytes.as_ref())
+            .vortex_expect("valid flatbuffer");
+        let field_stats = fb.field_stats().vortex_expect("legacy field stats");
+        assert_eq!(field_stats.len(), 3);
+        assert!(
+            field_stats
+                .iter()
+                .all(|s| s._tab.loc() == field_stats.get(0)._tab.loc())
+        );
+
+        let read_back = FileStatistics::from_flatbuffer(&fb, &file_dtype, &VortexSession::empty())?;
+        for field_idx in 0..3 {
+            assert_eq!(
+                value(read_back.get(field_idx).0, &min_fn()),
+                Precision::exact(ScalarValue::from(1i32))
+            );
+        }
+        Ok(())
     }
 }

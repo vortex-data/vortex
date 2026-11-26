@@ -2,15 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use flatbuffers::FlatBufferBuilder;
+use flatbuffers::UOffsetT;
 use flatbuffers::WIPOffset;
 use half::f16;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::flatbuffers::ByteVectorInterner;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::scalar::PValue;
@@ -41,62 +44,104 @@ impl WriteFlatBuffer for StatsSet {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
-        let (min_precision, min) = match self.get(Stat::Min) {
-            Precision::Exact(min) => (
-                fba::Precision::Exact,
-                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
-            ),
-            Precision::Inexact(min) => (
-                fba::Precision::Inexact,
-                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
-            ),
-            Precision::Absent => (fba::Precision::Inexact, None),
+        Ok(StatsInterner::default().write(fbb, self))
+    }
+}
+
+/// An `ArrayStats` table, identified by its field values and the offsets of its interned blobs.
+#[derive(PartialEq, Eq, Hash)]
+struct StatsKey {
+    min: Option<UOffsetT>,
+    min_precision: fba::Precision,
+    max: Option<UOffsetT>,
+    max_precision: fba::Precision,
+    sum: Option<UOffsetT>,
+    is_sorted: Option<bool>,
+    is_strict_sorted: Option<bool>,
+    is_constant: Option<bool>,
+    null_count: Option<u64>,
+    uncompressed_size_in_bytes: Option<u64>,
+    nan_count: Option<u64>,
+}
+
+/// Writes each distinct `ArrayStats` table, and each distinct stat value, once per builder.
+#[derive(Default)]
+pub struct StatsInterner {
+    blobs: ByteVectorInterner,
+    tables: HashMap<StatsKey, UOffsetT>,
+}
+
+impl StatsInterner {
+    /// Writes `stats`, or returns the offset of an equal table written before by this interner.
+    pub fn write<'fb>(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        stats: &StatsSet,
+    ) -> WIPOffset<fba::ArrayStats<'fb>> {
+        let (min_precision, min) = self.write_bound(fbb, stats.get(Stat::Min));
+        let (max_precision, max) = self.write_bound(fbb, stats.get(Stat::Max));
+        let sum = stats
+            .get(Stat::Sum)
+            .as_exact()
+            .map(|sum| self.write_value(fbb, &canonicalize_nan_sum(sum)));
+        let bool_stat = |stat| {
+            stats
+                .get_as::<bool>(stat, &DType::Bool(Nullability::NonNullable))
+                .as_exact()
         };
-
-        let (max_precision, max) = match self.get(Stat::Max) {
-            Precision::Exact(max) => (
-                fba::Precision::Exact,
-                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
-            ),
-            Precision::Inexact(max) => (
-                fba::Precision::Inexact,
-                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
-            ),
-            Precision::Absent => (fba::Precision::Inexact, None),
-        };
-
-        let sum = self.get(Stat::Sum).as_exact().map(|sum| {
-            let sum = canonicalize_nan_sum(sum);
-            fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&sum)))
-        });
-
-        let stat_args = &fba::ArrayStatsArgs {
+        let u64_stat = |stat| stats.get_as::<u64>(stat, &PType::U64.into()).as_exact();
+        let key = StatsKey {
             min,
             min_precision,
             max,
             max_precision,
             sum,
-            is_sorted: self
-                .get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable))
-                .as_exact(),
-            is_strict_sorted: self
-                .get_as::<bool>(Stat::IsStrictSorted, &DType::Bool(Nullability::NonNullable))
-                .as_exact(),
-            is_constant: self
-                .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
-                .as_exact(),
-            null_count: self
-                .get_as::<u64>(Stat::NullCount, &PType::U64.into())
-                .as_exact(),
-            uncompressed_size_in_bytes: self
-                .get_as::<u64>(Stat::UncompressedSizeInBytes, &PType::U64.into())
-                .as_exact(),
-            nan_count: self
-                .get_as::<u64>(Stat::NaNCount, &PType::U64.into())
-                .as_exact(),
+            is_sorted: bool_stat(Stat::IsSorted),
+            is_strict_sorted: bool_stat(Stat::IsStrictSorted),
+            is_constant: bool_stat(Stat::IsConstant),
+            null_count: u64_stat(Stat::NullCount),
+            uncompressed_size_in_bytes: u64_stat(Stat::UncompressedSizeInBytes),
+            nan_count: u64_stat(Stat::NaNCount),
         };
 
-        Ok(fba::ArrayStats::create(fbb, stat_args))
+        if let Some(&offset) = self.tables.get(&key) {
+            return WIPOffset::new(offset);
+        }
+        let offset = fba::ArrayStats::create(
+            fbb,
+            &fba::ArrayStatsArgs {
+                min: key.min.map(WIPOffset::new),
+                min_precision: key.min_precision,
+                max: key.max.map(WIPOffset::new),
+                max_precision: key.max_precision,
+                sum: key.sum.map(WIPOffset::new),
+                is_sorted: key.is_sorted,
+                is_strict_sorted: key.is_strict_sorted,
+                is_constant: key.is_constant,
+                null_count: key.null_count,
+                uncompressed_size_in_bytes: key.uncompressed_size_in_bytes,
+                nan_count: key.nan_count,
+            },
+        );
+        self.tables.insert(key, offset.value());
+        offset
+    }
+
+    fn write_bound(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'_>,
+        bound: Precision<ScalarValue>,
+    ) -> (fba::Precision, Option<UOffsetT>) {
+        match bound {
+            Precision::Exact(v) => (fba::Precision::Exact, Some(self.write_value(fbb, &v))),
+            Precision::Inexact(v) => (fba::Precision::Inexact, Some(self.write_value(fbb, &v))),
+            Precision::Absent => (fba::Precision::Inexact, None),
+        }
+    }
+
+    fn write_value(&mut self, fbb: &mut FlatBufferBuilder<'_>, value: &ScalarValue) -> UOffsetT {
+        let bytes = ScalarValue::to_proto_bytes::<Vec<u8>>(Some(value));
+        self.blobs.write(fbb, &bytes).value()
     }
 }
 

@@ -31,6 +31,7 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::flatbuffers as fb;
 use crate::dtype::session::DTypeSessionExt;
+use crate::flatbuffers::ByteVectorInterner;
 use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::FlatBufferRoot;
 use crate::flatbuffers::WriteFlatBuffer;
@@ -372,7 +373,7 @@ struct Interner {
     dtypes: HashMap<DTypeKey, UOffsetT>,
     strings: HashMap<FieldName, UOffsetT>,
     offset_vectors: HashMap<Vec<UOffsetT>, UOffsetT>,
-    byte_vectors: HashMap<Vec<u8>, UOffsetT>,
+    byte_vectors: ByteVectorInterner,
 }
 
 impl Interner {
@@ -481,12 +482,7 @@ impl Interner {
     }
 
     fn write_bytes(&mut self, fbb: &mut FlatBufferBuilder<'_>, bytes: &[u8]) -> UOffsetT {
-        if let Some(&offset) = self.byte_vectors.get(bytes) {
-            return offset;
-        }
-        let offset = fbb.create_vector(bytes).value();
-        self.byte_vectors.insert(bytes.to_vec(), offset);
-        offset
+        self.byte_vectors.write(fbb, bytes).value()
     }
 }
 

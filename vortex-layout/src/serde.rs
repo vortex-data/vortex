@@ -9,6 +9,7 @@ use flatbuffers::VerifierOptions;
 use flatbuffers::WIPOffset;
 use flatbuffers::root_with_opts;
 use vortex_array::dtype::DType;
+use vortex_array::flatbuffers::ByteVectorInterner;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
@@ -187,29 +188,32 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        self.write_layout(fbb, self.layout, &mut ByteVectorInterner::default())
+    }
+}
+
+impl LayoutFlatBufferWriter<'_> {
+    fn write_layout<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        layout: &dyn DynLayout,
+        metadata_vectors: &mut ByteVectorInterner,
+    ) -> VortexResult<WIPOffset<layout::Layout<'fb>>> {
         // First we recurse into the children and write them out
-        let child_layouts = self.layout.children()?;
+        let child_layouts = layout.children()?;
         let children = child_layouts
             .iter()
-            .map(|layout| {
-                LayoutFlatBufferWriter {
-                    layout: layout.as_ref(),
-                    ctx: self.ctx,
-                    session: self.session,
-                }
-                .write_flatbuffer(fbb)
-            })
+            .map(|child| self.write_layout(fbb, child.as_ref(), metadata_vectors))
             .collect::<VortexResult<Vec<_>>>()?;
         let children = (!children.is_empty()).then(|| fbb.create_vector(&children));
 
-        let serialization = self.session.layout_serialize(self.layout)?;
+        let serialization = self.session.layout_serialize(layout)?;
 
         // Next we write out the metadata if it's non-empty.
         let metadata = &serialization.metadata;
-        let metadata = (!metadata.is_empty()).then(|| fbb.create_vector(metadata));
+        let metadata = (!metadata.is_empty()).then(|| metadata_vectors.write(fbb, metadata));
 
-        let segments = self
-            .layout
+        let segments = layout
             .segment_ids()
             .into_iter()
             .map(|s| *s)
@@ -231,7 +235,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
             fbb,
             &layout::LayoutArgs {
                 encoding,
-                row_count: self.layout.row_count(),
+                row_count: layout.row_count(),
                 metadata,
                 children,
                 segments,
@@ -251,7 +255,10 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
+    use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
     use vortex_session::registry::ReadContext;
@@ -272,6 +279,7 @@ mod tests {
     use crate::flatbuffers::layout as fbl;
     use crate::layouts::flat::Flat;
     use crate::layouts::flat::FlatLayout;
+    use crate::layouts::struct_::StructLayout;
     use crate::segments::SegmentId;
     use crate::session::LayoutSession;
     use crate::session::LayoutSessionExt;
@@ -429,9 +437,8 @@ mod tests {
         );
         fbb.finish_minimal(root);
         let (buf, start) = fbb.collapse();
-        let layout_buffer = vortex_array::flatbuffers::FlatBuffer::align_from(
-            vortex_buffer::ByteBuffer::from(buf).slice(start..),
-        );
+        let layout_buffer =
+            vortex_array::flatbuffers::FlatBuffer::align_from(ByteBuffer::from(buf).slice(start..));
 
         let layout_ctx = ReadContext::new([
             LayoutId::new("vortex.test.foreign_layout"),
@@ -462,5 +469,60 @@ mod tests {
             "vortex.test.foreign_child_layout"
         );
         assert_eq!(child.metadata(), vec![9]);
+    }
+
+    #[test]
+    fn equal_metadata_is_written_once() -> VortexResult<()> {
+        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let children = (0..3)
+            .map(|segment| {
+                FlatLayout::new_with_metadata(
+                    10,
+                    i32_dtype.clone(),
+                    SegmentId::from(segment),
+                    ReadContext::new([]),
+                    Some(ByteBuffer::from(vec![1u8, 2, 3])),
+                )
+                .into_layout()
+            })
+            .collect::<Vec<_>>();
+        let layout = StructLayout::new(
+            10,
+            DType::struct_(
+                [
+                    ("a", i32_dtype.clone()),
+                    ("b", i32_dtype.clone()),
+                    ("c", i32_dtype),
+                ],
+                Nullability::NonNullable,
+            ),
+            children,
+        )
+        .into_layout();
+        let session = VortexSession::empty().with::<LayoutSession>();
+        let layout_ctx = LayoutContext::default();
+        let flatbuffer = layout
+            .flatbuffer_writer(&layout_ctx, &session)
+            .write_flatbuffer_bytes()?;
+
+        let fb = flatbuffers::root::<fbl::Layout>(flatbuffer.as_ref())
+            .map_err(|e| vortex_err!("invalid layout flatbuffer: {e}"))?;
+        let children = fb.children().vortex_expect("children");
+        let metadata_ptr = |idx| children.get(idx).metadata().map(|m| m.bytes().as_ptr());
+        assert!(metadata_ptr(0).is_some());
+        assert!((1..3).all(|idx| metadata_ptr(idx) == metadata_ptr(0)));
+
+        let read_back = layout_from_flatbuffer(
+            flatbuffer,
+            layout.dtype(),
+            &ReadContext::new(layout_ctx.to_ids()),
+            &ReadContext::new([]),
+            &session,
+        )?;
+        for (segment, child) in (0u32..).zip(read_back.children()?) {
+            assert_eq!(*child.segment_ids()[0], segment);
+            assert_eq!(child.metadata(), layout.children()?[0].metadata());
+        }
+        Ok(())
     }
 }

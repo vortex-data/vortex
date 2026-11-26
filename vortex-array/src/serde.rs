@@ -32,8 +32,8 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
+use crate::flatbuffers::ByteVectorInterner;
 use crate::flatbuffers::FlatBuffer;
-use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
 use crate::optimizer::mark_decoded_optimized;
@@ -41,6 +41,7 @@ use crate::session::ArraySessionExt;
 use crate::stats::Precision;
 use crate::stats::Stat;
 use crate::stats::StatsSet;
+use crate::stats::flatbuffers::StatsInterner;
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -242,12 +243,20 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        self.try_write_node(fbb, &self.array, 0)
+        self.try_write_node(
+            fbb,
+            &mut ByteVectorInterner::default(),
+            &mut StatsInterner::default(),
+            &self.array,
+            0,
+        )
     }
 
     fn try_write_node<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
+        metadata: &mut ByteVectorInterner,
+        stats: &mut StatsInterner,
         array: &ArraySerializationTree,
         buffer_idx: u16,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
@@ -258,7 +267,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             )
         })?;
 
-        let metadata = Some(fbb.create_vector(array.metadata.as_slice()));
+        let metadata_offset = Some(metadata.write(fbb, array.metadata.as_slice()));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(array.buffers.len())
@@ -270,7 +279,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             .iter()
             .map(|child| {
                 // Update the number of buffers required.
-                let msg = self.try_write_node(fbb, child, child_buffer_idx)?;
+                let msg = self.try_write_node(fbb, metadata, stats, child, child_buffer_idx)?;
 
                 child_buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
@@ -283,13 +292,18 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + buffer_idx)));
-        let stats = Some(array.source.statistics().write_flatbuffer(fbb)?);
+        let stats = Some(
+            array
+                .source
+                .statistics()
+                .with_typed_stats_set(|s| stats.write(fbb, s.values)),
+        );
 
         Ok(fba::ArrayNode::create(
             fbb,
             &fba::ArrayNodeArgs {
                 encoding: encoding_idx,
-                metadata,
+                metadata: metadata_offset,
                 children,
                 buffers,
                 stats,
@@ -796,6 +810,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -1111,6 +1126,38 @@ mod tests {
             "unexpected error: {err}"
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn equal_metadata_and_stats_are_written_once() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = PrimitiveArray::from_iter([3i32, 1, 2]).into_array();
+        assert_eq!(field.statistics().compute_min::<i32>(&mut ctx), Some(1));
+        assert_eq!(field.statistics().compute_max::<i32>(&mut ctx), Some(3));
+        let array =
+            StructArray::from_fields(&[("a", field.clone()), ("b", field.clone()), ("c", field)])?
+                .into_array();
+
+        let array_ctx = ArrayContext::empty();
+        let serialized = SerializedArray::try_from(serialize_blob(&array, &array_ctx, &SESSION)?)?;
+        let children = serialized
+            .flatbuffer()
+            .children()
+            .vortex_expect("struct children");
+        let metadata_ptr = |idx| children.get(idx).metadata().map(|m| m.bytes().as_ptr());
+        let stats_loc = |idx| children.get(idx).stats().map(|s| s._tab.loc());
+        assert!(children.get(0).stats().and_then(|s| s.min()).is_some());
+        assert!((1..3).all(|idx| metadata_ptr(idx) == metadata_ptr(0)));
+        assert!((1..3).all(|idx| stats_loc(idx) == stats_loc(0)));
+
+        let decoded = serialized.decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(array_ctx.to_ids()),
+            &SESSION,
+        )?;
+        assert_arrays_eq!(decoded, array, &mut ctx);
         Ok(())
     }
 }

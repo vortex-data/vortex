@@ -6,12 +6,15 @@
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::InvalidFlatbuffer;
+use flatbuffers::UOffsetT;
+use flatbuffers::Vector;
 use flatbuffers::Verifiable;
 use flatbuffers::WIPOffset;
 use flatbuffers::root;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ConstByteBuffer;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// We define a const-aligned byte buffer for flatbuffers with 8-byte alignment.
 ///
@@ -72,5 +75,26 @@ impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
         Ok(FlatBuffer::align_from(
             ByteBuffer::from(vec).slice(start..end),
         ))
+    }
+}
+
+/// Writes each distinct byte vector once per [`FlatBufferBuilder`], returning a shared offset for
+/// repeats.
+#[derive(Default)]
+pub struct ByteVectorInterner(HashMap<Vec<u8>, UOffsetT>);
+
+impl ByteVectorInterner {
+    /// Writes `bytes`, or returns the offset of an equal vector written before by this interner.
+    pub fn write<'fb>(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        bytes: &[u8],
+    ) -> WIPOffset<Vector<'fb, u8>> {
+        if let Some(&offset) = self.0.get(bytes) {
+            return WIPOffset::new(offset);
+        }
+        let offset = fbb.create_vector(bytes);
+        self.0.insert(bytes.to_vec(), offset.value());
+        offset
     }
 }
