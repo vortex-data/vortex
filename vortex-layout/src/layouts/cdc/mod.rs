@@ -31,19 +31,16 @@
 //! # How boundaries are chosen
 //!
 //! Each incoming chunk is canonicalized and reduced to one digest per row, along with how many
-//! bytes that row's content would occupy serialized. The eight bytes of a row's digest update a
-//! 64-bit GEAR rolling hash
-//! `h = (h << 1) + table[byte]`, whose value depends only on the last few rows fed. The table is
-//! [`gearhash::DEFAULT_TABLE`], which the [Xet chunking spec] references normatively; a test
-//! pins its contents, since cut positions (and therefore the written bytes) are a function of
-//! it. A boundary becomes *eligible* at any digest byte where the top
-//! [`boundary_mask_bits`](ContentDefinedChunkingOptions::boundary_mask_bits) bits of `h` are all
-//! zero, and the pending chunk already spans at least
-//! [`min_chunk_bytes`](ContentDefinedChunkingOptions::min_chunk_bytes) of serialized values. The
-//! cut is taken at the end of the row that produced the eligible byte, so chunks always split on
-//! row boundaries. If no eligible byte appears before
-//! [`max_chunk_bytes`](ContentDefinedChunkingOptions::max_chunk_bytes) of serialized values, a
-//! cut is forced at the next row end.
+//! bytes that row's content would occupy serialized. The eight bytes of each row's digest update
+//! a 64-bit GEAR rolling hash `h = (h << 1) + table[byte]`, whose value depends only on the last
+//! eight rows fed. The table is [`gearhash::DEFAULT_TABLE`], which the [Xet chunking spec]
+//! references normatively; a test pins its contents, since cut positions (and therefore the
+//! written bytes) are a function of it. A chunk ends after a row whose update leaves the top
+//! [`boundary_mask_bits`](ContentDefinedChunkingOptions::boundary_mask_bits) bits of `h` zero,
+//! once the chunk spans at least
+//! [`min_chunk_bytes`](ContentDefinedChunkingOptions::min_chunk_bytes) of serialized values, or
+//! after the first row that takes it to
+//! [`max_chunk_bytes`](ContentDefinedChunkingOptions::max_chunk_bytes).
 //!
 //! Chunk size budgets are measured in *serialized value bytes* (a deterministic function of the
 //! logical content), not encoded on-disk bytes.
@@ -58,12 +55,14 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
-use gearhash::DEFAULT_TABLE;
+use gearhash::Hasher;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -88,10 +87,9 @@ pub struct ContentDefinedChunkingOptions {
     /// The maximum serialized size of a chunk in bytes. A boundary is forced at the first row
     /// end at or beyond this size (so a chunk may overshoot by at most one row).
     pub max_chunk_bytes: u64,
-    /// The number of leading hash bits that must all be zero for a digest byte to be a boundary
-    /// candidate. Each row feeds eight digest bytes per leaf value, so candidates appear
-    /// roughly every `2^boundary_mask_bits / 8` rows; the byte budgets above then clamp chunks
-    /// into `[min_chunk_bytes, max_chunk_bytes]`.
+    /// The number of leading bits of the rolling hash that must all be zero after a row for a
+    /// chunk to end there, so candidates appear roughly every `2^boundary_mask_bits` rows; the
+    /// byte budgets above then clamp chunks into `[min_chunk_bytes, max_chunk_bytes]`.
     pub boundary_mask_bits: u32,
 }
 
@@ -103,7 +101,7 @@ impl Default for ContentDefinedChunkingOptions {
         Self {
             min_chunk_bytes: 128 * 1024,
             max_chunk_bytes: 1024 * 1024,
-            boundary_mask_bits: 18,
+            boundary_mask_bits: 15,
         }
     }
 }
@@ -189,33 +187,20 @@ impl LayoutStrategy for CdcRepartitionStrategy {
                 let digests = row_digests(&canonical, &mut exec_ctx)?;
                 let canonical = canonical.into_array();
 
-                let cuts = cutter.process_rows(&digests);
-                let mut start = 0usize;
-                for cut in cuts {
-                    let part = canonical.slice(start..cut)?;
+                let mut start = 0;
+                for cut in cutter.process_rows(&digests) {
+                    pending.push(canonical.slice(start..cut)?);
                     start = cut;
-                    pending.push(part);
-                    let block = ChunkedArray::try_new(pending.drain(..), dtype_clone.clone())?
-                        .into_array()
-                        .execute::<Canonical>(&mut exec_ctx)?
-                        .into_array();
-                    if !block.is_empty() {
-                        yield (sequence_pointer.advance(), block);
-                    }
+                    let block = take_block(&mut pending, &dtype_clone, &mut exec_ctx)?;
+                    yield (sequence_pointer.advance(), block);
                 }
                 if start < canonical.len() {
-                    let len = canonical.len();
-                    pending.push(canonical.slice(start..len)?);
+                    pending.push(canonical.slice(start..canonical.len())?);
                 }
 
                 if stream.as_mut().peek().await.is_none() && !pending.is_empty() {
-                    let block = ChunkedArray::try_new(pending.drain(..), dtype_clone.clone())?
-                        .into_array()
-                        .execute::<Canonical>(&mut exec_ctx)?
-                        .into_array();
-                    if !block.is_empty() {
-                        yield (sequence_pointer.advance(), block);
-                    }
+                    let block = take_block(&mut pending, &dtype_clone, &mut exec_ctx)?;
+                    yield (sequence_pointer.advance(), block);
                 }
             }
         };
@@ -232,11 +217,22 @@ impl LayoutStrategy for CdcRepartitionStrategy {
     }
 }
 
+/// Concatenate the slices accumulated since the previous boundary into one canonical block.
+fn take_block(
+    pending: &mut Vec<ArrayRef>,
+    dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    Ok(ChunkedArray::try_new(pending.drain(..), dtype.clone())?
+        .into_array()
+        .execute::<Canonical>(ctx)?
+        .into_array())
+}
+
 /// Rolling GEAR hash state that survives across incoming chunks of a column stream.
 struct RollingCutter {
-    hash: u64,
+    hasher: Hasher<'static>,
     serialized_bytes: u64,
-    boundary_eligible: bool,
     min_chunk_bytes: u64,
     max_chunk_bytes: u64,
     boundary_mask: u64,
@@ -245,33 +241,12 @@ struct RollingCutter {
 impl RollingCutter {
     fn new(options: &ContentDefinedChunkingOptions) -> Self {
         Self {
-            hash: 0,
+            hasher: Hasher::default(),
             serialized_bytes: 0,
-            boundary_eligible: false,
             min_chunk_bytes: options.min_chunk_bytes,
             max_chunk_bytes: options.max_chunk_bytes,
             boundary_mask: options.boundary_mask(),
         }
-    }
-
-    /// Feed one row's digest, returning whether a chunk boundary falls after it.
-    #[inline]
-    fn feed_row(&mut self, row: RowDigest) -> bool {
-        self.serialized_bytes += row.width;
-        for byte in row.hash.to_le_bytes() {
-            self.hash = (self.hash << 1).wrapping_add(DEFAULT_TABLE[byte as usize]);
-            if self.serialized_bytes >= self.min_chunk_bytes && self.hash & self.boundary_mask == 0
-            {
-                self.boundary_eligible = true;
-            }
-        }
-        if self.boundary_eligible || self.serialized_bytes >= self.max_chunk_bytes {
-            self.hash = 0;
-            self.serialized_bytes = 0;
-            self.boundary_eligible = false;
-            return true;
-        }
-        false
     }
 
     /// Feed a chunk's rows and return the ascending row ends (exclusive) after which a chunk
@@ -279,7 +254,14 @@ impl RollingCutter {
     fn process_rows(&mut self, rows: &[RowDigest]) -> Vec<usize> {
         let mut cuts = Vec::new();
         for (row, digest) in rows.iter().enumerate() {
-            if self.feed_row(*digest) {
+            self.hasher.update(&digest.hash.to_le_bytes());
+            self.serialized_bytes += digest.width;
+            if self.serialized_bytes >= self.max_chunk_bytes
+                || (self.serialized_bytes >= self.min_chunk_bytes
+                    && self.hasher.is_match(self.boundary_mask))
+            {
+                self.hasher.set_hash(0);
+                self.serialized_bytes = 0;
                 cuts.push(row + 1);
             }
         }
