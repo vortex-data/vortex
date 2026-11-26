@@ -68,6 +68,7 @@ start_fuzzer() {
 }
 
 SEED_MERGE_TIMEOUT=${SEED_MERGE_TIMEOUT:-0}
+MAX_ERRORS=10
 : > fuzz_output.log
 set +e
 start_fuzzer "$MAX_TIME"
@@ -80,12 +81,23 @@ if [ "$SEED_MERGE_TIMEOUT" -gt 0 ]; then
   done
   if kill -0 "$FUZZ_PID" 2>/dev/null &&
     ! grep -q "seed inputs, starting to fuzz" fuzz_output.log; then
-    echo "Seed corpus merge took over ${SEED_MERGE_TIMEOUT}s; restarting with -keep_seed=1"
+    echo "Corpus processing timeout. Restarting without processing the corpus"
     kill -KILL -- "-$FUZZ_PID" 2>/dev/null
     wait "$FUZZ_PID" 2>/dev/null
     start_fuzzer "$((MAX_TIME - SEED_MERGE_TIMEOUT))" -keep_seed=1
   fi
 fi
+while kill -0 "$FUZZ_PID" 2>/dev/null; do
+  ERROR_COUNT=$(find "fuzz/artifacts/${FUZZ_NAME}" -type f | wc -l)
+  if [ "$ERROR_COUNT" -gt "$MAX_ERRORS" ]; then
+    echo "Found $ARTIFACT_COUNT errors, stopping"
+    kill -INT -- "-$FUZZ_PID" 2>/dev/null
+    timeout 30 tail --pid="$FUZZ_PID" -f /dev/null
+    kill -KILL -- "-$FUZZ_PID" 2>/dev/null
+    break
+  fi
+  sleep 5
+done
 wait "$FUZZ_PID"
 FUZZ_STATUS=$?
 set -e
