@@ -5,6 +5,9 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use futures::TryStreamExt;
+use object_store::ObjectStoreExt;
+use object_store::memory::InMemory;
+use object_store::path::Path as ObjectPath;
 use vortex::VortexSessionDefault;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -24,12 +27,16 @@ use vortex_expr::lit;
 use vortex_file::DeserializeStep;
 use vortex_file::Footer;
 use vortex_file::WriteOptionsSessionExt;
-use vortex_io::VortexReadAt;
+use vortex_io::filesystem::FileSystemRef;
+use vortex_io::object_store::ObjectStoreFileSystem;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
+use crate::FileSystemOpenable;
 use crate::Manifest;
 use crate::ManifestEntry;
+use crate::Openable;
+use crate::ReadAtOpenable;
 use crate::TableScan;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default().with_tokio());
@@ -132,7 +139,7 @@ async fn a_manifest_with_the_wrong_column_types_is_an_error() -> VortexResult<()
 /// Three files holding `x` = 0..1000, 1000..1500 and 1500..4000, and a way to open them.
 async fn table() -> VortexResult<(
     Manifest,
-    impl Fn(&str) -> VortexResult<Arc<dyn VortexReadAt>>,
+    impl Fn(&ManifestEntry) -> VortexResult<Arc<dyn Openable>>,
 )> {
     let files = [
         data_file(0..1000).await?,
@@ -140,13 +147,17 @@ async fn table() -> VortexResult<(
         data_file(1500..4000).await?,
     ];
     let manifest = manifest(&files).await?;
-    let open = move |path: &str| -> VortexResult<Arc<dyn VortexReadAt>> {
+    let open = move |entry: &ManifestEntry| -> VortexResult<Arc<dyn Openable>> {
+        let path = entry.path.as_str();
         let i: usize = path
             .trim_start_matches("data/part-")
             .trim_end_matches(".vortex")
             .parse()
             .map_err(|_| vortex_err!("no file at {path}"))?;
-        Ok(Arc::new(files[i].clone()))
+        Ok(Arc::new(ReadAtOpenable::new(
+            path,
+            Arc::new(files[i].clone()),
+        )))
     };
     Ok((manifest, open))
 }
@@ -185,5 +196,44 @@ async fn a_filter_prunes_files_on_their_statistics() -> VortexResult<()> {
     assert_eq!(files[0].row_offset, 1500);
     let actual = collect(&scan, files).await?;
     assert_arrays_eq!(actual, xs(1600..4000)?, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_scan_opens_files_on_a_file_system() -> VortexResult<()> {
+    let files = [
+        data_file(0..1000).await?,
+        data_file(1000..1500).await?,
+        data_file(1500..4000).await?,
+    ];
+    let manifest = manifest(&files).await?;
+    let store = InMemory::new();
+    for (entry, bytes) in manifest.entries.iter().zip(&files) {
+        store
+            .put(
+                &ObjectPath::from(entry.path.as_str()),
+                bytes.to_vec().into(),
+            )
+            .await?;
+    }
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
+        Arc::new(store),
+        SESSION.handle(),
+    ));
+    let scan = TableScan::new(SESSION.clone()).with_filter(gt_eq(col("x"), lit(1200u64)));
+    let files = scan
+        .plan(&manifest, |entry| {
+            Ok(Arc::new(FileSystemOpenable::new(
+                Arc::clone(&fs),
+                entry.path.as_str(),
+            )))
+        })
+        .await?;
+    assert_eq!(
+        files.iter().map(|file| file.row_offset).collect::<Vec<_>>(),
+        vec![1000, 1500]
+    );
+    let actual = collect(&scan, files).await?;
+    assert_arrays_eq!(actual, xs(1200..4000)?, &mut SESSION.create_execution_ctx());
     Ok(())
 }
