@@ -105,7 +105,7 @@ impl EnvSource {
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
             EnvSource::Process => {
-                lookup_env_case_insensitive(key, std::env::var(key), std::env::vars_os())
+                lookup_env_case_insensitive(key, std::env::var(key), std::env::vars_os)
             }
             EnvSource::Fixed(vars) => vars
                 .iter()
@@ -129,15 +129,18 @@ impl EnvSource {
 }
 
 #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
-fn lookup_env_case_insensitive(
+fn lookup_env_case_insensitive<I>(
     key: &str,
     exact: Result<String, VarError>,
-    vars: impl IntoIterator<Item = (OsString, OsString)>,
-) -> Option<String> {
+    vars: impl FnOnce() -> I,
+) -> Option<String>
+where
+    I: IntoIterator<Item = (OsString, OsString)>,
+{
     match exact {
         Ok(v) => Some(v),
         Err(VarError::NotUnicode(_)) => None,
-        Err(VarError::NotPresent) => vars.into_iter().find_map(|(k, v)| {
+        Err(VarError::NotPresent) => vars().into_iter().find_map(|(k, v)| {
             k.to_str()
                 .filter(|k| k.eq_ignore_ascii_case(key))
                 .and_then(|_| v.into_string().ok())

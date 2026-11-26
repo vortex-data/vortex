@@ -427,38 +427,43 @@ fn test_lookup_env_case_insensitive() {
         ]
     };
 
-    // Exact match wins without falling back to the scan.
+    // Exact match wins without calling the fallback scanner.
     assert_eq!(
-        super::lookup_env_case_insensitive("hf_token", Ok("exact".to_string()), vars()).as_deref(),
+        super::lookup_env_case_insensitive("hf_token", Ok("exact".to_string()), || {
+            panic!("exact match must not scan the environment");
+            #[allow(unreachable_code)]
+            vars()
+        })
+        .as_deref(),
         Some("exact")
     );
 
     // Missing exact key falls back to case-insensitive scan.
     assert_eq!(
-        super::lookup_env_case_insensitive(
-            "hf_token",
-            Err(std::env::VarError::NotPresent),
-            vars(),
-        )
-        .as_deref(),
+        super::lookup_env_case_insensitive("hf_token", Err(std::env::VarError::NotPresent), vars)
+            .as_deref(),
         Some("upper")
     );
 
-    // Non-Unicode exact match returns None instead of falling back.
+    // Non-Unicode exact match returns None without scanning.
     assert_eq!(
         super::lookup_env_case_insensitive(
             "hf_token",
             Err(std::env::VarError::NotUnicode(std::ffi::OsString::from(
                 "bad"
             ))),
-            vars(),
+            || {
+                panic!("NotUnicode must not scan the environment");
+                #[allow(unreachable_code)]
+                vars()
+            },
         ),
         None
     );
 
     // Absent key returns None.
     assert_eq!(
-        super::lookup_env_case_insensitive("missing", Err(std::env::VarError::NotPresent), vars()),
+        super::lookup_env_case_insensitive("missing", Err(std::env::VarError::NotPresent), vars),
         None
     );
 }
