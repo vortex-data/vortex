@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
@@ -18,6 +19,15 @@ use crate::messages::PollRead;
 
 pin_project! {
     /// An IPC message reader backed by an `AsyncRead` stream.
+    ///
+    /// # Error handling
+    ///
+    /// - [`io::ErrorKind::Interrupted`] is retried transparently in place.
+    /// - [`io::ErrorKind::WouldBlock`] and [`io::ErrorKind::TimedOut`] are returned to the caller
+    ///   while preserving any partial frame already buffered so the next poll resumes where reading
+    ///   stopped.
+    /// - Any other I/O error, EOF error, or decode error clears the internal buffer and terminates
+    ///   the stream so subsequent polls return `None`.
     pub struct AsyncMessageReader<R> {
         #[pin]
         read: R,
@@ -53,7 +63,7 @@ enum ReadState {
         /// The number of bytes read into the buffer so far.
         total_bytes_read: usize,
     },
-    /// Terminal state after clean EOF or a fatal decoder/EOF error.
+    /// Terminal state after clean EOF or a fatal I/O, decoder, or EOF error.
     Done,
 }
 
@@ -73,7 +83,7 @@ fn poll_fill_buffer<R: AsyncRead>(
     buffer: &mut [u8],
     total_bytes_read: &mut usize,
     cx: &mut Context<'_>,
-) -> Poll<VortexResult<FillResult>> {
+) -> Poll<io::Result<FillResult>> {
     let unfilled = &mut buffer[*total_bytes_read..];
 
     let bytes_read = ready!(read.poll_read(cx, unfilled))?;
@@ -109,6 +119,7 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                         };
                     }
                     Err(e) => {
+                        this.buffer.clear();
                         *this.state = ReadState::Done;
                         return Poll::Ready(Some(Err(e)));
                     }
@@ -120,7 +131,20 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                         total_bytes_read,
                         cx
                     )) {
-                        Err(e) => return Poll::Ready(Some(Err(e))),
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                            ) =>
+                        {
+                            return Poll::Ready(Some(Err(e.into())));
+                        }
+                        Err(e) => {
+                            this.buffer.clear();
+                            *this.state = ReadState::Done;
+                            return Poll::Ready(Some(Err(e.into())));
+                        }
                         Ok(FillResult::Eof) => {
                             let bytes_read = *total_bytes_read;
                             this.buffer.clear();

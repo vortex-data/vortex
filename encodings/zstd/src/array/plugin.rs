@@ -13,6 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::VortexSessionExecute;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::validity_to_child;
@@ -33,7 +34,7 @@ impl ArrayPlugin for Zstd {
     fn serialize(
         &self,
         array: &ArrayRef,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure_eq!(
             array.encoding_id(),
@@ -41,10 +42,22 @@ impl ArrayPlugin for Zstd {
             "Zstd plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<Zstd>();
+        if array.slice_start() == 0 && array.slice_stop() == array.unsliced_n_rows() {
+            return Ok(Some(ArraySerialization::from_array(
+                ArrayPlugin::id(self),
+                array.array(),
+                array.metadata.clone().encode_to_vec(),
+            )));
+        }
+
+        // The frozen `vortex.zstd` wire format does not carry slice bounds, so compact a sliced
+        // array into an unsliced node holding only its logical rows and validity.
+        let mut ctx = session.create_execution_ctx();
+        let compacted = Zstd::compact_slice(array, &mut ctx)?;
         Ok(Some(ArraySerialization::from_array(
             ArrayPlugin::id(self),
-            array.array(),
-            array.metadata.clone().encode_to_vec(),
+            compacted.as_array(),
+            compacted.metadata.clone().encode_to_vec(),
         )))
     }
 
@@ -87,9 +100,14 @@ impl ArrayPlugin for Zstd {
             )
         } else {
             // with dictionary
+            let Some((dictionary, frames)) = buffers.split_first() else {
+                vortex_bail!(
+                    "ZstdArray metadata specifies a dictionary, but no buffers were provided"
+                );
+            };
             (
-                Some(buffers[0].clone().try_to_host_sync()?),
-                buffers[1..]
+                Some(dictionary.clone().try_to_host_sync()?),
+                frames
                     .iter()
                     .map(|b| b.clone().try_to_host_sync())
                     .collect::<VortexResult<Vec<_>>>()?,
