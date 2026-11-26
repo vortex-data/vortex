@@ -163,37 +163,27 @@ fn take_out_of_bounds_errors() -> VortexResult<()> {
 }
 
 #[rstest]
-fn test_delta_filter_conformance(
-    #[values(Deltas::Primitive, Deltas::BitPacked, Deltas::Patched)] deltas: Deltas,
-    #[values(false, true)] signed: bool,
-    #[values(None, Some(777..3000))] range: Option<std::ops::Range<usize>>,
+#[case::primitive(Some(Deltas::Primitive), None)]
+#[case::primitive_sliced(Some(Deltas::Primitive), Some(777..3000))]
+#[case::bitpacked(Some(Deltas::BitPacked), None)]
+#[case::bitpacked_sliced(Some(Deltas::BitPacked), Some(777..3000))]
+#[case::patched(Some(Deltas::Patched), None)]
+#[case::patched_sliced(Some(Deltas::Patched), Some(777..3000))]
+#[case::non_nullable(None, None)]
+fn test_delta_filter_and_take_conformance(
+    #[case] deltas: Option<Deltas>,
+    #[case] range: Option<std::ops::Range<usize>>,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let (delta, _) = fixture(deltas, signed)?;
+    let delta = match deltas {
+        Some(deltas) => fixture(deltas, false)?.0,
+        None => {
+            let input = PrimitiveArray::from_iter((0..1500u32).map(|i| i * 3 + 10));
+            Delta::try_from_primitive_array(&input, &mut ctx)?
+        }
+    };
     let array = sliced(delta, range)?;
     test_filter_conformance(&array, &mut ctx);
-    Ok(())
-}
-
-#[rstest]
-fn test_delta_take_conformance(
-    #[values(Deltas::Primitive, Deltas::BitPacked, Deltas::Patched)] deltas: Deltas,
-    #[values(false, true)] signed: bool,
-    #[values(None, Some(777..3000))] range: Option<std::ops::Range<usize>>,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let (delta, _) = fixture(deltas, signed)?;
-    let array = sliced(delta, range)?;
     test_take_conformance(&array, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_delta_non_nullable_conformance() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let input = PrimitiveArray::from_iter((0..1500u32).map(|i| i * 3 + 10));
-    let delta = Delta::try_from_primitive_array(&input, &mut ctx)?.into_array();
-    test_filter_conformance(&delta, &mut ctx);
-    test_take_conformance(&delta, &mut ctx);
     Ok(())
 }
