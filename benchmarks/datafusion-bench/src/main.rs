@@ -34,7 +34,6 @@ use vortex::io::filesystem::FileListing;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Benchmark;
