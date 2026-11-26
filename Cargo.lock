@@ -11897,6 +11897,7 @@ dependencies = [
  "libfuzzer-sys",
  "num-traits",
  "parquet-variant",
+ "rand 0.10.3",
  "rstest",
  "strum 0.28.0",
  "tokio",
