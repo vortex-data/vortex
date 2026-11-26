@@ -8,6 +8,8 @@
 //! Every file is scanned by its own [`ScanDriver`]. TODO: once IO requests carry a source id, a
 //! single plan driver can run all the files' planners together.
 
+use std::sync::Arc;
+
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future;
@@ -24,6 +26,7 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::Manifest;
+use crate::ManifestEntry;
 use crate::Openable;
 
 /// How many files a scan opens and reads the footers of at once.
@@ -75,12 +78,13 @@ impl TableScan {
         self
     }
 
-    /// Opens the manifest's files through `files`, up to [`OPEN_CONCURRENCY`] at once, and keeps
-    /// those the filter may match on their file statistics, in table order.
+    /// Opens the manifest's files, each through the [`Openable`] `open` gives for its entry, up
+    /// to [`OPEN_CONCURRENCY`] at once, and keeps those the filter may match on their file
+    /// statistics, in table order.
     pub async fn plan(
         &self,
         manifest: &Manifest,
-        files: &(impl Openable + ?Sized),
+        open: impl Fn(&ManifestEntry) -> VortexResult<Arc<dyn Openable>>,
     ) -> VortexResult<Vec<PlannedFile>> {
         let row_offsets = manifest.entries.iter().scan(0, |next, entry| {
             let row_offset = *next;
@@ -88,15 +92,17 @@ impl TableScan {
             Some(row_offset)
         });
         stream::iter(manifest.entries.iter().zip(row_offsets))
-            .map(|(entry, row_offset)| async move {
-                let file = entry
-                    .open(&self.session, files.open(&entry.path).await?)
-                    .await?;
-                let pruned = match &self.filter {
-                    Some(filter) => file.can_prune(filter)?,
-                    None => false,
-                };
-                VortexResult::Ok((!pruned).then_some(PlannedFile { file, row_offset }))
+            .map(|(entry, row_offset)| {
+                let openable = open(entry);
+                async move {
+                    let read = openable?.open().await?;
+                    let file = entry.open(&self.session, read).await?;
+                    let pruned = match &self.filter {
+                        Some(filter) => file.can_prune(filter)?,
+                        None => false,
+                    };
+                    VortexResult::Ok((!pruned).then_some(PlannedFile { file, row_offset }))
+                }
             })
             .buffered(OPEN_CONCURRENCY)
             .try_filter_map(|planned| future::ready(Ok(planned)))
