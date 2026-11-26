@@ -463,22 +463,7 @@ impl Zstd {
 
         let (active_bytes, frame_byte_starts) = match dtype {
             DType::Primitive(..) => {
-                let byte_range = value_range
-                    .start
-                    .checked_mul(slice.byte_width)
-                    .zip(value_range.end.checked_mul(slice.byte_width))
-                    .filter(|(_, byte_stop)| *byte_stop <= slice.bytes.len())
-                    .map(|(byte_start, byte_stop)| byte_start..byte_stop)
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "Corrupt zstd metadata: values {}..{} of {} bytes each are out of \
-                             bounds of the {} byte frame buffer",
-                            value_range.start,
-                            value_range.end,
-                            slice.byte_width,
-                            slice.bytes.len()
-                        )
-                    })?;
+                let byte_range = slice.primitive_byte_range()?;
                 let active_bytes = &slice.bytes.as_slice()[byte_range];
                 let step_width = values_per_frame * slice.byte_width;
                 let frame_byte_starts = (0..active_bytes.len())
@@ -864,6 +849,24 @@ impl DecompressedSlice {
             "Corrupt zstd metadata: value range {start}..{end} is not ascending"
         );
         Ok(start..end)
+    }
+
+    /// Byte range within `bytes` holding this slice's fixed-width primitive values.
+    fn primitive_byte_range(&self) -> VortexResult<Range<usize>> {
+        let Range { start, end } = self.value_range()?;
+        start
+            .checked_mul(self.byte_width)
+            .zip(end.checked_mul(self.byte_width))
+            .filter(|(_, byte_stop)| *byte_stop <= self.bytes.len())
+            .map(|(byte_start, byte_stop)| byte_start..byte_stop)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Corrupt zstd metadata: values {start}..{end} of {} bytes each are out of \
+                     bounds of the {} byte frame buffer",
+                    self.byte_width,
+                    self.bytes.len()
+                )
+            })
     }
 
     /// The bounds within `bytes` of the length-prefixed region that should hold exactly this
@@ -1662,21 +1665,7 @@ impl ZstdData {
         let slice = self.decompress_slice(dtype, unsliced_validity, ctx)?;
         match dtype {
             DType::Primitive(..) => {
-                let Range { start, end } = slice.value_range()?;
-                let byte_range = start
-                    .checked_mul(slice.byte_width)
-                    .zip(end.checked_mul(slice.byte_width))
-                    .filter(|(_, byte_stop)| *byte_stop <= slice.bytes.len())
-                    .map(|(byte_start, byte_stop)| byte_start..byte_stop)
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "Corrupt zstd metadata: values {start}..{end} of {} bytes each are \
-                             out of bounds of the {} byte frame buffer",
-                            slice.byte_width,
-                            slice.bytes.len()
-                        )
-                    })?;
-                let slice_values_buffer = slice.bytes.slice(byte_range);
+                let slice_values_buffer = slice.bytes.slice(slice.primitive_byte_range()?);
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
                     dtype.as_ptype(),
