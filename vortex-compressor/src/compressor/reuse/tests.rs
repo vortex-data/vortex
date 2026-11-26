@@ -238,43 +238,155 @@ fn unchanged_chunk_preserves_cached_plan_baseline() -> VortexResult<()> {
     Ok(())
 }
 
+static DETACHED_ROOT_A_ELIGIBLE: AtomicBool = AtomicBool::new(true);
+static DETACHED_ROOT_B_ELIGIBLE: AtomicBool = AtomicBool::new(true);
+static DETACHED_ROOT_A_CALLS: AtomicUsize = AtomicUsize::new(0);
+static DETACHED_ROOT_B_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug)]
+struct DetachedRootAScheme;
+
+impl Scheme for DetachedRootAScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.detached_root_a"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        DETACHED_ROOT_A_ELIGIBLE.load(Ordering::SeqCst) && IntDictScheme.matches(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        if compress_ctx.cascade_history().is_empty() {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(12.0))
+        } else {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        DETACHED_ROOT_A_CALLS.fetch_add(1, Ordering::SeqCst);
+        dict_with_padding(data.array(), 8)
+    }
+}
+
+#[derive(Debug)]
+struct DetachedRootBScheme;
+
+impl Scheme for DetachedRootBScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.detached_root_b"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        DETACHED_ROOT_B_ELIGIBLE.load(Ordering::SeqCst) && IntDictScheme.matches(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        if compress_ctx.cascade_history().is_empty() {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(10.0))
+        } else {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        DETACHED_ROOT_B_CALLS.fetch_add(1, Ordering::SeqCst);
+        dict_with_padding(data.array(), 8)
+    }
+}
+
 #[test]
 fn detached_chunks_commit_in_order() -> VortexResult<()> {
     let _lock = LOCK.lock();
-    let compressor = compressor();
+    DETACHED_ROOT_A_ELIGIBLE.store(false, Ordering::SeqCst);
+    DETACHED_ROOT_B_ELIGIBLE.store(false, Ordering::SeqCst);
+    DETACHED_ROOT_A_CALLS.store(0, Ordering::SeqCst);
+    DETACHED_ROOT_B_CALLS.store(0, Ordering::SeqCst);
+
+    let compressor = CascadingCompressor::new(vec![
+        &IntDictScheme,
+        &DetachedRootAScheme,
+        &DetachedRootBScheme,
+        &CompetitorScheme,
+    ]);
     let reuse = PlanReuse::new(PlanReuseOptions {
-        challenge_after: Some(2),
+        challenge_after: None,
         ..PlanReuseOptions::default()
     });
+    let input = low_cardinality(0);
 
-    // Establish the initial plan from chunk 0.
+    // Chunk 0 establishes IntDictScheme as the initial cached plan.
     let chunk0 = reuse.next_chunk();
     assert!(!reuse.has_plan());
-    let (first, estimates) = compress_counting(&compressor, &low_cardinality(0), &chunk0)?;
+    let (first, estimates) = compress_counting(&compressor, &input, &chunk0)?;
     assert!(first.is::<Dict>());
     assert!(estimates > 0);
     reuse.commit(chunk0);
     assert!(reuse.has_plan());
 
-    // Reserve two detached chunks in order, compress them in reverse order, and commit in order.
+    // Reserve chunk1 and chunk2 detached from the same initial plan, compress them out of order
+    // so chunk1 records Replace(DetachedRootA) and chunk2 records Replace(DetachedRootB), then
+    // commit in chunk order (chunk1, then chunk2).
     let chunk1 = reuse.next_chunk();
     let chunk2 = reuse.next_chunk();
 
-    let (second, estimates2) = compress_counting(&compressor, &low_cardinality(2), &chunk2)?;
-    assert!(second.is::<Dict>());
-    assert_eq!(estimates2, 0);
+    // Compress chunk2 first: IntDictScheme produces ~4160 bytes, while DetachedRootB also matches
+    // when IntDictScheme is forced to deviate via a different-size compressor — use a separate
+    // compressor without IntDictScheme so each detached chunk falls back to its own scheme.
+    let compressor_a = CascadingCompressor::new(vec![&DetachedRootAScheme, &CompetitorScheme]);
+    let compressor_b = CascadingCompressor::new(vec![&DetachedRootBScheme, &CompetitorScheme]);
 
-    let (deviating, estimates1) = compress_counting(&compressor, &unique(), &chunk1)?;
-    assert!(!deviating.is::<Dict>());
+    DETACHED_ROOT_B_ELIGIBLE.store(true, Ordering::SeqCst);
+    let (_, estimates2) = compress_counting(&compressor_b, &input, &chunk2)?;
+    assert!(estimates2 > 0);
+
+    DETACHED_ROOT_A_ELIGIBLE.store(true, Ordering::SeqCst);
+    let (_, estimates1) = compress_counting(&compressor_a, &input, &chunk1)?;
     assert!(estimates1 > 0);
 
     reuse.commit(chunk1);
     reuse.commit(chunk2);
 
-    // Next chunk sees the plan committed by chunk1 (committed before chunk2's no-op replay).
+    // Chunk 3 must replay the last committed plan (DetachedRootB from chunk2) with zero estimates;
+    // swapping the commit order would replay DetachedRootA instead and fail this assertion.
+    DETACHED_ROOT_A_CALLS.store(0, Ordering::SeqCst);
+    DETACHED_ROOT_B_CALLS.store(0, Ordering::SeqCst);
     let chunk3 = reuse.next_chunk();
-    let (_, estimates3) = compress_counting(&compressor, &low_cardinality(3), &chunk3)?;
-    assert!(estimates3 > 0);
+    let (third, estimates3) = compress_counting(&compressor, &input, &chunk3)?;
+    assert_eq!(estimates3, 0);
+    assert_eq!(DETACHED_ROOT_A_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(DETACHED_ROOT_B_CALLS.load(Ordering::SeqCst), 1);
+    assert_arrays_eq!(third, input, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }
@@ -589,31 +701,78 @@ fn child_replay_ineligible_falls_back_and_records_replacement() -> VortexResult<
     let mut ctx = SESSION.create_execution_ctx();
 
     // Chunk 0 plans CascadeRootScheme -> ChildAScheme.
-    let (first, plan0) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
+    let (first, plan0, _) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
     assert_arrays_eq!(first, input, &mut ctx);
     assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 0);
 
     // Make ChildAScheme ineligible on chunk 1: child replay falls back to ChildBScheme and
     // records ChildBScheme in the plan.
     CHILD_A_ELIGIBLE.store(false, Ordering::SeqCst);
-    let (second, plan1) = compressor.compress_with_plan(
+    let (second, plan1, replanned) = compressor.compress_with_plan(
         &input,
         Some(std::sync::Arc::new(plan0)),
         &reuse,
         &mut ctx,
     )?;
+    assert!(replanned);
     assert_arrays_eq!(second, input, &mut ctx);
     assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 1);
 
     // Replaying `plan1` with ChildAScheme eligible again replays ChildBScheme directly.
     CHILD_A_ELIGIBLE.store(true, Ordering::SeqCst);
-    let (third, _) = compressor.compress_with_plan(
+    let (third, ..) = compressor.compress_with_plan(
         &input,
         Some(std::sync::Arc::new(plan1)),
         &reuse,
         &mut ctx,
     )?;
     assert_arrays_eq!(third, input, &mut ctx);
+    assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 2);
+
+    Ok(())
+}
+
+#[test]
+fn child_replan_persists_across_compress_reusing() -> VortexResult<()> {
+    let _lock = LOCK.lock();
+    CHILD_A_ELIGIBLE.store(true, Ordering::SeqCst);
+    CHILD_A_PADDING.store(8, Ordering::SeqCst);
+    CHILD_B_PADDING.store(8, Ordering::SeqCst);
+    CHILD_B_RATIO.store(4, Ordering::SeqCst);
+    CHILD_B_CALLS.store(0, Ordering::SeqCst);
+
+    let compressor = CascadingCompressor::new(vec![
+        &CascadeRootScheme,
+        &ChildAScheme,
+        &ChildBScheme,
+        &CompetitorScheme,
+    ]);
+    let reuse = PlanReuse::new(PlanReuseOptions {
+        max_ratio_deviation: 0.1,
+        challenge_after: None,
+    });
+    let input = low_cardinality(0);
+
+    // Chunk 0 plans CascadeRootScheme -> ChildAScheme.
+    let (first, estimates0) = compress_counting(&compressor, &input, &reuse)?;
+    assert!(estimates0 > 0);
+    assert_arrays_eq!(first, input, &mut SESSION.create_execution_ctx());
+    assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 0);
+
+    // Chunk 1: ChildAScheme deviates (>10% child ratio drop) while root ratio stays within 10%.
+    // Child fallback picks ChildBScheme (smaller), and `compress_reusing` persists the child replan.
+    CHILD_A_PADDING.store(48, Ordering::SeqCst);
+    CHILD_B_PADDING.store(8, Ordering::SeqCst);
+    CHILD_B_RATIO.store(12, Ordering::SeqCst);
+    let (second, estimates1) = compress_counting(&compressor, &input, &reuse)?;
+    assert!(estimates1 > 0);
+    assert_arrays_eq!(second, input, &mut SESSION.create_execution_ctx());
+    assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 1);
+
+    // Chunk 2: replays ChildBScheme directly with zero competitor estimates.
+    let (third, estimates2) = compress_counting(&compressor, &input, &reuse)?;
+    assert_eq!(estimates2, 0);
+    assert_arrays_eq!(third, input, &mut SESSION.create_execution_ctx());
     assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 2);
 
     Ok(())
@@ -645,7 +804,7 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     let mut ctx = SESSION.create_execution_ctx();
 
     // Chunk 0 establishes: CascadeRootScheme -> ChildAScheme -> GrandchildAScheme.
-    let (first, plan0) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
+    let (first, plan0, _) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
     assert_arrays_eq!(first, input, &mut ctx);
     assert_eq!(GRANDCHILD_REPLAY_CALLS.load(Ordering::SeqCst), 1);
 
@@ -658,7 +817,7 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
 
-    let (second, plan1) = compressor.compress_with_plan(
+    let (second, plan1, _) = compressor.compress_with_plan(
         &input,
         Some(std::sync::Arc::new(plan0)),
         &reuse,
@@ -678,7 +837,7 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
     let plan1 = std::sync::Arc::new(plan1);
-    let (third, _) = compressor.compress_with_plan(
+    let (third, ..) = compressor.compress_with_plan(
         &input,
         Some(std::sync::Arc::clone(&plan1)),
         &reuse,
@@ -696,7 +855,8 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
 
-    let (fourth, plan3) = compressor.compress_with_plan(&input, Some(plan1), &reuse, &mut ctx)?;
+    let (fourth, plan3, _) =
+        compressor.compress_with_plan(&input, Some(plan1), &reuse, &mut ctx)?;
     assert_arrays_eq!(fourth, input, &mut ctx);
     assert!(fourth.nbytes() < second_bytes);
     assert_eq!(GRANDCHILD_FALLBACK_CALLS.load(Ordering::SeqCst), 1);
@@ -708,7 +868,7 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
 
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
-    let (fifth, _) = compressor.compress_with_plan(
+    let (fifth, ..) = compressor.compress_with_plan(
         &input,
         Some(std::sync::Arc::new(plan3)),
         &reuse,

@@ -98,9 +98,19 @@ enum PlanUpdate {
     /// Keep the cached plan after it won a comparison with `ratio`.
     Keep {
         /// The existing cached plan that won the comparison.
-        plan: Arc<CompressionPlan>,
+        expected: Arc<CompressionPlan>,
+        /// Updated plan when a child position was replanned during replay.
+        plan: Option<CompressionPlan>,
         /// The refreshed baseline compression ratio.
         ratio: f64,
+    },
+    /// Persist a replanned child subtree onto the cached plan without changing root baseline or
+    /// replay count.
+    UpdatePlan {
+        /// The existing cached plan this replay was based on.
+        expected: Arc<CompressionPlan>,
+        /// The updated plan with replanned child decisions.
+        plan: CompressionPlan,
     },
 }
 
@@ -169,7 +179,12 @@ impl PlanReuse {
         };
         match update {
             Some(PlanUpdate::Replace { plan, ratio }) => self.replace(plan, ratio),
-            Some(PlanUpdate::Keep { plan, ratio }) => self.keep(&plan, ratio),
+            Some(PlanUpdate::Keep {
+                expected,
+                plan,
+                ratio,
+            }) => self.keep(&expected, plan, ratio),
+            Some(PlanUpdate::UpdatePlan { expected, plan }) => self.update_plan(&expected, plan),
             None => {}
         }
     }
@@ -221,22 +236,53 @@ impl PlanReuse {
         }
     }
 
-    /// Keeps the cached plan after it won a comparison with `ratio`.
-    fn keep(&self, plan: &Arc<CompressionPlan>, ratio: f64) {
+    /// Keeps the cached plan after it won a comparison with `ratio`, applying `updated_plan` if
+    /// any child position was replanned.
+    fn keep(
+        &self,
+        expected: &Arc<CompressionPlan>,
+        updated_plan: Option<CompressionPlan>,
+        ratio: f64,
+    ) {
         let mut state = self.state.lock();
         match &mut *state {
             PlanReuseMode::Shared(cached) => {
                 if let Some(entry) = cached.as_mut()
-                    && Arc::ptr_eq(&entry.plan, plan)
+                    && Arc::ptr_eq(&entry.plan, expected)
                 {
+                    if let Some(plan) = updated_plan {
+                        entry.plan = Arc::new(plan);
+                    }
                     entry.ratio = ratio;
                     entry.replays = 0;
                 }
             }
             PlanReuseMode::Detached { update, .. } => {
                 *update = Some(PlanUpdate::Keep {
-                    plan: Arc::clone(plan),
+                    expected: Arc::clone(expected),
+                    plan: updated_plan,
                     ratio,
+                });
+            }
+        }
+    }
+
+    /// Updates the cached plan in place when a child position was replanned while the root replay
+    /// was accepted, preserving the root baseline ratio and replay counter.
+    fn update_plan(&self, expected: &Arc<CompressionPlan>, plan: CompressionPlan) {
+        let mut state = self.state.lock();
+        match &mut *state {
+            PlanReuseMode::Shared(cached) => {
+                if let Some(entry) = cached.as_mut()
+                    && Arc::ptr_eq(&entry.plan, expected)
+                {
+                    entry.plan = Arc::new(plan);
+                }
+            }
+            PlanReuseMode::Detached { update, .. } => {
+                *update = Some(PlanUpdate::UpdatePlan {
+                    expected: Arc::clone(expected),
+                    plan,
                 });
             }
         }
@@ -269,7 +315,7 @@ impl CascadingCompressor {
 
         let (cached, always_challenge) = match reuse.next_step() {
             Step::Select => {
-                let (selected, plan) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
+                let (selected, plan, _) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
                 reuse.replace(plan, ratio_of(&selected));
                 return Ok(selected);
             }
@@ -277,7 +323,7 @@ impl CascadingCompressor {
             Step::Challenge(cached) => (cached, true),
         };
 
-        let (replayed, replayed_plan) =
+        let (replayed, replayed_plan, replanned) =
             self.compress_with_plan(array, Some(Arc::clone(&cached.plan)), reuse, exec_ctx)?;
         let replayed_ratio = ratio_of(&replayed);
 
@@ -296,38 +342,46 @@ impl CascadingCompressor {
         }
 
         if !always_challenge && reuse.accepts(replayed_ratio, &cached) {
+            if replanned && matches!(root_decision, Some(Decision::Scheme(_))) {
+                reuse.update_plan(&cached.plan, replayed_plan);
+            }
             return Ok(replayed);
         }
 
-        let (selected, plan) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
+        let (selected, plan, _) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
         if selected.nbytes() < replayed.nbytes() {
             reuse.replace(plan, ratio_of(&selected));
             return Ok(selected);
         }
 
         if matches!(root_decision, Some(Decision::Scheme(_))) {
-            reuse.keep(&cached.plan, replayed_ratio);
+            reuse.keep(
+                &cached.plan,
+                replanned.then_some(replayed_plan),
+                replayed_ratio,
+            );
         }
         Ok(replayed)
     }
 
-    /// Compresses an array, replaying `replay` if given, and returns the recorded decisions.
+    /// Compresses an array, replaying `replay` if given, and returns the recorded decisions along
+    /// with whether any child position fell back from `replay`.
     fn compress_with_plan(
         &self,
         array: &ArrayRef,
         replay: Option<Arc<CompressionPlan>>,
         reuse: &PlanReuse,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(ArrayRef, CompressionPlan)> {
+    ) -> VortexResult<(ArrayRef, CompressionPlan, bool)> {
         let state = Arc::new(PlanState::new(replay, reuse.options.max_ratio_deviation));
         let compressed = self.compress_in_plan(array, Arc::clone(&state), exec_ctx)?;
 
         // All contexts that held the state are gone after the compression returns.
-        let plan = Arc::into_inner(state)
+        let (plan, replanned) = Arc::into_inner(state)
             .map(PlanState::into_recorded)
             .unwrap_or_default();
 
-        Ok((compressed, plan))
+        Ok((compressed, plan, replanned))
     }
 }
 

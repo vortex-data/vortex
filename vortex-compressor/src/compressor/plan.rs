@@ -8,6 +8,8 @@
 //! deviates too much also gets a new selection, and the smaller result wins.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
@@ -73,6 +75,8 @@ pub(crate) struct PlanState {
     max_ratio_deviation: f64,
     /// The decisions of the current call.
     recorded: Mutex<CompressionPlan>,
+    /// Set when any child fell back from `replay` to full selection.
+    replanned: AtomicBool,
 }
 
 impl PlanState {
@@ -82,7 +86,18 @@ impl PlanState {
             replay,
             max_ratio_deviation,
             recorded: Mutex::new(CompressionPlan::default()),
+            replanned: AtomicBool::new(false),
         }
+    }
+
+    /// Returns `true` if this state is replaying a cached plan.
+    pub(crate) fn has_replay(&self) -> bool {
+        self.replay.is_some()
+    }
+
+    /// Marks that a child position fell back from the replayed plan.
+    pub(crate) fn mark_replanned(&self) {
+        self.replanned.store(true, Ordering::Relaxed);
     }
 
     /// Returns the replayed decision at `position`, if any.
@@ -134,9 +149,9 @@ impl PlanState {
         recorded.decisions.extend(snapshot);
     }
 
-    /// Consumes the state and returns the recorded plan.
-    pub(crate) fn into_recorded(self) -> CompressionPlan {
-        self.recorded.into_inner()
+    /// Consumes the state and returns the recorded plan and whether any child was replanned.
+    pub(crate) fn into_recorded(self) -> (CompressionPlan, bool) {
+        (self.recorded.into_inner(), self.replanned.into_inner())
     }
 }
 
