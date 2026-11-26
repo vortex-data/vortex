@@ -480,6 +480,7 @@ impl AggregateFnVTable for IsConstant {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -505,6 +506,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
@@ -841,6 +843,72 @@ mod tests {
         assert!(!list_view.is_zero_copy_to_list());
 
         assert!(!is_constant(&list_view.into_array(), &mut ctx)?);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::constant(vec![Some(1i32), Some(2), Some(1), Some(2), Some(1), Some(2)], 2, 3, true)]
+    #[case::difference_in_last_list(
+        vec![Some(1i32), Some(2), Some(1), Some(2), Some(1), Some(3)],
+        2,
+        3,
+        false
+    )]
+    #[case::difference_in_first_list(
+        vec![Some(1i32), Some(3), Some(1), Some(2), Some(1), Some(2)],
+        2,
+        3,
+        false
+    )]
+    #[case::rotated_elements(vec![Some(1i32), Some(2), Some(2), Some(1)], 2, 2, false)]
+    #[case::null_elements(vec![Some(1i32), None, Some(1), None, Some(1), None], 2, 3, true)]
+    #[case::null_element_in_one_list(vec![Some(1i32), None, Some(1), Some(2)], 2, 2, false)]
+    #[case::list_size_zero(vec![], 0, 3, true)]
+    #[case::list_size_one_constant(vec![Some(5i32), Some(5), Some(5)], 1, 3, true)]
+    #[case::list_size_one_not_constant(vec![Some(5i32), Some(5), Some(6)], 1, 3, false)]
+    // An empty array is not constant.
+    #[case::len_zero(vec![], 2, 0, false)]
+    #[case::len_one(vec![Some(1i32), Some(2)], 2, 1, true)]
+    fn test_fixed_size_list_is_constant(
+        #[case] elements: Vec<Option<i32>>,
+        #[case] list_size: u32,
+        #[case] len: usize,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let fsl = FixedSizeListArray::try_new(
+            PrimitiveArray::from_option_iter(elements).into_array(),
+            list_size,
+            Validity::NonNullable,
+            len,
+        )?;
+
+        assert_eq!(is_constant(&fsl.into_array(), &mut ctx)?, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    // [1, 2], [1, 2], [1, 2]
+    #[case::constant_slice(1..4, true)]
+    // [1, 3], [1, 2], [1, 2]
+    #[case::slice_with_different_first_list(0..3, false)]
+    // [1, 2], [1, 2], [1, 4]
+    #[case::slice_with_different_last_list(2..5, false)]
+    fn test_sliced_fixed_size_list_is_constant(
+        #[case] range: Range<usize>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // [1, 3], [1, 2], [1, 2], [1, 2], [1, 4]
+        let fsl = FixedSizeListArray::try_new(
+            buffer![1i32, 3, 1, 2, 1, 2, 1, 2, 1, 4].into_array(),
+            2,
+            Validity::NonNullable,
+            5,
+        )?;
+
+        let sliced = fsl.into_array().slice(range)?;
+        assert_eq!(is_constant(&sliced, &mut ctx)?, expected);
         Ok(())
     }
 
