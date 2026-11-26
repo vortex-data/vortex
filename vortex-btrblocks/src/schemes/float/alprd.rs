@@ -60,9 +60,10 @@ impl Scheme for ALPRDScheme {
     }
 
     /// `left_parts` (child 0) already holds dictionary codes `0..8` bit-packed to `<= 3` bits by
-    /// `RDEncoder`. Restrict child 0 to `PivcoScheme` via an allow-list so default `CORE` /
-    /// `compact` / `cuda` output and future integer schemes never re-encode `left_parts`, while
-    /// `PivcoScheme` can compress skewed exponent codes when enabled.
+    /// `RDEncoder`. Allow-list `PivcoScheme` as the only integer scheme on child 0 (constant
+    /// collapse to `ConstantArray` still applies, and `ALPRDScheme` invokes `compress_child`
+    /// directly) so other integer schemes never re-encode `left_parts`, while `PivcoScheme` can
+    /// compress skewed exponent codes when enabled.
     fn descendant_allowlists(&self) -> Vec<DescendantAllowlist> {
         vec![DescendantAllowlist {
             allowed: vec![PivcoScheme::default().id()],

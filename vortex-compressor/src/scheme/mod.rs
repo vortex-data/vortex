@@ -175,7 +175,8 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// Restricts specific children's subtrees to only the listed schemes (push direction).
     ///
     /// Each rule says: "when I cascade through child Y, only schemes in `allowed` may be tried
-    /// in that subtree." An empty list imposes no allow-list restriction.
+    /// in that subtree." Returning no rules, or a rule whose `allowed` list is empty, imposes no
+    /// allow-list restriction.
     fn descendant_allowlists(&self) -> Vec<DescendantAllowlist> {
         Vec::new()
     }

@@ -195,11 +195,11 @@ impl CascadingCompressor {
                 {
                     return true;
                 }
-                if ancestor
-                    .descendant_allowlists()
-                    .iter()
-                    .any(|rule| rule.children.contains(child_idx) && !rule.allowed.contains(&id))
-                {
+                if ancestor.descendant_allowlists().iter().any(|rule| {
+                    rule.children.contains(child_idx)
+                        && !rule.allowed.is_empty()
+                        && !rule.allowed.contains(&id)
+                }) {
                     return true;
                 }
             }

@@ -94,8 +94,19 @@ impl CascadingCompressor {
         &self.schemes
     }
 
-    /// Returns `true` if `scheme_id` is enabled in this compressor and not excluded when
-    /// cascading from `parent_id`'s `child_index` under `parent_ctx`.
+    /// Returns `true` if `scheme_id` is enabled in this compressor and not excluded in `ctx`.
+    pub fn is_scheme_eligible(&self, scheme_id: SchemeId, ctx: &CompressorContext) -> bool {
+        if ctx.finished_cascading() {
+            return false;
+        }
+        let Some(candidate) = self.schemes.iter().copied().find(|s| s.id() == scheme_id) else {
+            return false;
+        };
+        !self.is_excluded(candidate, ctx)
+    }
+
+    /// Returns `true` if `scheme_id` is enabled in this compressor and eligible when cascading
+    /// `parent_id`'s child `child_index` under `parent_ctx`.
     pub fn is_child_scheme_eligible(
         &self,
         scheme_id: SchemeId,
@@ -106,13 +117,10 @@ impl CascadingCompressor {
         if parent_ctx.finished_cascading() {
             return false;
         }
-        let Some(candidate) = self.schemes.iter().copied().find(|s| s.id() == scheme_id) else {
-            return false;
-        };
         let child_ctx = parent_ctx
             .clone()
             .descend_with_scheme(parent_id, child_index);
-        !self.is_excluded(candidate, &child_ctx)
+        self.is_scheme_eligible(scheme_id, &child_ctx)
     }
 }
 

@@ -1890,3 +1890,63 @@ fn returning_a_compressed_child_passes_the_check() -> VortexResult<()> {
     assert_arrays_eq!(&compressed, &input, &mut ctx);
     Ok(())
 }
+
+#[derive(Debug)]
+struct EmptyAllowlistParent;
+
+impl Scheme for EmptyAllowlistParent {
+    fn scheme_name(&self) -> &'static str {
+        "test.empty_allowlist_parent"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches!(canonical, Canonical::Primitive(_))
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn num_children(&self) -> usize {
+        1
+    }
+
+    fn descendant_allowlists(&self) -> Vec<crate::scheme::DescendantAllowlist> {
+        vec![crate::scheme::DescendantAllowlist {
+            allowed: Vec::new(),
+            children: crate::scheme::ChildSelection::One(0),
+        }]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(data.array().clone())
+    }
+}
+
+/// A `DescendantAllowlist` with an empty `allowed` list must impose no restriction.
+#[test]
+fn empty_descendant_allowlist_does_not_exclude_schemes() {
+    let compressor = CascadingCompressor::new(vec![&EmptyAllowlistParent, &KEEPING_DICT]);
+    let root_ctx = CompressorContext::new();
+    assert!(compressor.is_child_scheme_eligible(
+        KEEPING_DICT.id(),
+        &root_ctx,
+        EmptyAllowlistParent.id(),
+        0,
+    ));
+}

@@ -25,6 +25,8 @@ use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_compressor::stats::IntegerErasedStats as ErasedStats;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
@@ -33,8 +35,10 @@ use vortex_fastlanes::for_v1_id;
 use vortex_mask::Mask;
 use vortex_pivco::DEFAULT_BLOCK_SHIFT;
 use vortex_pivco::EBITS_TABLE;
+use vortex_pivco::MAX_BLOCK_SHIFT;
 use vortex_pivco::MAX_BLOCK_VALUES;
 use vortex_pivco::MAX_SYMS;
+use vortex_pivco::MIN_BLOCK_SHIFT;
 use vortex_pivco::Pivco;
 use vortex_pivco::PivcoOptions;
 use vortex_pivco::PivcoTreeMode;
@@ -193,6 +197,14 @@ fn is_worthwhile(bp_bits: f64, pivco_bits: f64) -> bool {
         || (saved >= MIN_NARROW_BITS_SAVED && pivco_bits <= MAX_NARROW_REL_RATIO * bp_bits)
 }
 
+fn validate_block_shift(block_shift: u8) -> VortexResult<()> {
+    vortex_ensure!(
+        block_shift == 0 || (MIN_BLOCK_SHIFT..=MAX_BLOCK_SHIFT).contains(&block_shift),
+        "PivcoScheme block_shift {block_shift} must be 0 (auto) or in {MIN_BLOCK_SHIFT}..={MAX_BLOCK_SHIFT}"
+    );
+    Ok(())
+}
+
 fn min_overhead_bpv(total_len: usize, base_opts: PivcoOptions) -> f64 {
     let max_block_len = if base_opts.block_shift == 0 {
         1usize << 12
@@ -244,7 +256,8 @@ fn pivco_expected_compression_ratio(
     let bias_min = for_eligible.then(|| erased.min_i128());
 
     CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-        move |_compressor, data, best_so_far, compress_ctx, exec_ctx| {
+        move |compressor, data, best_so_far, compress_ctx, exec_ctx| {
+            validate_block_shift(base_opts.block_shift)?;
             if matches!(best_so_far, Some(EstimateScore::ZeroBytes)) {
                 return Ok(EstimateVerdict::Skip);
             }
@@ -258,11 +271,7 @@ fn pivco_expected_compression_ratio(
             }
 
             let primitive = data.array_as_primitive();
-            let dict_available = !compress_ctx.finished_cascading()
-                && !compress_ctx
-                    .cascade_history()
-                    .iter()
-                    .any(|&(ancestor, _)| ancestor == IntDictScheme.id());
+            let dict_available = compressor.is_scheme_eligible(IntDictScheme.id(), &compress_ctx);
 
             let Some(samples) =
                 collect_dual_sampled_histograms(primitive, !min_is_negative, bias_min, exec_ctx)?
@@ -403,7 +412,7 @@ fn pivco_compress(
             .execute::<PrimitiveArray>(exec_ctx)?;
         let pivco_child = Pivco::encode_with_options(&biased, choice.opts, exec_ctx)?.into_array();
         let FoRReferences::Global(reference) = for_array.references() else {
-            unreachable!("FoR::encode always produces a global reference")
+            vortex_panic!("FoR::encode always produces a global reference")
         };
         let wrapped = FoR::try_new(pivco_child, reference.clone())?;
         wrapped
@@ -540,6 +549,7 @@ fn choose_uncached_pivco(
     allow_op_promote: bool,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<CachedPivcoChoice> {
+    validate_block_shift(base_opts.block_shift)?;
     let ptype = primitive.ptype();
     let total_len = primitive.len();
     let min_oh_bpv = min_overhead_bpv(total_len, base_opts);
@@ -978,13 +988,23 @@ fn evaluate_candidate(
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
+    use vortex_array::IntoArray;
     use vortex_array::VTable;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
     use vortex_fastlanes::for_v1_id;
+    use vortex_pivco::Pivco;
     use vortex_pivco::PivcoOptions;
     use vortex_pivco::pivco_id;
+    use vortex_session::VortexSession;
 
     use super::PivcoScheme;
+    use crate::CascadingCompressor;
     use crate::Scheme;
     use crate::SchemeExt;
 
@@ -1009,5 +1029,77 @@ mod tests {
         };
         assert_eq!(refined.produced_encodings(), expected);
         assert!(!refined.produced_encodings().contains(&Constant.id()));
+    }
+
+    #[test]
+    fn estimate_skips_short_and_all_null_arrays() -> VortexResult<()> {
+        static PIVCO_AUTO: PivcoScheme = PivcoScheme::auto();
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        let compressor = CascadingCompressor::new(vec![&PIVCO_AUTO]);
+
+        // Under MIN_PIVCO_LEN (1024) values: Pivco skips and leaves Primitive intact.
+        let short = PrimitiveArray::new(
+            Buffer::from_iter((0..1023u32).map(|i| if i % 10 == 0 { 100 } else { 0 })),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let compressed_short = compressor.compress(&short, &mut ctx)?;
+        assert!(compressed_short.is::<Primitive>());
+
+        // >= 1024 values, but all null (`value_count() == 0`): collapses to Constant, never Pivco.
+        let all_null =
+            PrimitiveArray::new(Buffer::from_iter(vec![0u32; 2048]), Validity::AllInvalid)
+                .into_array();
+        let compressed_null = compressor.compress(&all_null, &mut ctx)?;
+        assert!(!compressed_null.is::<Pivco>());
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_block_shift_returns_error_without_panicking() {
+        static INVALID_SCHEMES: [PivcoScheme; 4] = [
+            PivcoScheme::new(PivcoOptions::pha().with_block_shift(9)),
+            PivcoScheme::new(PivcoOptions::pha().with_block_shift(14)),
+            PivcoScheme::new(PivcoOptions::pha().with_block_shift(64)),
+            PivcoScheme::new(PivcoOptions::pha().with_block_shift(255)),
+        ];
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        let arr = PrimitiveArray::new(
+            Buffer::from_iter((0..4096u32).map(|i| if i % 10 == 0 { 100 } else { 0 })),
+            Validity::NonNullable,
+        )
+        .into_array();
+        for scheme in &INVALID_SCHEMES {
+            let compressor = CascadingCompressor::new(vec![scheme]);
+            assert!(
+                compressor.compress(&arr, &mut ctx).is_err(),
+                "expected error for invalid block_shift={}",
+                scheme.options().block_shift
+            );
+        }
+    }
+
+    #[test]
+    fn dict_cap_disabled_when_int_dict_absent() -> VortexResult<()> {
+        static PIVCO_AUTO: PivcoScheme = PivcoScheme::auto();
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        // Balanced 2-symbol codes {0, 8}: 4-bit bitpacking vs ~1-bit PIVCO. Without IntDictScheme
+        // enabled, the hypothetical ~1 bpv dictionary cap must not be applied, so Pivco wins.
+        let arr = PrimitiveArray::new(
+            Buffer::from_iter((0..4096u16).map(|i| if i & 1 == 0 { 0u16 } else { 8u16 })),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let compressor = CascadingCompressor::new(vec![&PIVCO_AUTO]);
+        let compressed = compressor.compress(&arr, &mut ctx)?;
+        assert!(
+            compressed.is::<Pivco>(),
+            "expected Pivco when IntDictScheme is absent, got {}",
+            compressed.encoding_id()
+        );
+        Ok(())
     }
 }
