@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_identical;
@@ -32,6 +33,9 @@ use self::map::check_map_identical;
 use self::primitive::check_primitive_identical;
 use self::struct_::check_struct_identical;
 use self::varbin::check_varbinview_identical;
+use self::variant::check_variant_identical;
+#[doc(hidden)]
+pub use self::variant::variant_scalars_equal;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
@@ -43,9 +47,13 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
-use crate::aggregate_fn::fns::all_non_distinct::variant::check_variant_identical;
+use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -210,8 +218,34 @@ impl AggregateFnVTable for AllNonDistinct {
         }
 
         match batch {
-            Columnar::Constant(c) => {
-                let _ = c;
+            Columnar::Constant(constant) => {
+                if constant.is_empty() {
+                    return Ok(());
+                }
+
+                let Some(struct_scalar) = constant.scalar().as_struct_opt() else {
+                    vortex_bail!(
+                        "AllNonDistinct expects a Struct constant, got {:?}",
+                        constant.dtype()
+                    );
+                };
+
+                let Some(mut fields) = struct_scalar.fields_iter() else {
+                    // Outer struct scalar is null, so all rows are masked out.
+                    return Ok(());
+                };
+
+                let (Some(lhs), Some(rhs), None) = (fields.next(), fields.next(), fields.next())
+                else {
+                    vortex_bail!(
+                        "AllNonDistinct expects a 2-field Struct constant, got {:?}",
+                        constant.dtype()
+                    );
+                };
+
+                let lhs = ConstantArray::new(lhs, 1).into_array();
+                let rhs = ConstantArray::new(rhs, 1).into_array();
+                partial.all_non_distinct = all_non_distinct(&lhs, &rhs, ctx)?;
                 Ok(())
             }
             Columnar::Canonical(c) => {
@@ -297,10 +331,44 @@ fn check_canonical_identical(
         (Canonical::Variant(lhs), Canonical::Variant(rhs)) => {
             check_variant_identical(lhs, rhs, ctx)
         }
+        (Canonical::Union(lhs), Canonical::Union(rhs)) => check_union_identical(lhs, rhs, ctx),
         _ => Err(vortex_err!(
             "Canonical type mismatch in AllNonDistinct: {:?} vs {:?}",
             lhs.dtype(),
             rhs.dtype()
         )),
     }
+}
+
+fn check_union_identical(
+    lhs: &UnionArray,
+    rhs: &UnionArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    if !all_non_distinct(lhs.type_ids(), rhs.type_ids(), ctx)? {
+        return Ok(false);
+    }
+
+    let type_ids = lhs.type_ids().clone().execute::<PrimitiveArray>(ctx)?;
+    let valid_mask = type_ids.validity()?.execute_mask(type_ids.len(), ctx)?;
+    let type_ids = type_ids.as_slice::<u8>();
+
+    for (variant_idx, &type_id) in lhs.variants().type_ids().iter().enumerate() {
+        let mask = Mask::from_iter(
+            type_ids
+                .iter()
+                .enumerate()
+                .map(|(i, &id)| valid_mask.value(i) && id == type_id),
+        );
+        if mask.true_count() == 0 {
+            continue;
+        }
+        let lhs_child = lhs.children()[variant_idx].filter(mask.clone())?;
+        let rhs_child = rhs.children()[variant_idx].filter(mask)?;
+        if !all_non_distinct(&lhs_child, &rhs_child, ctx)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }

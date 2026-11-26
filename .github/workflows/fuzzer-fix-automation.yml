@@ -44,10 +44,14 @@ jobs:
     # - workflow_dispatch: a manual run of this workflow or of a fuzz-* workflow.
     # - schedule: the in-pipeline attempt-fix job in run-fuzzer.yml.
     # - issues: fuzzer-issue-autofix.yml.
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
-      github.event_name == 'issues'
+    # The write federation rule trusts this workflow on the default branch.
+    # To handle a crash reported on another ref, dispatch this workflow on the
+    # default branch with the crash issue number.
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule' ||
+       github.event_name == 'issues')
 
     runs-on: ubuntu-latest
     # The fix session builds the fuzz target, runs tests and clippy, and runs up
@@ -237,11 +241,12 @@ jobs:
         env:
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
+          RSS_LIMIT_MB: ${{ steps.extract.outputs.rss_limit_mb }}
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
         run: |
           set +e
           RUST_BACKTRACE=full timeout 120s cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none \
-            "$TARGET" "$CRASH_FILE_PATH" -- -runs=1 -rss_limit_mb=0 2>&1 | tee "$WORK_DIR/crash_reproduction.log"
+            "$TARGET" "$CRASH_FILE_PATH" -- -runs=1 "-rss_limit_mb=$RSS_LIMIT_MB" 2>&1 | tee "$WORK_DIR/crash_reproduction.log"
           exit_code=${PIPESTATUS[0]}
           set -e
 
@@ -279,6 +284,7 @@ jobs:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
+          RSS_LIMIT_MB: ${{ steps.extract.outputs.rss_limit_mb }}
           REPRO_SUMMARY: ${{ steps.reproduce.outputs.repro_summary }}
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
           # Fuzz builds, tests and clippy on a cold runner take longer than the
@@ -342,7 +348,7 @@ jobs:
 
             Before review, confirm these for a fix:
 
-            - `cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} -- -runs=1 -rss_limit_mb=0`
+            - `cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none ${{ env.TARGET }} ${{ env.CRASH_FILE_PATH }} -- -runs=1 -rss_limit_mb=${{ env.RSS_LIMIT_MB }}`
               no longer crashes.
             - The regression test passes with `cargo test -p <crate> <test name>`.
             - `cargo clippy -p <crate> --all-targets --all-features -- -D warnings` passes
@@ -661,6 +667,7 @@ jobs:
           CRASH_REPRODUCED: ${{ steps.reproduce.outputs.crash_reproduced }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
+          RSS_LIMIT_MB: ${{ steps.extract.outputs.rss_limit_mb }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           HAS_CHANGES: ${{ steps.stage.outputs.has_changes }}
           VERDICT: ${{ steps.review.outputs.verdict }}
@@ -703,7 +710,7 @@ jobs:
           \`$GITHUB_SHA\`, so no fix was attempted. It was probably fixed by a recent commit.
 
           \`\`\`bash
-          cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $TARGET <crash file> -- -runs=1 -rss_limit_mb=0
+          cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $TARGET <crash file> -- -runs=1 -rss_limit_mb=$RSS_LIMIT_MB
           \`\`\`
 
           The nightly retest closes this issue if the input keeps passing. If the crash is

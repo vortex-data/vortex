@@ -44,6 +44,7 @@ https://github.com/vortex-data/vortex/actions/runs/123456/artifacts/789012
     assert details.crash_file == "crash-1dd9df3d790282b93cdb20911333313b0be3b6a0"
     assert details.artifact_id == "789012"
     assert details.attachment_url == ""
+    assert details.rss_limit_mb == 0
 
 
 def test_manual_multiline_command_and_tgz_attachment():
@@ -61,6 +62,7 @@ file_corruption oom-2875f50e9973079ca12b5811c161ee90d69eb128
     assert details.crash_file == "oom-2875f50e9973079ca12b5811c161ee90d69eb128"
     assert details.artifact_id == ""
     assert details.attachment_url == "https://github.com/user-attachments/files/35422130/oom.tgz"
+    assert details.rss_limit_mb == 2048
 
 
 def test_inline_backtick_command_and_placeholder_fallback():

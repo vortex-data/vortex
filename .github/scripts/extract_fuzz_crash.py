@@ -67,6 +67,7 @@ class CrashDetails:
     crash_file: str
     artifact_id: str
     attachment_url: str
+    rss_limit_mb: int
 
 
 def parse_cargo_fuzz_run(body: str, fuzz_targets_dir: Path) -> tuple[str, str]:
@@ -188,11 +189,13 @@ def extract_crash_details(
                 "The issue has no valid repository artifact URL or GitHub file attachment URL"
             )
 
+    rss_limit_mb = 2048 if crash_file.startswith("oom-") else 0
     return CrashDetails(
         target=target,
         crash_file=crash_file,
         artifact_id=artifact_id,
         attachment_url=attachment_url,
+        rss_limit_mb=rss_limit_mb,
     )
 
 
@@ -389,6 +392,7 @@ def main() -> int:
                     "crash_file": details.crash_file,
                     "artifact_id": details.artifact_id,
                     "attachment_url": details.attachment_url,
+                    "rss_limit_mb": str(details.rss_limit_mb),
                 },
                 args.github_output,
             )
@@ -397,7 +401,10 @@ def main() -> int:
                 if details.artifact_id
                 else f"attachment={details.attachment_url}"
             )
-            print(f"Extracted: target={details.target}, crash_file={details.crash_file}, {source}")
+            print(
+                f"Extracted: target={details.target}, crash_file={details.crash_file}, "
+                f"{source}, rss_limit_mb={details.rss_limit_mb}"
+            )
         elif args.command == "download":
             path = download_crash_file(
                 repo=args.repo,

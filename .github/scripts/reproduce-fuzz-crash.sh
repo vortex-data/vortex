@@ -9,4 +9,5 @@ read -r -a FUZZ_ENV <<< "$EXTRA_ENV"
 
 env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
   "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$FIRST_CRASH" \
+  "-rss_limit_mb=${RSS_LIMIT_MB:-2048}" \
   2>&1 | tee -a fuzz_output.log || true
