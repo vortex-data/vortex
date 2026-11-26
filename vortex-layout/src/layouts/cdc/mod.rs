@@ -51,7 +51,6 @@
 //! [Xet chunking spec]: https://huggingface.co/docs/xet/chunking
 
 mod digest;
-pub mod xet;
 
 use std::sync::Arc;
 
