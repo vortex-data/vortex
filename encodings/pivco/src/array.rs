@@ -271,7 +271,7 @@ impl PivcoData {
     /// `has_extra_bits`, `max_ebits`, and `tree_bytes` are derived directly from `tree` so
     /// in-memory state and wire metadata can never disagree.
     #[expect(clippy::too_many_arguments)]
-    pub fn try_new(
+    pub(crate) fn try_new(
         block_shift: u8,
         offset: u16,
         last_block_len: u16,

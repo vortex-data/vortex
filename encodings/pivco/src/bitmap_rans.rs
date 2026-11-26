@@ -228,6 +228,7 @@ fn rans_passes_commit_gate(
 /// Estimates compressed bit length (including the 1-byte marker and alignment padding) for one
 /// internal wavelet-tree node bitmap of `len` elements and `k_right` right-going elements using
 /// the exact shared `PHA` gating constants.
+#[cfg_attr(not(test), expect(dead_code))]
 pub(crate) fn estimate_node_bitmap_bits(
     len: usize,
     k_right: usize,

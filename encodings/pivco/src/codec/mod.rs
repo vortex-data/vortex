@@ -145,7 +145,8 @@ impl PivcoOptions {
 ///
 /// Returns `(estimated_bits, is_order_preserving)`, where `is_order_preserving` is `true` iff the
 /// compiled tree's leaf order is strictly sorted (enabling range predicate pushdown).
-pub fn estimate_compressed_bits(
+#[cfg_attr(not(test), expect(dead_code))]
+pub(crate) fn estimate_compressed_bits(
     counts: &[u64; MAX_SYMS],
     total_valid: usize,
     block_len: usize,
@@ -216,6 +217,7 @@ pub fn estimate_compressed_bits(
 }
 
 #[expect(clippy::too_many_arguments)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn estimate_subtree_bits(
     tree: &PivcoTree,
     node_idx: u16,

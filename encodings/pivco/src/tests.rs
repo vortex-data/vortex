@@ -35,6 +35,7 @@ use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
@@ -50,17 +51,12 @@ use vortex_zigzag::ZigZag;
 use vortex_zigzag::ZigZagArraySlotsExt;
 use vortex_zigzag::zigzag_encode;
 
-use crate::BLOCK_HEADER_BYTES_NO_EXTRA;
-use crate::BLOCK_HEADER_BYTES_WITH_EXTRA;
-use crate::MAX_SYMS;
 use crate::Pivco;
 use crate::PivcoArrayExt;
-use crate::PivcoBlockOffset;
 use crate::PivcoData;
 use crate::PivcoMetadata;
 use crate::PivcoOptions;
 use crate::PivcoPlugin;
-use crate::PivcoTree;
 use crate::PivcoTreeMode;
 use crate::bitmap_rans::BM_LANES;
 use crate::bitmap_rans::BM_MARKER_ALL_ONE;
@@ -75,11 +71,15 @@ use crate::bitmap_rans::compute_bernoulli_freqs;
 use crate::bitmap_rans::decode_static_byte_rans;
 use crate::bitmap_rans::encode_static_byte_rans_into;
 use crate::bitmap_rans::write_node_bitmap;
-use crate::block_header_stride;
+use crate::codec::BLOCK_HEADER_BYTES_NO_EXTRA;
+use crate::codec::BLOCK_HEADER_BYTES_WITH_EXTRA;
 use crate::codec::DecodeWorkspace;
+use crate::codec::PivcoBlockOffset;
+use crate::codec::block_header_stride;
 use crate::codec::block_len_for;
-use crate::estimate_compressed_bits;
+use crate::codec::estimate_compressed_bits;
 use crate::initialize;
+use crate::pow2_bin::MAX_SYMS;
 use crate::simd::MERGE_OVERREAD;
 use crate::simd::X86_MERGE_SHUF0;
 use crate::simd::X86_MERGE_SHUF1;
@@ -107,6 +107,7 @@ use crate::simd::unpack_flat_codes;
 use crate::simd::unpack_flat_codes_scalar;
 use crate::tree::ChildSpec;
 use crate::tree::PivcoNode;
+use crate::tree::PivcoTree;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -2184,4 +2185,22 @@ fn trailing_extra_children_are_ignored_per_wire_contract() -> VortexResult<()> {
     )?;
     assert_arrays_eq!(deser2, nullable_prim.into_array(), &mut ctx);
     Ok(())
+}
+
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_pivco_metadata_golden() {
+    check_metadata(
+        "pivco.metadata",
+        &PivcoMetadata {
+            offset: 7,
+            last_block_len: 1024,
+            block_shift: 12,
+            tree_base_offset: 64,
+            raw_base_word_offset: 16,
+            tree_bytes: vec![1, 0, 0, 0, 1],
+            has_validity: true,
+        }
+        .encode_to_vec(),
+    );
 }
