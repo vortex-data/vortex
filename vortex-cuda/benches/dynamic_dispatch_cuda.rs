@@ -580,11 +580,13 @@ mod standalone {
             {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.alp_fn);
                 let values_len = self.values_len as u64;
+                let slice_shift = 0u32;
                 launch.arg(&self.values_for_buf);
                 launch.arg(&mut self.values_alp_buf);
                 launch.arg(&self.alp_f);
                 launch.arg(&self.alp_e);
                 launch.arg(&values_len);
+                launch.arg(&slice_shift);
                 launch.arg(&patches);
                 unsafe {
                     launch

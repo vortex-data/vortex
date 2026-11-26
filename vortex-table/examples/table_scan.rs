@@ -22,9 +22,12 @@ use vortex_expr::gt_eq;
 use vortex_expr::lit;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_io::VortexReadAt;
+use vortex_io::filesystem::FileSystemRef;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::std_file::FileReadAt;
+use vortex_io::std_file::StdFileSystem;
 use vortex_session::VortexSession;
+use vortex_table::FileSystemOpenable;
 use vortex_table::Manifest;
 use vortex_table::ManifestEntry;
 use vortex_table::TableScan;
@@ -73,7 +76,16 @@ async fn main() -> VortexResult<()> {
     )
     .await?;
     let scan = TableScan::new(session.clone()).with_filter(gt_eq(col("x"), lit(750_000u64)));
-    let files = scan.plan(&manifest, open).await?;
+    let fs: FileSystemRef = Arc::new(StdFileSystem::new(session.handle()));
+    let files = scan
+        .plan(&manifest, |entry| {
+            let path = dir.path().join(&entry.path);
+            Ok(Arc::new(FileSystemOpenable::new(
+                Arc::clone(&fs),
+                path.to_string_lossy().as_ref(),
+            )))
+        })
+        .await?;
     println!("kept {} of {} files", files.len(), manifest.entries.len());
     let rows: usize = scan
         .run(files)?
