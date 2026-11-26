@@ -4,9 +4,8 @@
 """Summarize ephyra JSON reports and file their failures as GitHub issues.
 
 `summary REPORT` prints Markdown for `$GITHUB_STEP_SUMMARY`. `issues REPORT --repo R --run-url U
---commit C` opens one issue per failure signature, or comments on the open issue whose title
-already names it. Issues are matched by exact title, so a failure that keeps recurring collects
-comments instead of duplicates.
+--commit C` opens one issue per failure signature unless an open issue already has that exact
+title, so a failure that recurs on every run until it is fixed files one issue and no comments.
 """
 
 import argparse
@@ -156,8 +155,8 @@ def issues(args: argparse.Namespace) -> None:
         )
         match = next((i for i in existing if i["title"] == title), None)
         if match:
-            gh("issue", "comment", str(match["number"]), "--repo", args.repo, "--body", body)
-            print(f"Commented on #{match['number']}: {title}")
+            # A known bug recurs on every run until it is fixed; do not comment each time.
+            print(f"Already open as #{match['number']}: {title}")
         else:
             url = gh(
                 "issue", "create", "--repo", args.repo, "--title", title, "--body", body

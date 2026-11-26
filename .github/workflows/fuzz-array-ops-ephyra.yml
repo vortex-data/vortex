@@ -21,7 +21,7 @@ on:
         description: "Search budget in minutes"
         required: false
         type: number
-        default: 165
+        default: 150
   pull_request:
     paths:
       - "fuzz/src/array/**"
@@ -103,7 +103,13 @@ jobs:
           && format('runs-on={0}/runner=arm64-fuzz/tag=array_ops_ephyra-fuzz', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     env:
-      BUDGET_MINUTES: ${{ inputs.budget_minutes || 165 }}
+      BUDGET_MINUTES: ${{ inputs.budget_minutes || 150 }}
+      # The default shrink budget (10,000 steps, 60 s) stops long before a minimal plan; a large
+      # array can take a few minutes to shrink to a few actions. Shrinking runs after the search
+      # budget, so the job timeout leaves room for each worker to shrink its first failures.
+      EPHYRA_SHRINK_MAX_STEPS: "2000000"
+      EPHYRA_SHRINK_TIMEOUT_MS: "600000"
+      EPHYRA_FAILURES: "3"
     steps:
       - parallel:
           - uses: runs-on/action@v2
