@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scanning a table: open its files, reading each footer in one read, drop the files whose statistics
-//! rule the filter out, and run each remaining file's ordinary scan, in table order.
+//! Scanning a table: open its files through an [`Openable`], several at once and each footer in
+//! one read, drop the files whose statistics rule the filter out, and run each remaining file's
+//! ordinary scan, in table order.
 //!
-//! Every file is scanned by its own [`ScanDriver`]. TODO: once IO requests carry a source id, a
-//! single plan driver can run all the files' planners together.
+//! One [`ScanDriver`] runs every kept file's planners together, so the files' chunks share its
+//! concurrency, each file reading through its own IO service.
 
 use std::sync::Arc;
 
 use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::future;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
@@ -17,13 +20,17 @@ use vortex_error::VortexResult;
 use vortex_expr::Expression;
 use vortex_file::VortexFile;
 use vortex_file::v2::ScanDriver;
-use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::Manifest;
+use crate::ManifestEntry;
+use crate::Openable;
+
+/// How many files a scan opens and reads the footers of at once.
+pub const OPEN_CONCURRENCY: usize = 16;
 
 /// A file a scan keeps, and the table row its first row is.
 pub struct PlannedFile {
@@ -71,47 +78,74 @@ impl TableScan {
         self
     }
 
-    /// Opens the manifest's files, through `open` for their segments, and keeps those the
-    /// filter may match on their file statistics.
+    /// Opens the manifest's files, each through the [`Openable`] `open` gives for its entry, up
+    /// to [`OPEN_CONCURRENCY`] at once, and keeps those the filter may match on their file
+    /// statistics, in table order.
     pub async fn plan(
         &self,
         manifest: &Manifest,
-        open: impl Fn(&str) -> VortexResult<Arc<dyn VortexReadAt>>,
+        open: impl Fn(&ManifestEntry) -> VortexResult<Arc<dyn Openable>>,
     ) -> VortexResult<Vec<PlannedFile>> {
-        let mut planned = Vec::new();
-        let mut row_offset = 0;
-        for entry in &manifest.entries {
-            let file = entry.open(&self.session, open(&entry.path)?).await?;
-            let pruned = match &self.filter {
-                Some(filter) => file.can_prune(filter)?,
-                None => false,
-            };
-            if !pruned {
-                planned.push(PlannedFile { file, row_offset });
-            }
-            row_offset += entry.row_count;
-        }
-        Ok(planned)
+        let row_offsets = manifest.entries.iter().scan(0, |next, entry| {
+            let row_offset = *next;
+            *next += entry.row_count;
+            Some(row_offset)
+        });
+        stream::iter(manifest.entries.iter().zip(row_offsets))
+            .map(|(entry, row_offset)| {
+                let openable = open(entry);
+                async move {
+                    let read = openable?.open().await?;
+                    let file = entry.open(&self.session, read).await?;
+                    let pruned = match &self.filter {
+                        Some(filter) => file.can_prune(filter)?,
+                        None => false,
+                    };
+                    VortexResult::Ok((!pruned).then_some(PlannedFile { file, row_offset }))
+                }
+            })
+            .buffered(OPEN_CONCURRENCY)
+            .try_filter_map(|planned| future::ready(Ok(planned)))
+            .try_collect()
+            .await
     }
 
-    /// Scans the planned files one after another, in table order.
+    /// Scans the planned files together on one driver and yields their batches in table order.
+    /// The driver holds the batches until every file is scanned.
     pub fn run(
         &self,
         files: Vec<PlannedFile>,
     ) -> VortexResult<BoxStream<'static, VortexResult<ArrayRef>>> {
-        let scans = files
+        let builders = files
             .into_iter()
-            .map(|PlannedFile { file, row_offset }| {
+            .enumerate()
+            .map(|(ordinal, PlannedFile { file, row_offset })| {
                 let dtype = file.dtype();
                 let mut scan = ScanBuilder::new(self.session.clone(), file.scan_file())
                     .with_some_filter(self.filter.as_ref().map(|f| f.bind(dtype)).transpose()?)
-                    .with_row_offset(row_offset);
+                    .with_row_offset(row_offset)
+                    .with_file_ordinal(u64::try_from(ordinal)?);
                 if let Some(projection) = &self.projection {
                     scan = scan.with_projection(projection.bind(dtype)?);
                 }
-                Ok(ScanDriver::new(self.session.handle(), self.concurrency, true).run(scan))
+                Ok(scan)
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(stream::iter(scans).flatten().boxed())
+        let handle = self.session.handle();
+        let driver = ScanDriver::new(handle.clone(), self.concurrency, true);
+        // Lowering and planning the files is real CPU: it runs where compute runs.
+        Ok(stream::once(async move {
+            handle
+                .spawn_cpu(move || {
+                    let scans = builders
+                        .into_iter()
+                        .map(ScanBuilder::prepare)
+                        .collect::<VortexResult<Vec<_>>>()?;
+                    VortexResult::Ok(driver.run_prepared_files(scans, Ok))
+                })
+                .await
+        })
+        .try_flatten()
+        .boxed())
     }
 }

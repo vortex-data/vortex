@@ -332,6 +332,7 @@ mod tests {
     use crate::execution::operator::Step;
     use crate::execution::pipeline::Chain;
     use crate::execution::pipeline::synthetic::SyntheticPlan;
+    use crate::execution::planning::tests::scripted::source_id;
     use crate::execution::projection::ProjectionPlanner;
     use crate::planning::driver::Progress;
     use crate::planning::driver::Run;
@@ -359,6 +360,7 @@ mod tests {
 
     fn request(intent: IoIntent, id: u32) -> IoRequest {
         IoRequest {
+            source: source_id(),
             intent,
             request: IoRequestId(id),
             target: IoTarget::range(0, 4),
@@ -611,9 +613,11 @@ mod tests {
             ranges,
             cache,
             locations,
+            source: source_id(),
             projection,
             filter: None,
             row_offset: 0,
+            file_ordinal: 0,
             values,
             chunk_rows: 1,
         });
