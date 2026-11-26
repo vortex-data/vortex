@@ -30,7 +30,7 @@ use crate::canonical::combine_parts;
 
 /// The op of a DateTimeParts array of `dtype` over its days child of `days_dtype`, once its
 /// `seconds` and `subseconds` are executed: it combines each block of days with the same rows of
-/// the time parts, as [`decode_to_temporal`](crate::decode_to_temporal) does.
+/// the time parts, as [`decode_to_temporal`](crate::canonical::decode_to_temporal) does.
 ///
 /// `None` when it decodes some other way: a unit of days, or a time part that is neither a
 /// non-null constant nor canonical `i32` values, which the level-wise decode casts.
