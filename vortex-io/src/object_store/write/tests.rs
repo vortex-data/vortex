@@ -145,6 +145,7 @@ mod multipart_lifecycle_tests {
         fn put_part(&mut self, _data: PutPayload) -> UploadPart {
             let call = self.counters.part_calls.fetch_add(1, Ordering::SeqCst) + 1;
             let behavior = Arc::clone(&self.behavior);
+            // Lazy like S3: nothing runs until the returned future is polled.
             Box::pin(async move {
                 if let Some((entered, release)) = &behavior.gate_part {
                     entered.notify_one();
@@ -217,6 +218,32 @@ mod multipart_lifecycle_tests {
         })
         .await
         .expect("timed out waiting for background multipart abort");
+    }
+
+    #[rstest::rstest]
+    #[case::smol(tokio::runtime::Builder::new_current_thread())]
+    #[case::tokio(tokio::runtime::Builder::new_multi_thread())]
+    fn test_submitted_part_starts_before_flush(
+        #[case] mut runtime: tokio::runtime::Builder,
+    ) -> VortexResult<()> {
+        runtime.enable_all().build()?.block_on(async {
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let (store, counters) = make_store(UploadBehavior {
+                gate_part: Some((Arc::clone(&entered), Arc::clone(&release))),
+                ..Default::default()
+            });
+            let mut writer = ObjectStoreWrite::new(store, &Path::from("background.vortex")).await?;
+            writer.write_all(vec![1u8; CHUNK_SIZE]).await?;
+
+            timeout(Duration::from_secs(2), entered.notified())
+                .await
+                .map_err(io::Error::from)?;
+            release.notify_one();
+            writer.shutdown().await?;
+            assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
     }
 
     #[tokio::test]
@@ -344,10 +371,12 @@ mod multipart_lifecycle_tests {
             ObjectStoreWrite::new(store2, &Path::from("cancel-shutdown.vortex")).await?;
         writer2.write_all(b"payload".to_vec()).await?;
         {
+            // Drive shutdown past the background tail part until it blocks in `complete()`.
             let mut shutdown_fut = Box::pin(writer2.shutdown());
-            let poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-            assert!(poll.is_pending());
-            timeout(Duration::from_secs(2), entered2.notified()).await?;
+            tokio::select! {
+                _ = &mut shutdown_fut => panic!("shutdown must block in gated complete"),
+                entered = timeout(Duration::from_secs(2), entered2.notified()) => entered?,
+            }
         }
         wait_for_abort(&counters2).await;
         assert!(writer2.shutdown().await.is_err());
