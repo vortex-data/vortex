@@ -160,6 +160,10 @@ pub enum ExecutionStep {
     /// parent once that child matches the predicate.
     ExecuteSlot(usize, DonePredicate),
 
+    /// Like ExecuteSlot, for the encoding's spine: the last child it waits for,
+    /// whose values it then only transforms row by row.
+    ExecuteSpine(usize, DonePredicate),
+
     /// Detach a child, append it into the current activation's builder, and
     /// keep the parent as current_array for the next iteration.
     AppendChild(usize),
@@ -171,6 +175,11 @@ pub enum ExecutionStep {
 
 - `ExecuteSlot(i, pred)` detaches slot `i`, pushes the parent onto `stack`, and makes that
   child the new `current_array` until `pred` says it is done.
+- `ExecuteSpine(i, pred)` runs exactly like `ExecuteSlot(i, pred)`. It also promises that slot
+  `i` is the encoding's spine: every other child it needs is already executed, and once the
+  spine is, `execute` only transforms its values row by row and takes its validity. FoR, ALP and
+  DateTimeParts request their encoded values, or days, this way with `require_spine!`, so an
+  executor that decodes such chains block by block can rely on it.
 - `AppendChild(i)` detaches slot `i`, appends that child into `current_builder`, and keeps
   the returned parent as `current_array` for the next iteration.
 - `Done` finishes the current activation. If `current_builder` is active, the builder is

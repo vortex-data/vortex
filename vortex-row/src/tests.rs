@@ -8,9 +8,12 @@ use std::f64::consts::PI;
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
@@ -18,19 +21,26 @@ use vortex_array::arrays::MapArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::UnionVariants;
+use vortex_array::dtype::half::f16;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -39,6 +49,7 @@ use vortex_session::VortexSession;
 use crate::RowEncoder;
 use crate::RowEncodingOptions;
 use crate::RowSortField;
+use crate::compute_row_sizes;
 use crate::compute_row_sizes_with_options;
 use crate::convert_columns;
 use crate::convert_columns_with_options;
@@ -148,17 +159,22 @@ fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
 #[test]
 fn primitive_f64_sort_order() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    // We use IEEE total-ordering semantics: -0.0 < +0.0 in the byte encoding (matches
-    // `arrow-row`). Avoid -0.0 in the natural-order baseline since partial_cmp says
-    // -0.0 == 0.0.
-    let values: Vec<f64> = vec![-1.5, 0.0, 1.5, f64::INFINITY, f64::NEG_INFINITY, PI];
+    let values: Vec<f64> = vec![
+        -1.5,
+        -0.0,
+        0.0,
+        1.5,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        PI,
+        -f64::NAN,
+        f64::NAN,
+    ];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
 
-    assert_row_order(&rows, values.len(), |i, j| {
-        values[i].partial_cmp(&values[j]).unwrap()
-    });
+    assert_row_order(&rows, values.len(), |i, j| values[i].total_cmp(&values[j]));
     Ok(())
 }
 
@@ -381,7 +397,7 @@ fn row_size_struct_shape() -> VortexResult<()> {
         .expect("fixed field should be a ConstantArray");
     assert_eq!(
         fixed_const.scalar(),
-        &vortex_array::scalar::Scalar::from(5u32),
+        &Scalar::from(5u32),
         "fixed scalar should be encoded primitive i32 width"
     );
 
@@ -595,33 +611,40 @@ fn null_struct_rows_with_varying_child_lengths_are_byte_equal() -> VortexResult<
 #[test]
 fn primitive_f32_sort_order() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let values: Vec<f32> = vec![-1.5, 0.0, 1.5, f32::INFINITY, f32::NEG_INFINITY];
+    let values: Vec<f32> = vec![
+        -1.5,
+        -0.0,
+        0.0,
+        1.5,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        -f32::NAN,
+        f32::NAN,
+    ];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
-    assert_row_order(&rows, values.len(), |i, j| {
-        values[i].partial_cmp(&values[j]).unwrap()
-    });
+    assert_row_order(&rows, values.len(), |i, j| values[i].total_cmp(&values[j]));
     Ok(())
 }
 
 #[test]
 fn primitive_f16_sort_order() -> VortexResult<()> {
-    use vortex_array::dtype::half::f16;
     let mut ctx = SESSION.create_execution_ctx();
     let values: Vec<f16> = vec![
         f16::from_f32(-1.5),
+        f16::from_bits(0x8000), // -0.0
         f16::from_f32(0.0),
         f16::from_f32(1.5),
         f16::INFINITY,
         f16::NEG_INFINITY,
+        f16::from_bits(0xFE00), // -NaN
+        f16::from_bits(0x7E00), // +NaN
     ];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
-    assert_row_order(&rows, values.len(), |i, j| {
-        values[i].partial_cmp(&values[j]).unwrap()
-    });
+    assert_row_order(&rows, values.len(), |i, j| values[i].total_cmp(&values[j]));
     Ok(())
 }
 
@@ -872,5 +895,166 @@ fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexRes
             );
         }
     }
+    Ok(())
+}
+
+pub(super) fn collect_row_sizes(
+    sizes_arr: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<u32>> {
+    let struct_arr = sizes_arr.execute::<StructArray>(ctx)?;
+    let fixed = struct_arr
+        .unmasked_field(0)
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let var = struct_arr
+        .unmasked_field(1)
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    Ok(fixed
+        .as_slice::<u32>()
+        .iter()
+        .zip(var.as_slice::<u32>().iter())
+        .map(|(&f, &v)| f + v)
+        .collect())
+}
+
+#[rstest]
+#[case::asc(false)]
+#[case::desc(true)]
+fn test_varlen_block_boundaries_and_xor_copy_block(#[case] descending: bool) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // Cover exact 32-byte block boundaries, multiples of 32, and multi-block payloads (0..=128)
+    // to exercise both ascending `copy_nonoverlapping` and descending `xor_copy_block`.
+    let lengths = [0usize, 1, 12, 13, 31, 32, 33, 63, 64, 65, 95, 96, 97, 128];
+    let payloads: Vec<Vec<u8>> = lengths
+        .iter()
+        .map(|&len| {
+            (0..len)
+                .map(|j| u8::try_from((j * 37 + 11) & 0xFF).unwrap())
+                .collect()
+        })
+        .collect();
+    // Prepend a 1-byte u8 column (2 encoded bytes) so varlen destination pointers are unaligned
+    // relative to 8-byte u64 boundaries inside `xor_copy_block`.
+    let prefix = PrimitiveArray::from_iter(vec![7u8; payloads.len()]).into_array();
+    let bin = VarBinViewArray::from_iter_bin(payloads.iter().map(Vec::as_slice)).into_array();
+
+    let fields = [
+        RowSortField::ascending(),
+        RowSortField::new(descending, true),
+    ];
+    let encoded = convert_columns(&[prefix.clone(), bin.clone()], &fields, &mut ctx)?;
+    let rows = collect_row_bytes(&encoded);
+    let sizes = collect_row_sizes(
+        compute_row_sizes(&[prefix, bin], &fields, &mut ctx)?,
+        &mut ctx,
+    )?;
+
+    for (i, payload) in payloads.iter().enumerate() {
+        assert_eq!(rows[i].len(), sizes[i] as usize);
+        let body = &rows[i][2..]; // skip 2-byte prefix column
+        if payload.is_empty() {
+            assert_eq!(body, &[if descending { !0x01u8 } else { 0x01u8 }]);
+            continue;
+        }
+        assert_eq!(body[0], if descending { !0x02u8 } else { 0x02u8 });
+        let blocks = payload.len().div_ceil(32);
+        assert_eq!(body.len(), 1 + blocks * 33);
+
+        let xor = if descending { 0xFFu8 } else { 0x00u8 };
+        for blk in 0..blocks {
+            let src_start = blk * 32;
+            let src_end = (src_start + 32).min(payload.len());
+            let chunk_len = src_end - src_start;
+            let dst_start = 1 + blk * 33;
+            for j in 0..chunk_len {
+                assert_eq!(
+                    body[dst_start + j],
+                    payload[src_start + j] ^ xor,
+                    "byte mismatch for len={} block={} offset={}",
+                    payload.len(),
+                    blk,
+                    j
+                );
+            }
+            for j in chunk_len..32 {
+                assert_eq!(body[dst_start + j], xor);
+            }
+            let expected_marker = if blk + 1 < blocks {
+                0xFFu8 ^ xor
+            } else {
+                u8::try_from(chunk_len)? ^ xor
+            };
+            assert_eq!(body[dst_start + 32], expected_marker);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_reject_unsupported_dtypes_and_invalid_inputs() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // Variant (top-level and nested).
+    let variant =
+        ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 2).into_array();
+    convert_columns(
+        std::slice::from_ref(&variant),
+        &[RowSortField::ascending()],
+        &mut ctx,
+    )
+    .expect_err("Variant must be rejected");
+    let variant_in_struct = StructArray::from_fields(&[("v", variant)])?.into_array();
+    convert_columns(&[variant_in_struct], &[RowSortField::ascending()], &mut ctx)
+        .expect_err("nested Variant must be rejected");
+
+    // Union (top-level and nested).
+    let variants = UnionVariants::try_new(
+        FieldNames::from([FieldName::from("a"), FieldName::from("b")]),
+        vec![
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        ],
+        vec![0, 1],
+    )?;
+    let union_arr = UnionArray::try_new(
+        PrimitiveArray::from_iter([0u8, 1]).into_array(),
+        variants,
+        vec![
+            PrimitiveArray::from_iter([1i32, 2]).into_array(),
+            PrimitiveArray::from_iter([10u64, 20]).into_array(),
+        ],
+    )?
+    .into_array();
+    convert_columns(
+        std::slice::from_ref(&union_arr),
+        &[RowSortField::ascending()],
+        &mut ctx,
+    )
+    .expect_err("Union must be rejected");
+    let union_in_list = ListViewArray::new(
+        union_arr,
+        buffer![0u32, 1].into_array(),
+        buffer![1u32, 1].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .into_array();
+    convert_columns(&[union_in_list], &[RowSortField::ascending()], &mut ctx)
+        .expect_err("nested Union must be rejected");
+
+    // Input validation errors in RowEncoder::prepare.
+    RowEncoder::default()
+        .encode(&[], &mut ctx)
+        .expect_err("empty column list must be rejected");
+    let c1 = PrimitiveArray::from_iter([1i32, 2]).into_array();
+    let c2 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    RowEncoder::new([RowSortField::ascending()])
+        .encode(&[c1.clone(), c1.clone()], &mut ctx)
+        .expect_err("mismatched options count must be rejected");
+    RowEncoder::default()
+        .encode(&[c1, c2], &mut ctx)
+        .expect_err("mismatched column lengths must be rejected");
     Ok(())
 }

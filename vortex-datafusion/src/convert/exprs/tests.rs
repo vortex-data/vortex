@@ -53,6 +53,9 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::BinaryExpr as DFBinaryExpr;
+use datafusion_physical_plan::expressions::Column as DFColumn;
+use datafusion_physical_plan::expressions::Literal as DFLiteral;
 use insta::assert_snapshot;
 use rstest::rstest;
 use vortex::array::ArrayRef;
@@ -3449,6 +3452,143 @@ fn test_timestamp_cast_from_schema_adapter() -> DFResult<()> {
     assert_eq!(
         DefaultExpressionConverter::default().try_convert(&cast, &schema)?,
         Some(ts_to_ms())
+    );
+    Ok(())
+}
+
+struct ExactConverter(DefaultExpressionConverter);
+
+impl ExpressionConverter for ExactConverter {
+    fn try_convert(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.0.try_convert(expr, schema)
+    }
+}
+
+#[test]
+fn advisory_conversion_default_requires_infallible_evaluation() -> DFResult<()> {
+    let converter = ExactConverter(DefaultExpressionConverter::default());
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+    let column: Arc<dyn PhysicalExpr> = Arc::new(DFColumn::new("a", 0));
+    let comparison: Arc<dyn PhysicalExpr> = Arc::new(DFBinaryExpr::new(
+        Arc::clone(&column),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert_dynamic(&comparison, &schema)?
+            .is_some()
+    );
+
+    let arithmetic_comparison: Arc<dyn PhysicalExpr> = Arc::new(DFBinaryExpr::new(
+        Arc::new(DFBinaryExpr::new(
+            column,
+            DFOperator::Plus,
+            Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+        )),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert(&arithmetic_comparison, &schema)?
+            .is_some()
+    );
+    assert!(
+        converter
+            .try_convert_dynamic(&arithmetic_comparison, &schema)?
+            .is_none()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projection_evaluates_duplicate_expressions_once() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, false),
+        Field::new("b", DataType::Int32, false),
+    ]);
+    let column = |name: &str, index| Arc::new(df_expr::Column::new(name, index));
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column("b", 1), "first"),
+        ProjectionExpr::new(column("a", 0), "other"),
+        ProjectionExpr::new(column("b", 1), "second"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("first", get_item("b", root())),
+                ("other", get_item("a", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(
+        processed.scan_reference_schema,
+        output_schema.project(&[0, 1])?
+    );
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(column("first", 0), "first"),
+            ProjectionExpr::new(column("other", 1), "other"),
+            ProjectionExpr::new(column("first", 0), "second"),
+        ]),
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projection_keeps_distinct_arrow_types_separate() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("s", DataType::Utf8, true)]);
+    let column = Arc::new(df_expr::Column::new("s", 0)) as Arc<dyn PhysicalExpr>;
+    let view = Arc::new(df_expr::CastExpr::new(
+        Arc::clone(&column),
+        DataType::Utf8View,
+        None,
+    )) as Arc<dyn PhysicalExpr>;
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column, "plain"),
+        ProjectionExpr::new(view, "view"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("plain", get_item("s", root())),
+                ("view", get_item("s", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(processed.scan_reference_schema, output_schema);
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("plain", 0)), "plain"),
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("view", 1)), "view"),
+        ]),
     );
     Ok(())
 }

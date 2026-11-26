@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
 use std::io::Read;
 
 use bytes::BytesMut;
@@ -21,6 +22,15 @@ enum ReadState {
 }
 
 /// An IPC message reader backed by a `Read` stream.
+///
+/// # Error handling
+///
+/// - [`io::ErrorKind::Interrupted`] is retried transparently in place.
+/// - [`io::ErrorKind::WouldBlock`] and [`io::ErrorKind::TimedOut`] are returned to the caller
+///   while preserving any partial frame already buffered so the next call resumes where reading
+///   stopped.
+/// - Any other I/O error, EOF error, or decode error clears the internal buffer and terminates
+///   the reader so subsequent calls return `None`.
 pub struct SyncMessageReader<R> {
     read: R,
     buffer: BytesMut,
@@ -57,6 +67,7 @@ impl<R: Read> Iterator for SyncMessageReader<R> {
                         };
                     }
                     Err(e) => {
+                        self.buffer.clear();
                         self.state = ReadState::Done;
                         return Some(Err(e));
                     }
@@ -77,7 +88,20 @@ impl<R: Read> Iterator for SyncMessageReader<R> {
                                 };
                             }
                             Ok(n) => *total_bytes_read += n,
-                            Err(e) => return Some(Err(e.into())),
+                            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                            Err(e)
+                                if matches!(
+                                    e.kind(),
+                                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                                ) =>
+                            {
+                                return Some(Err(e.into()));
+                            }
+                            Err(e) => {
+                                self.buffer.clear();
+                                self.state = ReadState::Done;
+                                return Some(Err(e.into()));
+                            }
                         }
                     }
                     self.state = ReadState::AwaitingDecoder;
@@ -112,7 +136,7 @@ mod tests {
     }
 
     impl Read for ByteAtATimeReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             if buf.is_empty() || self.pos >= self.data.len() {
                 return Ok(0);
             }
@@ -177,70 +201,11 @@ mod tests {
                 .next()
                 .vortex_expect("expected error on truncated frame")
                 .unwrap_err();
-            assert_io_error_kind(&err, std::io::ErrorKind::UnexpectedEof);
+            assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
             assert!(messages.next().is_none());
             assert!(messages.next().is_none());
         }
 
-        Ok(())
-    }
-
-    #[test]
-    fn transport_error_is_distinct_and_preserves_progress() -> VortexResult<()> {
-        struct FlakyReader {
-            data: Vec<u8>,
-            pos: usize,
-            errored: bool,
-        }
-
-        impl Read for FlakyReader {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                if !self.errored && self.pos == 1 {
-                    self.errored = true;
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Interrupted,
-                        "transient read error",
-                    ));
-                }
-                if buf.is_empty() || self.pos >= self.data.len() {
-                    return Ok(0);
-                }
-                buf[0] = self.data[self.pos];
-                self.pos += 1;
-                Ok(1)
-            }
-        }
-
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let full: Vec<u8> = encoder
-            .encode(EncoderMessage::Array(&array))?
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect();
-
-        let mut messages = SyncMessageReader::new(FlakyReader {
-            data: full,
-            pos: 0,
-            errored: false,
-        });
-
-        let err = messages
-            .next()
-            .vortex_expect("expected transport error")
-            .unwrap_err();
-        assert_io_error_kind(&err, std::io::ErrorKind::Interrupted);
-
-        let DecoderMessage::Array((parts, ctx, row_count)) = messages
-            .next()
-            .vortex_expect("expected recovered message")?
-        else {
-            vortex_panic!("expected an array message");
-        };
-        let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-        assert_eq!(actual.len(), array.len());
-        assert!(messages.next().is_none());
         Ok(())
     }
 }
