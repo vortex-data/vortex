@@ -877,10 +877,14 @@ mod tests {
             let reader =
                 layout.new_reader("dict".into(), segments, &session, &Default::default())?;
             let expr = root().bind(reader.dtype())?;
-            let result = reader
+            let err = reader
                 .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
-                .await;
-            assert!(result.is_err());
+                .await
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("expected type: int"),
+                "unexpected error: {err}"
+            );
             Ok(())
         })
     }
