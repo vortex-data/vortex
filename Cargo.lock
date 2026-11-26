@@ -11326,6 +11326,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-onpair",
+ "vortex-parquet-variant",
  "vortex-pco",
  "vortex-sequence",
  "vortex-session",

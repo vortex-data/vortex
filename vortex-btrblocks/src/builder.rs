@@ -398,30 +398,79 @@ mod tests {
     }
 
     #[cfg(feature = "zstd")]
-    #[test]
-    fn default_keeps_binary_zstd_only_for_variant_storage() {
-        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
-        let has_zstd = |schemes: Vec<&'static dyn Scheme>, id: SchemeId| {
-            schemes.iter().any(|scheme| scheme.id() == id)
-        };
+    mod variant_storage {
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::VarBinViewArray;
+        use vortex_array::arrays::Variant;
+        use vortex_array::arrays::variant::VariantArraySlotsExt;
+        use vortex_array::validity::Validity;
+        use vortex_error::VortexResult;
+        use vortex_error::vortex_err;
+        use vortex_parquet_variant::ParquetVariant;
+        use vortex_parquet_variant::ParquetVariantArraySlotsExt;
+        use vortex_zstd::Zstd;
 
-        assert!(!has_zstd(
-            builder.allowed_schemes(),
-            binary::ZstdScheme.id()
-        ));
-        assert!(has_zstd(
-            builder.variant_storage_schemes(),
-            binary::ZstdScheme.id()
-        ));
-        // Strings inside a Variant are not storage, and buffer-level Zstd stays opt-in.
-        assert!(!has_zstd(
-            builder.variant_storage_schemes(),
-            string::ZstdScheme.id()
-        ));
-        assert!(!has_zstd(
-            builder.variant_storage_schemes(),
-            binary::ZstdBuffersScheme.id()
-        ));
+        use super::SESSION;
+        use crate::BtrBlocksCompressorBuilder;
+
+        /// The default preset compresses the unshredded value of a Variant with Zstd, but it does
+        /// not compress a plain Binary column with the same bytes with Zstd.
+        #[test]
+        fn default_uses_zstd_only_for_variant_storage() -> VortexResult<()> {
+            // Each value is a Variant short string: a header byte with the length, then the bytes.
+            let values: Vec<Vec<u8>> = (0..4096)
+                .map(|row| {
+                    let text = format!("user-{row:05}-the quick brown fox jumps over");
+                    let mut value = vec![u8::try_from(text.len() << 2 | 1)?];
+                    value.extend_from_slice(text.as_bytes());
+                    Ok(value)
+                })
+                .collect::<VortexResult<_>>()?;
+
+            let metadata =
+                VarBinViewArray::from_iter_bin(vec![[1u8, 0]; values.len()]).into_array();
+            let value = VarBinViewArray::from_iter_bin(&values).into_array();
+            let variant = ParquetVariant::try_new(
+                Validity::NonNullable,
+                metadata,
+                Some(value.clone()),
+                None,
+            )?
+            .into_array();
+
+            // The test session registers no arrays, so the registry must not restrict the schemes.
+            let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+                .unrestricted()
+                .build();
+            let mut ctx = SESSION.create_execution_ctx();
+
+            let compressed = compressor.compress(&variant, &mut ctx)?;
+            let core_storage = compressed
+                .as_opt::<Variant>()
+                .ok_or_else(|| vortex_err!("expected a Variant array"))?
+                .core_storage()
+                .clone();
+            let compressed_value = core_storage
+                .as_opt::<ParquetVariant>()
+                .ok_or_else(|| vortex_err!("expected Parquet Variant storage"))?
+                .value()
+                .cloned()
+                .ok_or_else(|| vortex_err!("expected a value child"))?;
+            assert!(
+                compressed_value.is::<Zstd>(),
+                "expected Zstd, got {}",
+                compressed_value.encoding_id()
+            );
+
+            let compressed_binary = compressor.compress(&value, &mut ctx)?;
+            assert!(
+                !compressed_binary.is::<Zstd>(),
+                "expected no Zstd, got {}",
+                compressed_binary.encoding_id()
+            );
+            Ok(())
+        }
     }
 
     #[rstest]
