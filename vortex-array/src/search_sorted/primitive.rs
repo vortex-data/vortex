@@ -23,9 +23,8 @@ use crate::search_sorted::IndexOrd;
 /// Reads go through a [`RepeatedArrayProbe`], so the encoding state and validity resolved on the
 /// first comparison are reused by the rest of the search rather than rebuilt per probe.
 ///
-/// Values can be searched as `T`, `Option<T>`, or `usize`. Searching as `T` or `usize` treats
-/// null elements as `T::zero()`; use `Option<T>` when the array may contain nulls, in which case
-/// nulls sort before all non-null values.
+/// Values can be searched as `T`, `Option<T>`, or `usize`. Null elements sort before all non-null
+/// values; use `Option<T>` when searching for nulls themselves.
 pub struct SearchSortedPrimitiveArray<'a, T> {
     reader: Reader<'a, T>,
     len: usize,
@@ -131,17 +130,14 @@ impl<'a, T: NativePType> SearchSortedPrimitiveArray<'a, T> {
         };
         Ok(scalar.as_primitive().typed_value::<T>())
     }
-
-    /// Returns the value at `idx`, with nulls mapped to `T::zero()`.
-    fn value(&self, idx: usize) -> VortexResult<T> {
-        Ok(self.typed_value(idx)?.unwrap_or_else(|| T::zero()))
-    }
 }
 
 impl<T: NativePType> IndexOrd<T> for SearchSortedPrimitiveArray<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> VortexResult<Option<Ordering>> {
-        let value = self.value(idx)?;
-        Ok(Some(value.total_compare(*elem)))
+        Ok(Some(match self.typed_value(idx)? {
+            Some(value) => value.total_compare(*elem),
+            None => Ordering::Less,
+        }))
     }
 
     fn index_len(&self) -> usize {
@@ -170,7 +166,9 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchSortedPrimitiveArray<'_, T> {
 
 impl<T: NativePType> IndexOrd<usize> for SearchSortedPrimitiveArray<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &usize) -> VortexResult<Option<Ordering>> {
-        let value = self.value(idx)?;
+        let Some(value) = self.typed_value(idx)? else {
+            return Ok(Some(Ordering::Less));
+        };
 
         let Some(elem_t) = T::from_usize(*elem) else {
             return Ok(Some(Ordering::Less));
@@ -259,6 +257,26 @@ mod tests {
         );
         assert_eq!(
             searcher.search_sorted(&None, SearchSortedSide::Right)?,
+            SearchResult::Found(2)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_sorted_nullable_negative_and_zero_values() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter([None, Some(-5i32), Some(0)]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let searcher = SearchSortedPrimitiveArray::<i32>::new(&array, &mut ctx);
+        assert_eq!(
+            searcher.search_sorted(&-5i32, SearchSortedSide::Left)?,
+            SearchResult::Found(1)
+        );
+        assert_eq!(
+            searcher.search_sorted(&0i32, SearchSortedSide::Left)?,
+            SearchResult::Found(2)
+        );
+        assert_eq!(
+            searcher.search_sorted(&0usize, SearchSortedSide::Left)?,
             SearchResult::Found(2)
         );
         Ok(())
