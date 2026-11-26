@@ -4,11 +4,16 @@
 //! ALP's op for a [`BlockProgram`](vortex_array::block::BlockProgram): each block of encoded
 //! integers decodes into floats and is patched while it is in L1.
 
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::block::Block;
 use vortex_array::block::BlockOp;
 use vortex_array::block::BlockPatches;
+use vortex_array::block::Values;
 use vortex_array::block::Written;
 use vortex_array::dtype::NativePType;
 use vortex_array::patches::Patches;
@@ -63,13 +68,33 @@ where
             mut validity,
             ..
         } = block;
-        let exponents = self.exponents;
-        let mut written = values.map(|encoded: F::ALPInt| F::decode_single(encoded, exponents));
+        let mut written = decode::<F>(Level::new(), values, self.exponents);
         if let Some(patches) = &mut self.patches {
             patches.apply(start, written.as_mut_slice::<F>(), &mut validity);
         }
         Ok(written)
     }
+}
+
+/// Decodes a block's values, compiled for the SIMD `level` as the level-wise decode is.
+#[inline]
+fn decode<'a, F>(level: Level, values: Values<'a>, exponents: Exponents) -> Written<'a>
+where
+    F: ALPFloat + NativePType,
+    F::ALPInt: NativePType,
+{
+    dispatch!(level, simd => decode_simd::<_, F>(simd, values, exponents))
+}
+
+/// The decode loop is inlined into this body, so each level gets its own instantiation that LLVM
+/// vectorizes with that level's target features rather than the compilation baseline.
+#[simd]
+fn decode_simd<'a, S: Simd, F>(_: S, values: Values<'a>, exponents: Exponents) -> Written<'a>
+where
+    F: ALPFloat + NativePType,
+    F::ALPInt: NativePType,
+{
+    values.map(|encoded: F::ALPInt| F::decode_single(encoded, exponents))
 }
 
 #[cfg(test)]
