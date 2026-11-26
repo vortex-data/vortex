@@ -16,6 +16,7 @@ use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -164,6 +165,7 @@ impl VTable for Counter {
             start: data.start,
             block_offset: data.block_offset,
             fills: Arc::clone(&data.fills),
+            validity: Mask::new_true(array.len()),
         })))
     }
 }
@@ -172,9 +174,14 @@ struct CounterSource {
     start: i32,
     block_offset: usize,
     fills: Arc<Mutex<Vec<Range<usize>>>>,
+    validity: Mask,
 }
 
 impl BlockSource for CounterSource {
+    fn validity(&self) -> &Mask {
+        &self.validity
+    }
+
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
@@ -347,7 +354,7 @@ impl VTable for TestOp {
 struct AddOne;
 
 impl BlockOp for AddOne {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         Ok(block.map(|v: i32| v + 1))
     }
 }

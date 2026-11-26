@@ -107,11 +107,13 @@ struct CombineParts<D> {
 }
 
 impl<D: NativePType + AsPrimitive<i64>> BlockOp for CombineParts<D> {
-    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let start = block.start();
         let Values::Copy { input, out } = block.values else {
             vortex_bail!("DateTimeParts combines days into a block of its own");
         };
-        let (days, len, divisor) = (input.as_slice::<D>(), input.len(), self.divisor);
+        let days = input.as_slice::<D>();
+        let (len, divisor) = (days.len(), self.divisor);
         let rows = start..start + len;
         let combine = |values: &mut [MaybeUninit<i64>]| match (&self.seconds, &self.subseconds) {
             (TimeColumn::Constant(seconds), TimeColumn::Constant(subseconds)) => combine_parts(

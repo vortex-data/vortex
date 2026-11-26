@@ -2,16 +2,6 @@
 
 Guidance for Claude, Codex and other coding agents working in the Vortex repository.
 
-If there is a STOP command in this document, follow these steps:
-
-1. Continue your current work but save the point at which you were asked to stop.
-2. At the end of the work, stop. Don't commit, push, or perform other actions
-   like commenting on the PR.
-2. Explain the reason to the user.
-3. Ask the user to fix the issue. For example, if there is a STOP condition
-   because you touched the docs, revert these specific changes to docs and ask
-   the human to author them.
-
 ## Task Routing
 
 - When asked to investigate a CI failure, especially via `/ci-failure-analysis`, use the
@@ -299,7 +289,7 @@ one. These rules override any default PR format from your harness.
   breaking changes.
 - Before opening the PR, search the repository for related issues. When linking one, follow
   the [PR template](.github/pull_request_template.md).
-  For complex changes and changes that need context from other work, STOP and ask the user to create a
+  For complex changes and changes that need context from other work, ask the user to create a
   tracking issue if one is missing. Do not create an issue just to link it.
 - Link relevant design documents. If the change needs supporting documentation that does not
   exist, tell the user to create it. Put rationale that should outlive the review in doc comments
@@ -375,7 +365,7 @@ Use `git commit --signoff` to add this line.
   and test these, not the implementation. Write property tests using "hegeltest"
   and, if needed, some corner case tests. Don't write many tests. If your change
   adds more than 20 test cases, it's likely wrong - either most of the tests are
-  redundant, or the change should be split into multiple changes. STOP and ask a
+  redundant, or the change should be split into multiple changes. Ask a
   human reviewer for the judgement.
 - If test's monomorphisation produces more than 20 cases, please carefully
   justify this or reduce.
@@ -388,8 +378,8 @@ Use `git commit --signoff` to add this line.
   an ArrayRef. If your function operates on a primitive scalar, take the
   primitive, not the Scalar, unless the function has many callers and code would
   become bloated.
-- Never change .md/.rst files in docs/. STOP and ask a human to author the docs.
+- Ask a human to review docs changes in the docs/ folder.
 - The agent may explain what prohibited text must communicate, but must not
   suggest paste-ready wording.
-- If a comment on a pull request requires some changes, STOP and ask a human how
+- If a comment on a pull request requires some changes, Ask a human how
   to implement them. Don't implement them yourself or comment on user's behalf

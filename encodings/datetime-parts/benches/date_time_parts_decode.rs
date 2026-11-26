@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Executing DateTimeParts whose days are FoR over BitPacked level by level, where FoR writes a
-//! full-length buffer of days that DateTimeParts then combines with the time parts, and with block
-//! fusion, which combines each block of days as it is unpacked.
+//! Executing DateTimeParts whose days are FoR over BitPacked, which decodes level by level: FoR
+//! writes a full-length buffer of days, then DateTimeParts combines it with the time parts.
 //!
 //! Run with `cargo bench -p vortex-datetime-parts --bench date_time_parts_decode`.
 
@@ -94,16 +93,5 @@ fn date_time_parts_execute(bencher: Bencher) {
     let array = date_time_parts();
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
-}
-
-#[divan::bench]
-fn date_time_parts_fused(bencher: Bencher) {
-    let array = date_time_parts();
-    bencher
-        .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(true);
-            (array.clone(), ctx)
-        })
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
 }
