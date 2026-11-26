@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 200
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/tag={2}_ephyra-fuzz', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'), inputs.runner, inputs.target)
+          && format('runs-on={0}/runner={1}/tag={2}_ephyra-fuzz', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'), inputs.runner, inputs.target)
           || 'ubuntu-latest' }}
     env:
       FUZZ_NAME: ${{ inputs.target }}_ephyra
@@ -132,7 +132,7 @@ jobs:
         if: always() && hashFiles('ephyra-report.jsonl') != ''
         run: >-
           python3 .github/scripts/ephyra_report.py summary "${{ inputs.target }}" ephyra-report.jsonl
-          >> "$GITHUB_STEP_SUMMARY"
+          --work-dir ephyra-work >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist corpus
         if: always() && steps.run.outcome != 'skipped'

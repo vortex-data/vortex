@@ -9,10 +9,10 @@
 #
 # Every worker replays and extends the shared corpus in CORPUS_DIR and saves failing plans to
 # CRASH_DIR. Worker N tracks the coverage of crate FILTER[N % count], so the workers together look
-# for new code in several crates. Each worker writes its JSON report and log to ephyra-work/N, and
-# the reports are concatenated into ephyra-report.jsonl. When CORPUS_KEY and CORPUS_ETAG_FILE are
-# set, the corpus is checkpointed to R2 every 15 minutes while the workers run. The script fails
-# when any worker fails.
+# for new code in several crates. Each worker writes its JSON report, log and, for an instrumented
+# build, coverage page to ephyra-work/N, and the reports are concatenated into ephyra-report.jsonl.
+# When CORPUS_KEY and CORPUS_ETAG_FILE are set, the corpus is checkpointed to R2 every 15 minutes
+# while the workers run. The script fails when any worker fails.
 
 set -uo pipefail
 
@@ -62,6 +62,7 @@ for worker in $(seq 0 $((WORKERS - 1))); do
     EPHYRA_CRASH_DIR="$CRASH_DIR" \
     EPHYRA_COVERAGE_FILTER="$filter" \
     EPHYRA_REPORT_JSON="$PWD/report.jsonl" \
+    EPHYRA_COVERAGE_HTML="$PWD/coverage" \
     RUST_BACKTRACE=1 \
       "$BINARY" --ignored --exact "$TEST" --nocapture --test-threads=1 > output.log 2>&1
   ) &

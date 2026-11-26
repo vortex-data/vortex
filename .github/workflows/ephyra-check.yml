@@ -44,7 +44,7 @@ jobs:
             tests: 20000
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=ephyra-{1}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'), matrix.target)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=ephyra-{1}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'), matrix.target)
           || 'ubuntu-latest' }}
     env:
       EPHYRA_REPORT_JSON: ${{ github.workspace }}/ephyra-report.jsonl

@@ -3,7 +3,9 @@
 
 """Summarize ephyra JSON reports and file their failures as GitHub issues.
 
-`summary TARGET REPORT` prints Markdown for `$GITHUB_STEP_SUMMARY`. `issues TARGET REPORT --repo R
+`summary TARGET REPORT [--work-dir D]` prints Markdown for `$GITHUB_STEP_SUMMARY`: throughput,
+timing, coverage per worker when the build is instrumented, failures, health warnings and the
+input distributions. `issues TARGET REPORT --repo R
 --run-url U --commit C [--crash-dir D]` opens one issue per failure signature unless an open issue
 already has that exact title, so a failure that recurs on every run until it is fixed files one
 issue and no comments. Failures are merged across the workers' reports first. With `--crash-dir`,
@@ -82,18 +84,89 @@ def crash_plans(crash_dir: str | None) -> dict[str, str]:
     return plans
 
 
+def seconds(duration: Report | None) -> float:
+    return duration["secs"] + duration["nanos"] / 1e9 if duration else 0.0
+
+
+def fmt_ms(duration: Report | None) -> str:
+    return f"{seconds(duration) * 1000:.2f}"
+
+
+def corpus_counts(work_dir: str | None) -> dict[int, tuple[str, str]]:
+    """Corpus entries each worker replayed and added, from its log in `work_dir/N/output.log`."""
+    counts: dict[int, tuple[str, str]] = {}
+    if not work_dir or not Path(work_dir).is_dir():
+        return counts
+    for log in Path(work_dir).glob("*/output.log"):
+        replayed = added = "-"
+        for line in log.read_text(errors="replace").splitlines():
+            if line.startswith("ephyra: replaying "):
+                replayed = line.split()[2]
+            elif line.startswith("ephyra: added "):
+                added = line.split()[2]
+        if log.parent.name.isdigit():
+            counts[int(log.parent.name)] = (replayed, added)
+    return counts
+
+
 def summary(args: argparse.Namespace) -> None:
     reports = load(args.report)
     tests = sum(r["tests"] for r in reports)
+    wall = max((seconds(r["duration"]) for r in reports), default=0.0)
     statuses = sorted({r["status"] for r in reports})
     print(f"### `{args.target}` (ephyra): {', '.join(statuses)}")
-    print(f"{tests} tests over {len(reports)} worker(s)\n")
-    print("| worker | status | tests | discarded | seconds | seed |\n|---|---|---|---|---|---|")
+    rate = f", {tests / wall:,.0f} tests/s" if wall else ""
+    print(f"{tests:,} tests over {len(reports)} worker(s) in {wall:,.0f} s{rate}\n")
+
+    corpus = corpus_counts(args.work_dir)
+    print(
+        "| worker | status | tests | tests/s | discarded | property median / p90 / max (ms) "
+        "| corpus replayed / added | seed |"
+    )
+    print("|---|---|---|---|---|---|---|---|")
     for i, r in enumerate(reports):
+        secs = seconds(r["duration"])
+        prop = (r.get("timing") or {}).get("prop") or {}
+        replayed, added = corpus.get(i, ("-", "-"))
         print(
-            f"| {i} | {r['status']} | {r['tests']} | {r['discarded']} "
-            f"| {r['duration']['secs']} | `{r['seed']}` |"
+            f"| {i} | {r['status']} | {r['tests']:,} | {r['tests'] / secs if secs else 0:,.0f} "
+            f"| {r['discarded']:,} | {fmt_ms(prop.get('median'))} / {fmt_ms(prop.get('p90'))} / "
+            f"{fmt_ms(prop.get('max'))} | {replayed} / {added} | `{r['seed']}` |"
         )
+
+    covered = [r for r in reports if r.get("coverage")]
+    if covered:
+        print("\n#### Coverage\n")
+        print(
+            "| worker | crate | functions reached | regions hit | inputs with new coverage "
+            "| last growth at input |"
+        )
+        print("|---|---|---|---|---|---|")
+        for i, r in enumerate(reports):
+            c = r.get("coverage")
+            if not c:
+                continue
+            fn_pct = 100 * c["functions_reached"] / max(c["functions_total"], 1)
+            ct_pct = 100 * c["counters_hit"] / max(c["counters_total"], 1)
+            print(
+                f"| {i} | `{c['filter'] or 'all'}` "
+                f"| {c['functions_reached']:,} / {c['functions_total']:,} ({fn_pct:.1f}%) "
+                f"| {c['counters_hit']:,} / {c['counters_total']:,} ({ct_pct:.1f}%) "
+                f"| {c['novel_inputs']:,} | {c['last_novelty_at']:,} |"
+            )
+        for i, r in enumerate(reports):
+            c = r.get("coverage")
+            if not c or not (c.get("partial") or c.get("unreached")):
+                continue
+            print(f"\n<details><summary>Worker {i} (`{c['filter']}`): least covered</summary>\n")
+            for name, hit, total in (c.get("partial") or [])[:15]:
+                print(f"- `{name}`: {hit} / {total} regions")
+            unreached = c.get("unreached") or []
+            if unreached:
+                shown = ", ".join(f"`{n}`" for n in unreached[:15])
+                print(f"\nNever reached ({len(unreached):,}): {shown}")
+            print("\n</details>")
+
     found_failures = merged_failures(reports)
     if found_failures:
         print("\n#### Failures\n")
@@ -104,14 +177,44 @@ def summary(args: argparse.Namespace) -> None:
             print(f"  - replay: `{replay}`")
         if example := counterexample(failure):
             print(f"  - counterexample: `{example[:2000]}`")
+
+    health = sorted({(h["kind"], h["message"]) for r in reports for h in r.get("health") or []})
+    if health:
+        print("\n#### Health\n")
+        for kind, message in health:
+            print(f"- `{kind}`: {message}")
+
+    features: dict[str, list[Report]] = {}
+    for r in reports:
+        for name, stats in (r.get("features") or {}).items():
+            features.setdefault(name, []).append(stats)
+    covers: dict[str, list[float]] = {}
+    for r in reports:
+        for name, share in (r.get("covers") or {}).items():
+            covers.setdefault(name, []).append(share)
+    if features or covers:
+        print("\n#### Inputs\n")
+        for name, stats in sorted(features.items()):
+            median = sum(s["median"] for s in stats) / len(stats)
+            p90 = sum(s["p90"] for s in stats) / len(stats)
+            print(
+                f"- `{name}`: min {min(s['min'] for s in stats):g}, median {median:g}, "
+                f"p90 {p90:g}, max {max(s['max'] for s in stats):g} "
+                "(median and p90 averaged over workers)"
+            )
+        for name, shares in sorted(covers.items()):
+            print(f"- {name}: {100 * sum(shares) / len(shares):.1f}% of passing inputs")
+
     labels: dict[str, int] = {}
     for r in reports:
         for name, count in (r.get("labels") or {}).items():
             labels[name] = labels.get(name, 0) + count
     if labels:
-        print("\n| label | count |\n|---|---|")
+        print("\n<details><summary>Labels</summary>\n")
+        print("| label | count |\n|---|---|")
         for name, count in sorted(labels.items()):
-            print(f"| {name} | {count} |")
+            print(f"| {name} | {count:,} |")
+        print("\n</details>")
 
 
 def gh(*args: str) -> str:
@@ -197,6 +300,7 @@ def main() -> int:
     s = sub.add_parser("summary")
     s.add_argument("target")
     s.add_argument("report")
+    s.add_argument("--work-dir", help="worker directories, for corpus counts from their logs")
     s.set_defaults(func=summary)
     i = sub.add_parser("issues")
     i.add_argument("target")
