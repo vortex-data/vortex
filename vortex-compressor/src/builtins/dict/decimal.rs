@@ -17,8 +17,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::builders::dict::dict_encode;
-use vortex_array::builders::dict::sort_dict_by_frequency;
+use vortex_array::builders::dict::dict_encode_by_frequency;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -138,7 +137,7 @@ impl Scheme for DecimalDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = sort_dict_by_frequency(dict_encode(data.array(), exec_ctx)?, exec_ctx)?;
+        let dict = dict_encode_by_frequency(data.array(), exec_ctx)?;
         let has_all_values_referenced = dict.has_all_values_referenced();
 
         // Values = child 0.

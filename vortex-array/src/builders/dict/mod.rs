@@ -4,8 +4,11 @@
 use std::cmp::Reverse;
 
 use bytes::bytes_dict_builder;
+use bytes::bytes_dict_builder_with_counts;
 use decimal::decimal_dict_builder;
+use decimal::decimal_dict_builder_with_counts;
 use primitive::primitive_dict_builder;
+use primitive::primitive_dict_builder_with_counts;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -13,7 +16,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -21,8 +23,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::dict::DictArrayExt;
-use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -73,6 +73,42 @@ pub trait DictEncoder: Send {
 
     /// Returns the PType of the codes this encoder produces.
     fn codes_ptype(&self) -> PType;
+}
+
+/// Internal extension of [`DictEncoder`] that also returns per-entry occurrence counts accumulated
+/// during encoding.
+pub(super) trait CountingDictEncoder: DictEncoder {
+    fn reset_with_counts(&mut self) -> (ArrayRef, Vec<u64>);
+}
+
+fn dict_encoder_with_counts_in(
+    array: &ArrayRef,
+    constraints: &DictConstraints,
+    allocator: BufferAllocatorRef,
+) -> Box<dyn CountingDictEncoder> {
+    match array.dtype() {
+        DType::Primitive(ptype, nullability) => match_each_native_ptype!(*ptype, |P| {
+            primitive_dict_builder_with_counts::<P>(*nullability, constraints, allocator)
+        }),
+        DType::Utf8(_) | DType::Binary(_) => {
+            bytes_dict_builder_with_counts(array.dtype().clone(), constraints, allocator)
+        }
+        DType::Decimal(decimal_dtype, nullability) => {
+            match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |D| {
+                decimal_dict_builder_with_counts::<D>(
+                    *decimal_dtype,
+                    *nullability,
+                    constraints,
+                    allocator,
+                )
+            })
+        }
+        dtype => {
+            vortex_panic!(
+                "Can only dictionary encode primitive, decimal or binary arrays, got {dtype}"
+            )
+        }
+    }
 }
 
 /// Create a dictionary encoder using the default allocator.
@@ -176,65 +212,35 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
     Ok(dict_array)
 }
 
-/// Reorders a [`DictArray`]'s dictionary values by descending code occurrence count and remaps
-/// its codes accordingly, so the hottest entries receive codes `0, 1, ...`.
+/// Encode an array as a [`DictArray`] subject to `constraints`, ordering dictionary values by
+/// descending occurrence count so the hottest entries receive codes `0, 1, ...`.
 ///
-/// Ties are broken stably by original code index (preserving first-seen order when `dict` came
-/// from [`dict_encode`] or [`dict_encode_with_constraints`]).
-pub fn sort_dict_by_frequency(dict: DictArray, ctx: &mut ExecutionCtx) -> VortexResult<DictArray> {
-    if dict.values().len() <= 1 || dict.is_empty() {
-        return Ok(dict);
-    }
-    let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
-    match codes.ptype() {
-        PType::U8 => sort_dict_by_frequency_typed::<u8>(dict, codes, ctx),
-        PType::U16 => sort_dict_by_frequency_typed::<u16>(dict, codes, ctx),
-        PType::U32 => sort_dict_by_frequency_typed::<u32>(dict, codes, ctx),
-        PType::U64 => sort_dict_by_frequency_typed::<u64>(dict, codes, ctx),
-        ptype => vortex_bail!("expected unsigned dictionary codes, got {ptype}"),
-    }
-}
-
-fn sort_dict_by_frequency_typed<Code: UnsignedPType>(
-    dict: DictArray,
-    codes: PrimitiveArray,
+/// Counts are tracked during dictionary construction, and code remapping is fused with code
+/// narrowing (or performed in place when the code width does not change). Ties are broken stably
+/// by first-seen order.
+pub fn dict_encode_by_frequency_with_constraints(
+    array: &ArrayRef,
+    constraints: &DictConstraints,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
-    let dict_len = dict.values().len();
-    let slice = codes.as_slice::<Code>();
-    let mut counts = vec![0u64; dict_len];
+    let constraints = DictConstraints {
+        max_bytes: constraints.max_bytes,
+        max_len: constraints.max_len.min(array.len().max(1)),
+    };
+    let mut encoder = dict_encoder_with_counts_in(array, &constraints, ctx.allocator().clone());
+    let codes = encoder.encode(array, ctx)?;
+    let (values, counts) = encoder.reset_with_counts();
+    let dict_len = values.len();
 
-    match codes.validity()? {
-        Validity::NonNullable | Validity::AllValid => {
-            for &code in slice {
-                if let Some(count) = counts.get_mut(code.as_()) {
-                    *count += 1;
-                }
-            }
-        }
-        Validity::AllInvalid => return Ok(dict),
-        validity => {
-            let mask = validity.execute_mask(codes.len(), ctx)?;
-            match mask.bit_buffer() {
-                AllOr::All => {
-                    for &code in slice {
-                        if let Some(count) = counts.get_mut(code.as_()) {
-                            *count += 1;
-                        }
-                    }
-                }
-                AllOr::None => return Ok(dict),
-                AllOr::Some(bits) => {
-                    for idx in bits.set_indices() {
-                        if let Some(count) = counts.get_mut(slice[idx].as_()) {
-                            *count += 1;
-                        }
-                    }
-                }
-            }
-        }
+    if dict_len <= 1 || codes.is_empty() {
+        let codes = narrow_codes(codes, dict_len, ctx)?;
+        // SAFETY: the encoder only emits codes in `0..dict_len` and references every entry.
+        return Ok(unsafe {
+            DictArray::new_unchecked(codes.into_array(), values).set_all_values_referenced(true)
+        });
     }
 
+    debug_assert_eq!(counts.len(), dict_len);
     let mut order: Vec<usize> = (0..dict_len).collect();
     order.sort_by_key(|&old_code| Reverse(counts[old_code]));
     if order
@@ -242,38 +248,107 @@ fn sort_dict_by_frequency_typed<Code: UnsignedPType>(
         .enumerate()
         .all(|(new_code, &old_code)| new_code == old_code)
     {
-        return Ok(dict);
+        let codes = narrow_codes(codes, dict_len, ctx)?;
+        // SAFETY: the encoder only emits codes in `0..dict_len` and references every entry.
+        return Ok(unsafe {
+            DictArray::new_unchecked(codes.into_array(), values).set_all_values_referenced(true)
+        });
     }
 
-    let mut new_code_of = vec![Code::default(); dict_len];
-    for (new_code, &old_code) in order.iter().enumerate() {
-        if counts[old_code] == 0 {
-            break;
-        }
-        new_code_of[old_code] =
-            Code::from_usize(new_code).vortex_expect("referenced entry fits in original code type");
-    }
-
-    let mut remapped = BufferMut::<Code>::with_capacity_in(slice.len(), ctx.allocator().clone());
-    for &old_code in slice {
-        let mapped = new_code_of.get(old_code.as_()).copied().unwrap_or_default();
-        // SAFETY: `remapped` was allocated with capacity `slice.len()`.
-        unsafe { remapped.push_unchecked(mapped) };
-    }
-    let new_codes = PrimitiveArray::new(remapped.freeze(), codes.validity()?).into_array();
+    let target_ptype = codes_ptype_for_max_len(dict_len as u64);
+    let new_codes = remap_and_narrow_codes(codes, &order, target_ptype, ctx);
 
     let take_indices = Buffer::<u64>::from_iter(order.into_iter().map(|i| i as u64)).into_array();
-    let new_values = DictArray::try_new(take_indices, dict.values().clone())?
+    let new_values = DictArray::try_new(take_indices, values)?
         .into_array()
         .execute::<Canonical>(ctx)?
         .into_array();
 
-    let all_referenced = dict.has_all_values_referenced();
-    // SAFETY: `order` is a bijection on `0..dict_len`, and every valid code in `new_codes`
-    // was mapped through its inverse `new_code_of`, preserving logical values and `all_values_referenced`.
+    // SAFETY: `order` is a bijection on `0..dict_len`, every code in `new_codes` was remapped
+    // through its inverse, and every dictionary entry was referenced during encoding.
     Ok(unsafe {
-        DictArray::new_unchecked(new_codes, new_values).set_all_values_referenced(all_referenced)
+        DictArray::new_unchecked(new_codes.into_array(), new_values).set_all_values_referenced(true)
     })
+}
+
+/// Encode an entire array as a frequency-ordered [`DictArray`].
+pub fn dict_encode_by_frequency(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray> {
+    let dict_array = dict_encode_by_frequency_with_constraints(array, &UNCONSTRAINED, ctx)?;
+    if dict_array.len() != array.len() {
+        vortex_bail!(
+            "must have encoded all {} elements, but only encoded {}",
+            array.len(),
+            dict_array.len(),
+        );
+    }
+    Ok(dict_array)
+}
+
+/// Remaps `codes` through the inverse of `order` while narrowing to `target_ptype` in one pass.
+///
+/// When `codes.ptype() == target_ptype`, remaps the uniquely owned code buffer in place.
+fn remap_and_narrow_codes(
+    codes: PrimitiveArray,
+    order: &[usize],
+    target_ptype: PType,
+    ctx: &ExecutionCtx,
+) -> PrimitiveArray {
+    match (codes.ptype(), target_ptype) {
+        (PType::U8, PType::U8) => remap_codes_in_place::<u8>(codes, order),
+        (PType::U16, PType::U16) => remap_codes_in_place::<u16>(codes, order),
+        (PType::U32, PType::U32) => remap_codes_in_place::<u32>(codes, order),
+        (PType::U64, PType::U64) => remap_codes_in_place::<u64>(codes, order),
+        (PType::U16, PType::U8) => remap_and_narrow_typed::<u16, u8>(codes, order, ctx),
+        (PType::U32, PType::U8) => remap_and_narrow_typed::<u32, u8>(codes, order, ctx),
+        (PType::U32, PType::U16) => remap_and_narrow_typed::<u32, u16>(codes, order, ctx),
+        (PType::U64, PType::U8) => remap_and_narrow_typed::<u64, u8>(codes, order, ctx),
+        (PType::U64, PType::U16) => remap_and_narrow_typed::<u64, u16>(codes, order, ctx),
+        (PType::U64, PType::U32) => remap_and_narrow_typed::<u64, u32>(codes, order, ctx),
+        (src, dst) => vortex_panic!("unexpected dictionary code narrowing from {src} to {dst}"),
+    }
+}
+
+fn build_inverse_map<Dst: UnsignedPType>(order: &[usize]) -> Vec<Dst> {
+    let mut new_code_of = vec![Dst::default(); order.len()];
+    for (new_code, &old_code) in order.iter().enumerate() {
+        new_code_of[old_code] =
+            Dst::from_usize(new_code).vortex_expect("new code fits in target code type");
+    }
+    new_code_of
+}
+
+fn remap_codes_in_place<Code: UnsignedPType>(
+    codes: PrimitiveArray,
+    order: &[usize],
+) -> PrimitiveArray {
+    let new_code_of = build_inverse_map::<Code>(order);
+    let mut buf = codes.into_buffer_mut::<Code>();
+    for code in buf.as_mut_slice() {
+        // SAFETY: the encoder only emits codes in `0..order.len() == new_code_of.len()`.
+        *code = unsafe { *new_code_of.get_unchecked(code.as_()) };
+    }
+    // SAFETY: encoder codes are always non-nullable.
+    unsafe { PrimitiveArray::new_unchecked(buf.freeze(), Validity::NonNullable) }
+}
+
+fn remap_and_narrow_typed<Src: UnsignedPType, Dst: UnsignedPType>(
+    codes: PrimitiveArray,
+    order: &[usize],
+    ctx: &ExecutionCtx,
+) -> PrimitiveArray {
+    let new_code_of = build_inverse_map::<Dst>(order);
+    let src_slice = codes.as_slice::<Src>();
+    let mut dst = BufferMut::<Dst>::with_capacity_in(src_slice.len(), ctx.allocator().clone());
+    for &old_code in src_slice {
+        // SAFETY: `dst` has capacity `src_slice.len()`, and the encoder only emits codes in
+        // `0..order.len() == new_code_of.len()`.
+        unsafe { dst.push_unchecked(*new_code_of.get_unchecked(old_code.as_())) };
+    }
+    // SAFETY: encoder codes are always non-nullable.
+    unsafe { PrimitiveArray::new_unchecked(dst.freeze(), Validity::NonNullable) }
 }
 
 #[cfg(test)]
@@ -281,16 +356,15 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::DictConstraints;
     use super::dict_encode;
-    use super::sort_dict_by_frequency;
+    use super::dict_encode_by_frequency;
+    use super::dict_encode_by_frequency_with_constraints;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::BoolArray;
-    use crate::arrays::DictArray;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
@@ -300,7 +374,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::validity::Validity;
+    use crate::dtype::PType;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -327,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn sort_dict_by_frequency_orders_descending_with_stable_ties() -> VortexResult<()> {
+    fn dict_encode_by_frequency_orders_descending_with_stable_ties() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // "rare_b" (1), "tie_first" (2), "hot" (4), "tie_second" (2)
         let array = VarBinViewArray::from_iter_str([
@@ -343,8 +417,7 @@ mod tests {
         ])
         .into_array();
 
-        let dict = dict_encode(&array, &mut ctx)?;
-        let sorted = sort_dict_by_frequency(dict, &mut ctx)?;
+        let sorted = dict_encode_by_frequency(&array, &mut ctx)?;
         assert!(sorted.has_all_values_referenced());
         assert_arrays_eq!(
             sorted.values(),
@@ -360,57 +433,48 @@ mod tests {
     }
 
     #[test]
-    fn sort_dict_by_frequency_handles_nullable_values_and_nullable_codes() -> VortexResult<()> {
+    fn dict_encode_by_frequency_handles_nullable_and_narrowing() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Nullable values via `dict_encode`: null occurs 4 times, "a" twice, "b" once -> null gets code 0.
+        // Nullable values: null occurs 4 times, "a" twice, "b" once -> null gets code 0.
         let nullable_str = VarBinViewArray::from_iter(
             [Some("b"), Some("a"), None, None, Some("a"), None, None],
             DType::Utf8(Nullability::Nullable),
         )
         .into_array();
-        let sorted_str = sort_dict_by_frequency(dict_encode(&nullable_str, &mut ctx)?, &mut ctx)?;
+        let sorted_str = dict_encode_by_frequency(&nullable_str, &mut ctx)?;
         assert_eq!(
             sorted_str.codes().as_::<Primitive>().as_slice::<u8>(),
             &[2, 1, 0, 0, 1, 0, 0]
         );
         assert_arrays_eq!(sorted_str, nullable_str, &mut ctx);
 
-        // Nullable codes where invalid slots carry an out-of-bounds payload (`255`) or a rare valid code (`0`):
-        // valid counts: code 0 -> 1, code 1 -> 3. Invalid slots must not inflate code 0 or panic on 255.
-        let codes = PrimitiveArray::new(
-            buffer![0u8, 0, 255, 1, 1, 1],
-            Validity::Array(
-                BoolArray::from_iter([true, false, false, true, true, true]).into_array(),
-            ),
-        )
-        .into_array();
-        let values = buffer![10i32, 20].into_array();
-        let dict = DictArray::try_new(codes, values)?;
-        let sorted = sort_dict_by_frequency(dict.clone(), &mut ctx)?;
+        // Input > 256 rows with 2 distinct values exercises fused u16 -> u8 narrow + remap.
+        let mut values = Vec::with_capacity(300);
+        values.push(99i32);
+        values.extend(std::iter::repeat_n(42i32, 299));
+        let prim = PrimitiveArray::from_iter(values).into_array();
+        let sorted_prim = dict_encode_by_frequency(&prim, &mut ctx)?;
         assert_eq!(
-            sorted.values().as_::<Primitive>().as_slice::<i32>(),
-            &[20, 10]
+            sorted_prim.codes().dtype(),
+            &DType::Primitive(PType::U8, Nullability::NonNullable)
         );
-        assert_arrays_eq!(sorted, dict, &mut ctx);
-        Ok(())
-    }
+        assert_eq!(
+            sorted_prim.values().as_::<Primitive>().as_slice::<i32>(),
+            &[42, 99]
+        );
+        assert_arrays_eq!(sorted_prim, prim, &mut ctx);
 
-    #[test]
-    fn sort_dict_by_frequency_allows_unused_entries_beyond_code_width() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let codes = buffer![0u8, 1, 1, 1].into_array();
-        let values = PrimitiveArray::from_iter(0i32..300).into_array();
-        let dict = DictArray::try_new(codes, values)?;
-        let sorted = sort_dict_by_frequency(dict.clone(), &mut ctx)?;
+        // Constrained encode with max_len <= 256 exercises in-place u8 -> u8 remap.
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len: 16,
+        };
+        let constrained = dict_encode_by_frequency_with_constraints(&prim, &constraints, &mut ctx)?;
         assert_eq!(
-            &sorted.values().as_::<Primitive>().as_slice::<i32>()[..2],
-            &[1, 0]
+            constrained.values().as_::<Primitive>().as_slice::<i32>(),
+            &[42, 99]
         );
-        assert_eq!(
-            sorted.codes().as_::<Primitive>().as_slice::<u8>(),
-            &[1, 0, 0, 0]
-        );
-        assert_arrays_eq!(sorted, dict, &mut ctx);
+        assert_arrays_eq!(constrained, prim, &mut ctx);
         Ok(())
     }
 }

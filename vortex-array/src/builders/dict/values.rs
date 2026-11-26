@@ -30,8 +30,21 @@ pub(super) struct ValuesDict<K, V, Code> {
     null_code: OnceCell<Code>,
     values: BufferMut<V>,
     values_nulls: BitBufferMut,
+    counts: Option<Vec<u64>>,
     max_dict_len: usize,
     allocator: BufferAllocatorRef,
+}
+
+#[inline]
+fn record_count<Code: UnsignedPType>(counts: &mut Vec<u64>, code: Code, n: u64) {
+    let idx = code.as_();
+    if idx == counts.len() {
+        counts.push(n);
+    } else {
+        // SAFETY: `ValuesDict` assigns codes sequentially starting at 0, so any existing code
+        // is strictly less than `counts.len()`.
+        unsafe { *counts.get_unchecked_mut(idx) += n };
+    }
 }
 
 impl<K, V, Code> ValuesDict<K, V, Code>
@@ -47,9 +60,16 @@ where
             null_code: OnceCell::new(),
             values: BufferMut::empty_aligned_in(Alignment::of::<V>(), allocator.clone()),
             values_nulls: BitBufferMut::empty_in(allocator.clone()),
+            counts: None,
             max_dict_len,
             allocator,
         }
+    }
+
+    /// Enables tracking per-entry occurrence counts during [`Self::encode`].
+    pub(super) fn with_counts(mut self) -> Self {
+        self.counts = Some(Vec::new());
+        self
     }
 
     /// Returns the codes of the longest prefix of `values` that fits the dictionary constraints,
@@ -69,38 +89,77 @@ where
             return codes;
         }
 
+        let mut counts = self.counts.take();
         match mask {
-            Mask::AllTrue(_) => {
-                for &value in values {
-                    let Some(code) = self.encode_value(key(value), value) else {
-                        break;
-                    };
-                    // SAFETY: `codes` holds `values.len()` codes, at most one per value.
-                    unsafe { codes.push_unchecked(code) }
+            Mask::AllTrue(_) => match &mut counts {
+                None => {
+                    for &value in values {
+                        let Some(code) = self.encode_value(key(value), value) else {
+                            break;
+                        };
+                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
+                        unsafe { codes.push_unchecked(code) }
+                    }
                 }
-            }
+                Some(counts) => {
+                    for &value in values {
+                        let Some(code) = self.encode_value(key(value), value) else {
+                            break;
+                        };
+                        record_count(counts, code, 1);
+                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
+                        unsafe { codes.push_unchecked(code) }
+                    }
+                }
+            },
             Mask::AllFalse(_) => {
                 if let Some(code) = self.encode_null() {
+                    if let Some(counts) = &mut counts {
+                        record_count(counts, code, values.len() as u64);
+                    }
                     // SAFETY: `codes` holds `values.len()` codes.
                     unsafe { codes.push_n_unchecked(code, values.len()) }
                 }
             }
-            Mask::Values(v) => {
-                for (&value, valid) in values.iter().zip(v.bit_buffer()) {
-                    let code = if valid {
-                        self.encode_value(key(value), value)
-                    } else {
-                        self.encode_null()
-                    };
-                    let Some(code) = code else {
-                        break;
-                    };
-                    // SAFETY: `codes` holds `values.len()` codes, at most one per value.
-                    unsafe { codes.push_unchecked(code) }
+            Mask::Values(v) => match &mut counts {
+                None => {
+                    for (&value, valid) in values.iter().zip(v.bit_buffer()) {
+                        let code = if valid {
+                            self.encode_value(key(value), value)
+                        } else {
+                            self.encode_null()
+                        };
+                        let Some(code) = code else {
+                            break;
+                        };
+                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
+                        unsafe { codes.push_unchecked(code) }
+                    }
                 }
-            }
+                Some(counts) => {
+                    for (&value, valid) in values.iter().zip(v.bit_buffer()) {
+                        let code = if valid {
+                            self.encode_value(key(value), value)
+                        } else {
+                            self.encode_null()
+                        };
+                        let Some(code) = code else {
+                            break;
+                        };
+                        record_count(counts, code, 1);
+                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
+                        unsafe { codes.push_unchecked(code) }
+                    }
+                }
+            },
         }
+        self.counts = counts;
         codes
+    }
+
+    /// Takes the accumulated per-entry occurrence counts, leaving an empty vector in place.
+    pub(super) fn take_counts(&mut self) -> Vec<u64> {
+        self.counts.as_mut().map(mem::take).unwrap_or_default()
     }
 
     /// Returns the values and their validity bits, and clears the dictionary for a new round of
@@ -108,6 +167,9 @@ where
     pub(super) fn reset(&mut self) -> (Buffer<V>, BitBuffer) {
         self.lookup.clear();
         self.null_code = OnceCell::new();
+        if let Some(counts) = &mut self.counts {
+            counts.clear();
+        }
         let values = mem::replace(
             &mut self.values,
             BufferMut::empty_aligned_in(Alignment::of::<V>(), self.allocator.clone()),

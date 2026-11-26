@@ -27,9 +27,8 @@ use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::codes_ptype_for_max_len;
-use vortex_array::builders::dict::dict_encode;
-use vortex_array::builders::dict::dict_encode_with_constraints;
-use vortex_array::builders::dict::sort_dict_by_frequency;
+use vortex_array::builders::dict::dict_encode_by_frequency;
+use vortex_array::builders::dict::dict_encode_by_frequency_with_constraints;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -124,7 +123,7 @@ pub(super) fn compress_bytes_dictionary(
         return Ok(trial.array.clone());
     }
 
-    let dict = sort_dict_by_frequency(dict_encode(data.array(), exec_ctx)?, exec_ctx)?;
+    let dict = dict_encode_by_frequency(data.array(), exec_ctx)?;
     compress_dictionary(scheme, compressor, &dict, compress_ctx, exec_ctx)
 }
 
@@ -475,11 +474,8 @@ fn build_candidate(
         max_bytes: MAX_DICTIONARY_BYTES,
         max_len: MAX_DICTIONARY_ENTRIES,
     };
-    let dictionary = dict_encode_with_constraints(array, &constraints, exec_ctx)?;
-    if dictionary.len() < array.len() {
-        return Ok(None);
-    }
-    Ok(Some(sort_dict_by_frequency(dictionary, exec_ctx)?))
+    let dictionary = dict_encode_by_frequency_with_constraints(array, &constraints, exec_ctx)?;
+    Ok((dictionary.len() == array.len()).then_some(dictionary))
 }
 
 /// Returns the complete value referenced by a binary view.

@@ -31,12 +31,12 @@ use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_si
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
-use vortex_array::builders::dict::dict_encode_with_constraints;
+use vortex_array::builders::dict::dict_encode_by_frequency_with_constraints;
 use vortex_array::builders::dict::dict_encoder_in;
-use vortex_array::builders::dict::sort_dict_by_frequency;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -205,7 +205,7 @@ impl LayoutStrategy for DictStrategy {
                     (codes.len() as u64 * element_size, codes.nbytes())
                 });
                 let initial_encoder = if codes_probe.is_some() {
-                    seed_encoder_from_sample(&sample, &constraints, &mut exec_ctx)?
+                    seed_encoder_from_probe(&sample, &compressed, &constraints, &mut exec_ctx)?
                 } else {
                     None
                 };
@@ -621,24 +621,43 @@ fn probe_dict_codes(compressed: &ArrayRef) -> Option<ArrayRef> {
     stored.as_opt::<Dict>().map(|dict| dict.codes().clone())
 }
 
-/// Pre-seeds a [`DictEncoder`] with `sample`'s distinct entries ordered by descending frequency.
+/// Pre-seeds a [`DictEncoder`] with the probe sample's distinct entries ordered by descending
+/// frequency.
 ///
-/// Every entry in `sample` comes from the leading rows that `peek_probe_sample` placed back in
-/// front of the stream, so as long as `sample` fits within `constraints`, the first dictionary run
-/// is guaranteed to reference every seeded entry before `constraints` can be reached.
-fn seed_encoder_from_sample(
+/// Reuses the probe dictionary's values directly when the probe compressor already returned a
+/// frequency-ordered `Dict` with matching dtype, non-nullable codes, and all values referenced;
+/// otherwise falls back to frequency-encoding `sample` directly (e.g. for `DecimalByteParts` or
+/// nullable codes where nulls live outside `values`).
+///
+/// Every entry comes from the leading rows that `peek_probe_sample` placed back in front of the
+/// stream, so as long as all entries fit within `constraints`, the first dictionary run is
+/// guaranteed to reference every seeded entry before `constraints` can be reached.
+fn seed_encoder_from_probe(
     sample: &ArrayRef,
+    compressed: &ArrayRef,
     constraints: &DictConstraints,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Box<dyn DictEncoder>>> {
-    let probe_dict = dict_encode_with_constraints(sample, constraints, ctx)?;
-    if probe_dict.len() < sample.len() || probe_dict.values().is_empty() {
-        return Ok(None);
-    }
-    let sorted = sort_dict_by_frequency(probe_dict, ctx)?;
+    let seed_values = if let Some(dict) = compressed.as_opt::<Dict>()
+        && dict.values().dtype() == sample.dtype()
+        && !dict.codes().dtype().is_nullable()
+        && dict.has_all_values_referenced()
+    {
+        if dict.values().is_empty() {
+            return Ok(None);
+        }
+        dict.values().clone()
+    } else {
+        let sorted = dict_encode_by_frequency_with_constraints(sample, constraints, ctx)?;
+        if sorted.len() < sample.len() || sorted.values().is_empty() {
+            return Ok(None);
+        }
+        sorted.values().clone()
+    };
+
     let mut encoder = dict_encoder_in(sample, constraints, ctx.allocator().clone());
-    let seeded = encoder.encode(sorted.values(), ctx)?;
-    if seeded.len() < sorted.values().len() {
+    let seeded = encoder.encode(&seed_values, ctx)?;
+    if seeded.len() < seed_values.len() {
         return Ok(None);
     }
     Ok(Some(encoder))
@@ -720,6 +739,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
+    use vortex_array::builders::dict::dict_encode_by_frequency;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -1089,7 +1109,7 @@ mod tests {
     fn probe_seeds_dictionary_values_in_frequency_order() -> VortexResult<()> {
         let probe = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
             let chunk = chunk.clone().execute::<Canonical>(ctx)?.into_array();
-            Ok(dict_encode(&chunk, ctx)?.into_array())
+            Ok(dict_encode_by_frequency(&chunk, ctx)?.into_array())
         };
         let strategy = DictStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
