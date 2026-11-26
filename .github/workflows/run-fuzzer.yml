@@ -58,7 +58,7 @@ on:
         description: "libFuzzer RSS limit per fuzzing job in MB. 0 disables the limit."
         required: false
         type: number
-        default: 0
+        default: 2048
       seed_merge_timeout:
         description: >-
           Seconds to wait for libFuzzer to finish replaying saved corpus. After

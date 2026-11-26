@@ -60,7 +60,7 @@ start_fuzzer() {
   env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
     timeout --signal=INT --kill-after=60 "$((budget + 480))" \
     "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
-    "${FORK_FLAGS[@]}" "-max_total_time=$budget" "-rss_limit_mb=${RSS_LIMIT_MB:-0}" \
+    "${FORK_FLAGS[@]}" "-max_total_time=$budget" "-rss_limit_mb=${RSS_LIMIT_MB:-2048}" \
     -print_final_stats=1 \
     -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
     "$@" > >(tee -a fuzz_output.log) 2>&1 &
