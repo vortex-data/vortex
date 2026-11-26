@@ -35,14 +35,12 @@ jobs:
   attempt-fix:
     name: "Attempt to Fix Fuzzer Crash"
     # A called reusable workflow inherits the caller's github.event_name, so the
-    # job sees the caller's event, never "workflow_call". Allow each caller:
-    # - workflow_dispatch: a manual run of this workflow or of a fuzz-* workflow.
-    # - schedule: the in-pipeline attempt-fix job in run-fuzzer.yml.
-    # - issues: fuzzer-issue-autofix.yml.
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
-      github.event_name == 'issues'
+    # job sees the caller's event, never "workflow_call". The callers start from
+    # workflow_dispatch, schedule, workflow_run (the fuzz-* workflows after Fuzz
+    # Build) and issues (fuzzer-issue-autofix.yml). An allowlist of those events
+    # silently skipped every fix when the fuzz-* triggers changed, so instead
+    # reject only pull request events, whose code and inputs are untrusted.
+    if: ${{ !startsWith(github.event_name, 'pull_request') }}
 
     runs-on: ubuntu-latest
     # The fix session builds the fuzz target, runs tests and clippy, and runs up
