@@ -717,13 +717,6 @@ fn validate_zctl(
     offsets_primitive: PrimitiveArray,
     sizes_primitive: PrimitiveArray,
 ) -> VortexResult<()> {
-    // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
-    // if there are null views.
-    let offsets_sorted = match_each_integer_ptype!(offsets_primitive.ptype(), |P| {
-        offsets_primitive.as_slice::<P>().is_sorted()
-    });
-    vortex_ensure!(offsets_sorted, "offsets must be sorted");
-
     // Validate that offset[i] + size[i] == offset[i + 1] for all adjacent views.
     // This ensures views are non-overlapping, ordered, and contiguous without gaps
     // (including around empty lists), while still allowing leading and trailing unreferenced
