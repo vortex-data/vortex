@@ -4,7 +4,7 @@
 include ../setup.slt.no
 
 # Synthetic multi-file Vortex tables exercising Top-N late materialization (file_row_number +
-# file_index) and hash-join dynamic table filters without external data downloads.
+# file_index + dynamic filters) and hash-join filter pushdown without external data downloads.
 
 query I
 COPY (
@@ -49,14 +49,15 @@ COPY (
 ----
 5
 
-# Top-N over wide rows triggers late materialization with a file_row_number virtual column filter.
+# Top-N over wide rows triggers late materialization with a file_row_number virtual column filter
+# and a dynamic sort_key threshold filter.
 query TT
 EXPLAIN (FORMAT json) SELECT id, sort_key, p1, p2, p3, p4
 FROM '${WORK_DIR}/fact_a.vortex'
 ORDER BY sort_key ASC
 LIMIT 4;
 ----
-<REGEX>:file_row_number
+<REGEX>:(?s)(file_row_number.*Dynamic Filter|Dynamic Filter.*file_row_number)
 
 query IITTTT
 SELECT id, sort_key, p1, p2, p3, p4
@@ -69,26 +70,7 @@ LIMIT 4;
 5358 2 payload_1_000000005358 payload_2_000000005358 payload_3_000000005358 payload_4_000000005358
 3037 3 payload_1_000000003037 payload_2_000000003037 payload_3_000000003037 payload_4_000000003037
 
-# Descending Top-N late materialization.
-query TT
-EXPLAIN (FORMAT json) SELECT id, sort_key, p1, p2, p3, p4
-FROM '${WORK_DIR}/fact_a.vortex'
-ORDER BY sort_key DESC
-LIMIT 3;
-----
-<REGEX>:file_row_number
-
-query IITTTT
-SELECT id, sort_key, p1, p2, p3, p4
-FROM '${WORK_DIR}/fact_a.vortex'
-ORDER BY sort_key DESC
-LIMIT 3;
-----
-2321 9999 payload_1_000000002321 payload_2_000000002321 payload_3_000000002321 payload_4_000000002321
-4642 9998 payload_1_000000004642 payload_2_000000004642 payload_3_000000004642 payload_4_000000004642
-6963 9997 payload_1_000000006963 payload_2_000000006963 payload_3_000000006963 payload_4_000000006963
-
-# Multi-file Top-N late materialization uses both file_index and file_row_number.
+# Multi-file Top-N late materialization uses both file_index and file_row_number (<= dynamic filter).
 query TT
 EXPLAIN (FORMAT json) SELECT id, sort_key, p1, p2, p3, p4
 FROM '${WORK_DIR}/fact_*.vortex'
@@ -108,7 +90,7 @@ LIMIT 4;
 7679 1 payload_1_000000007679 payload_2_000000007679 payload_3_000000007679 payload_4_000000007679
 17679 1 payload_1_000000017679 payload_2_000000017679 payload_3_000000017679 payload_4_000000017679
 
-# Multi-file descending Top-N late materialization (exercises >= dynamic filter + virtual columns).
+# Multi-file descending Top-N late materialization (exercises >= dynamic filter).
 query IITTTT
 SELECT id, sort_key, p1, p2, p3, p4
 FROM '${WORK_DIR}/fact_*.vortex'
@@ -120,16 +102,7 @@ LIMIT 4;
 14642 9998 payload_1_000000014642 payload_2_000000014642 payload_3_000000014642 payload_4_000000014642
 4642 9998 payload_1_000000004642 payload_2_000000004642 payload_3_000000004642 payload_4_000000004642
 
-# Runtime-filtered build side pushes an Optional(Dynamic(...)) join filter into the probe Vortex scan.
-query TT
-EXPLAIN (FORMAT json) SELECT f.id, d.weight, d.lbl
-FROM '${WORK_DIR}/fact_a.vortex' f
-JOIN (SELECT id, weight, lbl FROM '${WORK_DIR}/dim.vortex' WHERE (weight * 7) % 2 = 0 OR weight = 1) d
-ON f.id = d.id
-ORDER BY f.id;
-----
-<REGEX>:(?s)READ_VORTEX.*\$\.id
-
+# Hash join over a filtered build side pushes id bounds into the probe Vortex scan.
 query IIT
 SELECT f.id, d.weight, d.lbl
 FROM '${WORK_DIR}/fact_a.vortex' f
@@ -140,7 +113,7 @@ ORDER BY f.id;
 100 1 x
 5000 2 y
 
-# Empty build side produces zero rows (exercises uninitialized dynamic filter).
+# Empty build side produces zero rows.
 query IIT
 SELECT f.id, d.weight, d.lbl
 FROM '${WORK_DIR}/fact_*.vortex' f

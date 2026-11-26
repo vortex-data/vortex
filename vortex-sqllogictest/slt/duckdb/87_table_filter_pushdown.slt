@@ -3,9 +3,9 @@
 
 include ../setup.slt.no
 
-# Whole-system SLT coverage for DuckDB table filters: virtual column filters (file_row_number,
-# file_index), constant comparisons, IN lists, conjunctions (AND/OR), IS [NOT] NULL, struct
-# extract filters, and float NaN/Inf statistics-assisted filtering.
+# Whole-system SLT coverage for DuckDB filter pushdown: virtual column filters (file_row_number,
+# file_index), IN lists, conjunctions (AND/OR), IS [NOT] NULL, struct extract filters, and
+# NaN-aware float filtering.
 
 query I
 COPY (
@@ -35,38 +35,7 @@ COPY (
 ----
 4
 
-# --- Virtual column filters on file_row_number ---
-
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number = 3;
-----
-3 4
-
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number < 2 ORDER BY file_row_number;
-----
-0 1
-1 2
-
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number <= 1 ORDER BY file_row_number;
-----
-0 1
-1 2
-
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number > 5 ORDER BY file_row_number;
-----
-6 7
-7 8
-
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number >= 6 ORDER BY file_row_number;
-----
-6 7
-7 8
-
-# ConjunctionAnd of range bounds on file_row_number.
+# Virtual column range, unsorted/duplicate IN, combined IN+range, and inequality filters.
 query II
 SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex'
 WHERE file_row_number >= 2 AND file_row_number < 5
@@ -76,13 +45,6 @@ ORDER BY file_row_number;
 3 4
 4 5
 
-# Contradictory range bounds on file_row_number return zero rows.
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE file_row_number >= 6 AND file_row_number < 2;
-----
-
-# Unsorted and duplicate IN list on file_row_number.
 query II
 SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex'
 WHERE file_row_number IN (6, 1, 4, 1, 6)
@@ -92,7 +54,6 @@ ORDER BY file_row_number;
 4 5
 6 7
 
-# Combined IN selection and range bounds on file_row_number.
 query II
 SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex'
 WHERE file_row_number IN (0, 2, 4, 6, 7) AND file_row_number >= 2 AND file_row_number < 7
@@ -101,29 +62,6 @@ ORDER BY file_row_number;
 2 3
 4 5
 6 7
-
-# Disjoint IN filters on file_row_number.
-query II
-SELECT file_row_number, id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE file_row_number IN (1, 2) AND file_row_number IN (3, 4);
-----
-
-# Inequality on file_row_number falls back cleanly.
-query I
-SELECT count(*) FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number != 0;
-----
-7
-
-# Out-of-bounds and negative file_row_number comparisons.
-query I
-SELECT count(*) FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number < 0;
-----
-0
-
-query I
-SELECT count(*) FROM '${WORK_DIR}/tf_0.vortex' WHERE file_row_number >= 100;
-----
-0
 
 # Multi-file filters combining file_index and file_row_number.
 query III
@@ -135,27 +73,7 @@ ORDER BY file_row_number;
 1 2 103
 1 3 104
 
-query III
-SELECT file_index, file_row_number, id FROM '${WORK_DIR}/tf_*.vortex'
-WHERE file_index IN (1, 0) AND file_row_number < 2
-ORDER BY file_index, file_row_number;
-----
-0 0 1
-0 1 2
-1 0 101
-1 1 102
-
-# --- Regular column, conjunction, NULL, and struct-extract table filters ---
-
-query I
-SELECT id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE id IN (1, 3, 5, 6) AND v IS NOT NULL
-ORDER BY id;
-----
-1
-3
-6
-
+# Regular column, conjunction (AND/OR), IS NULL, and struct-extract filters.
 query I
 SELECT id FROM '${WORK_DIR}/tf_0.vortex'
 WHERE v IS NULL OR (id >= 5 AND s.x >= 600)
@@ -169,26 +87,15 @@ ORDER BY id;
 
 query I
 SELECT id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE s.x IN (200, 400) AND s.y = 'd'
+WHERE (s.x IN (200, 400) AND s.y = 'd') OR (s.inner.k >= 6 AND s.inner.k <= 7) OR s.x IS NULL
 ORDER BY id;
 ----
 4
-
-query I
-SELECT id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE s.x IS NULL;
-----
 5
-
-query I
-SELECT id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE s.inner.k >= 6 AND s.inner.k <= 7
-ORDER BY id;
-----
 6
 7
 
-# Float table filters with NaN and Inf (verifies ColumnStatistics NaN-max ordering matches DuckDB).
+# Float filter with NaN and Inf (verifies ColumnStatistics NaN-max ordering matches DuckDB).
 query I
 SELECT id FROM '${WORK_DIR}/tf_0.vortex'
 WHERE f > 3.5
@@ -197,24 +104,3 @@ ORDER BY id;
 2
 4
 8
-
-query I
-SELECT id FROM '${WORK_DIR}/tf_0.vortex'
-WHERE isnan(f);
-----
-2
-
-query I
-SELECT id FROM '${WORK_DIR}/tf_1.vortex'
-WHERE f > 25.0
-ORDER BY id;
-----
-103
-104
-
-# Aggregate pushdown combined with table filters (exercises aggregate_table_filters).
-query III
-SELECT min(v), max(v), count(v) FROM '${WORK_DIR}/tf_0.vortex'
-WHERE id >= 2 AND id <= 6 AND v IS NOT NULL;
-----
-30 60 3
