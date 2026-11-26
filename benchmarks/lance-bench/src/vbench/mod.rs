@@ -4,7 +4,7 @@
 //! DataFusion tables for VBench cosine top-k queries, with optional price prefiltering.
 //! Register either or both engines in the same session. Both expose the recipe fields
 //! `id: UInt64`, `emb: FixedSizeList<Float32>`, and `price: Int64`, all non-null.
-//! [`register_topk`] exposes indexed retrieval as an explicit SQL table function.
+//! [`VectorSearch`] exposes indexed retrieval as an explicit SQL table function.
 //! The continuous benchmark uses this function with the default DataFusion planner.
 //! Calling [`enable_ann`] opts these tables into approximate selection for the SQL shape below.
 //!
@@ -26,6 +26,7 @@ use anyhow::ensure;
 use datafusion::prelude::SessionContext;
 use lance::Dataset;
 use lance::deps::arrow_schema as ls;
+pub use topk::VectorSearch;
 pub use topk::register_topk;
 use vortex::array::dtype::DType;
 use vortex::array::dtype::Nullability::NonNullable;
@@ -51,6 +52,15 @@ pub fn register_vortex(
     index: &IndexFile<IvfIndex>,
     nprobes: usize,
 ) -> anyhow::Result<()> {
+    ctx.register_table(name, Arc::new(vortex_table(file, index, nprobes)?))?;
+    Ok(())
+}
+
+fn vortex_table(
+    file: VortexFile,
+    index: &IndexFile<IvfIndex>,
+    nprobes: usize,
+) -> anyhow::Result<RecipeTable> {
     ensure!(nprobes > 0, "nprobes must be positive");
     ensure!(
         index.column() == "emb"
@@ -79,11 +89,7 @@ pub fn register_vortex(
         file: Arc::new(file),
         index: Arc::clone(index.rows()),
     };
-    ctx.register_table(
-        name,
-        Arc::new(RecipeTable::new(backend, i32::try_from(dim)?, nprobes)),
-    )?;
-    Ok(())
+    Ok(RecipeTable::new(backend, i32::try_from(dim)?, nprobes))
 }
 
 /// Register a Lance recipe dataset with its existing cosine IVF index on `emb`.
@@ -93,6 +99,11 @@ pub fn register_lance(
     dataset: Arc<Dataset>,
     nprobes: usize,
 ) -> anyhow::Result<()> {
+    ctx.register_table(name, Arc::new(lance_table(dataset, nprobes)?))?;
+    Ok(())
+}
+
+fn lance_table(dataset: Arc<Dataset>, nprobes: usize) -> anyhow::Result<RecipeTable> {
     ensure!(nprobes > 0, "nprobes must be positive");
     let schema = ls::Schema::from(dataset.schema());
     for (name, ty) in [("id", ls::DataType::UInt64), ("price", ls::DataType::Int64)] {
@@ -110,9 +121,5 @@ pub fn register_lance(
         !emb.is_nullable() && item.data_type() == &ls::DataType::Float32,
         "expected non-null Float32 embeddings"
     );
-    ctx.register_table(
-        name,
-        Arc::new(RecipeTable::new(Backend::Lance(dataset), *dim, nprobes)),
-    )?;
-    Ok(())
+    Ok(RecipeTable::new(Backend::Lance(dataset), *dim, nprobes))
 }

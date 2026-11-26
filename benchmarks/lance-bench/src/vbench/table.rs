@@ -17,11 +17,14 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::Session;
 use datafusion::catalog::TableProvider;
 use datafusion::common::Result;
+use datafusion::common::ScalarValue;
 use datafusion::common::exec_err;
 use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::error::DataFusionError;
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::Expr;
+use datafusion::logical_expr::Operator;
+use datafusion::logical_expr::TableProviderFilterPushDown;
 use datafusion::logical_expr::TableType;
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_expr::PhysicalExpr;
@@ -87,6 +90,7 @@ pub(super) struct RecipeTable {
     backend: Backend,
     schema: SchemaRef,
     pub search: Option<Search>,
+    pub push_price_filter: bool,
     probes: usize,
 }
 
@@ -102,6 +106,7 @@ impl RecipeTable {
             backend,
             schema: Arc::new(schema),
             search: None,
+            push_price_filter: false,
             probes,
         }
     }
@@ -231,6 +236,25 @@ impl fmt::Debug for RecipeTable {
     }
 }
 
+fn price_floor(filter: &Expr) -> Option<i64> {
+    let Expr::BinaryExpr(binary) = filter else {
+        return None;
+    };
+    match (binary.left.as_ref(), binary.op, binary.right.as_ref()) {
+        (
+            Expr::Column(column),
+            Operator::GtEq,
+            Expr::Literal(ScalarValue::Int64(Some(value)), _),
+        )
+        | (
+            Expr::Literal(ScalarValue::Int64(Some(value)), _),
+            Operator::LtEq,
+            Expr::Column(column),
+        ) if column.name == "price" => Some(*value),
+        _ => None,
+    }
+}
+
 #[async_trait]
 impl TableProvider for RecipeTable {
     fn schema(&self) -> SchemaRef {
@@ -240,22 +264,46 @@ impl TableProvider for RecipeTable {
         TableType::Base
     }
 
+    fn supports_filters_pushdown(
+        &self,
+        filters: &[&Expr],
+    ) -> Result<Vec<TableProviderFilterPushDown>> {
+        Ok(filters
+            .iter()
+            .map(|filter| {
+                if self.push_price_filter && price_floor(filter).is_some() {
+                    TableProviderFilterPushDown::Exact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
+            })
+            .collect())
+    }
+
     async fn scan(
         &self,
         _: &dyn Session,
         projection: Option<&[usize]>,
-        _: &[Expr],
+        filters: &[Expr],
         _: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let mut search = self.search.clone();
+        if let Some(search) = search.as_mut() {
+            search.min_price = search
+                .min_price
+                .into_iter()
+                .chain(filters.iter().filter_map(price_floor))
+                .max();
+        }
+        let min_price = search.as_ref().and_then(|s| s.min_price);
         let source = match &self.backend {
             Backend::Vortex { file, index } => NativeScan::Vortex {
                 file: Arc::clone(file),
                 index: Arc::clone(index),
-                search: self.search.clone(),
+                search,
                 probes: self.probes,
             },
             Backend::Lance(dataset) => {
-                let search = self.search.as_ref();
                 let plan = async {
                     let mut scan = dataset.scan();
                     scan.project(&["id", "emb", "price"])?;
@@ -290,6 +338,7 @@ impl TableProvider for RecipeTable {
         );
         Ok(Arc::new(RecipeExec {
             name: self.plan_name(),
+            min_price,
             source,
             properties: Arc::new(properties),
             full_schema: Arc::clone(&self.schema),
@@ -299,6 +348,7 @@ impl TableProvider for RecipeTable {
 }
 
 struct RecipeExec {
+    min_price: Option<i64>,
     name: &'static str,
     source: NativeScan,
     properties: Arc<PlanProperties>,
@@ -315,6 +365,9 @@ impl fmt::Debug for RecipeExec {
 impl DisplayAs for RecipeExec {
     fn fmt_as(&self, format: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(self.name)?;
+        if let Some(floor) = self.min_price {
+            write!(f, " prefilter=[price >= {floor}]")?;
+        }
         if let (DisplayFormatType::Verbose, NativeScan::Lance(plan)) = (format, &self.source) {
             write!(f, "\n{}", display_lance_plan(plan.as_ref()).indent(false))?;
         }

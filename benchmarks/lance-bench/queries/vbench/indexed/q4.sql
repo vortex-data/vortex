@@ -2,5 +2,6 @@
 -- SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 SELECT id, distance
-FROM recipe_knn('$vector', 10, 90)
+FROM vector_search('$table', 'emb', '$vector', 10)
+WHERE price >= 90
 ORDER BY distance

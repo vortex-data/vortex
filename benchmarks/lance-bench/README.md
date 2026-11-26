@@ -9,7 +9,18 @@ Run both engines against the same seeded dataset and 21 query vectors.
 cargo run --profile bench -p lance-bench --bin vector-bench -- --large
 ```
 
-Q1 retrieves ten nearest embeddings by cosine distance. Q4 does the same search over rows with `price >= 90`. The SQL in [queries/vbench/indexed](queries/vbench/indexed) calls a table function registered for each engine. DataFusion computes the final cosine distances and orders the returned candidates.
+Q1 retrieves ten nearest embeddings by cosine distance. Q4 does the same search over rows with `price >= 90`. The SQL in [queries/vbench/indexed](queries/vbench/indexed) uses one Paimon-style `vector_search(table, column, vector_json, k)` function for both engines. DataFusion computes the final cosine distances and orders the returned candidates.
+
+The runner registers the indexed sources as `vortex` and `lance`. It substitutes the matching source name and a full-dimensional JSON vector into each query template. For example, Q4 expands to this shape:
+
+```sql
+SELECT id, distance
+FROM vector_search('vortex', 'emb', '$vector', 10)
+WHERE price >= 90
+ORDER BY distance
+```
+
+A literal integer lower bound on `price` is pushed into the native search. Other predicates remain SQL filters on the returned candidates. The runner checks that each backend uses its index and that Q4's native plan receives the price bound.
 
 The large fixture has 400,000 rows and 128 dimensions. Omit `--large` for 20,000 rows and 32 dimensions. Use `--engine lance --query q4 --rounds 1` for a quick filtered run. The runner writes temporary data and indexes under `--work-dir`, which defaults to the current directory.
 

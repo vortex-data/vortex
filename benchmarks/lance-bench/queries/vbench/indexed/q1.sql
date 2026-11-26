@@ -2,5 +2,5 @@
 -- SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 SELECT id, distance
-FROM recipe_knn('$vector', 10)
+FROM vector_search('$table', 'emb', '$vector', 10)
 ORDER BY distance

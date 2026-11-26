@@ -31,9 +31,7 @@ use fixture::build_ivf;
 use fixture::exact_cosine;
 use fixture::lance_dataset;
 use fixture::price;
-use lance_bench::vbench::register_lance;
-use lance_bench::vbench::register_topk;
-use lance_bench::vbench::register_vortex;
+use lance_bench::vbench::VectorSearch;
 use serde_json::json;
 use tokio::fs::File;
 use vortex::VortexSessionDefault;
@@ -116,7 +114,7 @@ struct Args {
 }
 
 async fn setup(
-    ctx: &SessionContext,
+    search: &mut VectorSearch,
     engine: Engine,
     dir: &Path,
     data: &Data,
@@ -150,8 +148,7 @@ async fn setup(
                 .include_metadata()
                 .open_path(index_path)
                 .await?;
-            register_vortex(
-                ctx,
+            search.add_vortex(
                 "vortex",
                 file,
                 &IndexFile::open(IvfIndex, &index_file)?,
@@ -165,21 +162,26 @@ async fn setup(
                 data,
             )
             .await?;
-            register_lance(ctx, "lance", Arc::new(dataset), probes)?;
+            search.add_lance("lance", Arc::new(dataset), probes)?;
         }
     }
-    register_topk(ctx, engine.name(), &format!("{}_knn", engine.name())).await?;
     Ok(())
 }
 
 async fn execute(
     ctx: &SessionContext,
     sql: &str,
-    check: Option<Engine>,
+    check: Option<(Engine, Query)>,
 ) -> Result<Vec<(u64, f64)>> {
     let plan = ctx.sql(sql).await?.create_physical_plan().await?;
-    if let Some(engine) = check {
+    if let Some((engine, query)) = check {
         let plan = displayable(plan.as_ref()).indent(true).to_string();
+        if let Some(floor) = query.floor() {
+            ensure!(
+                plan.contains(&format!("prefilter=[price >= {floor}]")),
+                "expected native price prefilter in plan:\n{plan}"
+            );
+        }
         let index = match engine {
             Engine::Vortex => "VortexIvfExec",
             Engine::Lance => "ANNIvf",
@@ -222,7 +224,7 @@ impl Case {
             Query::Q1 => include_str!("../../queries/vbench/indexed/q1.sql"),
             Query::Q4 => include_str!("../../queries/vbench/indexed/q4.sql"),
         }
-        .replace("recipe_knn", &format!("{name}_knn"));
+        .replace("$table", name);
         let sql = vectors
             .iter()
             .map(|v| {
@@ -249,7 +251,7 @@ impl Case {
         warmup: bool,
     ) -> Result<()> {
         let start = Instant::now();
-        let check = (warmup && i == 0).then_some(self.engine);
+        let check = (warmup && i == 0).then_some((self.engine, query));
         let hits = execute(ctx, &self.sql[i], check).await?;
         let elapsed = u64::try_from(start.elapsed().as_nanos())?;
         ensure!(
@@ -301,9 +303,11 @@ async fn main() -> Result<()> {
     let dir = tempfile::tempdir_in(args.work_dir.canonicalize()?)?;
     let ctx = SessionContext::new();
     let data = Data::generate(scale);
+    let mut search = VectorSearch::default();
     for &engine in &engines {
-        setup(&ctx, engine, dir.path(), &data, probes as usize).await?;
+        setup(&mut search, engine, dir.path(), &data, probes as usize).await?;
     }
+    search.register(&ctx);
     let vectors = data.vector_queries();
     let mut records = Vec::new();
     let mut results = Vec::new();
