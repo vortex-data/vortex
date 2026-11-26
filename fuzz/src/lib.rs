@@ -38,6 +38,7 @@ pub mod ephyra;
 pub mod error;
 pub mod fsst_like;
 mod row;
+mod source;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
@@ -76,6 +77,7 @@ pub use gpu::FuzzCompressGpu;
 pub use gpu::run_compress_gpu;
 pub use row::FuzzRowEncode;
 pub use row::run_row_encode;
+pub use source::FuzzSource;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;

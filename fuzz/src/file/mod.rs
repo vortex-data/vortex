@@ -25,6 +25,7 @@ use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::FUZZ_FILE_ARRAY_MAX_LEN;
+use crate::FuzzSource;
 
 #[derive(Debug)]
 pub struct FuzzFileAction {
@@ -36,22 +37,32 @@ pub struct FuzzFileAction {
 
 impl<'a> Arbitrary<'a> for FuzzFileAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let array = ArbitraryArray::arbitrary_with_config(
-            u,
-            &ArbitraryArrayConfig {
-                dtype: None,
-                len: 0..=FUZZ_FILE_ARRAY_MAX_LEN,
-            },
-        )?
-        .0;
+        Self::generate(u)
+    }
+}
+
+impl FuzzFileAction {
+    /// Generate an array, write settings, and the projection and filter to scan it back with.
+    pub fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
+        let array = src
+            .bytes(|u| {
+                ArbitraryArray::arbitrary_with_config(
+                    u,
+                    &ArbitraryArrayConfig {
+                        dtype: None,
+                        len: 0..=FUZZ_FILE_ARRAY_MAX_LEN,
+                    },
+                )
+            })?
+            .0;
         let dtype = array.dtype().clone();
-        let mut write_settings = WriteSettings::arbitrary(u)?;
+        let mut write_settings = src.bytes(|u| u.arbitrary::<WriteSettings>())?;
         write_settings.disable_editions = false;
         write_settings.unrestricted = false;
         Ok(FuzzFileAction {
             array,
-            projection_expr: projection_expr(u, &dtype)?,
-            filter_expr: filter_expr(u, &dtype)?,
+            projection_expr: src.bytes(|u| projection_expr(u, &dtype))?,
+            filter_expr: src.bytes(|u| filter_expr(u, &dtype))?,
             write_settings,
         })
     }

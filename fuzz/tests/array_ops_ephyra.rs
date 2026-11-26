@@ -11,14 +11,14 @@
 
 #![cfg(test)]
 
-use vortex_fuzz::ephyra::array_ops::ArrayOpsPlan;
+use vortex_fuzz::ephyra::ChoicePlan;
 use vortex_fuzz::ephyra::array_ops::check;
 use vortex_fuzz::ephyra::run_plans;
 use vortex_fuzz::ephyra::run_random;
 
 #[test]
 fn array_ops() {
-    run_random::<ArrayOpsPlan, _>("array_ops", 500, check);
+    run_random::<ChoicePlan, _>("array_ops", 500, check);
 }
 
 #[test]

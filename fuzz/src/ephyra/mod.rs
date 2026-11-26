@@ -3,9 +3,11 @@
 
 //! Fuzz targets as ephyra properties, run by `tests/*_ephyra.rs`.
 //!
-//! Each target has a plan, a plain-data description of a fuzz case that ephyra can shrink and
-//! mutate, which materializes into the input of the matching libFuzzer target, and a `check` that
-//! runs that target's checks on it: [`array_ops`] and [`file_io`]. The drivers:
+//! The properties draw their cases from a [`ChoicePlan`] through [`FuzzSource`], the same
+//! generators the libFuzzer targets draw from bytes, and each target's `check` runs that target's
+//! checks: [`array_ops`] and [`file_io`]. A plan is one number per decision plus the byte strings
+//! that whole values such as arrays and scalars decode from, so ephyra shrinks a failure one
+//! decision at a time. The drivers:
 //!
 //! - [`run_random`] is a random search that prints progress every 30 seconds and its full report
 //!   at the end. Pull requests run it with a fixed seed, and the scheduled CI search with a time
@@ -21,6 +23,7 @@ pub mod file_io;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::fs;
+use std::ops::RangeInclusive;
 use std::panic;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
@@ -30,14 +33,91 @@ use std::sync::Once;
 use std::time::Duration;
 use std::time::Instant;
 
+use arbitrary::Unstructured;
 use ephyra::Config;
 use ephyra::Run;
 use ephyra::TestResult;
+use ephyra::gens;
 use parking_lot::Mutex;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use vortex_array::dtype::DType;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::FuzzSource;
+
+/// The decisions of one fuzz case: a number per decision, and the byte strings that whole values
+/// decode from. An exhausted plan answers with the smallest choice.
+#[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
+pub struct ChoicePlan {
+    /// One number per decision; no decision has more than 65,536 outcomes worth telling apart.
+    #[ephyra(gen = gens::vec(ephyra::any::<u16>()).len(0..=4096))]
+    pub choices: Vec<u16>,
+    #[ephyra(gen = gens::vec(gens::vec(gens::int(0u8..=255)).len(0..=4096)).len(0..=8))]
+    pub values: Vec<Vec<u8>>,
+}
+
+impl ChoicePlan {
+    /// A source that reads this plan's choices and values in order.
+    pub fn source(&self) -> ChoiceSource<'_> {
+        ChoiceSource {
+            plan: self,
+            choice: 0,
+            value: 0,
+        }
+    }
+}
+
+/// Reads a [`ChoicePlan`] as a [`FuzzSource`].
+pub struct ChoiceSource<'a> {
+    plan: &'a ChoicePlan,
+    choice: usize,
+    value: usize,
+}
+
+impl ChoiceSource<'_> {
+    fn next(&mut self) -> u64 {
+        let choice = self.plan.choices.get(self.choice).copied().unwrap_or(0);
+        self.choice += 1;
+        u64::from(choice)
+    }
+}
+
+impl FuzzSource for ChoiceSource<'_> {
+    fn int_in_range(&mut self, range: RangeInclusive<usize>) -> arbitrary::Result<usize> {
+        let (start, end) = range.into_inner();
+        if start > end {
+            return Err(arbitrary::Error::IncorrectFormat);
+        }
+        let span = u128::from(end as u64 - start as u64) + 1;
+        let offset = (u128::from(self.next()) % span) as usize;
+        Ok(start + offset)
+    }
+
+    fn choose_index(&mut self, len: usize) -> arbitrary::Result<usize> {
+        if len == 0 {
+            return Err(arbitrary::Error::EmptyChoose);
+        }
+        self.int_in_range(0..=len - 1)
+    }
+
+    fn bool(&mut self) -> arbitrary::Result<bool> {
+        Ok(self.next() & 1 == 1)
+    }
+
+    fn bytes<R>(
+        &mut self,
+        decode: impl FnOnce(&mut Unstructured<'_>) -> arbitrary::Result<R>,
+    ) -> arbitrary::Result<R> {
+        let bytes = self
+            .plan
+            .values
+            .get(self.value)
+            .map_or(&[][..], Vec::as_slice);
+        self.value += 1;
+        decode(&mut Unstructured::new(bytes))
+    }
+}
 
 /// How one plan fared.
 pub enum PlanOutcome {

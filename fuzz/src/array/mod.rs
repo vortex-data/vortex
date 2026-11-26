@@ -74,6 +74,7 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::FUZZ_ARRAY_MAX_LEN;
+use crate::FuzzSource;
 use crate::SESSION;
 use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
@@ -92,11 +93,11 @@ pub enum CompressorStrategy {
     Compact,
 }
 
-impl<'a> Arbitrary<'a> for CompressorStrategy {
-    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+impl CompressorStrategy {
+    fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
         #[cfg(feature = "zstd")]
         {
-            if u.arbitrary()? {
+            if src.bool()? {
                 Ok(CompressorStrategy::Default)
             } else {
                 Ok(CompressorStrategy::Compact)
@@ -104,9 +105,15 @@ impl<'a> Arbitrary<'a> for CompressorStrategy {
         }
         #[cfg(not(feature = "zstd"))]
         {
-            let _ = u;
+            let _ = src;
             Ok(CompressorStrategy::Default)
         }
+    }
+}
+
+impl<'a> Arbitrary<'a> for CompressorStrategy {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        Self::generate(u)
     }
 }
 
@@ -177,14 +184,24 @@ impl ExpectedValue {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let array = ArbitraryArray::arbitrary_with_config(
-            u,
-            &ArbitraryArrayConfig {
-                dtype: None,
-                len: 0..=FUZZ_ARRAY_MAX_LEN,
-            },
-        )?
-        .0;
+        Self::generate(u)
+    }
+}
+
+impl FuzzArrayAction {
+    /// Generate an array and up to four actions on it, with their expected results.
+    pub fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
+        let array = src
+            .bytes(|u| {
+                ArbitraryArray::arbitrary_with_config(
+                    u,
+                    &ArbitraryArrayConfig {
+                        dtype: None,
+                        len: 0..=FUZZ_ARRAY_MAX_LEN,
+                    },
+                )
+            })?
+            .0;
         let mut current_array = array.clone();
 
         let mut ctx = SESSION.create_execution_ctx();
@@ -195,9 +212,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
         valid_actions.sort_unstable_by_key(|a| *a as usize);
 
         let mut actions = Vec::new();
-        let action_count = u.int_in_range(1..=4.min(valid_actions.len()))?;
+        let action_count = src.int_in_range(1..=4.min(valid_actions.len()))?;
         for _ in 0..action_count {
-            let action_type = random_action_from_list(u, valid_actions.as_slice())?;
+            let action_type = valid_actions[src.choose_index(valid_actions.len())?];
 
             actions.push(match action_type {
                 ActionType::Compress => {
@@ -208,15 +225,15 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     {
                         return Err(EmptyChoose);
                     }
-                    let strategy = CompressorStrategy::arbitrary(u)?;
+                    let strategy = CompressorStrategy::generate(src)?;
                     (
                         Action::Compress(strategy),
                         ExpectedValue::Array(current_array.clone()),
                     )
                 }
                 ActionType::Slice => {
-                    let start = u.choose_index(current_array.len())?;
-                    let stop = u.int_in_range(start..=current_array.len())?;
+                    let start = src.choose_index(current_array.len())?;
+                    let stop = src.int_in_range(start..=current_array.len())?;
                     current_array = slice_canonical_array(&current_array, start, stop, &mut ctx)
                         .vortex_expect("slice_canonical_array should succeed in fuzz test");
 
@@ -230,7 +247,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
 
-                    let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
+                    let indices = random_vec_in_range(src, 0, current_array.len() - 1)?;
                     let nullable = indices.contains(&None);
 
                     current_array = take_canonical_array(&current_array, &indices, &mut ctx)
@@ -263,12 +280,12 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
 
-                    let scalar = if u.arbitrary()? {
+                    let scalar = if src.bool()? {
                         current_array
-                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
+                            .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
-                        random_scalar(u, current_array.dtype())?
+                        src.bytes(|u| random_scalar(u, current_array.dtype()))?
                     };
 
                     if scalar.is_null() {
@@ -278,7 +295,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let sorted = sort_canonical_array(&current_array, &mut ctx)
                         .vortex_expect("sort_canonical_array should succeed in fuzz test");
 
-                    let side = if u.arbitrary()? {
+                    let side = if src.bool()? {
                         SearchSortedSide::Left
                     } else {
                         SearchSortedSide::Right
@@ -295,7 +312,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 ActionType::Filter => {
                     let mask = (0..current_array.len())
-                        .map(|_| bool::arbitrary(u))
+                        .map(|_| src.bool())
                         .collect::<arbitrary::Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask, &mut ctx)
                         .vortex_expect("filter_canonical_array should succeed in fuzz test");
@@ -305,17 +322,18 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     )
                 }
                 ActionType::Compare => {
-                    let scalar = if u.arbitrary()? {
+                    let scalar = if src.bool()? {
                         current_array
-                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
+                            .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
                         // We can compare arrays with different nullability
-                        let null: Nullability = u.arbitrary()?;
-                        random_scalar(u, &current_array.dtype().union_nullability(null))?
+                        let null: Nullability = src.bytes(|u| u.arbitrary())?;
+                        let dtype = current_array.dtype().union_nullability(null);
+                        src.bytes(|u| random_scalar(u, &dtype))?
                     };
 
-                    let op = u.arbitrary()?;
+                    let op: CompareOperator = src.bytes(|u| u.arbitrary())?;
                     current_array = compare_canonical_array(&current_array, &scalar, op, &mut ctx);
                     (
                         Action::Compare(scalar, op),
@@ -323,7 +341,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     )
                 }
                 ActionType::Cast => {
-                    let to: DType = u.arbitrary()?;
+                    let to: DType = src.bytes(|u| u.arbitrary())?;
                     let Some(result) = cast_canonical_array(&current_array, &to, &mut ctx)
                         .vortex_expect("cast oracle should succeed")
                     else {
@@ -362,17 +380,15 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     if !current_array.dtype().nullability().is_nullable() {
                         return Err(EmptyChoose);
                     }
-                    let fill_value = if u.arbitrary()? && !current_array.is_empty() {
+                    let fill_value = if src.bool()? && !current_array.is_empty() {
                         current_array
-                            .execute_scalar(u.choose_index(current_array.len())?, &mut ctx)
+                            .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
                             .vortex_expect("scalar_at")
                     } else {
-                        random_scalar(
-                            u,
-                            &current_array
-                                .dtype()
-                                .with_nullability(Nullability::NonNullable),
-                        )?
+                        let dtype = current_array
+                            .dtype()
+                            .with_nullability(Nullability::NonNullable);
+                        src.bytes(|u| random_scalar(u, &dtype))?
                     };
 
                     if fill_value.is_null() {
@@ -397,7 +413,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 ActionType::Mask => {
                     // Mask - returns an array, updates current_array
                     let mask = (0..current_array.len())
-                        .map(|_| bool::arbitrary(u))
+                        .map(|_| src.bool())
                         .collect::<arbitrary::Result<Vec<_>>>()?;
 
                     // Compute expected result on canonical form
@@ -423,10 +439,10 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
 
-                    let num_indices = u.int_in_range(1..=5.min(current_array.len()))?;
+                    let num_indices = src.int_in_range(1..=5.min(current_array.len()))?;
                     let indices_vec = (0..num_indices)
                         .map(|_| {
-                            u.choose_index(current_array.len())
+                            src.choose_index(current_array.len())
                                 .ok()
                                 .vortex_expect("cannot pick")
                         })
@@ -459,7 +475,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     }
 }
 
-pub(crate) fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
+fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
@@ -527,27 +543,20 @@ pub(crate) fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
 }
 
 fn random_vec_in_range(
-    u: &mut Unstructured<'_>,
+    src: &mut impl FuzzSource,
     min: usize,
     max: usize,
 ) -> arbitrary::Result<Vec<Option<usize>>> {
     iter::from_fn(|| {
-        u.arbitrary().unwrap_or(false).then(|| {
-            if u.arbitrary()? {
+        src.bool().unwrap_or(false).then(|| {
+            if src.bool()? {
                 Ok(None)
             } else {
-                Ok(Some(u.int_in_range(min..=max)?))
+                Ok(Some(src.int_in_range(min..=max)?))
             }
         })
     })
     .collect::<arbitrary::Result<Vec<_>>>()
-}
-
-fn random_action_from_list(
-    u: &mut Unstructured<'_>,
-    actions: &[ActionType],
-) -> arbitrary::Result<ActionType> {
-    u.choose_iter(actions).copied()
 }
 
 /// Compress an array using the given strategy.

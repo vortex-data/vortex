@@ -7,14 +7,14 @@
 
 #![cfg(test)]
 
-use vortex_fuzz::ephyra::file_io::FileIoPlan;
+use vortex_fuzz::ephyra::ChoicePlan;
 use vortex_fuzz::ephyra::file_io::check;
 use vortex_fuzz::ephyra::run_plans;
 use vortex_fuzz::ephyra::run_random;
 
 #[test]
 fn file_io() {
-    run_random::<FileIoPlan, _>("file_io", 200, check);
+    run_random::<ChoicePlan, _>("file_io", 200, check);
 }
 
 #[test]
