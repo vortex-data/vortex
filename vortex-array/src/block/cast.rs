@@ -10,7 +10,7 @@
 
 use std::mem::MaybeUninit;
 
-use crate::dtype::NativePType;
+use super::BlockValue;
 
 /// Check that `ptr` and `len` bytes can be viewed as values of `T`.
 fn check<T>(ptr: *const u8, len: usize) {
@@ -22,7 +22,7 @@ fn check<T>(ptr: *const u8, len: usize) {
 }
 
 /// The bytes of `values`.
-pub(super) fn bytes<T: NativePType>(values: &[T]) -> &[u8] {
+pub(super) fn bytes<T: BlockValue>(values: &[T]) -> &[u8] {
     // SAFETY: values of a native type are initialized bytes, and `u8` has alignment 1.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), size_of_val(values)) }
 }
@@ -32,7 +32,7 @@ pub(super) fn bytes<T: NativePType>(values: &[T]) -> &[u8] {
 /// # Panics
 ///
 /// Panics if `bytes` is misaligned for `T` or not a whole number of values.
-pub(super) fn values<T: NativePType>(bytes: &[u8]) -> &[T] {
+pub(super) fn values<T: BlockValue>(bytes: &[u8]) -> &[T] {
     check::<T>(bytes.as_ptr(), bytes.len());
     // SAFETY: checked above, and any initialized bytes are values of a native type.
     unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast(), bytes.len() / size_of::<T>()) }
@@ -43,7 +43,7 @@ pub(super) fn values<T: NativePType>(bytes: &[u8]) -> &[T] {
 /// # Panics
 ///
 /// Panics if `bytes` is misaligned for `T` or not a whole number of values.
-pub(super) fn values_mut<T: NativePType>(bytes: &mut [u8]) -> &mut [T] {
+pub(super) fn values_mut<T: BlockValue>(bytes: &mut [u8]) -> &mut [T] {
     check::<T>(bytes.as_ptr(), bytes.len());
     // SAFETY: checked above; any value written is initialized bytes, and any bytes are a value.
     unsafe {
@@ -52,7 +52,7 @@ pub(super) fn values_mut<T: NativePType>(bytes: &mut [u8]) -> &mut [T] {
 }
 
 /// The bytes of uninitialized room for values of `T`.
-pub(super) fn uninit_bytes_mut<T: NativePType>(
+pub(super) fn uninit_bytes_mut<T: BlockValue>(
     values: &mut [MaybeUninit<T>],
 ) -> &mut [MaybeUninit<u8>] {
     // SAFETY: the room is `size_of_val` bytes, and `u8` has alignment 1.
@@ -64,7 +64,7 @@ pub(super) fn uninit_bytes_mut<T: NativePType>(
 /// # Panics
 ///
 /// Panics if `bytes` is misaligned for `T` or not a whole number of values.
-pub(super) fn uninit_values_mut<T: NativePType>(
+pub(super) fn uninit_values_mut<T: BlockValue>(
     bytes: &mut [MaybeUninit<u8>],
 ) -> &mut [MaybeUninit<T>] {
     check::<T>(bytes.as_ptr().cast(), bytes.len());
@@ -102,7 +102,7 @@ pub(super) unsafe fn assume_init_mut(bytes: &mut [MaybeUninit<u8>]) -> &mut [u8]
 ///
 /// Panics if `T` and `S` differ in size.
 #[inline]
-pub(super) fn bitcast<T: NativePType, S: NativePType>(value: T) -> S {
+pub(super) fn bitcast<T: BlockValue, S: BlockValue>(value: T) -> S {
     assert_eq!(size_of::<T>(), size_of::<S>(), "a bit cast keeps the width");
     // SAFETY: both are native types of the same size, so the bits of a `T` are an `S`.
     unsafe { std::mem::transmute_copy(&value) }
