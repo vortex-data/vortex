@@ -1,0 +1,110 @@
+# Runs the criterion benchmark that compares Vortex's indexes with Lance's on a pull request
+# that touches them, and posts the timings and the Vortex/Lance ratios as a PR comment.
+# The benchmark runs in a few seconds, so it shares the build host rather than holding a
+# dedicated metal host. Its timings are for comparing the two libraries on one host, not
+# for tracking regressions across runs. Pull requests from forks get the results only in the
+# job summary, because their token cannot comment.
+
+name: PR Index Benchmark
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    paths:
+      - "vortex-index/**"
+      - "vortex-layout/src/layouts/indexed/**"
+      - "benchmarks/lance-bench/**"
+      - ".github/workflows/pr-bench-index.yml"
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+
+jobs:
+  bench:
+    timeout-minutes: 60
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag=index-bench{1}', github.run_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.event.pull_request.head.repo.fork == false
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ github.event.pull_request.head.repo.fork == false && 'true' || 'false' }}
+      - name: Build benchmark
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: cargo bench --locked -p lance-bench --bench index_vs_lance --no-run
+      - name: Run benchmark
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          set -Eeu -o pipefail
+          cargo bench --locked -p lance-bench --bench index_vs_lance -- --output-format bencher \
+            2> >(tee stderr.txt >&2) | tee bencher.txt
+      - name: Write report
+        shell: bash
+        run: |
+          set -Eeu -o pipefail
+          {
+            echo "## Index benchmark: Vortex vs Lance"
+            echo
+            echo "\`vortex\` keeps its index handle open, \`vortex reopen\` opens it per query as Lance does,"
+            echo "and the \`_search\` rows time the index search alone, without reading the data."
+            echo
+            echo "| Query | Vortex (µs) | Vortex reopen (µs) | Lance (µs) | Vortex / Lance | Reopen / Lance |"
+            echo "|---|---:|---:|---:|---:|---:|"
+            awk '$1 == "test" && $4 == "bench:" {
+                   split($2, id, "/"); gsub(",", "", $5); t[id[1], id[2]] = $5 / 1000; q[id[1]] = 1
+                 }
+                 END {
+                   for (g in q) {
+                     if ((g, "vortex_reopen") in t) {
+                       reopen = sprintf("%.1f", t[g, "vortex_reopen"])
+                       ratio = sprintf("%.2f", t[g, "vortex_reopen"] / t[g, "lance"])
+                     } else {
+                       reopen = "–"; ratio = "–"
+                     }
+                     printf "| %s | %.1f | %s | %.1f | %.2f | %s |\n", g, t[g, "vortex"], reopen, t[g, "lance"], t[g, "vortex"] / t[g, "lance"], ratio
+                   }
+                 }' bencher.txt | sort
+            echo
+            echo "Recall@10 against exact search, from the benchmark's own check:"
+            echo
+            echo '```'
+            grep recall stderr.txt || true
+            echo '```'
+            echo
+            echo "Commit ${{ github.event.pull_request.head.sha || github.sha }}, [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: bench-pr-comment-index-bench
+
+      - name: Comment PR on failure
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          message: |
+            # BENCHMARK FAILED
+
+            The index benchmark failed on ${{ github.event.pull_request.head.sha }}. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-index-bench
