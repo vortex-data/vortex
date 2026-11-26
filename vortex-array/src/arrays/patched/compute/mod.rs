@@ -20,12 +20,14 @@ mod tests {
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    pub(super) fn make_patched(
+    fn make_patched(
         len: usize,
         nullable: bool,
         patch_indices: &[u32],
@@ -64,11 +66,14 @@ mod tests {
     #[rstest]
     #[case::small(make_patched(10, false, &[1, 4, 8], &[500, 600, 700], None))]
     #[case::single(make_patched(1, false, &[0], &[42], None))]
-    #[case::multi_chunk(make_patched(1500, false, &[3, 512, 1024, 1499], &[500, 600, 700, 800], None))]
+    #[case::multi_chunk(make_patched(3072, false, &[10, 1024, 2048, 3071], &[900, 901, 902, 903], None))]
     #[case::nullable(make_patched(64, true, &[1, 13, 37, 62], &[500, 600, 700, 800], None))]
-    #[case::sliced(make_patched(2048, false, &[5, 1030, 1500], &[500, 600, 700], Some(5..1600)))]
+    #[case::sliced(make_patched(3072, false, &[5, 1030, 2050], &[900, 901, 902], Some(5..2500)))]
     #[case::nullable_sliced(make_patched(1500, true, &[1, 1031, 1499], &[500, 600, 700], Some(1030..1500)))]
-    fn test_patched_consistency(#[case] array: ArrayRef) {
-        test_array_consistency(&array, &mut SESSION.create_execution_ctx());
+    fn test_patched_conformance(#[case] array: ArrayRef) {
+        let mut ctx = SESSION.create_execution_ctx();
+        test_array_consistency(&array, &mut ctx);
+        test_filter_conformance(&array, &mut ctx);
+        test_take_conformance(&array, &mut ctx);
     }
 }
