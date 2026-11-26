@@ -205,6 +205,16 @@ def test_select_user_attachment_fallback_archive_and_raw_extension():
     body_log = f"https://github.com/user-attachments/files/5/{crash_file}.log"
     assert efc.select_user_attachment(body_log, crash_file) == ""
 
+    # Crash-named archive beats checksum/suffixed non-archive attachments.
+    body_archive_and_checksum = (
+        f"https://github.com/user-attachments/files/6/{crash_file}.sha256\n"
+        f"https://github.com/user-attachments/files/7/{crash_file}.tgz\n"
+    )
+    assert (
+        efc.select_user_attachment(body_archive_and_checksum, crash_file)
+        == f"https://github.com/user-attachments/files/7/{crash_file}.tgz"
+    )
+
 
 def test_download_crash_file_dispatch_and_raw_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     crash_file = "crash-0123456789abcdef"

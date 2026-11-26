@@ -119,6 +119,8 @@ def select_user_attachment(body: str, crash_file: str) -> str:
 
     crash_kind = crash_file.split("-", 1)[0].lower() if "-" in crash_file else ""
 
+    ignored_raw_exts = {"log", "sha256", "sha1", "md5", "sig", "asc"}
+
     def score(url: str) -> int:
         name = url.rsplit("/", 1)[-1]
         lower = name.lower()
@@ -126,7 +128,7 @@ def select_user_attachment(body: str, crash_file: str) -> str:
             return 0
         if lower.endswith(ARCHIVE_SUFFIXES):
             if crash_file.lower() in lower:
-                return 2
+                return 1
             if crash_kind and crash_kind in lower and "log" not in lower:
                 return 3
             if "log" not in lower:
@@ -134,8 +136,8 @@ def select_user_attachment(body: str, crash_file: str) -> str:
             return 5
         if name.startswith(f"{crash_file}.") and len(name) > len(crash_file) + 1:
             ext = lower[len(crash_file) + 1 :]
-            if "." not in ext and ext != "log":
-                return 1
+            if "." not in ext and ext not in ignored_raw_exts:
+                return 2
         return 6
 
     ranked = sorted(enumerate(urls), key=lambda item: (score(item[1]), item[0]))
