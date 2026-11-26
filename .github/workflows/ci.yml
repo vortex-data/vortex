@@ -249,11 +249,7 @@ jobs:
           enable-sccache: "true"
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
-      # Cargo locks each profile's target directory. The release check has its
-      # own profile directory, and default-features clippy gets its own target
-      # directory, so all three cargo runs proceed at the same time instead of
-      # the two ci-profile clippy runs taking turns. sccache serves the
-      # dependencies that the two clippy runs would otherwise share.
+      # Default-features clippy uses its own target dir so it doesn't wait on the other's lock.
       - parallel:
           - name: Rust Lint - Format
             id: fmt
