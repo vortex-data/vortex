@@ -294,8 +294,8 @@ The executor fuses in three steps:
 
 Fusion covers primitive arrays and extension types stored as primitives, and today FoR and
 BitPacked take part. A block's validity is read from the leaf's, and an op that changes a row,
-such as a patch, writes it into the output's validity. Fusion is off by default while it is
-rolled out: turn it on with `ExecutionCtx::with_block_fusion(true)`. Traces show each
+such as a patch, writes it into the output's validity. Disable fusion with
+`ExecutionCtx::with_block_fusion(false)`. Traces show each
 `ExecuteSpine` or `ExecuteSlot`, `fuse start`, `fuse extend` and `drive`, and how each op ran over
 the first block.
 

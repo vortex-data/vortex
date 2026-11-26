@@ -200,11 +200,11 @@ impl BlockProgram {
                     }
                     SourceBlock::Lent(block) => {
                         vortex_ensure_eq!(
-                            block.len(),
+                            block.len,
                             n,
                             "block source emitted the wrong number of rows"
                         );
-                        vortex_ensure_eq!(block.ptype(), ptypes[0]);
+                        vortex_ensure_eq!(block.ptype, ptypes[0]);
                         (at, first, lent) = (At::Lent, 0, Some(block));
                     }
                 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Executing a stack of FoR levels over BitPacked level by level, where each FoR writes a
-//! full-length buffer, and with block fusion, which decodes the stack one block at a time.
+//! Executing a stack of FoR levels over BitPacked, which decodes level by level: each FoR writes a
+//! full-length buffer.
 //!
 //! Run with `cargo bench -p vortex-fastlanes --bench for_stack_decode`.
 
@@ -63,16 +63,5 @@ fn for_stack_execute(bencher: Bencher) {
     let array = for_stack(DEPTH);
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
-}
-
-#[divan::bench]
-fn for_stack_fused(bencher: Bencher) {
-    let array = for_stack(DEPTH);
-    bencher
-        .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(true);
-            (array.clone(), ctx)
-        })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }

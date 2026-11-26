@@ -4,11 +4,10 @@
 //! A chain of add-constant ops over a primitive array, applied level by level as decoding does
 //! today and block by block with a [`BlockProgram`].
 //!
-//! Level by level, the first op copies the shared input into a new buffer and each op after it
-//! rewrites that buffer in place, as FoR's decode does. A program reads each block of at most
-//! 1024 rows once and runs every op over it while it stays in L1. The `owned` cases hand over an
-//! input that nothing else references, so both strategies decode in place; the `nullable` case
-//! adds validity with nulls at a bit offset, which the program carries block by block.
+//! Level by level, the first op copies the input into a new buffer and each op after it rewrites
+//! that buffer in place, as FoR's decode does. A program reads each block of at most 1024 rows
+//! once and runs every op over it while it stays in L1. The nullable case adds validity with nulls
+//! at a bit offset.
 //!
 //! Run with `cargo bench -p vortex-array --bench block_program`.
 
@@ -55,7 +54,7 @@ static SESSION: LazyLock<VortexSession> =
 const LEN: usize = 64 * 1024;
 
 /// Ops in the chain.
-const DEPTHS: [usize; 3] = [1, 4, 8];
+const DEPTH: usize = 4;
 
 fn values() -> Buffer<u32> {
     (0..LEN as u32).map(|i| (i * 7) % 1000).collect()
@@ -76,25 +75,18 @@ impl BlockOp for AddConstant {
 }
 
 /// Apply the chain level by level, as FoR's decode does: copy the input with the first op into a
-/// buffer from the context's allocator unless the input is owned, then rewrite the buffer in
-/// place with each op after it.
-fn level_wise(input: Buffer<u32>, depth: usize, ctx: &mut ExecutionCtx) -> PrimitiveArray {
-    let (mut buffer, first) = match input.try_into_mut() {
-        Ok(owned) => (owned, 0),
-        Err(shared) => {
-            let constant = constant(0);
-            let mut out = BufferMut::<u32>::with_capacity_in(LEN, ctx.allocator().clone());
-            shared
-                .as_slice()
-                .map_into(&mut out.spare_capacity_mut()[..LEN], move |v| {
-                    v.wrapping_add(constant)
-                });
-            // SAFETY: `map_into` wrote every one of the `LEN` values.
-            unsafe { out.set_len(LEN) };
-            (out, 1)
-        }
-    };
-    for level in first..depth {
+/// buffer from the context's allocator, then rewrite the buffer in place with each op after it.
+fn level_wise(input: &Buffer<u32>, ctx: &mut ExecutionCtx) -> PrimitiveArray {
+    let first = constant(0);
+    let mut buffer = BufferMut::<u32>::with_capacity_in(LEN, ctx.allocator().clone());
+    input
+        .as_slice()
+        .map_into(&mut buffer.spare_capacity_mut()[..LEN], move |v| {
+            v.wrapping_add(first)
+        });
+    // SAFETY: `map_into` wrote every one of the `LEN` values.
+    unsafe { buffer.set_len(LEN) };
+    for level in 1..DEPTH {
         let constant = constant(level);
         buffer
             .as_mut_slice()
@@ -106,73 +98,44 @@ fn level_wise(input: Buffer<u32>, depth: usize, ctx: &mut ExecutionCtx) -> Primi
 /// Run the chain as one program over the input's blocks.
 fn program(
     input: Buffer<u32>,
-    depth: usize,
     validity: &Mask,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> PrimitiveArray {
     let mut program = BlockProgram::new(Box::new(PrimitiveSource::new(input)), PType::U32, LEN);
-    for level in 0..depth {
+    for level in 0..DEPTH {
         program.push(Box::new(AddConstant(constant(level))), PType::U32);
     }
     program.run(validity, nullability, ctx).unwrap()
 }
 
-#[divan::bench(args = DEPTHS)]
-fn level_wise_shared(bencher: Bencher, depth: usize) {
+#[divan::bench]
+fn level_wise_chain(bencher: Bencher) {
     let input = values();
     bencher
-        .with_inputs(|| (input.clone(), SESSION.create_execution_ctx()))
-        .bench_values(|(input, mut ctx)| level_wise(input, depth, &mut ctx));
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_values(|mut ctx| level_wise(&input, &mut ctx));
 }
 
-#[divan::bench(args = DEPTHS)]
-fn program_shared(bencher: Bencher, depth: usize) {
+#[divan::bench]
+fn program_chain(bencher: Bencher) {
     let (input, validity) = (values(), Mask::new_true(LEN));
     bencher
         .with_inputs(|| (input.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(input, mut ctx)| {
-            program(input, depth, &validity, Nullability::NonNullable, &mut ctx)
-        });
-}
-
-#[divan::bench(args = DEPTHS)]
-fn level_wise_owned(bencher: Bencher, depth: usize) {
-    let input = values();
-    bencher
-        .with_inputs(|| {
-            (
-                BufferMut::copy_from(&input).freeze(),
-                SESSION.create_execution_ctx(),
-            )
-        })
-        .bench_values(|(input, mut ctx)| level_wise(input, depth, &mut ctx));
-}
-
-#[divan::bench(args = DEPTHS)]
-fn program_owned(bencher: Bencher, depth: usize) {
-    let (input, validity) = (values(), Mask::new_true(LEN));
-    bencher
-        .with_inputs(|| {
-            (
-                BufferMut::copy_from(&input).freeze(),
-                SESSION.create_execution_ctx(),
-            )
-        })
-        .bench_values(|(input, mut ctx)| {
-            program(input, depth, &validity, Nullability::NonNullable, &mut ctx)
+            program(input, &validity, Nullability::NonNullable, &mut ctx)
         });
 }
 
 /// Validity with every seventh row null, starting 3 bits into its buffer.
-#[divan::bench(args = DEPTHS)]
-fn program_nullable(bencher: Bencher, depth: usize) {
+#[divan::bench]
+fn program_chain_nullable(bencher: Bencher) {
     let input = values();
     let bits: BitBuffer = (0..LEN + 3).map(|i| i % 7 != 0).collect();
     let validity = Mask::from_buffer(bits.slice(3..));
     bencher
         .with_inputs(|| (input.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(input, mut ctx)| {
-            program(input, depth, &validity, Nullability::Nullable, &mut ctx)
+            program(input, &validity, Nullability::Nullable, &mut ctx)
         });
 }

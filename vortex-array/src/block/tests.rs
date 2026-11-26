@@ -144,7 +144,7 @@ impl BlockOp for NullEvery {
             values,
             mut validity,
         } = block;
-        for row in 0..validity.len() {
+        for row in 0..validity.len {
             if (start + row).is_multiple_of(self.0) {
                 validity.set(row, false);
             }

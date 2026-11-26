@@ -20,10 +20,12 @@ use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::bound::and;
+use crate::bound::and_collect;
 use crate::bound::cast;
 use crate::bound::eq;
 use crate::bound::gt;
@@ -37,6 +39,7 @@ use crate::stats::derive::stat_expr;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::falsify;
 use crate::stats::rewrite::helpers::*;
+use crate::stats::rewrite::satisfy;
 use crate::stats::session::StatsSession;
 
 /// Register the stats rewrite rules for the scalar functions vortex-array is built on.
@@ -148,9 +151,10 @@ impl StatDerivation for CastStatDerivation {
             return stat_expr(input, aggregate_fn, session)
                 .map(|stat| cast(stat, expr.as_::<Cast>().clone()));
         }
-        // A cast keeps NaNs as NaNs. It changes the sum's dtype and the size of each value, so
-        // neither carries over from the input.
-        if aggregate_fn.is::<NanCount>() {
+        // A cast keeps NaNs as NaNs and nulls as nulls. A cast to a non-nullable dtype fails on a
+        // null input, so it does not change the null count either. A cast changes the sum's dtype
+        // and the size of each value, so neither carries over from the input.
+        if aggregate_fn.is::<NanCount>() || aggregate_fn.is::<NullCount>() {
             return stat_expr(input, aggregate_fn, session);
         }
         None
@@ -176,6 +180,14 @@ impl StatsRewriteRule for CompareNanCountStatsRewrite {
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         compare_falsify::<NanCountProof>(expr, session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        compare_satisfy(expr, session)
     }
 }
 
@@ -210,6 +222,14 @@ impl StatsRewriteRule for BooleanNanCountStatsRewrite {
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         boolean_falsify::<NanCountProof>(expr, session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        boolean_satisfy(expr, session)
     }
 }
 
@@ -322,6 +342,67 @@ fn boolean_falsify<P: NonNanProof>(
     })
 }
 
+/// Proves a comparison true for every row: the bounds of the operands order every pair of
+/// values, and neither operand holds a null or a NaN, for which a comparison is not true.
+fn compare_satisfy(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Compare>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    let value_predicate = match operator {
+        CompareOperator::Gt => min(lhs, session)
+            .zip(max(rhs, session))
+            .map(|(a, b)| gt(a, b)),
+        CompareOperator::Gte => min(lhs, session)
+            .zip(max(rhs, session))
+            .map(|(a, b)| gt_eq(a, b)),
+        CompareOperator::Lt => max(lhs, session)
+            .zip(min(rhs, session))
+            .map(|(a, b)| lt(a, b)),
+        CompareOperator::Lte => max(lhs, session)
+            .zip(min(rhs, session))
+            .map(|(a, b)| lt_eq(a, b)),
+        CompareOperator::Eq | CompareOperator::NotEq => None,
+    };
+    let Some(value_predicate) = value_predicate else {
+        return Ok(None);
+    };
+    let Some(null_checks) = [lhs, rhs]
+        .into_iter()
+        .map(|operand| null_count(operand, session).map(|count| eq(count, lit(0u64))))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(None);
+    };
+    let guarded = and_collect(null_checks.into_iter().chain([value_predicate]))
+        .vortex_expect("at least one predicate");
+    with_non_nan_guards::<NanCountProof>([lhs, rhs], guarded, session)
+}
+
+fn boolean_satisfy(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Boolean>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    Ok(match operator {
+        BooleanOperator::And => match (satisfy(lhs, session)?, satisfy(rhs, session)?) {
+            (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
+            _ => None,
+        },
+        BooleanOperator::Or => or_collect(
+            satisfy(lhs, session)?
+                .into_iter()
+                .chain(satisfy(rhs, session)?),
+        ),
+    })
+}
+
 #[derive(Debug)]
 struct IsNotNullNullCountStatsRewrite;
 
@@ -420,6 +501,7 @@ mod tests {
     use crate::lit;
     use crate::lt;
     use crate::lt_eq;
+    use crate::not_eq;
     use crate::or;
     use crate::stats::expr::StatFn;
     use crate::stats::expr::StatOptions;
@@ -589,6 +671,101 @@ mod tests {
         Ok(())
     }
 
+    fn cmp_satisfier(
+        lhs_nulls: Expression,
+        rhs_nulls: Expression,
+        value_predicate: Expression,
+    ) -> Expression {
+        and(
+            and(eq(lhs_nulls, lit(0u64)), eq(rhs_nulls, lit(0u64))),
+            value_predicate,
+        )
+    }
+
+    #[test]
+    fn rewrites_comparison_satisfier() -> VortexResult<()> {
+        assert_rewrite_eq!(
+            satisfy(&gt(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                gt(stat(col("a"), Stat::Min), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(
+            satisfy(&gt_eq(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                gt_eq(stat(col("a"), Stat::Min), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(
+            satisfy(&lt(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                lt(stat(col("a"), Stat::Max), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(
+            satisfy(&lt_eq(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                lt_eq(stat(col("a"), Stat::Max), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(satisfy(&eq(col("a"), lit(10)))?, None);
+        assert_rewrite_eq!(satisfy(&not_eq(col("a"), lit(10)))?, None);
+
+        // Float comparisons also require a NaNCount == 0 guard.
+        assert_rewrite_eq!(
+            satisfy(&gt(col("f"), lit(1.0f32)))?,
+            Some(and(
+                eq(stat(col("f"), Stat::NaNCount), lit(0u64)),
+                cmp_satisfier(
+                    stat(col("f"), Stat::NullCount),
+                    lit(0u64),
+                    gt(stat(col("f"), Stat::Min), lit(1.0f32)),
+                ),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_boolean_satisfiers() -> VortexResult<()> {
+        let lhs_sat = cmp_satisfier(
+            stat(col("a"), Stat::NullCount),
+            lit(0u64),
+            gt(stat(col("a"), Stat::Min), lit(10)),
+        );
+        let rhs_sat = cmp_satisfier(
+            stat(col("a"), Stat::NullCount),
+            lit(0u64),
+            lt(stat(col("a"), Stat::Max), lit(50)),
+        );
+
+        assert_rewrite_eq!(
+            satisfy(&and(gt(col("a"), lit(10)), lt(col("a"), lit(50))))?,
+            Some(and(lhs_sat.clone(), rhs_sat.clone()))
+        );
+        assert_rewrite_eq!(
+            satisfy(&and(gt(col("a"), lit(10)), eq(col("a"), lit(20))))?,
+            None
+        );
+        assert_rewrite_eq!(
+            satisfy(&or(gt(col("a"), lit(10)), lt(col("a"), lit(50))))?,
+            Some(or(lhs_sat.clone(), rhs_sat))
+        );
+        assert_rewrite_eq!(
+            satisfy(&or(gt(col("a"), lit(10)), eq(col("a"), lit(20))))?,
+            Some(lhs_sat)
+        );
+        Ok(())
+    }
+
     #[test]
     fn rewrites_null_falsifiers() -> VortexResult<()> {
         assert_rewrite_eq!(
@@ -654,6 +831,22 @@ mod tests {
             Some(or(
                 gt(cast(stat(col("a"), Stat::Min), dtype.clone()), lit(42i64)),
                 gt(lit(42i64), cast(stat(col("a"), Stat::Max), dtype)),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn satisfies_comparison_through_cast() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let expr = gt(cast(col("a"), dtype.clone()), lit(10i64));
+
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                gt(cast(stat(col("a"), Stat::Min), dtype), lit(10i64)),
             ))
         );
         Ok(())
