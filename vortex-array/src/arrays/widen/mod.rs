@@ -15,8 +15,9 @@
 //!
 //! A floating-point child has a strictly narrower IEEE-754 type (`f16 < f32 < f64`) and **must
 //! not** contain signaling NaNs. [`WidenArray::encode_float`] selects the narrowest type that
-//! reproduces every valid value bit-for-bit on widening back, preserving `-0.0` vs `+0.0` and
-//! canonical quiet NaNs.
+//! reproduces every valid value bit-for-bit on widening back under the default IEEE-754
+//! floating-point environment (without DAZ/FTZ flushing `f32` subnormals to zero), preserving
+//! `-0.0` vs `+0.0` and canonical quiet NaNs.
 //!
 //! A decimal child has the logical scale and a lower precision, and **must** be valid for its dtype.
 //! Comparisons, bounds checks, and fills use the child dtype to bound its valid values.
