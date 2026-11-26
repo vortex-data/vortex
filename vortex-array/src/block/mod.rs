@@ -54,7 +54,7 @@ pub struct BlockBuf([u8; BLOCK_LEN * 8]);
 
 impl BlockBuf {
     /// Zeroed scratch for one block.
-    pub fn new_boxed() -> Box<Self> {
+    pub(crate) fn new_boxed() -> Box<Self> {
         Box::new(Self([0; BLOCK_LEN * 8]))
     }
 
@@ -79,7 +79,7 @@ pub struct BlockIn<'a> {
 
 impl<'a> BlockIn<'a> {
     /// A block over `values`.
-    pub fn from_slice<T: NativePType>(values: &'a [T]) -> Self {
+    pub(crate) fn from_slice<T: NativePType>(values: &'a [T]) -> Self {
         assert!(
             values.len() <= BLOCK_LEN,
             "a block holds at most {BLOCK_LEN} rows"
