@@ -15,9 +15,10 @@
 //! The query is timed three ways:
 //!
 //! - `vortex` and `lance` return ids, so both read the data as well as the index. Vortex keeps
-//!   its index handle open between queries.
-//! - `vortex_reopen` opens the index handle for every query, as Lance does with its index, so
-//!   it pays the same per-query setup.
+//!   its index handle open between queries, and Lance keeps its opened index in its session's
+//!   index cache, so these two are the like-for-like comparison.
+//! - `vortex_reopen` opens the index file again for every query, the cost of a cold query.
+//!   Lance still looks its cached index up per query, but does not reload it.
 //! - `cosine_search` times the index search alone, returning row positions and scores without
 //!   reading the data.
 //!
