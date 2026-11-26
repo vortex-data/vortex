@@ -647,7 +647,7 @@ pub struct ExecutionCtx {
     kernels: Arc<ContextKernels>,
     // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
     aggregate_kernels: OnceLock<AggregateKernels>,
-    // Whether `execute_until` fuses primitive encoding chains block by block. Off by default.
+    // Whether `execute_until` fuses primitive encoding chains block by block.
     block_fusion: bool,
     #[cfg(debug_assertions)]
     id: usize,
@@ -673,7 +673,7 @@ impl ExecutionCtx {
             allocator: OnceLock::new(),
             kernels,
             aggregate_kernels: OnceLock::new(),
-            block_fusion: false,
+            block_fusion: true,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -719,8 +719,8 @@ impl ExecutionCtx {
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
-    /// Enable or disable block fusion of primitive encoding chains, which is off by default while
-    /// it is rolled out. See [`crate::block`].
+    /// Enable or disable block fusion of primitive encoding chains, which is on by default. See
+    /// [`crate::block`].
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
         self

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Executing ALP over FoR over BitPacked, the layout the compressor writes for decimal floats, level
-//! by level, where FoR writes a full-length buffer of integers that ALP then decodes, and with block
-//! fusion, which unpacks, adds the reference and decodes one block at a time.
+//! Executing ALP over FoR over BitPacked, the layout the compressor writes for decimal floats, which
+//! decodes level by level: FoR writes a full-length buffer of integers, then ALP decodes it.
 //!
 //! Run with `cargo bench -p vortex-alp --bench alp_chain_decode`.
 
@@ -80,16 +79,5 @@ fn alp_for_bp_execute(bencher: Bencher) {
     let array = alp_for_bp();
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
-        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
-}
-
-#[divan::bench]
-fn alp_for_bp_fused(bencher: Bencher) {
-    let array = alp_for_bp();
-    bencher
-        .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(true);
-            (array.clone(), ctx)
-        })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }

@@ -402,6 +402,9 @@ impl ArrayRef {
     }
 
     /// Writes the array into the canonical builder.
+    ///
+    /// If this returns `Err`, the builder's contents are unspecified and callers must discard it
+    /// (see [`ArrayBuilder`]).
     pub fn append_to_builder(
         &self,
         builder: &mut dyn ArrayBuilder,
@@ -681,7 +684,7 @@ impl ArrayRef {
         self.0.data.reduce(self)
     }
 
-    /// See [`VTable::block_source`](crate::vtable::VTable::block_source).
+    /// See [`VTable::block_source`].
     pub(crate) fn block_source(
         &self,
         ctx: &mut ExecutionCtx,
@@ -689,7 +692,7 @@ impl ArrayRef {
         self.0.data.block_source(self, ctx)
     }
 
-    /// See [`VTable::block_op`](crate::vtable::VTable::block_op).
+    /// See [`VTable::block_op`].
     pub(crate) fn block_op(
         &self,
         slot_idx: usize,

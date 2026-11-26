@@ -34,7 +34,9 @@ use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -134,12 +136,14 @@ where
         .patches()
         .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value)))
         .transpose()?;
+    let validity = bp.validity()?.execute_mask(bp.len(), ctx)?;
     Ok(Some(Box::new(PackedSource::<T, S> {
         strategy,
         packed,
         bit_width,
         offset,
         patches,
+        validity,
     })))
 }
 
@@ -151,6 +155,7 @@ struct PackedSource<T: PhysicalPType, S> {
     /// The position of the first row within the first chunk.
     offset: usize,
     patches: Option<BlockPatches<T>>,
+    validity: Mask,
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
@@ -166,6 +171,10 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource<T, S> {
+    fn validity(&self) -> &Mask {
+        &self.validity
+    }
+
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
@@ -203,7 +212,7 @@ struct AddReference<T> {
 }
 
 impl<T: NativePType + WrappingAdd> BlockOp for AddReference<T> {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         let reference = self.reference;
         Ok(block.map(|value: T| value.wrapping_add(&reference)))
     }
@@ -230,8 +239,9 @@ impl<T: NativePType + WrappingAdd> AddReferences<T> {
 }
 
 impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
-    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         // A block may straddle a FoR chunk boundary, so add each chunk's reference to its rows.
+        let start = block.start();
         match block.values {
             Values::Copy { input, mut out } => {
                 let input = input.as_slice::<T>();
@@ -247,6 +257,7 @@ impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
                 });
                 Ok(block.written())
             }
+            _ => vortex_bail!("FoR cannot add references to these block values"),
         }
     }
 }

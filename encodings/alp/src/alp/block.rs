@@ -56,10 +56,12 @@ where
     F: ALPFloat + NativePType,
     F::ALPInt: NativePType,
 {
-    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let start = block.start();
         let Block {
             values,
             mut validity,
+            ..
         } = block;
         let exponents = self.exponents;
         let mut written = values.map(|encoded: F::ALPInt| F::decode_single(encoded, exponents));

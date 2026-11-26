@@ -137,9 +137,9 @@ impl VTable for Primitive {
     /// else references it.
     fn block_source(
         array: ArrayView<'_, Self>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockSource>>> {
-        Ok(Some(PrimitiveSource::boxed(&array.into_owned())))
+        PrimitiveSource::boxed(&array.into_owned(), ctx).map(Some)
     }
 
     fn append_to_builder(

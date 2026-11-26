@@ -135,6 +135,7 @@ pub trait NativePType:
     + FromPrimitiveOrF16
     + ToBytes
     + TryFromBytes
+    + crate::block::BlockValue
     + private::Sealed
     + 'static
 {
@@ -270,6 +271,13 @@ pub trait PTypeUpcast {
 
 macro_rules! native_ptype {
     ($T:ty, $ptype:tt) => {
+        impl crate::block::sealed::Sealed for $T {}
+
+        impl crate::block::BlockValue for $T {
+            const BLOCK_TYPE: crate::block::BlockType =
+                crate::block::BlockType::Primitive(PType::$ptype);
+        }
+
         impl crate::dtype::NativeDType for $T {
             fn dtype() -> DType {
                 DType::Primitive(PType::$ptype, crate::dtype::Nullability::NonNullable)
@@ -306,6 +314,13 @@ macro_rules! native_ptype {
 
 macro_rules! native_float_ptype {
     ($T:ty, $ptype:tt) => {
+        impl crate::block::sealed::Sealed for $T {}
+
+        impl crate::block::BlockValue for $T {
+            const BLOCK_TYPE: crate::block::BlockType =
+                crate::block::BlockType::Primitive(PType::$ptype);
+        }
+
         impl crate::dtype::NativeDType for $T {
             fn dtype() -> DType {
                 DType::Primitive(PType::$ptype, crate::dtype::Nullability::NonNullable)
