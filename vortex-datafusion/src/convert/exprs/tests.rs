@@ -3757,6 +3757,7 @@ fn test_projection_keeps_distinct_arrow_types_separate() -> anyhow::Result<()> {
 struct TestVariantGet {
     name: &'static str,
     signature: datafusion_expr::Signature,
+    return_type: DataType,
 }
 
 impl datafusion_expr::ScalarUDFImpl for TestVariantGet {
@@ -3769,7 +3770,7 @@ impl datafusion_expr::ScalarUDFImpl for TestVariantGet {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> DFResult<DataType> {
-        Ok(DataType::Utf8View)
+        Ok(self.return_type.clone())
     }
 
     fn invoke_with_args(
@@ -3783,10 +3784,12 @@ impl datafusion_expr::ScalarUDFImpl for TestVariantGet {
     }
 }
 
-/// A schema with one Variant column, `data`, and `fn_name(data, path, 'VARCHAR')` over it.
+/// A schema with one Variant column, `data`, and `fn_name(data, path, type)` over it, which
+/// returns `return_type`.
 fn variant_get_expr_named(
     fn_name: &'static str,
     path: &str,
+    return_type: DataType,
 ) -> anyhow::Result<(Schema, Arc<dyn PhysicalExpr>)> {
     let session = VortexSession::default();
     let schema =
@@ -3797,6 +3800,7 @@ fn variant_get_expr_named(
     let function = TestVariantGet {
         name: fn_name,
         signature: datafusion_expr::Signature::any(3, datafusion_expr::Volatility::Immutable),
+        return_type,
     };
     let literal = |value: &str| -> Arc<dyn PhysicalExpr> {
         Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
@@ -3818,7 +3822,7 @@ fn variant_get_expr_named(
 
 /// A schema with one Variant column, `data`, and `try_variant_get(data, path, 'VARCHAR')` over it.
 fn variant_get_expr(path: &str) -> anyhow::Result<(Schema, Arc<dyn PhysicalExpr>)> {
-    variant_get_expr_named("try_variant_get", path)
+    variant_get_expr_named("try_variant_get", path, DataType::Utf8View)
 }
 
 #[test]
@@ -3859,7 +3863,49 @@ fn test_variant_get_keeps_other_paths_in_datafusion(#[case] path: &str) -> anyho
 
 #[test]
 fn test_strict_variant_get_stays_in_datafusion() -> anyhow::Result<()> {
-    let (schema, expr) = variant_get_expr_named("variant_get", "$.commit.collection")?;
+    let (schema, expr) =
+        variant_get_expr_named("variant_get", "$.commit.collection", DataType::Utf8View)?;
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
+        None,
+    );
+    Ok(())
+}
+
+/// Vortex converts Booleans, numbers and strings as Arrow does, so these targets convert.
+#[rstest]
+#[case::boolean(DataType::Boolean, DType::Bool(Nullability::Nullable))]
+#[case::integer(DataType::Int64, DType::Primitive(PType::I64, Nullability::Nullable))]
+#[case::float(DataType::Float64, DType::Primitive(PType::F64, Nullability::Nullable))]
+#[case::string(DataType::Utf8, DType::Utf8(Nullability::Nullable))]
+fn test_variant_get_converts_targets_that_convert_as_arrow(
+    #[case] return_type: DataType,
+    #[case] expected: DType,
+) -> anyhow::Result<()> {
+    let (schema, expr) = variant_get_expr_named("try_variant_get", "$.a", return_type)?;
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
+        Some(variant_get(
+            get_item("data", root()),
+            VariantPath::field("a"),
+            Some(expected),
+        )),
+    );
+    Ok(())
+}
+
+/// Arrow converts doubles and strings to decimals and rounds decimals, where Vortex gives nulls,
+/// so a decimal target stays in DataFusion. So do nested targets.
+#[rstest]
+#[case::decimal(DataType::Decimal128(12, 2))]
+#[case::list(DataType::List(Arc::new(Field::new("item", DataType::Int64, true))))]
+#[case::struct_(DataType::Struct(vec![Field::new("b", DataType::Int64, true)].into()))]
+fn test_variant_get_keeps_other_targets_in_datafusion(
+    #[case] return_type: DataType,
+) -> anyhow::Result<()> {
+    let (schema, expr) = variant_get_expr_named("try_variant_get", "$.a", return_type)?;
 
     assert_eq!(
         DefaultExpressionConverter::default().try_convert(&expr, &schema)?,

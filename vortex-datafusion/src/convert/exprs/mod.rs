@@ -102,6 +102,19 @@ const DATAFUSION_MODE: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
 /// Name of the Variant extraction function of datafusion-variant.
 const TRY_VARIANT_GET: &str = "try_variant_get";
 
+/// Returns whether Vortex's `variant_get` converts a Variant value to `dtype` as Arrow's Variant
+/// conversion does, which datafusion-variant uses.
+///
+/// Arrow converts doubles and strings to decimals, and rounds a decimal to a smaller scale. Vortex
+/// gives a null for these values, so a decimal target stays in DataFusion, as do the other types
+/// that this does not accept.
+fn converts_as_arrow(dtype: &DType) -> bool {
+    matches!(
+        dtype,
+        DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_)
+    )
+}
+
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
     /// Projection evaluated by the Vortex scan.
@@ -985,7 +998,7 @@ impl DefaultExpressionConverter {
     /// is left in DataFusion.
     ///
     /// Only the typed form over a `$`-rooted path of plain object fields (`$.field(.field)*`)
-    /// converts.
+    /// converts, and only to a type that [`converts_as_arrow`] accepts.
     ///
     /// [datafusion-variant]: https://github.com/datafusion-contrib/datafusion-variant
     fn convert_variant_get(
@@ -1021,12 +1034,15 @@ impl DefaultExpressionConverter {
         if !converted_dtype(&input, input_dtype)?.is_variant() {
             return Err(Unconverted::Unsupported);
         }
+        // The return field keeps the extension metadata of a Variant type hint, which the return
+        // type drops.
         let return_dtype = self
-            .arrow_dtype(&Field::new("", scalar_fn.return_type().clone(), true))?
+            .arrow_dtype(scalar_fn.return_field(schema)?.as_ref())?
             .as_nullable();
-        if return_dtype.is_variant() {
+        if !converts_as_arrow(&return_dtype) {
             return Err(Unconverted::Unsupported);
         }
+
         Ok(variant_get(input, path, Some(return_dtype)))
     }
 
