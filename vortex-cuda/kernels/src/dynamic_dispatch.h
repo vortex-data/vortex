@@ -123,7 +123,6 @@ PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
 /// expressions involving other macros or sizeof).
 #define KERNEL_FIXED_SHARED_BYTES 512
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -208,9 +207,9 @@ union ScalarParams {
     /// ALP-RD decode: OR in the left bits from the dictionary entry of each row's code.
     struct AlpRdParams {
         uint64_t codes_ptr;
-        uint64_t patches_ptr; // device pointer to GPUPatches of u16 left parts (0 = none)
+        uint64_t patches_ptr;            // device pointer to GPUPatches of u16 left parts (0 = none)
         uint32_t dictionary_byte_offset; // from this ScalarOp to its u16 dictionary in the packed plan
-        uint16_t codes_offset; // position of row 0 within the first codes chunk
+        uint16_t codes_offset;           // position of row 0 within the first codes chunk
         uint8_t code_bit_width;
         uint8_t right_bit_width;
     } alprd;
