@@ -651,9 +651,14 @@ pub(crate) fn record_execute_encoding(array: &ArrayRef) {
     });
 }
 
-pub(crate) fn record_execute_slot(slot_idx: usize, parent: &ArrayRef, child: &ArrayRef) {
+pub(crate) fn record_execute_slot(
+    slot_idx: usize,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    spine: bool,
+) {
     record(TraceEvent::SlotTransition {
-        step: "ExecuteSlot",
+        step: if spine { "ExecuteSpine" } else { "ExecuteSlot" },
         slot_idx,
         parent: ArraySummary::new(parent),
         child: ArraySummary::new(child),
