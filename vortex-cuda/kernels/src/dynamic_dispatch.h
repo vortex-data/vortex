@@ -16,6 +16,7 @@
 ///   [PackedStage 0][ScalarOp × N0]
 ///   [PackedStage 1][ScalarOp × N1]
 ///   ...
+///   [ALP-RD dictionaries, if any]
 ///
 /// ## Per-op type tracking
 ///
@@ -31,6 +32,8 @@
 #pragma once
 
 #include <stdint.h>
+
+#include "alp_rd.h"
 
 /// Compact tag identifying a Vortex PType for GPU dispatch.
 ///
@@ -120,8 +123,6 @@ PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
 /// expressions involving other macros or sizeof).
 #define KERNEL_FIXED_SHARED_BYTES 512
 
-/// Entries in an ALP-RD dictionary. Codes are masked to it, since null rows may hold any code.
-#define ALPRD_DICTIONARY_CAPACITY 8
 
 #ifdef __cplusplus
 extern "C" {
@@ -132,8 +133,7 @@ extern "C" {
 /// patches_ptr lives on the union variant that owns it (BitunpackParams,
 /// AlpParams) — not per-stage — so the pointer is tied to its op.
 /// Growing a union grows every ScalarOp/SourceOp read in the tile loop.
-/// SourceParams is 24 B and ScalarParams 40 B, set by AlpRdParams, with no
-/// measurable impact on the tile loop.
+/// Both parameter unions fit in 24 bytes.
 union SourceParams {
     /// Unpack FastLanes bit-packed data.
     struct BitunpackParams {
@@ -209,7 +209,7 @@ union ScalarParams {
     struct AlpRdParams {
         uint64_t codes_ptr;
         uint64_t patches_ptr; // device pointer to GPUPatches of u16 left parts (0 = none)
-        uint16_t dictionary[ALPRD_DICTIONARY_CAPACITY];
+        uint32_t dictionary_byte_offset; // from this ScalarOp to its u16 dictionary in the packed plan
         uint16_t codes_offset; // position of row 0 within the first codes chunk
         uint8_t code_bit_width;
         uint8_t right_bit_width;
@@ -277,6 +277,8 @@ struct __attribute__((aligned(8))) DispatchPlanParam {
 #endif
 
 #ifdef __cplusplus
+
+static_assert(sizeof(ScalarOp) == 32, "packed scalar ops must occupy 32 bytes");
 
 /// Stage parsed from the packed plan byte buffer.
 ///

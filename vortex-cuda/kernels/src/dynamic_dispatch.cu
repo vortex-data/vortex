@@ -231,12 +231,14 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
         if constexpr (sizeof(T) >= 4) {
             const auto &params = op.params.alprd;
             const auto *codes = reinterpret_cast<const uint16_t *>(params.codes_ptr);
+            const auto *dictionary = reinterpret_cast<const uint16_t *>(
+                reinterpret_cast<const uint8_t *>(&op) + params.dictionary_byte_offset);
 #pragma unroll
             for (uint32_t i = 0; i < N; ++i) {
                 const uint64_t pos =
                     (N == 1 ? pos_base : pos_base + i * blockDim.x + threadIdx.x) + params.codes_offset;
                 const uint32_t code = unpack_u16(codes, pos, params.code_bit_width);
-                const T left = params.dictionary[code % ALPRD_DICTIONARY_CAPACITY];
+                const T left = dictionary[code % ALPRD_DICTIONARY_CAPACITY];
                 values[i] |= left << params.right_bit_width;
             }
         } else {
