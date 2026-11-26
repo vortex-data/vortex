@@ -31,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::zip::ZipKernel;
+use crate::zip::zip_return_dtype;
 
 /// Zip two [`ListViewArray`]s by selecting whole list views per row.
 ///
@@ -62,10 +63,8 @@ impl ZipKernel for ListView {
 
         let len = if_true.len();
 
-        let result_elements_dtype = if_true
-            .elements()
-            .dtype()
-            .union_nullability(if_false.elements().dtype().nullability());
+        let result_elements_dtype =
+            zip_return_dtype(if_true.elements().dtype(), if_false.elements().dtype())?;
 
         // `if_false`'s elements share the element dtype up to nullability; normalize so both chunks
         // of the concatenated elements array have an identical dtype.
@@ -237,6 +236,7 @@ mod tests {
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::arrays::chunked::ChunkedArrayExt;
     use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
@@ -678,6 +678,69 @@ mod tests {
             &mut ctx,
         )
         .into_array();
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_zip_widens_nested_struct_element_nullability() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mask = Mask::from_iter([true, false]);
+
+        // ListView<Struct { a: i32, b: i32? }> vs ListView<Struct { a: i32?, b: i32 }>
+        let if_true = ListViewArray::new(
+            StructArray::from_fields(&[
+                ("a", buffer![1i32, 2].into_array()),
+                (
+                    "b",
+                    PrimitiveArray::from_option_iter([None::<i32>, Some(20)]).into_array(),
+                ),
+            ])?
+            .into_array(),
+            buffer![0u32, 1].into_array(),
+            buffer![1u32, 1].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+        .into_array();
+        let if_false = ListViewArray::new(
+            StructArray::from_fields(&[
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter([Some(10i32), None]).into_array(),
+                ),
+                ("b", buffer![100i32, 200].into_array()),
+            ])?
+            .into_array(),
+            buffer![0u32, 1].into_array(),
+            buffer![1u32, 1].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+        .into_array();
+
+        let result = mask
+            .into_array()
+            .zip(if_true, if_false)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is::<ListView>());
+        let expected = ListViewArray::new(
+            StructArray::from_fields(&[
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter([Some(1i32), None]).into_array(),
+                ),
+                (
+                    "b",
+                    PrimitiveArray::from_option_iter([None, Some(200i32)]).into_array(),
+                ),
+            ])?
+            .into_array(),
+            buffer![0u32, 1].into_array(),
+            buffer![1u32, 1].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        );
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
