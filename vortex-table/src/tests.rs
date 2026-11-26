@@ -5,6 +5,9 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use futures::TryStreamExt;
+use object_store::ObjectStoreExt;
+use object_store::memory::InMemory;
+use object_store::path::Path as ObjectPath;
 use vortex::VortexSessionDefault;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -25,6 +28,8 @@ use vortex_file::DeserializeStep;
 use vortex_file::Footer;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_io::VortexReadAt;
+use vortex_io::filesystem::FileSystemRef;
+use vortex_io::object_store::ObjectStoreFileSystem;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -168,7 +173,7 @@ fn xs(rows: std::ops::Range<u64>) -> VortexResult<ArrayRef> {
 async fn a_scan_returns_every_row_in_table_order() -> VortexResult<()> {
     let (manifest, open) = table().await?;
     let scan = TableScan::new(SESSION.clone());
-    let files = scan.plan(&manifest, open).await?;
+    let files = scan.plan(&manifest, &open).await?;
     assert_eq!(files.len(), 3);
     let actual = collect(&scan, files).await?;
     assert_arrays_eq!(actual, xs(0..4000)?, &mut SESSION.create_execution_ctx());
@@ -179,11 +184,43 @@ async fn a_scan_returns_every_row_in_table_order() -> VortexResult<()> {
 async fn a_filter_prunes_files_on_their_statistics() -> VortexResult<()> {
     let (manifest, open) = table().await?;
     let scan = TableScan::new(SESSION.clone()).with_filter(gt_eq(col("x"), lit(1600u64)));
-    let files = scan.plan(&manifest, open).await?;
+    let files = scan.plan(&manifest, &open).await?;
     // Only the third file can hold x >= 1600; it starts at table row 1500.
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].row_offset, 1500);
     let actual = collect(&scan, files).await?;
     assert_arrays_eq!(actual, xs(1600..4000)?, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_scan_opens_files_on_a_file_system() -> VortexResult<()> {
+    let files = [
+        data_file(0..1000).await?,
+        data_file(1000..1500).await?,
+        data_file(1500..4000).await?,
+    ];
+    let manifest = manifest(&files).await?;
+    let store = InMemory::new();
+    for (entry, bytes) in manifest.entries.iter().zip(&files) {
+        store
+            .put(
+                &ObjectPath::from(entry.path.as_str()),
+                bytes.to_vec().into(),
+            )
+            .await?;
+    }
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
+        Arc::new(store),
+        SESSION.handle(),
+    ));
+    let scan = TableScan::new(SESSION.clone()).with_filter(gt_eq(col("x"), lit(1200u64)));
+    let files = scan.plan(&manifest, fs.as_ref()).await?;
+    assert_eq!(
+        files.iter().map(|file| file.row_offset).collect::<Vec<_>>(),
+        vec![1000, 1500]
+    );
+    let actual = collect(&scan, files).await?;
+    assert_arrays_eq!(actual, xs(1200..4000)?, &mut SESSION.create_execution_ctx());
     Ok(())
 }

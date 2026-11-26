@@ -73,7 +73,7 @@ async fn main() -> VortexResult<()> {
     )
     .await?;
     let scan = TableScan::new(session.clone()).with_filter(gt_eq(col("x"), lit(750_000u64)));
-    let files = scan.plan(&manifest, open).await?;
+    let files = scan.plan(&manifest, &open).await?;
     println!("kept {} of {} files", files.len(), manifest.entries.len());
     let rows: usize = scan
         .run(files)?
