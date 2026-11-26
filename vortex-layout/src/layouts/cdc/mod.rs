@@ -32,8 +32,10 @@
 //!
 //! Every row is reduced to a 64-bit *whitened digest* per leaf value (a SplitMix64-style mix of
 //! the validity marker and the value's bytes). The digest's eight bytes update a 64-bit GEAR
-//! rolling hash `h = (h << 1) + GEAR_TABLE[byte]`, whose value depends only on the last few rows
-//! fed. A boundary becomes *eligible* at any digest byte where the top
+//! rolling hash `h = (h << 1) + table[byte]`, whose value depends only on the last few rows
+//! fed. The table is [`gearhash::DEFAULT_TABLE`], which the [Xet chunking spec] references
+//! normatively; a test pins its contents, since cut positions (and therefore the written bytes)
+//! are a function of it. A boundary becomes *eligible* at any digest byte where the top
 //! [`boundary_mask_bits`](ContentDefinedChunkingOptions::boundary_mask_bits) bits of `h` are all
 //! zero, and the pending chunk already spans at least
 //! [`min_chunk_bytes`](ContentDefinedChunkingOptions::min_chunk_bytes) of serialized values. The
@@ -54,7 +56,6 @@
 //!
 //! [Xet chunking spec]: https://huggingface.co/docs/xet/chunking
 
-mod gear_table;
 pub mod xet;
 
 use std::sync::Arc;
@@ -63,6 +64,7 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
+use gearhash::DEFAULT_TABLE;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -84,7 +86,6 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-pub use self::gear_table::GEAR_TABLE;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
@@ -302,7 +303,7 @@ impl RollingCutter {
     fn feed_digest(&mut self, digest: u64, serialized_width: u64) {
         self.serialized_bytes += serialized_width;
         for byte in digest.to_le_bytes() {
-            self.hash = (self.hash << 1).wrapping_add(GEAR_TABLE[byte as usize]);
+            self.hash = (self.hash << 1).wrapping_add(DEFAULT_TABLE[byte as usize]);
             if self.serialized_bytes >= self.min_chunk_bytes && self.hash & self.boundary_mask == 0
             {
                 self.boundary_eligible = true;

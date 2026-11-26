@@ -4639,6 +4639,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "gearhash"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "616e8f476a586f1b078d9eece21f7a071f27997e709e2b471f5697deea53bda9"
+
+[[package]]
 name = "generator"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12040,6 +12046,7 @@ dependencies = [
  "codspeed-divan-compat",
  "flatbuffers",
  "futures",
+ "gearhash",
  "goldenfile",
  "insta",
  "itertools 0.14.0",
