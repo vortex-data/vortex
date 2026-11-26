@@ -3,7 +3,6 @@
 
 mod variant;
 
-use std::cell::Cell;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -21,6 +20,7 @@ use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builders::VariantBuilder;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
@@ -45,14 +45,6 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
-
-/// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
-const MAX_CANONICALIZE_DEPTH: usize = 8;
-
-thread_local! {
-    /// How many inputs the executions of `variant_get` on this thread's stack have canonicalized.
-    static CANONICALIZE_DEPTH: Cell<usize> = const { Cell::new(0) };
-}
 
 /// Registers [`VariantGet`] and its kernel for canonical variant arrays.
 pub(crate) fn initialize(session: &VortexSession) {
@@ -193,15 +185,14 @@ impl ScalarFnVTable for VariantGet {
                 .execute::<ArrayRef>(ctx);
         }
         // Each canonicalization unwraps one lazy layer, such as a filter over a slice over a
-        // shared array. An input that canonicalizes to itself, such as a constant, would recurse
-        // forever, so the depth is bounded.
-        if !input.is::<Variant>() && CANONICALIZE_DEPTH.get() < MAX_CANONICALIZE_DEPTH {
+        // shared array.
+        if !input.is::<Variant>() {
             let canonical = input.clone().execute::<VariantArray>(ctx)?;
-            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() + 1);
-            let result = VariantGet::try_new(canonical.into_array(), options.clone())
-                .and_then(|array| array.into_array().execute::<ArrayRef>(ctx));
-            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() - 1);
-            return result;
+            if !wraps_input(&canonical, &input) {
+                return VariantGet::try_new(canonical.into_array(), options.clone())?
+                    .into_array()
+                    .execute::<ArrayRef>(ctx);
+            }
         }
 
         if !dtype.is_variant() {
@@ -226,6 +217,19 @@ impl ScalarFnVTable for VariantGet {
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
+}
+
+/// Returns whether `canonical` only wraps `input` again, as a constant canonicalizes to a Variant
+/// array over itself.
+///
+/// The kernel of such an array extracts from its core storage, which is `input`. That builds the
+/// same extraction again, so the caller must extract row by row. An array of the same encoding
+/// counts as `input` too, so that an encoding that builds a new copy of itself cannot recurse.
+fn wraps_input(canonical: &VariantArray, input: &ArrayRef) -> bool {
+    let core = canonical.core_storage();
+
+    canonical.shredded().is_none()
+        && (ArrayRef::ptr_eq(core, input) || core.encoding_id() == input.encoding_id())
 }
 
 fn variant_get_scalar(

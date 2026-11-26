@@ -7,8 +7,14 @@ use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::FixedSizeList;
+use vortex_array::arrays::ListView;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::Variant;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -146,13 +152,39 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
         }
 
         // A shredded struct or list can hold only some of an object's fields or nested
-        // partially-shredded values, with the rest in core storage. Defer to scalar
-        // extraction, which merges shredded and core storage per row before casting.
+        // partially-shredded values, with the rest in core storage. A row is read from the
+        // shredded child only when every leaf of it holds a value there. Scalar extraction
+        // merges shredded and core storage for the other rows before it casts them.
         if matches!(
             typed.dtype(),
             DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..)
         ) {
-            return Ok(None);
+            if typed.dtype().as_nullable() != parent.dtype().as_nullable() {
+                return Ok(None);
+            }
+
+            let Some(complete) = complete_rows(&typed, ctx)? else {
+                return Ok(None);
+            };
+
+            // A null Variant row is null in the result, so the shredded child gives it as well.
+            let core_mask = core_validity.execute_mask(typed.len(), ctx)?;
+            let complete = &complete | &!&core_mask;
+            if complete.all_false() {
+                return Ok(None);
+            }
+
+            let typed = typed.cast(parent.dtype().clone())?;
+            if complete.all_true() {
+                return Ok(Some(typed));
+            }
+
+            let incomplete = execute_fallback_variant_get(
+                parent.options.clone(),
+                array.array().filter(!&complete)?,
+                ctx,
+            )?;
+            return scatter_absent(typed, complete, incomplete, ctx).map(Some);
         }
 
         // Null typed rows are not necessarily missing from the logical variant value;
@@ -196,6 +228,17 @@ fn fill_absent_from_core(
         return Ok(extracted);
     }
 
+    scatter_absent(extracted, present, absent, ctx)
+}
+
+/// Puts the rows of `absent` in the positions that `present` marks absent, and keeps the rows of
+/// `extracted` in the other positions.
+fn scatter_absent(
+    extracted: ArrayRef,
+    present: Mask,
+    absent: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     // Scatter the extracted rows back to their positions: row `i` reads the extracted row that
     // it is the n-th absent row for. Present rows read an arbitrary extracted row, which the zip
     // discards.
@@ -216,6 +259,57 @@ fn fill_absent_from_core(
         .into_array()
         .zip(extracted, fallback)?
         .execute::<ArrayRef>(ctx)
+}
+
+/// Returns the rows of the shredded struct or list `typed` whose every leaf holds a value.
+///
+/// A null leaf can mean that the value of the leaf is in core storage, so such a row must merge
+/// the two. Returns `None` if a row cannot be read from `typed` alone, such as a row with a
+/// nested Variant, or a list with a null element.
+fn complete_rows(typed: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
+    let len = typed.len();
+    match typed.dtype() {
+        DType::Variant(_) => Ok(None),
+        DType::Struct(..) => {
+            let typed = typed.clone().execute::<Array<Struct>>(ctx)?;
+            let mut complete = typed.struct_validity().execute_mask(len, ctx)?;
+            for field in typed.iter_unmasked_fields() {
+                let Some(field_complete) = complete_rows(field, ctx)? else {
+                    return Ok(None);
+                };
+                complete = &complete & &field_complete;
+            }
+
+            Ok(Some(complete))
+        }
+        DType::List(..) => {
+            let typed = typed.clone().execute::<Array<ListView>>(ctx)?;
+            list_complete_rows(typed.listview_validity(), typed.elements(), len, ctx)
+        }
+        DType::FixedSizeList(..) => {
+            let typed = typed.clone().execute::<Array<FixedSizeList>>(ctx)?;
+            list_complete_rows(typed.fixed_size_list_validity(), typed.elements(), len, ctx)
+        }
+        _ => typed.validity()?.execute_mask(len, ctx).map(Some),
+    }
+}
+
+/// Returns the valid rows of a list, if all of its elements are complete.
+///
+/// The check covers all elements, also elements that no list refers to. This can find a list
+/// incomplete that is complete, which only makes the extraction slower.
+fn list_complete_rows(
+    validity: Validity,
+    elements: &ArrayRef,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Mask>> {
+    let elements_complete = complete_rows(elements, ctx)?;
+    if !elements_complete.is_some_and(|complete| complete.all_true()) {
+        return Ok(None);
+    }
+
+    validity.execute_mask(len, ctx).map(Some)
 }
 
 /// Converts the typed values `typed` to `dtype`, as a single value converts: a value that does
@@ -327,6 +421,7 @@ fn execute_fallback_variant_get(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -334,7 +429,9 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
@@ -342,38 +439,97 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VariantBuilder;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::ArrayExprExt;
     use vortex_expr::root;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::expr::variant_get;
     use crate::variant_get::VariantPath;
+    use crate::variant_get::VariantPathElement;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
+
+        vortex_array::initialize(&session);
+
         crate::initialize(&session);
+
         session
     });
+
+    fn int(value: i32) -> Scalar {
+        Scalar::primitive(value, Nullability::NonNullable)
+    }
+
+    /// An object with the given fields, as a Variant holds it.
+    fn object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> VortexResult<Scalar> {
+        let fields = fields.into_iter().collect::<Vec<_>>();
+        let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
+        let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
+        let values = fields
+            .into_iter()
+            .map(|(_, value)| Scalar::variant(value).into_value())
+            .collect();
+        Scalar::try_new(
+            DType::Struct(StructFields::new(names, dtypes), Nullability::NonNullable),
+            Some(ScalarValue::Tuple(values)),
+        )
+    }
+
+    /// Core storage with one Variant row for each value. `None` is a null Variant row.
+    fn core(rows: impl IntoIterator<Item = Option<Scalar>>) -> VortexResult<ArrayRef> {
+        let dtype = DType::Variant(Nullability::Nullable);
+        let chunks = rows
+            .into_iter()
+            .map(|row| {
+                let row = match row {
+                    Some(row) => Scalar::variant(row).cast(&dtype)?,
+                    None => Scalar::null(dtype.clone()),
+                };
+                Ok(ConstantArray::new(row, 1).into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+    }
+
+    /// A Variant whose objects have the field `name` shredded as `typed`, over `core`.
+    fn shredded(name: &str, typed: ArrayRef, core: ArrayRef) -> VortexResult<ArrayRef> {
+        let shredded = StructArray::try_from_iter([(name, typed)])?.into_array();
+
+        Ok(VariantArray::try_new(core, Some(shredded))?.into_array())
+    }
 
     /// Variant objects whose field `a` is shredded as `a`, over core storage that holds no value
     /// of `a`, as shredding leaves it.
     fn shredded_a(a: ArrayRef) -> VortexResult<ArrayRef> {
         let len = a.len();
         let core = ConstantArray::new(Scalar::variant(Scalar::null(DType::Null)), len).into_array();
-        let shredded = StructArray::try_new(
-            FieldNames::from_iter(["a"]),
-            vec![a],
-            len,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        Ok(VariantArray::try_new(core, Some(shredded))?.into_array())
+
+        shredded("a", a, core)
+    }
+
+    fn execute(array: ArrayRef, path: VariantPath, dtype: Option<DType>) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        array
+            .apply(&variant_get(root(), path, dtype))?
+            .execute::<ArrayRef>(&mut ctx)
+    }
+
+    fn nullable_i32() -> DType {
+        DType::Primitive(PType::I32, Nullability::Nullable)
     }
 
     /// A typed value of another dtype than the requested one converts from the typed child, as
@@ -405,95 +561,276 @@ mod tests {
         #[case] expected: PrimitiveArray,
     ) -> VortexResult<()> {
         let array = shredded_a(typed.into_array())?;
-        let expr = variant_get(
-            root(),
+        let actual = execute(
+            array,
             VariantPath::field("a"),
             Some(DType::Primitive(requested, Nullability::Nullable)),
-        );
+        )?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-
         assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
         Ok(())
     }
 
-    /// A number reads as a Boolean as Arrow's Variant conversion reads it: zero is false.
-    #[test]
-    fn converts_typed_numbers_to_booleans() -> VortexResult<()> {
-        let typed = PrimitiveArray::from_option_iter([Some(0i64), Some(-3), None]);
-        let array = shredded_a(typed.into_array())?;
-        let expr = variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(DType::Bool(Nullability::Nullable)),
-        );
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-
-        assert_arrays_eq!(
-            actual,
-            BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    /// A string reads as a Boolean as Arrow's Variant conversion reads it, so a shredded string
-    /// field gives what the unshredded value gives.
-    #[test]
-    fn converts_typed_strings_to_booleans() -> VortexResult<()> {
-        let typed = VarBinViewArray::from_iter_nullable_str([
-            Some("true"),
-            Some(" No "),
-            Some("1"),
-            Some("maybe"),
-            None,
-        ]);
-        let array = shredded_a(typed.into_array())?;
-        let expr = variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(DType::Bool(Nullability::Nullable)),
-        );
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-
-        assert_arrays_eq!(
-            actual,
-            BoolArray::from_iter([Some(true), Some(false), Some(true), None, None]).into_array(),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    /// A number in a nested Variant, as a partially shredded field holds it, reads as a Boolean
-    /// too.
-    #[test]
-    fn converts_numbers_in_variants_to_booleans() -> VortexResult<()> {
+    /// Numbers in a Variant, as a partially shredded field holds them.
+    fn numbers_in_variants() -> VortexResult<ArrayRef> {
         let mut builder = VariantBuilder::new(Nullability::Nullable);
         for value in [0i64, -3] {
             let value = Scalar::primitive(value, Nullability::NonNullable);
             builder.append_n_scalars(&Scalar::variant(value), 1)?;
         }
         builder.append_n_scalars(&Scalar::null(DType::Variant(Nullability::Nullable)), 1)?;
-        let array = shredded_a(builder.finish_into_variant()?.into_array())?;
-        let expr = variant_get(
-            root(),
+
+        Ok(builder.finish_into_variant()?.into_array())
+    }
+
+    /// Numbers and strings read as Booleans as Arrow's Variant conversion reads them: zero is
+    /// false, and a string must have one of the spellings that Arrow accepts. A shredded value
+    /// gives what the unshredded value gives.
+    #[rstest]
+    #[case::numbers(
+        Ok(PrimitiveArray::from_option_iter([Some(0i64), Some(-3), None]).into_array()),
+        BoolArray::from_iter([Some(false), Some(true), None]),
+    )]
+    #[case::strings(
+        Ok(VarBinViewArray::from_iter_nullable_str([
+            Some("true"),
+            Some(" No "),
+            Some("1"),
+            Some("maybe"),
+            None,
+        ])
+        .into_array()),
+        BoolArray::from_iter([Some(true), Some(false), Some(true), None, None]),
+    )]
+    #[case::numbers_in_variants(
+        numbers_in_variants(),
+        BoolArray::from_iter([Some(false), Some(true), None]),
+    )]
+    fn converts_typed_values_to_booleans(
+        #[case] typed: VortexResult<ArrayRef>,
+        #[case] expected: BoolArray,
+    ) -> VortexResult<()> {
+        let array = shredded_a(typed?)?;
+        let actual = execute(
+            array,
             VariantPath::field("a"),
             Some(DType::Bool(Nullability::Nullable)),
-        );
+        )?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
+        Ok(())
+    }
 
+    /// A row that the shredded child does not hold reads its value from core storage, and the
+    /// other rows keep their typed values.
+    #[test]
+    fn fills_absent_rows_from_core() -> VortexResult<()> {
+        let typed = PrimitiveArray::from_option_iter([Some(10i32), None, None]).into_array();
+        let core = core([
+            Some(object([])?),
+            Some(object([("a", int(5))])?),
+            Some(object([("b", int(6))])?),
+        ])?;
+        let array = shredded("a", typed, core)?;
+
+        let actual = execute(array, VariantPath::field("a"), Some(nullable_i32()))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             actual,
-            BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
+            PrimitiveArray::from_option_iter([Some(10i32), Some(5), None]).into_array(),
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// The input shapes of [`reads_sliced_and_filtered_shredded_rows`].
+    #[derive(Clone, Copy, Debug)]
+    enum Shape {
+        Sliced,
+        Filtered,
+    }
+
+    /// A slice or a filter of a shredded Variant keeps the typed rows and reads the other rows
+    /// from core storage.
+    #[rstest]
+    #[case::sliced(Shape::Sliced, [Some(5i32), Some(30), Some(7)])]
+    #[case::filtered(Shape::Filtered, [Some(10i32), Some(5), Some(7)])]
+    fn reads_sliced_and_filtered_shredded_rows(
+        #[case] shape: Shape,
+        #[case] expected: [Option<i32>; 3],
+    ) -> VortexResult<()> {
+        let typed =
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None]).into_array();
+        let core = core([
+            Some(object([])?),
+            Some(object([("a", int(5))])?),
+            Some(object([])?),
+            Some(object([("a", int(7))])?),
+        ])?;
+        let array = shredded("a", typed, core)?;
+        let array = match shape {
+            Shape::Sliced => array.slice(1..4)?,
+            Shape::Filtered => array.filter(Mask::from_iter([true, true, false, true]))?,
+        };
+
+        let actual = execute(array, VariantPath::field("a"), Some(nullable_i32()))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_option_iter(expected).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A path continues through a shredded Variant child. A row reads the leaf from the typed
+    /// child of the nested Variant, from the core storage of the nested Variant, or from the top
+    /// core storage when the nested Variant does not hold the row.
+    #[test]
+    fn reads_path_through_shredded_variant() -> VortexResult<()> {
+        let nested_typed = PrimitiveArray::from_option_iter([Some(1i32), None, None]).into_array();
+        let nested_core = core([Some(object([])?), Some(object([("c", int(2))])?), None])?;
+        let nested = shredded("c", nested_typed, nested_core)?;
+        let core = core([
+            Some(object([])?),
+            Some(object([])?),
+            Some(object([("b", object([("c", int(3))])?)])?),
+        ])?;
+        let array = shredded("b", nested, core)?;
+
+        let path = VariantPath::new([
+            VariantPathElement::field("b"),
+            VariantPathElement::field("c"),
+        ]);
+        let actual = execute(array, path, Some(nullable_i32()))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3)]).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Variant objects whose field `items` is shredded as a list of integers in the first row,
+    /// and is only in core storage in the second row.
+    fn shredded_items() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let items = ListArray::try_new(
+            buffer![10i32, 20].into_array(),
+            buffer![0u32, 2, 2].into_array(),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+        let list = Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![Scalar::variant(int(30)), Scalar::variant(int(40))],
+            Nullability::NonNullable,
+        );
+        let core = core([Some(object([])?), Some(object([("items", list)])?)])?;
+
+        shredded("items", items, core)
+    }
+
+    /// An index into a shredded list reads the shredded elements and the elements in core
+    /// storage, with and without a requested dtype.
+    #[rstest]
+    #[case::typed(Some(nullable_i32()))]
+    #[case::untyped(None)]
+    fn reads_index_into_shredded_list(#[case] dtype: Option<DType>) -> VortexResult<()> {
+        let path = VariantPath::new([
+            VariantPathElement::field("items"),
+            VariantPathElement::index(1),
+        ]);
+        let untyped = dtype.is_none();
+
+        let mut actual = execute(shredded_items()?, path, dtype)?;
+        if untyped {
+            actual = execute(actual, VariantPath::root(), Some(nullable_i32()))?;
+        }
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_option_iter([Some(20i32), Some(40)]).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A shredded list of the requested dtype gives its rows in bulk, and a row that only core
+    /// storage holds reads from there.
+    #[test]
+    fn reads_shredded_list() -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+
+        let actual = execute(shredded_items()?, VariantPath::field("items"), Some(dtype))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = ListArray::try_new(
+            buffer![10i32, 20, 30, 40].into_array(),
+            buffer![0u32, 2, 4].into_array(),
+            Validity::AllValid,
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    /// A shredded struct of the requested dtype gives the rows whose every field it holds. A row
+    /// with a null field merges the shredded child with core storage, and a row whose whole
+    /// struct is only in core storage reads from there.
+    #[test]
+    fn reads_shredded_struct() -> VortexResult<()> {
+        let s = StructArray::try_from_iter_with_validity(
+            [
+                (
+                    "x",
+                    PrimitiveArray::from_option_iter([Some(1i32), Some(3), None, Some(7)]),
+                ),
+                (
+                    "y",
+                    PrimitiveArray::from_option_iter([Some(2i32), None, None, Some(8)]),
+                ),
+            ],
+            Validity::from_iter([true, true, false, true]),
+        )?
+        .into_array();
+        let dtype = s.dtype().clone();
+        let core = core([
+            Some(object([])?),
+            Some(object([])?),
+            Some(object([("s", object([("x", int(5)), ("y", int(6))])?)])?),
+            Some(object([])?),
+        ])?;
+        let array = shredded("s", s, core)?;
+
+        let actual = execute(array, VariantPath::field("s"), Some(dtype))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = StructArray::try_from_iter_with_validity(
+            [
+                (
+                    "x",
+                    PrimitiveArray::from_option_iter([Some(1i32), Some(3), Some(5), Some(7)]),
+                ),
+                (
+                    "y",
+                    PrimitiveArray::from_option_iter([Some(2i32), None, Some(6), Some(8)]),
+                ),
+            ],
+            Validity::AllValid,
+        )?;
+        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
         Ok(())
     }
 }
