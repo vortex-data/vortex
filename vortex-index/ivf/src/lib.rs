@@ -712,7 +712,12 @@ struct ListCache {
 fn score_lists(lists: &[Arc<IvfEntries>], query: &[f32], dim: usize, k: usize) -> Vec<Hit> {
     let quantized = QuantizedQuery::new(query);
     let code_len = 4 + dim;
-    let mut best = BestK::new(k);
+    let candidates = lists
+        .iter()
+        .flat_map(|entries| &entries.codes)
+        .map(|codes| codes.len() / code_len)
+        .sum();
+    let mut best = BestK::new(k, candidates);
     let mut scores = Vec::new();
     for entries in lists {
         for (rows, codes) in entries.rows.iter().zip(&entries.codes) {
@@ -740,10 +745,11 @@ struct BestK {
 }
 
 impl BestK {
-    fn new(k: usize) -> Self {
+    /// A `k` past `candidates`, such as `usize::MAX` for every hit, keeps every candidate.
+    fn new(k: usize, candidates: usize) -> Self {
         Self {
             k,
-            heap: BinaryHeap::with_capacity(k + 1),
+            heap: BinaryHeap::with_capacity(k.min(candidates).saturating_add(1)),
         }
     }
 
@@ -969,6 +975,10 @@ mod tests {
                     .collect::<Vec<_>>()
             })
             .collect();
+        assert_eq!(
+            score_lists(&lists, &query, dim, usize::MAX).len(),
+            every.len()
+        );
         let expected = top_k(every, 25);
         let found = score_lists(&lists, &query, dim, 25);
         assert_eq!(
