@@ -16,6 +16,7 @@
 //! Blocks are borrowed bytes and a [`BlockType`]. Viewing them as values is the job of `cast`, which
 //! holds the runtime's reinterpretations of memory.
 
+use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -61,10 +62,27 @@ pub const BLOCK_LEN: usize = 1024;
 #[repr(C, align(64))]
 pub struct BlockBuf([u8; BLOCK_LEN * 8]);
 
+thread_local! {
+    /// Scratch that finished programs returned, so the next programs on this thread reuse it
+    /// instead of zeroing new blocks.
+    static SPARE_SCRATCH: RefCell<Vec<Box<BlockBuf>>> = const { RefCell::new(Vec::new()) };
+}
+
 impl BlockBuf {
-    /// Zeroed scratch for one block.
-    pub(crate) fn new_boxed() -> Box<Self> {
-        Box::new(Self([0; BLOCK_LEN * 8]))
+    /// Scratch for one block, holding whatever a previous program left in it.
+    pub(crate) fn take() -> Box<Self> {
+        SPARE_SCRATCH
+            .with_borrow_mut(Vec::pop)
+            .unwrap_or_else(|| Box::new(Self([0; BLOCK_LEN * 8])))
+    }
+
+    /// Return scratch for a later program on this thread to [`take`](Self::take).
+    pub(crate) fn give_back(scratch: Box<Self>) {
+        SPARE_SCRATCH.with_borrow_mut(|spare| {
+            if spare.len() < 2 {
+                spare.push(scratch);
+            }
+        });
     }
 
     /// The scratch as `len` values of `T`, to fill.
