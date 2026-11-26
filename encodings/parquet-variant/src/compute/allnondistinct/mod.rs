@@ -28,14 +28,8 @@ use vortex_mask::Mask;
 use crate::ParquetVariant;
 use crate::ParquetVariantArraySlotsExt;
 
-/// Lets `AllNonDistinct` compare two `ParquetVariant` arrays without canonicalizing them.
-///
-/// `AllNonDistinct` accumulates over a `Struct{lhs, rhs}` batch, so this kernel is registered for
-/// the struct encoding and inspects the two children. When both are `ParquetVariant` with matching
-/// shredding layouts and child dtypes, it checks batch and outer variant validity, then compares
-/// `typed_value` and `value` children directly when `metadata` dictionaries match (or are unused
-/// for fully shredded leaf values). When `metadata` is needed and differs, it compares active rows
-/// directly via `ParquetVariant` scalars so raw-only nested fields are preserved.
+/// Compares two `ParquetVariant` arrays for `AllNonDistinct` by logical Variant equality
+/// without canonicalizing them, preserving raw-only nested fields and outer/batch validity.
 #[derive(Debug)]
 pub struct AllNonDistinctParquetVariant;
 
@@ -66,9 +60,6 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             return Ok(None);
         };
 
-        // Respect both the batch struct mask (rows masked out by the caller) and each side's
-        // outer variant validity. A valid batch row where only one side is null is distinct, and
-        // rows that are null on both sides must be excluded before comparing physical children.
         let batch_validity = batch.validity()?;
         let lhs_validity = lhs.validity()?;
         let rhs_validity = rhs.validity()?;
@@ -94,10 +85,8 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             (lhs_mask.true_count() < batch.len()).then_some(lhs_mask)
         };
 
-        // Check shredding layout and child dtype compatibility before comparing metadata or
-        // children. When layouts or child dtypes differ (e.g. only one side is shredded, only one
-        // side has a root `value`, or nullability differs), compare via `ParquetVariant` scalars
-        // rather than declining to `Canonical::Variant`, which omits raw-only nested wrappers.
+        // Mismatched layouts fall back to scalar decoding because `Canonical::Variant` drops
+        // raw-only nested wrappers.
         let typed_pair = match (lhs.typed_value(), rhs.typed_value()) {
             (Some(lhs_typed), Some(rhs_typed)) if lhs_typed.dtype() == rhs_typed.dtype() => {
                 Some((lhs_typed, rhs_typed))
@@ -135,7 +124,7 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
                 matches!(lhs_typed.dtype(), DType::Struct(..) | DType::List(..))
             });
 
-        if needs_metadata {
+        let filtered_metadata = if needs_metadata {
             let lhs_metadata = filter_child(lhs.metadata())?;
             let rhs_metadata = filter_child(rhs.metadata())?;
             if !all_non_distinct(&lhs_metadata, &rhs_metadata, ctx)? {
@@ -151,7 +140,10 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
                 };
                 return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
             }
-        }
+            Some((lhs_metadata, rhs_metadata))
+        } else {
+            None
+        };
 
         if let Some((lhs_typed, rhs_typed)) = typed_pair {
             let lhs_typed = filter_child(lhs_typed)?;
@@ -170,18 +162,15 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             let lhs_value = filter_child(lhs_value)?;
             let rhs_value = filter_child(rhs_value)?;
             if !all_non_distinct(&lhs_value, &rhs_value, ctx)? {
-                let equal = if typed_pair.is_none() {
-                    let lhs_metadata = filter_child(lhs.metadata())?;
-                    let rhs_metadata = filter_child(rhs.metadata())?;
-                    compare_unshredded_variants(
-                        &lhs_metadata,
-                        &rhs_metadata,
+                let equal = match (typed_pair, &filtered_metadata) {
+                    (None, Some((lhs_metadata, rhs_metadata))) => compare_unshredded_variants(
+                        lhs_metadata,
+                        rhs_metadata,
                         &lhs_value,
                         &rhs_value,
                         ctx,
-                    )?
-                } else {
-                    compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?
+                    )?,
+                    _ => compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?,
                 };
                 return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
             }
