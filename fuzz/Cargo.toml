@@ -34,7 +34,13 @@ wasmfuzz = []
 zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 cuda = ["vortex-cuda", "tokio"]
 # Property-based drivers (`tests/*_ephyra.rs`).
-ephyra = ["native", "dep:ephyra", "dep:parking_lot", "dep:serde", "dep:serde_json"]
+ephyra = [
+    "native",
+    "dep:ephyra",
+    "dep:parking_lot",
+    "dep:serde",
+    "dep:serde_json",
+]
 # Coverage-guided corpus search; needs a `-C instrument-coverage` build.
 ephyra-coverage = ["ephyra", "ephyra/coverage"]
 
