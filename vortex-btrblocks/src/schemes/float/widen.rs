@@ -50,25 +50,37 @@ struct NarrowestFloatTarget(Option<PType>);
 /// reused directly by [`FloatWidenScheme::compress`] to avoid compressing the array twice.
 struct CachedFullWiden(OnceLock<ArrayRef>);
 
+/// Cached winning target width from sampled estimation so [`FloatWidenScheme::compress`] encodes
+/// only the winning width rather than trying both `f16` and `f32` again on the full array.
+struct CachedBestTarget(OnceLock<PType>);
+
 const SAMPLE_CHUNK_LEN: usize = 1024;
 const SAMPLE_CHUNK_COUNT: u32 = 2;
 
-fn compress_with_target(
+fn candidate_targets(
+    source: PType,
+    narrowest: PType,
+    compress_ctx: &CompressorContext,
+) -> &'static [PType] {
+    // When an `f64` array fits both `f16` and `f32`, compare both compressed children because
+    // `ALP` and `ALPRD` skip `f16` and may compress `f32` smaller than raw `f16`.
+    match (source, narrowest) {
+        (PType::F64, PType::F16) if !compress_ctx.finished_cascading() => &[PType::F16, PType::F32],
+        (_, PType::F16) => &[PType::F16],
+        (_, PType::F32) => &[PType::F32],
+        _ => &[],
+    }
+}
+
+fn compress_with_candidates(
     compressor: &CascadingCompressor,
     primitive: &PrimitiveArray,
     mask: &Mask,
-    narrowest: PType,
+    candidates: &[PType],
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // When an `f64` array fits both `f16` and `f32`, compare both compressed children because
-    // `ALP` and `ALPRD` skip `f16` and may compress `f32` smaller than raw `f16`.
-    let candidates: &[PType] = match (primitive.ptype(), narrowest) {
-        (PType::F64, PType::F16) if !compress_ctx.finished_cascading() => &[PType::F16, PType::F32],
-        _ => &[narrowest],
-    };
-
-    let mut best: Option<ArrayRef> = None;
+) -> VortexResult<(ArrayRef, Option<PType>)> {
+    let mut best: Option<(ArrayRef, PType)> = None;
     for &target in candidates {
         let narrowed = narrow_float_values(primitive, target, mask)?;
         let logical_dtype = primitive.dtype().clone();
@@ -84,13 +96,16 @@ fn compress_with_target(
             compressor.compress_encoded(FloatWidenScheme.id(), encoded, &compress_ctx, exec_ctx)?;
         if best
             .as_ref()
-            .is_none_or(|current| candidate.nbytes() < current.nbytes())
+            .is_none_or(|(current, _)| candidate.nbytes() < current.nbytes())
         {
-            best = Some(candidate);
+            best = Some((candidate, target));
         }
     }
 
-    Ok(best.unwrap_or_else(|| primitive.clone().into_array()))
+    Ok(match best {
+        Some((array, target)) => (array, Some(target)),
+        None => (primitive.clone().into_array(), None),
+    })
 }
 
 /// Lossless floating-point narrowing scheme (`f64 -> f32/f16`, `f32 -> f16`).
@@ -209,11 +224,13 @@ impl Scheme for FloatWidenScheme {
                 if matches!(sample_mask, Mask::AllFalse(_)) {
                     return Ok(EstimateVerdict::Skip);
                 }
-                let compressed = compress_with_target(
+                let candidates =
+                    candidate_targets(sample_primitive.ptype(), narrowest, &sample_ctx);
+                let (compressed, best_target) = compress_with_candidates(
                     compressor,
                     &sample_primitive,
                     &sample_mask,
-                    narrowest,
+                    candidates,
                     sample_ctx,
                     exec_ctx,
                 )?;
@@ -224,6 +241,11 @@ impl Scheme for FloatWidenScheme {
                             .0
                             .set(compressed),
                     );
+                } else if let Some(target) = best_target {
+                    let _ = data
+                        .get_or_insert_with(|| CachedBestTarget(OnceLock::new()))
+                        .0
+                        .set(target);
                 }
                 if sample_after == 0 {
                     return Ok(EstimateVerdict::Skip);
@@ -261,14 +283,33 @@ impl Scheme for FloatWidenScheme {
             return Ok(data.array().clone());
         };
 
-        compress_with_target(
+        if let Some(target) = data
+            .get_or_insert_with(|| CachedBestTarget(OnceLock::new()))
+            .0
+            .get()
+            .copied()
+        {
+            return Ok(compress_with_candidates(
+                compressor,
+                &primitive,
+                &mask,
+                &[target],
+                compress_ctx,
+                exec_ctx,
+            )?
+            .0);
+        }
+
+        let candidates = candidate_targets(primitive.ptype(), narrowest, &compress_ctx);
+        Ok(compress_with_candidates(
             compressor,
             &primitive,
             &mask,
-            narrowest,
+            candidates,
             compress_ctx,
             exec_ctx,
-        )
+        )?
+        .0)
     }
 }
 
@@ -374,7 +415,12 @@ mod tests {
     #[test]
     fn compresses_f32_exact_f64_with_widen() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let values = pseudo_random_f32_in_f64(8192);
+        let mut values = pseudo_random_f32_in_f64(8192);
+        values[0] = -0.0_f64;
+        values[1] = 0.0_f64;
+        values[2] = f64::INFINITY;
+        values[3] = f64::NEG_INFINITY;
+        values[4] = f64::NAN;
         let input = PrimitiveArray::from_iter(values);
 
         let without_widen = BtrBlocksCompressorBuilder::from_session(&SESSION)
@@ -405,15 +451,24 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn compresses_f16_exact_f64_choosing_best_narrow_width() -> VortexResult<()> {
+    #[rstest]
+    #[case::f16_exact_f64(
+        PrimitiveArray::from_iter(pseudo_random_f16(4096).into_iter().map(f16::to_f64)),
+        PType::F16,
+    )]
+    #[case::f16_exact_f32(
+        PrimitiveArray::from_iter(pseudo_random_f16(4096).into_iter().map(f16::to_f32)),
+        PType::F16,
+    )]
+    #[case::short_f32_exact_f64(
+        PrimitiveArray::from_iter(pseudo_random_f32_in_f64(512)),
+        PType::F32
+    )]
+    fn compresses_narrow_targets(
+        #[case] input: PrimitiveArray,
+        #[case] expected_child: PType,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let values: Vec<f64> = pseudo_random_f16(4096)
-            .into_iter()
-            .map(f16::to_f64)
-            .collect();
-        let input = PrimitiveArray::from_iter(values);
-
         let compressed =
             unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
         assert!(
@@ -423,43 +478,30 @@ mod tests {
         );
         assert_eq!(
             compressed.as_::<Widen>().values().dtype().as_ptype(),
-            PType::F16
+            expected_child
         );
-        assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
+        if input.ptype() == PType::F64 {
+            assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
+        } else {
+            assert_arrays_eq!(compressed, input, &mut ctx);
+        }
 
         Ok(())
     }
 
-    #[test]
-    fn preserves_neg_zero_and_canonical_nan_bits() -> VortexResult<()> {
+    #[rstest]
+    #[case::non_f32_outlier(0.1_f64)]
+    #[case::signaling_nan(f64::from_bits(0x7ff0_0000_2000_0000))]
+    #[case::negative_nan(-f64::NAN)]
+    fn skips_unnarrowable_values(#[case] outlier: f64) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let mut values = pseudo_random_f32_in_f64(4096);
-        values[0] = -0.0_f64;
-        values[1] = 0.0_f64;
-        values[2] = f64::INFINITY;
-        values[3] = f64::NEG_INFINITY;
-        values[4] = f64::NAN;
-        let input = PrimitiveArray::from_iter(values);
-
-        let compressed =
-            unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
-        assert!(compressed.is::<Widen>());
-        assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn skips_non_f32_outlier_and_still_compresses_normally() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut values = pseudo_random_f32_in_f64(16_384);
-        values[100] = 0.1_f64;
+        values[77] = outlier;
         let input = PrimitiveArray::from_iter(values);
 
         let compressed =
             unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
         assert!(!compressed.is::<Widen>());
-        // Must still compress with ALPRD rather than bailing out to uncompressed Primitive.
         assert!(
             compressed.nbytes() < input.nbytes(),
             "expected fallback float scheme to compress, got {} vs {}",
@@ -467,23 +509,6 @@ mod tests {
             input.nbytes()
         );
         assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn skips_signaling_and_negative_nan() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        for nan in [f64::from_bits(0x7ff0_0000_2000_0000), -f64::NAN] {
-            let mut values = pseudo_random_f32_in_f64(4096);
-            values[77] = nan;
-            let input = PrimitiveArray::from_iter(values);
-
-            let compressed =
-                unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
-            assert!(!compressed.is::<Widen>());
-            assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
-        }
 
         Ok(())
     }
@@ -503,27 +528,6 @@ mod tests {
             unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
         assert!(compressed.is::<Widen>());
         assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn compresses_f16_exact_f32_to_f16_widen() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values: Vec<f32> = pseudo_random_f16(4096)
-            .into_iter()
-            .map(f16::to_f32)
-            .collect();
-        let input = PrimitiveArray::from_iter(values);
-
-        let compressed =
-            unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
-        assert!(compressed.is::<Widen>());
-        assert_eq!(
-            compressed.as_::<Widen>().values().dtype().as_ptype(),
-            PType::F16
-        );
-        assert_arrays_eq!(compressed, input, &mut ctx);
 
         Ok(())
     }
@@ -589,23 +593,6 @@ mod tests {
             compressed.nbytes(),
         );
         assert_arrays_eq!(compressed, input, &mut ctx);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_short_column_uses_cached_full_widen() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let input = PrimitiveArray::from_iter(pseudo_random_f32_in_f64(512));
-
-        let compressed =
-            unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
-        assert!(compressed.is::<Widen>());
-        assert_eq!(
-            compressed.as_::<Widen>().values().dtype().as_ptype(),
-            PType::F32
-        );
-        assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
 
         Ok(())
     }

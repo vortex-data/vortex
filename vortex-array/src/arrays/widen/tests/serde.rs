@@ -234,6 +234,24 @@ fn serialization_keeps_parent_statistics() -> VortexResult<()> {
     DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable),
     [16, 9],
 )]
+#[case::f32_to_f64(
+    buffer![-0.0_f32, 0.0_f32, 1.5_f32, f32::INFINITY, f32::NAN].into_array(),
+    DType::from(PType::F64),
+    [8, 9], // Field 1, PType::F32 = 9.
+)]
+#[case::f16_to_f64(
+    buffer![f16::NEG_ZERO, f16::ZERO, f16::ONE, f16::NEG_INFINITY, f16::NAN].into_array(),
+    DType::from(PType::F64),
+    [8, 8], // Field 1, PType::F16 = 8.
+)]
+#[case::f16_to_f32_dict(
+    DictArray::try_new(
+        buffer![2u8, 0, 1, 2].into_array(),
+        buffer![f16::NEG_ZERO, f16::from_f32(1.5), f16::INFINITY].into_array(),
+    )?.into_array(),
+    DType::from(PType::F32),
+    [8, 8], // Field 1, PType::F16 = 8.
+)]
 fn test_widen_wire_round_trip(
     #[case] child: ArrayRef,
     #[case] dtype: DType,
@@ -262,9 +280,14 @@ fn test_widen_wire_round_trip(
     Ok(())
 }
 
-#[test]
-fn test_widen_wire_id_requires_permission() -> VortexResult<()> {
-    let widen = widen_over(buffer![1i8, 2, 3], DType::from(PType::I64))?;
+#[rstest]
+#[case::int(buffer![1i8, 2, 3].into_array(), DType::from(PType::I64))]
+#[case::float(buffer![1.0_f32, -0.0_f32].into_array(), DType::from(PType::F64))]
+fn test_widen_wire_id_requires_permission(
+    #[case] child: ArrayRef,
+    #[case] dtype: DType,
+) -> VortexResult<()> {
+    let widen = widen_over(child, dtype)?;
     let restricted =
         ArrayContext::empty().with_allowed_ids([ArrayVTable::id(&Primitive)].into_iter().collect());
     let error = serialize_blob(&widen, &restricted, &SESSION)
@@ -293,6 +316,12 @@ fn test_widen_wire_id_requires_permission() -> VortexResult<()> {
     &[16, 1],
     "scale",
 )]
+#[case::float_parent_int_child(PType::F64.into(), &[8, 6], "does not match the parent")]
+#[case::int_parent_float_child(PType::I64.into(), &[8, 9], "does not match the parent")]
+#[case::float_parent_decimal_tag(PType::F64.into(), &[16, 9], "does not match the parent")]
+#[case::float_same_width(PType::F64.into(), &[8, 10], "narrower")]
+#[case::float_wider_child(PType::F32.into(), &[8, 10], "narrower")]
+#[case::float_unknown_tag(PType::F64.into(), &[24, 9], "must name the child type")]
 fn test_widen_wire_rejects_invalid_child_metadata(
     #[case] dtype: DType,
     #[case] metadata: &[u8],
@@ -372,117 +401,4 @@ fn serialization_does_not_execute_validity() -> VortexResult<()> {
     assert!(error.to_string().contains("vortex.slice"));
 
     Ok(())
-}
-
-#[rstest]
-#[case::f32_to_f64(
-    buffer![-0.0_f32, 0.0_f32, 1.5_f32, f32::INFINITY, f32::NAN].into_array(),
-    DType::from(PType::F64),
-    [8, PType::F32 as u8],
-)]
-#[case::f16_to_f64(
-    buffer![f16::NEG_ZERO, f16::ZERO, f16::ONE, f16::NEG_INFINITY, f16::NAN].into_array(),
-    DType::from(PType::F64),
-    [8, PType::F16 as u8],
-)]
-#[case::f16_to_f32_dict(
-    DictArray::try_new(
-        buffer![2u8, 0, 1, 2].into_array(),
-        buffer![f16::NEG_ZERO, f16::from_f32(1.5), f16::INFINITY].into_array(),
-    )?.into_array(),
-    DType::from(PType::F32),
-    [8, PType::F16 as u8],
-)]
-fn test_float_widen_wire_round_trip(
-    #[case] child: ArrayRef,
-    #[case] dtype: DType,
-    #[case] metadata: [u8; 2],
-) -> VortexResult<()> {
-    let widen = widen_over(child.clone(), dtype)?;
-    let ctx = ArrayContext::empty();
-    let serialized = SerializedArray::try_from(serialize_blob(&widen, &ctx, &SESSION)?)?;
-    let read_ctx = ReadContext::new(ctx.to_ids());
-
-    assert_eq!(
-        read_ctx.resolve(serialized.encoding_id()),
-        Some(ArrayVTable::id(&Widen))
-    );
-    assert_eq!(serialized.metadata(), metadata.as_slice());
-    assert_eq!(serialized.nbuffers(), 0);
-    assert_eq!(serialized.nchildren(), 1);
-
-    let decoded = serialized.decode(widen.dtype(), widen.len(), &read_ctx, &SESSION)?;
-    let decoded_widen = decoded.as_::<Widen>();
-    assert_eq!(decoded_widen.values().dtype(), child.dtype());
-    assert_eq!(decoded_widen.values().encoding_id(), child.encoding_id());
-    assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
-
-    Ok(())
-}
-
-#[test]
-fn test_float_widen_requires_permission() -> VortexResult<()> {
-    let widen = widen_over(buffer![1.0_f32, -0.0_f32], DType::from(PType::F64))?;
-    let without_widen =
-        ArrayContext::empty().with_allowed_ids([ArrayVTable::id(&Primitive)].into_iter().collect());
-    let error = serialize_blob(&widen, &without_widen, &SESSION)
-        .expect_err("float Widen must require vortex.widen permission");
-    assert!(
-        error.to_string().contains("vortex.widen not permitted"),
-        "{error}"
-    );
-
-    let with_widen = ArrayContext::empty().with_allowed_ids(
-        [ArrayVTable::id(&Primitive), ArrayVTable::id(&Widen)]
-            .into_iter()
-            .collect(),
-    );
-    let serialized = SerializedArray::try_from(serialize_blob(&widen, &with_widen, &SESSION)?)?;
-    let read_ctx = ReadContext::new(with_widen.to_ids());
-    let decoded = serialized.decode(widen.dtype(), widen.len(), &read_ctx, &SESSION)?;
-    assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
-
-    Ok(())
-}
-
-#[rstest]
-#[case::float_parent_int_child(
-    PType::F64.into(),
-    &[8, PType::I32 as u8],
-    "does not match the parent",
-)]
-#[case::int_parent_float_child(
-    PType::I64.into(),
-    &[8, PType::F32 as u8],
-    "does not match the parent",
-)]
-#[case::float_parent_decimal_tag(
-    PType::F64.into(),
-    &[16, 9],
-    "does not match the parent",
-)]
-#[case::float_same_width(
-    PType::F64.into(),
-    &[8, PType::F64 as u8],
-    "narrower",
-)]
-#[case::float_wider_child(
-    PType::F32.into(),
-    &[8, PType::F64 as u8],
-    "narrower",
-)]
-#[case::float_unknown_tag(
-    PType::F64.into(),
-    &[24, PType::F32 as u8],
-    "must name the child type",
-)]
-fn test_float_widen_wire_rejects_invalid_metadata(
-    #[case] dtype: DType,
-    #[case] metadata: &[u8],
-    #[case] expected_error: &str,
-) {
-    let children = [buffer![1.0_f32].into_array()];
-    let parts =
-        ArrayDeserialization::new(ArrayVTable::id(&Widen), &dtype, 1, metadata, &[], &children);
-    assert_widen_decode_error(parts, expected_error);
 }
