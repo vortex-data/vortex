@@ -9,6 +9,7 @@ use std::fs;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
@@ -2269,6 +2270,59 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
+    let chunks: Vec<ArrayRef> = (0..8u32)
+        .map(|chunk| PrimitiveArray::from_iter(chunk * 1024..(chunk + 1) * 1024).into_array())
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+    // Writes each chunk as one segment as soon as the chunk arrives.
+    let strategy: Arc<dyn LayoutStrategy> =
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+
+    let mut expected = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(Arc::clone(&strategy))
+        .write(
+            &mut expected,
+            ChunkedArray::from_iter(chunks.clone())
+                .into_array()
+                .to_array_stream(),
+        )
+        .await?;
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .vortex_expect("segment ends fit in u64");
+
+    let mut writer = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .spawn_writer(ByteBufferMut::empty(), dtype);
+    for chunk in chunks {
+        writer.push(chunk).await?;
+    }
+
+    // `push` returns before the layout takes its chunk, so the segment of the last chunk reaches
+    // the sink only if the write runs while nothing awaits the writer.
+    let drained = tokio::time::timeout(Duration::from_secs(10), async {
+        while writer.bytes_written() < segments_end {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await;
+    assert!(
+        drained.is_ok(),
+        "wrote {} of {segments_end} segment bytes",
+        writer.bytes_written()
+    );
+
+    let summary = writer.finish().await?;
+    assert_eq!(summary.size(), expected.len() as u64);
+    Ok(())
+}
+
 #[rstest]
 #[case::table_one_leaf(true, 1, false, 32)]
 #[case::table_two_shared_leaves(true, 2, false, 64)]
@@ -4102,6 +4156,7 @@ mod writer_terminal_error_tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
@@ -4152,8 +4207,11 @@ mod writer_terminal_error_tests {
         }
     }
 
+    #[rstest]
+    #[case::inline(false)]
+    #[case::spawned(true)]
     #[tokio::test]
-    async fn test_writer_push_replays_terminal_error() -> VortexResult<()> {
+    async fn test_writer_push_replays_terminal_error(#[case] spawn: bool) -> VortexResult<()> {
         let chunk = make_chunk(&[1, 2, 3])?;
         let dtype = chunk.dtype().clone();
         let write_calls = Arc::new(AtomicUsize::new(0));
@@ -4163,7 +4221,12 @@ mod writer_terminal_error_tests {
             message: msg,
         };
 
-        let mut writer = SESSION.write_options().writer(sink, dtype.clone());
+        let options = SESSION.write_options();
+        let mut writer = if spawn {
+            options.spawn_writer(sink, dtype.clone())
+        } else {
+            options.writer(sink, dtype.clone())
+        };
         let mut first_err = None;
         // `bounded(1)` plus `futures::select!` branch order can let the first push buffer before
         // the writer task polls the failing sink, so push until the terminal error surfaces.
