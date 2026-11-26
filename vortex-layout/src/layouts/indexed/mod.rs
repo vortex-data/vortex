@@ -129,6 +129,7 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::children::layout_children;
 use crate::layouts::indexed::reader::IndexedReader;
+use crate::plan::physical::PlanRef;
 use crate::segments::SegmentSource;
 
 /// Registry id of this layout encoding.
@@ -471,6 +472,15 @@ impl VTable for Indexed {
             session.clone(),
             ctx.clone(),
         )?))
+    }
+
+    /// Plans the data child directly: the V2 executor does not consult the indexes yet, so a
+    /// scan reads the data as if they were absent, which gives the same rows.
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("Indexed layout has no data child"))?
+            .new_plan()
     }
 }
 
