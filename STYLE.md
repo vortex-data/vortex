@@ -26,6 +26,7 @@
 - Function-level documentation using `///` comments
 - Document the contract, not the implementation steps, callers, or previous behavior; keep comments concise (most function doc comments fit in 1–2 lines)
 - Skip doc comments on small private helpers and test functions unless non-obvious context needs explanation
+- Only write inline comments that explain non-obvious logic or important context; do not comment self-explanatory code
 - Examples in documentation are encouraged but not strictly required
 - Use `#![deny(missing_docs)]` in crates to enforce documentation standards
 
