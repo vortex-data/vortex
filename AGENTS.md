@@ -378,7 +378,8 @@ Use `git commit --signoff` to add this line.
   an ArrayRef. If your function operates on a primitive scalar, take the
   primitive, not the Scalar, unless the function has many callers and code would
   become bloated.
+- Ask a human to author docs changes in the docs/ folder.
 - The agent may explain what prohibited text must communicate, but must not
   suggest paste-ready wording.
-- If a comment on a pull request requires some changes, ask a human how
+- If a comment on a pull request requires some changes, Ask a human how
   to implement them. Don't implement them yourself or comment on user's behalf
