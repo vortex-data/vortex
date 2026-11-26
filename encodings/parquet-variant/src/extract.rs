@@ -805,8 +805,11 @@ mod tests {
 
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::StringArray;
+    use parquet_variant::VariantBuilderExt;
     use parquet_variant::VariantPath as PqVariantPath;
     use parquet_variant_compute::GetOptions;
+    use parquet_variant_compute::VariantArray as ArrowVariantArray;
+    use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
     use parquet_variant_compute::variant_get;
     use rstest::rstest;
@@ -850,7 +853,17 @@ mod tests {
         dtype: &DType,
     ) -> VortexResult<(Option<ArrayRef>, ArrayRef)> {
         let json: ArrowArrayRef = Arc::new(StringArray::from_iter_values(rows));
-        let arrow_variant = json_to_variant(&json)?;
+
+        extract_both_variant(&json_to_variant(&json)?, path, dtype)
+    }
+
+    /// Extracts `path` from the rows of `arrow_variant` as `dtype` in place, and with the general
+    /// kernel, as [`extract_both`] does.
+    fn extract_both_variant(
+        arrow_variant: &ArrowVariantArray,
+        path: &str,
+        dtype: &DType,
+    ) -> VortexResult<(Option<ArrayRef>, ArrayRef)> {
         let arrow_storage: ArrowArrayRef = Arc::new(arrow_variant.clone().into_inner());
         let field = Arc::new(SESSION.arrow().to_arrow_field("", dtype)?);
         let pq_path = if path.is_empty() {
@@ -864,7 +877,7 @@ mod tests {
         )?;
         let expected = SESSION.arrow().from_arrow_array(expected, &field)?;
 
-        let storage = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
+        let storage = ParquetVariant::from_arrow_variant(arrow_variant, &SESSION.arrow())?;
         let storage = storage.as_::<ParquetVariant>();
         let mut ctx = SESSION.create_execution_ctx();
         let metadata = storage
@@ -881,7 +894,8 @@ mod tests {
         } else {
             path.split('.').collect::<Vec<_>>()
         };
-        let actual = extract(&metadata, &value, &Mask::new_true(rows.len()), &path, dtype);
+        let valid = Mask::new_true(value.len());
+        let actual = extract(&metadata, &value, &valid, &path, dtype);
         Ok((actual, expected))
     }
 
@@ -1086,6 +1100,327 @@ mod tests {
             VarBinViewArray::from_iter_nullable_str([Some("x"), None]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// Primitive Variant values whose types JSON does not have, as the type id in the six high
+    /// bits of the header byte and the little-endian payload.
+    fn non_json_values() -> Vec<Vec<u8>> {
+        let primitive = |type_id: u8, payload: &[u8]| {
+            let mut value = vec![type_id << 2];
+            value.extend_from_slice(payload);
+            value
+        };
+        let decimal = |type_id: u8, scale: u8, unscaled: &[u8]| {
+            let mut payload = vec![scale];
+            payload.extend_from_slice(unscaled);
+            primitive(type_id, &payload)
+        };
+        let mut binary = 3u32.to_le_bytes().to_vec();
+        binary.extend_from_slice(b"abc");
+
+        vec![
+            // Decimals with a fraction, whole decimals and a decimal without a scale.
+            decimal(8, 2, &1234i32.to_le_bytes()),
+            decimal(8, 2, &1200i32.to_le_bytes()),
+            decimal(9, 3, &(-7000i64).to_le_bytes()),
+            decimal(9, 0, &999_999_999_999_999_999i64.to_le_bytes()),
+            decimal(10, 4, &123_456_789_000_000i128.to_le_bytes()),
+            decimal(10, 0, &(10i128.pow(38) - 1).to_le_bytes()),
+            // A date, a timestamp, a time of day.
+            primitive(11, &19_000i32.to_le_bytes()),
+            primitive(12, &1_732_206_349_000_167i64.to_le_bytes()),
+            primitive(17, &3_600_000_000i64.to_le_bytes()),
+            // Floats, a whole one and one with a fraction.
+            primitive(14, &3.0f32.to_le_bytes()),
+            primitive(14, &1.5f32.to_le_bytes()),
+            // Binary and a UUID.
+            primitive(15, &binary),
+            primitive(20, &[7; 16]),
+        ]
+    }
+
+    /// Values of types that JSON does not have convert as the general kernel converts them.
+    #[rstest]
+    #[case::as_string(utf8())]
+    #[case::as_integer(int64())]
+    #[case::in_a_struct(struct_of([("a", int64()), ("b", utf8())]))]
+    fn converts_non_json_values_as_the_kernel_does(#[case] dtype: DType) -> VortexResult<()> {
+        let values = non_json_values();
+        let mut builder = VariantArrayBuilder::new(values.len());
+        for value in &values {
+            let variant = Variant::try_new(EMPTY_METADATA, value)?;
+            builder
+                .new_object()
+                .with_field("a", variant.clone())
+                .with_field("b", variant)
+                .finish();
+        }
+        let path = if dtype.is_struct() { "" } else { "a" };
+
+        let (actual, expected) = extract_both_variant(&builder.build(), path, &dtype)?;
+
+        let actual = actual.ok_or_else(|| vortex_err!("{dtype} must be covered"))?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// Metadata of version 1 with `offset_width`-byte offsets, and the names "a" and "b".
+    fn metadata_of_width(offset_width: usize) -> Vec<u8> {
+        let width = u8::try_from(offset_width - 1).unwrap_or_default();
+        let mut metadata = vec![0x01 | (width << 6)];
+        for uint in [2u32, 0, 1, 2] {
+            metadata.extend_from_slice(&uint.to_le_bytes()[..offset_width]);
+        }
+        metadata.extend_from_slice(b"ab");
+        metadata
+    }
+
+    /// The object `{"a": "x", "b": 7}`, with `id_width`-byte field ids and `offset_width`-byte
+    /// field offsets.
+    fn object_of_widths(id_width: usize, offset_width: usize) -> Vec<u8> {
+        let id_bits = u8::try_from(id_width - 1).unwrap_or_default();
+        let offset_bits = u8::try_from(offset_width - 1).unwrap_or_default();
+        let mut object = vec![OBJECT | ((offset_bits | (id_bits << 2)) << 2), 2];
+        for id in [0u32, 1] {
+            object.extend_from_slice(&id.to_le_bytes()[..id_width]);
+        }
+        for offset in [0u32, 2, 4] {
+            object.extend_from_slice(&offset.to_le_bytes()[..offset_width]);
+        }
+        // The short string "x" and the 8-bit integer 7.
+        object.extend_from_slice(&[0x05, b'x', INT8 << 2, 7]);
+        object
+    }
+
+    /// Field ids, field offsets and dictionary offsets of every width read as one-byte ones do.
+    #[rstest]
+    #[case::three_byte_ids(3, 1, 1)]
+    #[case::four_byte_ids(4, 1, 1)]
+    #[case::three_byte_offsets(1, 3, 1)]
+    #[case::four_byte_offsets(1, 4, 1)]
+    #[case::three_byte_dictionary(1, 1, 3)]
+    #[case::four_byte_dictionary(1, 1, 4)]
+    #[case::all_three_bytes(3, 3, 3)]
+    #[case::all_four_bytes(4, 4, 4)]
+    fn reads_fields_of_every_width(
+        #[case] id_width: usize,
+        #[case] offset_width: usize,
+        #[case] dictionary_width: usize,
+    ) -> VortexResult<()> {
+        let metadata = metadata_of_width(dictionary_width);
+        let value = object_of_widths(id_width, offset_width);
+        // The bytes are valid encoding.
+        Variant::try_new(&metadata, &value)?;
+        let metadata = VarBinViewArray::from_iter_bin([&metadata]);
+        let value = VarBinViewArray::from_iter_bin([&value]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let a = extract(&metadata, &value, &Mask::new_true(1), &["a"], &utf8())
+            .ok_or_else(|| vortex_err!("a must be extracted in place"))?;
+        let b = extract(&metadata, &value, &Mask::new_true(1), &["b"], &int64())
+            .ok_or_else(|| vortex_err!("b must be extracted in place"))?;
+
+        assert_arrays_eq!(
+            a,
+            VarBinViewArray::from_iter_nullable_str([Some("x")]),
+            &mut ctx
+        );
+        assert_arrays_eq!(b, PrimitiveArray::from_option_iter([Some(7i64)]), &mut ctx);
+        Ok(())
+    }
+
+    /// The metadata `["a"]` with one-byte offsets.
+    const METADATA_A: &[u8] = &[0x01, 1, 0, 1, b'a'];
+
+    /// Bytes that are cut short or do not decode are not extracted, and do not panic.
+    #[rstest]
+    #[case::empty_metadata(&[], &[0x02, 1, 0, 0, 2, 0x05, b'x'], utf8())]
+    #[case::metadata_without_names(&[0x01, 1, 0], &[0x02, 1, 0, 0, 2, 0x05, b'x'], utf8())]
+    #[case::empty_value(METADATA_A, &[], utf8())]
+    #[case::object_without_a_length(METADATA_A, &[0x02], utf8())]
+    #[case::object_without_its_fields(METADATA_A, &[0x02, 2, 0, 0, 2], utf8())]
+    #[case::offset_past_the_end(METADATA_A, &[0x02, 1, 0, 9, 10, 0x05, b'x'], utf8())]
+    #[case::short_string_past_the_end(METADATA_A, &[0x02, 1, 0, 0, 2, 0x0D, b'x'], utf8())]
+    #[case::short_string_not_utf8(METADATA_A, &[0x02, 1, 0, 0, 2, 0x05, 0xFF], utf8())]
+    #[case::long_string_past_the_end(
+        METADATA_A,
+        &[0x02, 1, 0, 0, 6, LONG_STRING << 2, 9, 0, 0, 0, b'x'],
+        utf8()
+    )]
+    #[case::integer_past_the_end(METADATA_A, &[0x02, 1, 0, 0, 2, INT64 << 2, 1], int64())]
+    #[case::double_past_the_end(METADATA_A, &[0x02, 1, 0, 0, 2, 7 << 2, 1], int64())]
+    #[case::unknown_primitive_type(METADATA_A, &[0x02, 1, 0, 0, 1, 63 << 2], int64())]
+    #[case::list_past_the_end(METADATA_A, &[0x02, 1, 0, 0, 3, 0x03, 2, 0], list_of(int64()))]
+    #[case::struct_field_past_the_end(
+        METADATA_A,
+        &[0x02, 1, 0, 0, 3, 0x02, 1, 0],
+        struct_of([("a", int64())])
+    )]
+    fn does_not_extract_bytes_that_do_not_decode(
+        #[case] metadata: &[u8],
+        #[case] value: &[u8],
+        #[case] dtype: DType,
+    ) {
+        let extracted = extract(
+            &VarBinViewArray::from_iter_bin([metadata]),
+            &VarBinViewArray::from_iter_bin([value]),
+            &Mask::new_true(1),
+            &["a"],
+            &dtype,
+        );
+
+        assert!(extracted.is_none());
+    }
+
+    /// Bytes cut short at every length, and with any bit of their start flipped, do not panic.
+    #[test]
+    fn does_not_panic_on_damaged_bytes() -> VortexResult<()> {
+        let rows = vec![
+            format!(
+                r#"{{"kind":"commit","commit":{{"collection":"post","rev":-300,"text":"{}"}},"tags":["a",1]}}"#,
+                long_string()
+            ),
+            large_object(),
+        ];
+        let json: ArrowArrayRef = Arc::new(StringArray::from_iter_values(&rows));
+        let storage =
+            ParquetVariant::from_arrow_variant(&json_to_variant(&json)?, &SESSION.arrow())?;
+        let storage = storage.as_::<ParquetVariant>();
+        let mut ctx = SESSION.create_execution_ctx();
+        let metadata = storage
+            .metadata()
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)?;
+        let value = storage
+            .value()
+            .ok_or_else(|| vortex_err!("unshredded storage has a value"))?
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)?;
+        let extractions = [
+            (vec!["kind"], utf8()),
+            (vec!["commit", "rev"], int64()),
+            (vec!["f123"], int64()),
+            (vec!["tags"], list_of(utf8())),
+            (
+                vec!["commit"],
+                struct_of([("text", utf8()), ("rev", int64())]),
+            ),
+        ];
+
+        let extract_damaged = |metadata: &[u8], value: &[u8]| {
+            for (path, dtype) in &extractions {
+                drop(extract(
+                    &VarBinViewArray::from_iter_bin([metadata]),
+                    &VarBinViewArray::from_iter_bin([value]),
+                    &Mask::new_true(1),
+                    path,
+                    dtype,
+                ));
+            }
+        };
+        for idx in 0..rows.len() {
+            let (metadata, value) = (bytes_at(&metadata, idx), bytes_at(&value, idx));
+            for len in 0..value.len() {
+                extract_damaged(metadata, &value[..len]);
+            }
+            for len in 0..metadata.len() {
+                extract_damaged(&metadata[..len], value);
+            }
+            for bit in 0..value.len().min(64) * 8 {
+                let mut damaged = value.to_vec();
+                damaged[bit / 8] ^= 1 << (bit % 8);
+                extract_damaged(metadata, &damaged);
+            }
+        }
+        Ok(())
+    }
+
+    /// A generator of pseudo-random numbers with a fixed seed, so that each run sees the same
+    /// rows.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+
+        fn below(&mut self, bound: u64) -> usize {
+            usize::try_from(self.next() % bound).unwrap_or_default()
+        }
+
+        /// A random integer of any width, from 8 to 64 bits.
+        fn integer(&mut self) -> i64 {
+            i64::from_le_bytes(self.next().to_le_bytes()) >> self.below(64)
+        }
+
+        /// A JSON value of any type, with objects and arrays nested at most `depth` deep.
+        fn json(&mut self, depth: usize) -> String {
+            const NAMES: [&str; 5] = ["a", "b", "c", "kind", "n"];
+            const STRINGS: [&str; 5] = ["", "x", "post", "naïve 日本", "true"];
+            let kinds = if depth == 0 { 7 } else { 9 };
+
+            match self.below(kinds) {
+                0 => "null".to_string(),
+                1 => (self.below(2) == 0).to_string(),
+                2 => i8::from_le_bytes([self.next().to_le_bytes()[0]]).to_string(),
+                3 => self.integer().to_string(),
+                4 => format!("{}.{}", self.integer() >> 48, self.below(1000)),
+                5 => format!(r#""{}""#, STRINGS[self.below(5)]),
+                6 => format!(r#""{}""#, "y".repeat(self.below(200))),
+                7 => {
+                    let fields = (0..self.below(5))
+                        .map(|_| format!(r#""{}":{}"#, NAMES[self.below(5)], self.json(depth - 1)))
+                        .collect::<Vec<_>>();
+                    format!("{{{}}}", fields.join(","))
+                }
+                _ => {
+                    let elements = (0..self.below(4))
+                        .map(|_| self.json(depth - 1))
+                        .collect::<Vec<_>>();
+                    format!("[{}]", elements.join(","))
+                }
+            }
+        }
+    }
+
+    /// Rows of random shapes extract in place as the general kernel extracts them.
+    #[rstest]
+    #[case::string("a", utf8())]
+    #[case::integer("a", int64())]
+    #[case::nested_string("a.b", utf8())]
+    #[case::nested_integer("b.c.n", int64())]
+    #[case::list("c", list_of(int64()))]
+    #[case::struct_at_the_root(
+        "",
+        struct_of([("a", utf8()), ("b", int64()), ("c", list_of(utf8())), ("kind", struct_of([("n", int64())]))])
+    )]
+    fn extracts_random_rows_as_the_kernel_does(
+        #[case] path: &str,
+        #[case] dtype: DType,
+    ) -> VortexResult<()> {
+        let mut rng = Rng(0x5EED_CAFE_F00D_D00D);
+        for _ in 0..40 {
+            // Most rows are objects, so that most paths reach a value.
+            let rows = (0..16)
+                .map(|_| {
+                    let row = rng.json(3);
+                    if row.starts_with('{') || rng.below(4) == 0 {
+                        row
+                    } else {
+                        format!(r#"{{"a":{row},"b":{{"c":{}}}}}"#, rng.json(2))
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let (actual, expected) = extract_both(&rows, path, &dtype)?;
+
+            let actual = actual.ok_or_else(|| vortex_err!("{path} as {dtype} must be covered"))?;
+            assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        }
         Ok(())
     }
 }
