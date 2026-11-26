@@ -96,6 +96,7 @@ impl ColumnExporter for FixedSizeListExporter {
         // `num_elements` entries (so flat children have capacity >= `num_elements`, dictionary and
         // sequence children already have size `num_elements`, and constant vectors/children can be
         // resized to `num_elements`).
+        // `ListExporter` does not need this because it slices rather than flattening its child.
         unsafe { elements_vector.flatten_with_count(num_elements) };
 
         Ok(())

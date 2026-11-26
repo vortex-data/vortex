@@ -300,6 +300,23 @@ fn export_and_roundtrip_single_chunk(
 }
 
 #[test]
+fn test_export_fixed_size_list_flat_primitive_exceeding_vector_size() -> VortexResult<()> {
+    let len = duckdb_vector_size();
+    let list_size = 4u32;
+    let total = len * list_size as usize;
+
+    #[expect(clippy::cast_possible_truncation, reason = "test values fit in i32")]
+    let elements =
+        PrimitiveArray::from_option_iter((0..total).map(|i| Some(i as i32))).into_array();
+    let fsl = FixedSizeListArray::new(elements, list_size, Validity::AllValid, len);
+
+    let expected = StructArray::from_fields(&[("col", fsl.clone().into_array())])?;
+    let roundtripped = export_and_roundtrip_single_chunk(fsl, len)?;
+    assert_arrays_eq!(roundtripped, expected, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[test]
 fn test_export_fixed_size_list_all_null_constant_exceeding_vector_size() -> VortexResult<()> {
     let len = duckdb_vector_size();
     let list_size = 4u32;
