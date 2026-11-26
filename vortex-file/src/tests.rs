@@ -196,7 +196,7 @@ async fn test_eof_values() {
 }
 
 #[test]
-fn opens_file_with_unregistered_extension_in_unread_field() -> VortexResult<()> {
+fn test_opens_file_with_unregistered_extension_in_unread_field() -> VortexResult<()> {
     #[expect(clippy::disallowed_methods, reason = "constructing a test extension ID")]
     let id = ExtId::new("test.unregistered-unread-field");
     let extension = ForeignExtDType::from_parts(id, vec![1; 4096], DType::Null)?;

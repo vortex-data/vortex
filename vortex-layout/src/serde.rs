@@ -451,7 +451,7 @@ mod tests {
         LazyLock::new(|| VortexSession::empty().with::<LayoutSession>());
 
     #[test]
-    fn cache_projection_counts_layout_metadata_and_chunk_offsets() -> VortexResult<()> {
+    fn test_cache_projection_counts_layout_metadata_and_chunk_offsets() -> VortexResult<()> {
         const METADATA_BYTES: usize = 4096;
 
         let mut fbb = FlatBufferBuilder::new();

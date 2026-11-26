@@ -657,7 +657,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn field_path_projection_includes_nested_name_bytes() {
+    fn test_field_path_projection_includes_nested_name_bytes() {
         let path = FieldPath::from_name("a_long_top_level_name").push("nested_field");
         let expected_names = "a_long_top_level_name".len() + "nested_field".len();
 

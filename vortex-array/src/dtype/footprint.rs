@@ -253,7 +253,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     #[test]
-    fn shared_dtype_dag_scales_with_owners() {
+    fn test_shared_dtype_dag_scales_with_owners() {
         let leaf = DType::Primitive(PType::I32, Nullability::NonNullable);
         let linear = (0..24).fold(leaf.clone(), |child, _| {
             DType::Struct(
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn sizing_does_not_resolve_unknown_lazy_extension() -> vortex_error::VortexResult<()> {
+    fn test_sizing_does_not_resolve_unknown_lazy_extension() -> vortex_error::VortexResult<()> {
         #[expect(clippy::disallowed_methods, reason = "constructing a test extension ID")]
         let id = ExtId::new("test.unknown-footprint");
         let extension = ForeignExtDType::from_parts(id, vec![1; 4096], DType::Null)?;
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn serialized_names_are_counted_per_occurrence() {
+    fn test_serialized_names_are_counted_per_occurrence() {
         let mut footprint = DTypeFootprint::default();
 
         assert_eq!(footprint.serialized_name("shared"), "shared".len());

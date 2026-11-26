@@ -1049,7 +1049,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scalar_projection_counts_nested_slots_and_variable_payload() {
+    fn test_scalar_projection_counts_nested_slots_and_variable_payload() {
         let value = ScalarValue::Tuple(vec![
             Some(ScalarValue::Utf8("variable payload".into())),
             None,

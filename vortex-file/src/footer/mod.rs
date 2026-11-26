@@ -429,7 +429,8 @@ mod tests {
     }
 
     #[test]
-    fn parsed_wide_footer_has_a_cache_weight_separate_from_serialized_size() -> VortexResult<()> {
+    fn test_parsed_wide_footer_has_a_cache_weight_separate_from_serialized_size()
+    -> VortexResult<()> {
         let dtype = DType::Struct(
             StructFields::from_iter((0..1024).map(|index| {
                 (
@@ -481,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_mutation_invalidates_only_cache_weight() {
+    fn test_metadata_mutation_invalidates_only_cache_weight() {
         let layout = FlatLayout::new(
             1,
             DType::Primitive(PType::I32, Nullability::NonNullable),

@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn default_footer_cache_uses_bytes_and_nonzero_weights() {
+    fn test_default_footer_cache_uses_bytes_and_nonzero_weights() {
         assert_eq!(FOOTER_CACHE_CAPACITY_BYTES, 100 << 20);
 
         let session = MultiFileSession::default();
@@ -187,14 +187,15 @@ mod tests {
     }
 
     #[test]
-    fn moka_footer_weight_saturates_at_u32_max() {
+    fn test_moka_footer_weight_saturates_at_u32_max() {
         if let Ok(weight_bytes) = usize::try_from(u64::from(u32::MAX) + 1) {
             assert_eq!(moka_weight_from_bytes(weight_bytes), u32::MAX);
         }
     }
 
     #[test]
-    fn footer_cache_evicts_wide_footers_at_its_byte_limit() -> vortex_error::VortexResult<()> {
+    fn test_footer_cache_evicts_wide_footers_at_its_byte_limit()
+    -> vortex_error::VortexResult<()> {
         let session = MultiFileSession::default();
         let footer = parsed_wide_footer()?;
         let entry_weight = u64::try_from(footer.cache_weight_bytes())?;
