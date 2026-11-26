@@ -3,8 +3,6 @@
 
 use std::ops::Not;
 
-use bitvec::view::BitView;
-
 use crate::BitBuffer;
 use crate::BufferAllocatorRef;
 use crate::BufferMut;
@@ -16,6 +14,112 @@ use crate::bit::pack::collect_bool_words_multiversioned;
 use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
+
+/// Overwrites the `len` bits of `dst` from bit `dst_bit` with the `len` bits of `src` from bit
+/// `src_bit`, least significant bit first, leaving every other bit of `dst` as it is.
+///
+/// Once the destination is byte-aligned, 64 bits move per step: a word read from `src` at its bit
+/// offset is stored as 8 whole bytes. A head up to the first destination byte boundary, and a tail
+/// shorter than a word, move as masked partial words.
+pub(crate) fn copy_bits(src: &[u8], src_bit: usize, dst: &mut [u8], dst_bit: usize, len: usize) {
+    assert!(src_bit + len <= src.len() * 8, "source bits out of range");
+    assert!(
+        dst_bit + len <= dst.len() * 8,
+        "destination bits out of range"
+    );
+    if len <= PARTIAL_STEP {
+        copy_partial(src, src_bit, dst, dst_bit, len);
+        return;
+    }
+    let head = (8 - dst_bit % 8) % 8;
+    copy_partial(src, src_bit, dst, dst_bit, head);
+    let mut done = head;
+    while len - done >= 64 {
+        let Some(word) = read_word(src, src_bit + done) else {
+            break;
+        };
+        let at = (dst_bit + done) / 8;
+        dst[at..at + 8].copy_from_slice(&word.to_le_bytes());
+        done += 64;
+    }
+    copy_partial(src, src_bit + done, dst, dst_bit + done, len - done);
+}
+
+/// The most bits one partial step moves: a read or write at any bit offset then fits in a `u64`.
+const PARTIAL_STEP: usize = 56;
+
+/// [`copy_bits`] through masked partial words, for the head, the tail and the end of `src`.
+fn copy_partial(src: &[u8], src_bit: usize, dst: &mut [u8], dst_bit: usize, len: usize) {
+    let mut done = 0;
+    while done < len {
+        let take = (len - done).min(PARTIAL_STEP);
+        let bits = read_bits(src, src_bit + done, take);
+        write_bits(dst, dst_bit + done, take, bits);
+        done += take;
+    }
+}
+
+/// The 64 bits of `bytes` from bit `bit`, if `bytes` has a byte past them to shift in.
+fn read_word(bytes: &[u8], bit: usize) -> Option<u64> {
+    let (byte, shift) = (bit / 8, bit % 8);
+    let (word, next) = bytes.get(byte..byte + 9)?.split_first_chunk::<8>()?;
+    let word = u64::from_le_bytes(*word);
+    Some(if shift == 0 {
+        word
+    } else {
+        (word >> shift) | (u64::from(next[0]) << (64 - shift))
+    })
+}
+
+/// The byte at which the 8-byte window holding bits `bit..bit + take <= PARTIAL_STEP` of `bytes`
+/// starts, and `bit`'s position within it: the window from `bit`'s byte, or the last 8 bytes when
+/// fewer remain, so one load covers the bits either way. `None` if `bytes` is shorter than 8.
+#[inline]
+fn window(bytes: &[u8], bit: usize) -> Option<(usize, usize)> {
+    let start = (bit / 8).min(bytes.len().checked_sub(8)?);
+    Some((start, bit - start * 8))
+}
+
+/// The `take <= PARTIAL_STEP` bits of `bytes` from bit `bit`, in the low bits of the result.
+#[inline]
+fn read_bits(bytes: &[u8], bit: usize, take: usize) -> u64 {
+    if let Some((start, shift)) = window(bytes, bit)
+        && let Some(word) = bytes[start..].first_chunk::<8>()
+    {
+        return (u64::from_le_bytes(*word) >> shift) & low_bits(take);
+    }
+    // Fewer than 8 bytes in all: read the ones there are.
+    let mut word = [0u8; 8];
+    for (to, from) in word.iter_mut().zip(bytes) {
+        *to = *from;
+    }
+    (u64::from_le_bytes(word) >> bit) & low_bits(take)
+}
+
+/// Overwrites the `take <= PARTIAL_STEP` bits of `bytes` from bit `bit` with the low bits of
+/// `bits`.
+#[inline]
+fn write_bits(bytes: &mut [u8], bit: usize, take: usize, bits: u64) {
+    let merge = |word: u64, shift: usize| {
+        let mask = low_bits(take) << shift;
+        (word & !mask) | ((bits << shift) & mask)
+    };
+    if let Some((start, shift)) = window(bytes, bit)
+        && let Some(word) = bytes[start..].first_chunk_mut::<8>()
+    {
+        *word = merge(u64::from_le_bytes(*word), shift).to_le_bytes();
+        return;
+    }
+    // Fewer than 8 bytes in all: write back only the ones there are.
+    let mut word = [0u8; 8];
+    for (to, from) in word.iter_mut().zip(bytes.iter()) {
+        *to = *from;
+    }
+    let word = merge(u64::from_le_bytes(word), bit).to_le_bytes();
+    for (to, from) in bytes.iter_mut().zip(word) {
+        *to = from;
+    }
+}
 
 /// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
 ///
@@ -671,39 +775,18 @@ impl BitBufferMut {
         let end_bit_pos = start_bit_pos + bit_len;
         let required_bytes = end_bit_pos.div_ceil(8);
 
-        // Ensure buffer has enough bytes, zero-initialized for OR-based writes.
+        // Ensure the buffer holds the appended bits; `copy_bits` overwrites them.
         if required_bytes > self.buffer.len() {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        let dst_bit_offset = start_bit_pos % 8;
-        let src_bit_offset = buffer.offset();
-
-        if dst_bit_offset == 0 && src_bit_offset == 0 {
-            // Both byte-aligned: use memcpy for full bytes, then mask the tail.
-            let dst_byte = start_bit_pos / 8;
-            let src_bytes = buffer.inner().as_slice();
-            let full_bytes = bit_len / 8;
-            self.buffer.as_mut_slice()[dst_byte..dst_byte + full_bytes]
-                .copy_from_slice(&src_bytes[..full_bytes]);
-            let rem = bit_len % 8;
-            if rem != 0 {
-                let mask = (1u8 << rem) - 1;
-                self.buffer.as_mut_slice()[dst_byte + full_bytes] |= src_bytes[full_bytes] & mask;
-            }
-        } else {
-            // Use bitvec for unaligned bit copying.
-            let self_slice = self
-                .buffer
-                .as_mut_slice()
-                .view_bits_mut::<bitvec::prelude::Lsb0>();
-            let other_slice = buffer
-                .inner()
-                .as_slice()
-                .view_bits::<bitvec::prelude::Lsb0>();
-            let source_range = src_bit_offset..src_bit_offset + bit_len;
-            self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
-        }
+        copy_bits(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            self.buffer.as_mut_slice(),
+            start_bit_pos,
+            bit_len,
+        );
 
         self.len += bit_len;
     }
@@ -822,10 +905,40 @@ mod tests {
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
+    use crate::bit::buf_mut::copy_bits;
     use crate::bit::buf_mut::fill_bits;
     use crate::bitbuffer;
     use crate::bitbuffer_mut;
     use crate::buffer_mut;
+
+    /// Checks copies at every pairing of source and destination bit offset, shorter and longer
+    /// than a word and running to the end of the source and of the destination, against a bit-by-bit copy that leaves the
+    /// destination's other bits alone.
+    #[rstest]
+    fn copy_bits_matches_bitwise_copy(
+        #[values(0, 1, 7, 8, 13)] src_bit: usize,
+        #[values(0, 3, 8, 61)] dst_bit: usize,
+        #[values(0, 1, 9, 63, 64, 65, 200)] len: usize,
+        #[values(0, 3)] dst_slack: usize,
+    ) {
+        let bit = |bytes: &[u8], i: usize| bytes[i / 8] & (1 << (i % 8)) != 0;
+        // The source ends exactly at the copy, so the last words take the partial path.
+        let src: Vec<u8> = (0u8..)
+            .take((src_bit + len).div_ceil(8).max(1))
+            .map(|i| i.wrapping_mul(0x5B) ^ 0xA6)
+            .collect();
+        let before = vec![0b1010_0101u8; (dst_bit + len).div_ceil(8).max(1) + dst_slack];
+        let mut actual = before.clone();
+        copy_bits(&src, src_bit, &mut actual, dst_bit, len);
+        for i in 0..actual.len() * 8 {
+            let expected = if (dst_bit..dst_bit + len).contains(&i) {
+                bit(&src, src_bit + i - dst_bit)
+            } else {
+                bit(&before, i)
+            };
+            assert_eq!(bit(&actual, i), expected, "bit {i}");
+        }
+    }
 
     /// Checks every range of slices that end on and off a word boundary against a bit-by-bit
     /// fill, starting from a pattern so that bits outside the range must be preserved.
@@ -1145,7 +1258,6 @@ mod tests {
         assert!(frozen.value(7));
     }
 
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn append_after_clear_reads_back_false() {
         // `clear` must not leave stale set bits behind: `append_false` and `append_buffer`
@@ -1160,7 +1272,6 @@ mod tests {
         assert_eq!(bools.true_count(), 0);
     }
 
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_after_truncate() {
         // Truncating leaves stale set bits in the last partial byte; an append after that
@@ -1185,7 +1296,6 @@ mod tests {
     #[case::src_unaligned(0, 5)]
     #[case::mismatched(3, 5)]
     #[case::equal_nonzero(5, 5)]
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     fn test_append_buffer_long(#[case] dst_prefix: usize, #[case] src_start: usize) {
         // Exercise every alignment combination across many words.
         let source = crate::BitBuffer::from_iter((0..301).map(|i| i % 3 == 0));
@@ -1204,7 +1314,6 @@ mod tests {
         }
     }
 
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_with_offsets() {
         // Create source buffer with offset
