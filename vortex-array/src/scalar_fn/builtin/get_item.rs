@@ -69,8 +69,8 @@ impl GetItem {
         )
     }
 
-    /// Extract a constant field, read through a function that forwards the field, or read a field
-    /// directly from a pack.
+    /// Extract a constant field, read through a function that forwards the field, read a field
+    /// below a mask, or read a field directly from a pack.
     fn maybe_apply_now<T: ReduceNode>(
         struct_node: &T,
         field_name: &FieldName,
@@ -86,6 +86,21 @@ impl GetItem {
             .and_then(|scalar_fn| scalar_fn.signature().forwarded_field(field_name))
         {
             return Self::apply_now(&struct_node.child(child_idx), field_name).map(Some);
+        }
+
+        // Reading a field of a masked struct intersects the field with the struct's validity and
+        // the mask, and so does masking the field read from the unmasked struct. Both results are
+        // the field's dtype made nullable. Reading below the mask lets a layout reader that masks
+        // its fields with the struct's validity read only the requested field.
+        if struct_node
+            .scalar_fn()
+            .is_some_and(|scalar_fn| scalar_fn.is::<Mask>())
+        {
+            let field = Self::apply_now(&struct_node.child(0), field_name)?;
+            return Ok(Some(struct_node.new_node(
+                Mask.bind(EmptyOptions),
+                &[field, struct_node.child(1)],
+            )?));
         }
 
         let Some(pack) = struct_node

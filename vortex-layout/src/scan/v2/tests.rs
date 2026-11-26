@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::future::poll_fn;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -26,6 +27,7 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
@@ -39,11 +41,14 @@ use vortex_expr::and;
 use vortex_expr::eq;
 use vortex_expr::get_item;
 use vortex_expr::gt;
+use vortex_expr::is_not_null;
 use vortex_expr::lit;
 use vortex_expr::lt;
+use vortex_expr::mask;
 use vortex_expr::pack;
 use vortex_expr::root;
 use vortex_functions::expr::is_null;
+use vortex_functions::expr::select;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::execution::SegmentLocation;
@@ -54,6 +59,7 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::ChunkPlanner;
 use super::PreparedScan;
@@ -72,6 +78,7 @@ use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::CountingSegmentSource;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -565,6 +572,204 @@ async fn nullable_struct_projection_preserves_validity(
     if let Some(expected_requests) = expected_requests {
         assert_eq!(source.requests(), expected_requests);
     }
+
+    Ok(())
+}
+
+/// `{id, s: {inner: {label, other, deep: {leaf, rest}}, x}}`. `nested_nullable` sets the
+/// nullability of both `inner` and `deep`. Each nullable struct is null in a different row.
+fn nested_struct_table(s_nullable: bool, nested_nullable: bool) -> VortexResult<ArrayRef> {
+    let validity = |nullable: bool, null_row: usize| {
+        if nullable {
+            Validity::from_iter((0..4).map(|row| row != null_row))
+        } else {
+            Validity::NonNullable
+        }
+    };
+    let ints = |start: i32| Buffer::from_iter(start..start + 4).into_array();
+
+    let deep = StructArray::try_new(
+        FieldNames::from(["leaf", "rest"]),
+        vec![ints(0), ints(10)],
+        4,
+        validity(nested_nullable, 3),
+    )?;
+    let inner = StructArray::try_new(
+        FieldNames::from(["label", "other", "deep"]),
+        vec![ints(20), ints(30), deep.into_array()],
+        4,
+        validity(nested_nullable, 2),
+    )?;
+    let s = StructArray::try_new(
+        FieldNames::from(["inner", "x"]),
+        vec![inner.into_array(), ints(40)],
+        4,
+        validity(s_nullable, 1),
+    )?;
+
+    Ok(StructArray::from_fields(&[("id", ints(50)), ("s", s.into_array())])?.into_array())
+}
+
+/// Names each segment by the dotted path of the layout that owns it, such as `s.inner.validity`.
+fn segment_paths(
+    layout: &LayoutRef,
+    path: &str,
+    paths: &mut HashMap<SegmentId, String>,
+) -> VortexResult<()> {
+    for id in layout.segment_ids() {
+        paths.insert(id, path.to_owned());
+    }
+
+    for (child, name) in layout.children()?.iter().zip(layout.child_names()) {
+        let child_path = if path.is_empty() {
+            name.to_string()
+        } else {
+            format!("{path}.{name}")
+        };
+        segment_paths(child, &child_path, paths)?;
+    }
+
+    Ok(())
+}
+
+fn s() -> Expression {
+    get_item("s", root())
+}
+
+fn inner() -> Expression {
+    get_item("inner", s())
+}
+
+fn masked_pack(fields: Vec<(&str, Expression)>, read: Expression) -> Expression {
+    // Keep the projection dtype when optimizing away an all-true mask.
+    mask(pack(fields, Nullability::Nullable), is_not_null(read))
+}
+
+/// The scan that reads the layout in a test.
+#[derive(Clone, Copy, Debug)]
+enum Executor {
+    /// [`V1ScanBuilder`] over a reader of the layout.
+    V1,
+    /// The v2 scan, which plans the read with [`builder`].
+    V2,
+}
+
+#[rstest]
+#[case::leaf(
+    get_item("label", inner()),
+    &["s.inner.label"],
+    &["s", "s.inner"],
+)]
+#[case::select_leaf(
+    select(["label"], inner()),
+    &["s.inner.label"],
+    &["s", "s.inner"],
+)]
+#[case::is_not_null(is_not_null(inner()), &[], &["s", "s.inner"])]
+#[case::rebuild_beside_whole_sibling(
+    masked_pack(
+        vec![
+            (
+                "inner",
+                masked_pack(
+                    vec![
+                        ("label", get_item("label", inner())),
+                        ("deep", select(["leaf"], get_item("deep", inner()))),
+                    ],
+                    inner(),
+                ),
+            ),
+            ("x", get_item("x", s())),
+        ],
+        s(),
+    ),
+    &["s.inner.label", "s.inner.deep.leaf", "s.x"],
+    &["s", "s.inner", "s.inner.deep"],
+)]
+#[tokio::test]
+async fn nested_struct_projection_reads_only_used_fields(
+    #[case] projection: Expression,
+    #[case] field_paths: &[&str],
+    #[case] struct_paths: &[&str],
+    #[values((false, true), (true, false), (true, true))] nullability: (bool, bool),
+    #[values(Executor::V1, Executor::V2)] executor: Executor,
+) -> VortexResult<()> {
+    let (s_nullable, nested_nullable) = nullability;
+    let input = nested_struct_table(s_nullable, nested_nullable)?;
+    let validity_paths: Vec<_> = struct_paths
+        .iter()
+        .copied()
+        .filter(|&path| {
+            if path == "s" {
+                s_nullable
+            } else {
+                nested_nullable
+            }
+        })
+        .map(|path| format!("{path}.validity"))
+        .collect();
+    let expected_paths = field_paths
+        .iter()
+        .copied()
+        .chain(validity_paths.iter().map(String::as_str))
+        .collect();
+
+    assert_projection_reads(input, projection, executor, expected_paths).await
+}
+
+#[rstest]
+#[tokio::test]
+async fn non_nullable_nested_projection_reads_only_leaf(
+    #[values(Executor::V1, Executor::V2)] executor: Executor,
+) -> VortexResult<()> {
+    let input = nested_struct_table(false, false)?;
+    let projection = get_item("label", inner());
+    assert_projection_reads(
+        input,
+        projection,
+        executor,
+        BTreeSet::from(["s.inner.label"]),
+    )
+    .await
+}
+
+async fn assert_projection_reads(
+    input: ArrayRef,
+    projection: Expression,
+    executor: Executor,
+    expected_paths: BTreeSet<&str>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, table().as_ref(), vec![input.clone()]).await?;
+    let source = Arc::new(CountingSegmentSource::new(segments));
+    let scan_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+
+    let projection = projection.bind(layout.dtype())?;
+    let dtype = projection.dtype().clone();
+    let scan_projection = projection.optimize_recursive()?;
+    let expected = input.apply_bound(&projection)?;
+    let actual = match executor {
+        Executor::V1 => {
+            let reader =
+                layout.new_reader("".into(), scan_source, &session, &Default::default())?;
+            let scan = V1ScanBuilder::new(session.clone(), reader).with_projection(scan_projection);
+            collect(dtype, scan.into_stream()?).await?
+        }
+        Executor::V2 => {
+            let scan = builder(&session, &scan_source, &layout)?.with_projection(scan_projection);
+            collect_scan(dtype, scan).await?
+        }
+    };
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+
+    let mut paths = HashMap::default();
+    segment_paths(&layout, "", &mut paths)?;
+    let read_paths: BTreeSet<&str> = source
+        .requested_segments()
+        .iter()
+        .map(|id| paths[id].as_str())
+        .collect();
+    assert_eq!(read_paths, expected_paths);
 
     Ok(())
 }
