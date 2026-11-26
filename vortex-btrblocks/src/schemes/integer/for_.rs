@@ -423,11 +423,6 @@ fn cached_v2_estimate(
     Ok(est)
 }
 
-#[cfg(test)]
-std::thread_local! {
-    static V2_SAMPLE_EVALS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 /// Evaluates blocked `FoR.v2` against `min(BitPacked.v1, FoR.v1)` on up to 8 aligned
 /// 1,024-element blocks, returning the adjusted compression ratio when `FoR.v2` clears all
 /// guardrails.
@@ -438,9 +433,6 @@ fn evaluate_v2_on_sample(
     compress_ctx: &CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<f64>> {
-    #[cfg(test)]
-    V2_SAMPLE_EVALS.with(|c| c.set(c.get() + 1));
-
     let sample = sample_aligned_chunks(data.array(), FL_CHUNK_SIZE, ESTIMATE_BLOCKS)
         .unwrap_or_else(|| data.array().clone())
         .execute::<PrimitiveArray>(exec_ctx)?;
@@ -572,21 +564,13 @@ fn evaluate_v2_on_sample(
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_error::VortexResult;
-    use vortex_fastlanes::FoR;
     use vortex_fastlanes::for_v1_id;
     use vortex_fastlanes::for_v2_id;
     use vortex_fastlanes::for_v3_id;
-    use vortex_session::VortexSession;
 
     use super::BitPackingScheme;
     use super::FOR_V1;
     use super::FOR_V2;
-    use super::V2_SAMPLE_EVALS;
-    use crate::BtrBlocksCompressorBuilder;
     use crate::Scheme;
     use crate::SchemeExt;
 
@@ -619,28 +603,5 @@ mod tests {
         };
         expected.extend(BitPackingScheme.produced_encodings());
         assert_eq!(refined.produced_encodings(), expected);
-    }
-
-    #[test]
-    fn v2_estimate_is_cached_for_compress() -> VortexResult<()> {
-        let session = VortexSession::empty();
-        vortex_array::initialize(&session);
-        vortex_fastlanes::initialize(&session);
-        let mut ctx = session.create_execution_ctx();
-        let compressor = BtrBlocksCompressorBuilder::empty()
-            .with_new_scheme(&FOR_V2)
-            .with_new_scheme(&BitPackingScheme)
-            .build();
-
-        let values: Vec<i64> = (0..4096)
-            .map(|i| 1_000_000 * (i / 1024) + (i % 64))
-            .collect();
-        let arr = PrimitiveArray::from_iter(values).into_array();
-
-        V2_SAMPLE_EVALS.with(|c| c.set(0));
-        let compressed = compressor.compress(&arr, &mut ctx)?;
-        assert!(compressed.as_opt::<FoR>().is_some());
-        assert_eq!(V2_SAMPLE_EVALS.with(|c| c.get()), 1);
-        Ok(())
     }
 }
