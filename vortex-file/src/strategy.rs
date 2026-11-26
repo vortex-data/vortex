@@ -3,6 +3,7 @@
 
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -36,6 +37,9 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 const ONE_MEG: u64 = 1 << 20;
+/// The element rows between the entries of the element index a list layout records: about a
+/// segment of small elements, and a whole number of row blocks.
+const ELEMENT_INDEX_STRIDE: NonZeroU64 = NonZeroU64::new(1 << 13).unwrap();
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
@@ -325,6 +329,7 @@ impl WriteStrategyBuilder {
             // We need a closure here to enable recursive application of list layout.
             table_strategy = table_strategy.with_list_layout_factory(
                 move |list_layout: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
+                    let list_layout = list_layout.with_element_index(ELEMENT_INDEX_STRIDE);
                     let zoned = ZonedStrategy::new(
                         list_layout,
                         compress_then_flat.clone(),
