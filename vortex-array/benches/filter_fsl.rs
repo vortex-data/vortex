@@ -6,18 +6,22 @@
 
 #![expect(clippy::cast_possible_truncation, clippy::unwrap_used)]
 
+pub mod fixture;
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use fixture::DistributionVortex;
 use mimalloc::MiMalloc;
-use rand::RngExt;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use populate_builtins::bernoulli;
+use populate_builtins::range;
+use populate_core::Distribution;
+use populate_rand::SeedableRng;
+use populate_rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::test_harness::mark_optimized;
@@ -56,13 +60,13 @@ fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
         num_elements /= 8;
     }
     let len = num_elements / LIST_SIZE as usize;
-    let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE as usize) as i32).into_array();
+    let mut rng = StdRng::seed_from_u64(0);
+    let elements = range(0i32, 1).collect_vortex(&mut rng, len * LIST_SIZE as usize);
     let array =
         FixedSizeListArray::new(elements, LIST_SIZE, Validity::NonNullable, len).into_array();
     mark_optimized(&array, &SESSION).unwrap();
 
-    let mut rng = StdRng::seed_from_u64(0);
-    let bits = BitBuffer::from_iter((0..len).map(|_| rng.random_bool(density)));
+    let bits: BitBuffer = bernoulli(density).collect_as(&mut rng, len);
 
     // Build a fresh mask for every iteration so that representations cached on the mask are not
     // reused across iterations.
