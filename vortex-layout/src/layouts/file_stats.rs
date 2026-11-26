@@ -59,8 +59,8 @@ use crate::sequence::SequentialStreamExt;
 /// deeper override takes over. Without any explicit default, each field records its own
 /// dtype-dependent pruning aggregates (see `default_pruning_aggregate_fns`).
 ///
-/// Entries beneath a nullable struct record nothing regardless of the selection (see
-/// [`postorder_stats_layout`]).
+/// Entries beneath a nullable struct record their aggregates over the logical column, which is null
+/// wherever an ancestor struct is null (see [`postorder_stats_layout`]).
 #[derive(Clone, Debug, Default)]
 pub struct FileStatsSelection {
     default: Option<Arc<[AggregateFnRef]>>,

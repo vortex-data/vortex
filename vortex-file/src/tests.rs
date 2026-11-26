@@ -111,6 +111,7 @@ use vortex_expr::lt;
 use vortex_expr::lt_eq;
 use vortex_expr::or;
 use vortex_expr::root;
+use vortex_functions::expr::is_null;
 use vortex_functions::expr::lower;
 use vortex_functions::expr::select;
 use vortex_io::IoBuf;
@@ -1751,6 +1752,36 @@ async fn file_take() -> VortexResult<()> {
     let expected = buffer![0i32, 1, 8].into_array();
     assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
+    Ok(())
+}
+
+/// A filtered scan over a field of a nullable struct returns the rows of the logical column. The
+/// field stores values under the struct's null rows that would match each predicate, and its zone
+/// maps leave them out, so no zone is kept or pruned because of a hidden value.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn scan_filters_nullable_struct_field_by_logical_values() -> VortexResult<()> {
+    const ROWS: i32 = 20_000;
+    // `s` is null in the last 5,000 rows except the very last, so `s.a > 15_000` matches one row
+    // and `is_null(s.a)` matches 4,999.
+    let values = PrimitiveArray::from_iter(0..ROWS).into_array();
+    let s_validity = Validity::from_iter((0..ROWS).map(|i| i < 15_000 || i == ROWS - 1));
+    let s = StructArray::try_new(["a"].into(), vec![values], ROWS as usize, s_validity)?;
+    let array = StructArray::from_fields(&[("s", s.into_array())])?.into_array();
+
+    let s_a = get_item("a", get_item("s", root()));
+    let count = |filter: Expression| {
+        let array = array.clone();
+        async move {
+            let result = round_trip(&array, |scan| {
+                Ok(scan.with_filter(filter.bind(array.dtype())?.optimize_recursive()?))
+            })
+            .await?;
+            VortexResult::Ok(result.len())
+        }
+    };
+    assert_eq!(count(gt(s_a.clone(), lit(15_000i32))).await?, 1);
+    assert_eq!(count(is_null(s_a)).await?, 4_999);
     Ok(())
 }
 

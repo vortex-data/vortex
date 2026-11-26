@@ -204,7 +204,8 @@ impl VortexWriteOptions {
     ///
     /// A deeper path takes precedence over a shallower one, and a repeated path replaces the
     /// previous statistics. Pass an empty vector to record nothing for the field. Fields nested
-    /// beneath a nullable struct record no statistics regardless.
+    /// beneath a nullable struct record their statistics over the logical column, which is null
+    /// wherever an ancestor struct is null.
     ///
     /// The write fails if `path` does not name a field reachable through struct fields of the
     /// file dtype, or if it asks for an aggregate the enabled editions don't include.
