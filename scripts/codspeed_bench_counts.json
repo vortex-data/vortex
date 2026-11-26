@@ -12,7 +12,7 @@
     "alp_fsl_take": 2,
     "alp_rd_take_chunked": 4,
     "alp_slice_take": 2,
-    "decode_chains": 2
+    "decode_chains": 4
   },
   "vortex-array": {
     "aggregate_grouped": 18,
