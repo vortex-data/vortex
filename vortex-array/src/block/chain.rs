@@ -18,7 +18,6 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::stats::StatsSet;
 use crate::trace_op;
-use crate::validity::Validity;
 
 /// A block program standing for the parent that last extended it.
 ///
@@ -31,8 +30,6 @@ pub(crate) struct FusedChain {
     dtype: DType,
     len: usize,
     stats: StatsSet,
-    /// The leaf's validity, which the program's ops transform with its values.
-    validity: Validity,
 }
 
 impl FusedChain {
@@ -46,7 +43,6 @@ impl FusedChain {
             dtype: leaf.dtype().clone(),
             len: leaf.len(),
             stats: StatsSet::default(),
-            validity: leaf.validity()?,
         })
     }
 
@@ -74,8 +70,7 @@ impl FusedChain {
 
     /// Run the program: the values of the parent the chain stands for.
     pub(crate) fn drive(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let validity = self.validity.execute_mask(self.len, ctx)?;
-        let values = self.program.run(&validity, self.dtype.nullability(), ctx)?;
+        let values = self.program.run(self.dtype.nullability(), ctx)?;
         Ok(match &self.dtype {
             DType::Extension(ext) => ExtensionArray::try_new(ext.clone(), values.into_array())?
                 .with_stats_set(self.stats)

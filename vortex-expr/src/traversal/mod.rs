@@ -366,7 +366,7 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for [C; 2] {
             TraversalOrder::Skip | TraversalOrder::Continue => {
                 let mut t = rhs.map_elements(&mut f)?;
                 t.changed |= transformed.changed;
-                Ok(t.map(|new_lhs| [new_lhs, transformed.value]))
+                Ok(t.map(|new_rhs| [transformed.value, new_rhs]))
             }
             TraversalOrder::Stop => Ok(transformed.map(|new_lhs| [new_lhs, rhs])),
         }
@@ -556,6 +556,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
+    use super::NodeContainer;
     use super::NodeExt;
     use super::NodeRewriter;
     use super::NodeVisitor;
@@ -719,5 +720,21 @@ mod tests {
 
         assert!(result.changed);
         assert!(is_root(&result.value));
+    }
+
+    #[test]
+    fn test_array_pair_map_elements_preserves_order() -> VortexResult<()> {
+        let pair = [col("lhs"), col("rhs")];
+        let transformed = pair.map_elements(|expr| {
+            if expr == col("lhs") {
+                Ok(Transformed::yes(lit(1i32)))
+            } else {
+                Ok(Transformed::yes(lit(2i32)))
+            }
+        })?;
+
+        assert!(transformed.changed);
+        assert_eq!(transformed.value, [lit(1i32), lit(2i32)]);
+        Ok(())
     }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::BuildHasher;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
@@ -15,12 +17,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_map::HashTable;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldDType;
-use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::MapDType;
 use crate::dtype::Nullability;
@@ -367,11 +370,17 @@ enum DTypeKey {
 ///
 /// Children are interned before their parent, so equal subtrees have equal offsets and each key
 /// hashes in time proportional to its own fan-out.
+///
+/// Strings and offset vectors are keyed only by their offset and compared against the bytes
+/// already in the builder, so the tables hold 4 bytes per entry instead of an owned copy.
+/// A hash collision costs one extra comparison: entries are reused only on byte equality, so the
+/// output never depends on hash values or the random seed.
 #[derive(Default)]
 struct Interner {
     dtypes: HashMap<DTypeKey, UOffsetT>,
-    strings: HashMap<FieldName, UOffsetT>,
-    offset_vectors: HashMap<Vec<UOffsetT>, UOffsetT>,
+    hasher: DefaultHashBuilder,
+    strings: HashTable<UOffsetT>,
+    offset_vectors: HashTable<UOffsetT>,
     byte_vectors: HashMap<Vec<u8>, UOffsetT>,
 }
 
@@ -443,22 +452,26 @@ impl Interner {
     fn write_names(&mut self, fbb: &mut FlatBufferBuilder<'_>, names: &FieldNames) -> UOffsetT {
         let offsets = names
             .iter()
-            .map(|name| self.write_string(fbb, name.clone()))
+            .map(|name| self.write_string(fbb, name.as_ref()))
             .collect_vec();
         self.write_offsets(fbb, offsets)
     }
 
-    fn write_string(
-        &mut self,
-        fbb: &mut FlatBufferBuilder<'_>,
-        s: impl Into<FieldName>,
-    ) -> UOffsetT {
-        let s = s.into();
-        if let Some(&offset) = self.strings.get(&s) {
+    fn write_string(&mut self, fbb: &mut FlatBufferBuilder<'_>, s: &str) -> UOffsetT {
+        let hash = self.hasher.hash_one(s.as_bytes());
+        let written = fbb.unfinished_data();
+        if let Some(&offset) = self
+            .strings
+            .find(hash, |&o| written_string(written, o) == s.as_bytes())
+        {
             return offset;
         }
-        let offset = fbb.create_string(s.as_ref()).value();
-        self.strings.insert(s, offset);
+        let offset = fbb.create_string(s).value();
+        let written = fbb.unfinished_data();
+        let hasher = &self.hasher;
+        self.strings.insert_unique(hash, offset, |&o| {
+            hasher.hash_one(written_string(written, o))
+        });
         offset
     }
 
@@ -467,7 +480,11 @@ impl Interner {
         fbb: &mut FlatBufferBuilder<'_>,
         offsets: Vec<UOffsetT>,
     ) -> UOffsetT {
-        if let Some(&offset) = self.offset_vectors.get(&offsets) {
+        let hash = hash_offsets(&self.hasher, offsets.iter().copied());
+        let written = fbb.unfinished_data();
+        if let Some(&offset) = self.offset_vectors.find(hash, |&o| {
+            written_offsets(written, o).eq(offsets.iter().copied())
+        }) {
             return offset;
         }
         // The wire format of an offset vector does not depend on the type it points to.
@@ -476,7 +493,11 @@ impl Interner {
             .map(|&o| WIPOffset::<UnionWIPOffset>::new(o))
             .collect_vec();
         let offset = fbb.create_vector(&typed).value();
-        self.offset_vectors.insert(offsets, offset);
+        let written = fbb.unfinished_data();
+        let hasher = &self.hasher;
+        self.offset_vectors.insert_unique(hash, offset, |&o| {
+            hash_offsets(hasher, written_offsets(written, o))
+        });
         offset
     }
 
@@ -488,6 +509,47 @@ impl Interner {
         self.byte_vectors.insert(bytes.to_vec(), offset);
         offset
     }
+}
+
+fn hash_offsets(hasher: &DefaultHashBuilder, offsets: impl Iterator<Item = UOffsetT>) -> u64 {
+    let mut state = hasher.build_hasher();
+    let mut len = 0usize;
+    for offset in offsets {
+        state.write_u32(offset);
+        len += 1;
+    }
+    state.write_usize(len);
+    state.finish()
+}
+
+// The helpers below read what the builder already wrote. They rely on:
+// - the FlatBuffers wire format: strings and vectors are a little-endian u32 length followed by
+//   the data, and vector elements are u32 offsets relative to their own position;
+// - `WIPOffset::value` counting back from the end of the in-progress buffer, as documented;
+// - `unfinished_data` ending at the end of that buffer (public API, but an implementation detail).
+fn read_uoffset(written: &[u8], at: usize) -> UOffsetT {
+    UOffsetT::from_le_bytes([
+        written[at],
+        written[at + 1],
+        written[at + 2],
+        written[at + 3],
+    ])
+}
+
+/// `offset` counts back from the end of the builder, as `WIPOffset::value` does.
+fn written_string(written: &[u8], offset: UOffsetT) -> &[u8] {
+    let at = written.len() - offset as usize;
+    let len = read_uoffset(written, at) as usize;
+    &written[at + 4..at + 4 + len]
+}
+
+/// Yields the targets of a written offset vector as `WIPOffset::value`s.
+fn written_offsets(written: &[u8], offset: UOffsetT) -> impl Iterator<Item = UOffsetT> + '_ {
+    let at = written.len() - offset as usize;
+    (0..read_uoffset(written, at)).map(move |i| {
+        let element = 4 + 4 * i;
+        offset - element - read_uoffset(written, at + element as usize)
+    })
 }
 
 fn write_dtype_table<'fb>(

@@ -293,8 +293,9 @@ The executor fuses in three steps:
    program never waits, so the executor holds it as a value, not as an array.
 
 Fusion covers primitive arrays and extension types stored as primitives, and today FoR and
-BitPacked take part. A block's validity is read from the leaf's, and an op that changes a row,
-such as a patch, writes it into the output's validity. Disable fusion with
+BitPacked take part. Each block's validity starts as the leaf source's, and an op may edit it a
+row or a 64-bit word at a time, such as a patch that nulls a row or an intersection with a side
+input's validity. Only edited blocks are copied into the output's validity. Disable fusion with
 `ExecutionCtx::with_block_fusion(false)`. Traces show each
 `ExecuteSpine` or `ExecuteSlot`, `fuse start`, `fuse extend` and `drive`, and how each op ran over
 the first block.

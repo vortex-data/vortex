@@ -6,7 +6,6 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -23,15 +22,17 @@ use super::BlockInOut;
 use super::BlockOp;
 use super::BlockOut;
 use super::BlockSource;
+use super::BlockType;
 use super::BlockValidity;
 use super::SourceBlock;
 use super::Values;
 use super::cast;
+use super::validity::OutputValidity;
+use super::validity::Window;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::trace_op;
 use crate::validity::Validity;
@@ -41,25 +42,25 @@ pub struct BlockProgram {
     source: Box<dyn BlockSource>,
     ops: Vec<Box<dyn BlockOp>>,
     /// The source's type, then each op's output type.
-    ptypes: Vec<PType>,
+    types: Vec<BlockType>,
     len: usize,
 }
 
 impl BlockProgram {
-    /// A program over the `len` values of `ptype` that `source` emits.
-    pub fn new(source: Box<dyn BlockSource>, ptype: PType, len: usize) -> Self {
+    /// A program over the `len` values of type `ty` that `source` emits.
+    pub fn new(source: Box<dyn BlockSource>, ty: impl Into<BlockType>, len: usize) -> Self {
         Self {
             source,
             ops: Vec::new(),
-            ptypes: vec![ptype],
+            types: vec![ty.into()],
             len,
         }
     }
 
-    /// Transform the program's values with `op`, which writes values of `ptype`.
-    pub fn push(&mut self, op: Box<dyn BlockOp>, ptype: PType) {
+    /// Transform the program's values with `op`, which writes values of type `ty`.
+    pub fn push(&mut self, op: Box<dyn BlockOp>, ty: impl Into<BlockType>) {
         self.ops.push(op);
-        self.ptypes.push(ptype);
+        self.types.push(ty.into());
     }
 
     /// The number of ops.
@@ -78,44 +79,45 @@ impl BlockProgram {
     }
 
     /// The type of the values the program produces.
-    pub fn ptype(&self) -> PType {
-        *self.ptypes.last().vortex_expect("the source's type")
+    pub fn block_type(&self) -> BlockType {
+        *self.types.last().vortex_expect("the source's type")
     }
 
-    /// Run the program into a new array of `nullability`, whose rows start with `validity`.
+    /// Run the program into a new array of `nullability`, with the source's validity as the ops
+    /// change it.
     ///
     /// When every op keeps the width and the source owns its buffer outright, each block is
     /// decoded where it lies and that buffer becomes the result.
     pub fn run(
         mut self,
-        validity: &Mask,
         nullability: Nullability,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
+        let validity = self.source.validity().clone();
         vortex_ensure_eq!(
             validity.len(),
             self.len,
-            "validity covers the program's rows"
+            "the source's validity covers the program's rows"
         );
+        let BlockType::Primitive(ptype) = self.block_type();
         trace_op!(record_block_drive(self.ops.len(), self.len));
-        let mut changed = None;
+        let mut changed = OutputValidity::new();
         let in_place = (0..self.ops.len()).all(|i| self.in_place(i));
         if in_place && let Some(mut values) = self.source.take_buffer() {
             vortex_ensure_eq!(
                 values.len(),
-                self.len * self.ptypes[0].byte_width(),
+                self.len * self.types[0].byte_width(),
                 "an owned source buffer holds the program's rows"
             );
-            self.run_blocks(Target::Leaf(&mut values), validity, &mut changed)?;
+            self.run_blocks(Target::Leaf(&mut values), &validity, &mut changed)?;
             return Ok(PrimitiveArray::from_byte_buffer(
                 values.freeze(),
-                self.ptype(),
-                output_validity(validity, changed, nullability)?,
+                ptype,
+                output_validity(changed.finish(&validity), nullability)?,
             ));
         }
-        let ptype = self.ptype();
         match_each_native_ptype!(ptype, |T| {
-            self.run_into_buffer::<T>(validity, nullability, ctx)
+            self.run_into_buffer::<T>(&validity, nullability, ctx)
         })
     }
 
@@ -127,7 +129,7 @@ impl BlockProgram {
     ) -> VortexResult<PrimitiveArray> {
         let len = self.len;
         let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-        let mut changed = None;
+        let mut changed = OutputValidity::new();
         let dst = cast::uninit_bytes_mut(&mut output.spare_capacity_mut()[..len]);
         self.run_blocks(Target::Output(dst), validity, &mut changed)?;
         // SAFETY: `run_blocks` succeeded, so the last op of every block, or the copy when there are
@@ -135,18 +137,19 @@ impl BlockProgram {
         unsafe { output.set_len(len) };
         Ok(PrimitiveArray::new(
             output.freeze(),
-            output_validity(validity, changed, nullability)?,
+            output_validity(changed.finish(validity), nullability)?,
         ))
     }
 
     /// Whether `ops[i]` may overwrite its input: it supports it and keeps the width.
     fn in_place(&self, i: usize) -> bool {
         self.ops[i].supports_in_place()
-            && self.ptypes[i].byte_width() == self.ptypes[i + 1].byte_width()
+            && self.types[i].byte_width() == self.types[i + 1].byte_width()
     }
 
-    /// Run the source through every op, block by block, into `target`, reading each block's
-    /// validity from `validity` and recording rows whose validity changes in `changed`.
+    /// Run the source through every op, block by block, into `target`, starting each block's
+    /// validity from `validity`, the source's, and recording blocks whose validity an op edits in
+    /// `changed`.
     ///
     /// Each block is the source's, in its scratch or lent, or the leaf's own memory. An op that
     /// keeps the width and allows it overwrites its block; any other op copies it into the other
@@ -156,13 +159,13 @@ impl BlockProgram {
         &mut self,
         mut target: Target<'_>,
         validity: &Mask,
-        changed: &mut Option<BitBufferMut>,
+        changed: &mut OutputValidity,
     ) -> VortexResult<()> {
         let in_place: Vec<bool> = (0..self.ops.len()).map(|i| self.in_place(i)).collect();
         let Self {
             source,
             ops,
-            ptypes,
+            types,
             len,
         } = self;
         let (len, last) = (*len, ops.len().checked_sub(1));
@@ -179,9 +182,10 @@ impl BlockProgram {
             let n = rows.len();
             // Where the block's values are, and the index of its first value there.
             let (mut at, mut first, mut lent) = (At::Leaf, start, None);
+            let mut window: Window = None;
             if let Target::Output(_) = target {
                 let buf = scratch[0].get_or_insert_with(BlockBuf::new_boxed);
-                let mut block_validity = BlockValidity::new(start, n, validity, changed);
+                let mut block_validity = BlockValidity::new(validity, start, n, &mut window);
                 match source.fill(rows.clone(), buf, &mut block_validity)? {
                     SourceBlock::Scratch {
                         offset,
@@ -204,15 +208,14 @@ impl BlockProgram {
                             n,
                             "block source emitted the wrong number of rows"
                         );
-                        vortex_ensure_eq!(block.ptype, ptypes[0]);
+                        vortex_ensure_eq!(block.ty, types[0]);
                         (at, first, lent) = (At::Lent, 0, Some(block));
                     }
                 }
             }
             for (i, op) in ops.iter_mut().enumerate() {
-                let (in_ptype, out_ptype) = (ptypes[i], ptypes[i + 1]);
-                let input_bytes =
-                    first * in_ptype.byte_width()..(first + n) * in_ptype.byte_width();
+                let (in_type, out_type) = (types[i], types[i + 1]);
+                let input_bytes = first * in_type.byte_width()..(first + n) * in_type.byte_width();
                 let from = at;
                 // The scratch block the values are in, and the other one.
                 let [scratch0, scratch1] = &mut scratch;
@@ -231,8 +234,8 @@ impl BlockProgram {
                     Values::InPlace(BlockInOut {
                         bytes,
                         len: n,
-                        in_ptype,
-                        out_ptype,
+                        in_type,
+                        out_type,
                     })
                 } else {
                     let input = match at {
@@ -242,7 +245,7 @@ impl BlockProgram {
                             vortex_bail!("a block is copied only from the source or scratch")
                         }
                     };
-                    let width = out_ptype.byte_width();
+                    let width = out_type.byte_width();
                     let out = match &mut target {
                         Target::Output(dst) if to_output => {
                             at = At::Output;
@@ -260,12 +263,12 @@ impl BlockProgram {
                         input: BlockIn {
                             bytes: input,
                             len: n,
-                            ptype: in_ptype,
+                            ty: in_type,
                         },
                         out: BlockOut {
                             bytes: out,
                             len: n,
-                            ptype: out_ptype,
+                            ty: out_type,
                             filled: 0,
                         },
                     }
@@ -280,27 +283,29 @@ impl BlockProgram {
                         shape,
                         from.name(),
                         at.name(),
-                        in_ptype,
-                        out_ptype
+                        in_type,
+                        out_type
                     ));
                 }
                 let block = Block {
                     values,
-                    validity: BlockValidity::new(start, n, validity, changed),
+                    validity: BlockValidity::new(validity, start, n, &mut window),
+                    start,
                 };
-                let written = op.process(start, block)?;
+                let written = op.process(block)?;
                 vortex_ensure_eq!(written.len, n, "block op wrote the wrong number of rows");
-                vortex_ensure_eq!(written.ptype, out_ptype, "block op wrote the wrong type");
+                vortex_ensure_eq!(written.ty, out_type, "block op wrote the wrong type");
             }
             if let (None, Target::Output(dst)) = (last, &mut target) {
                 // With no ops the source's values are the output.
-                let width = ptypes[0].byte_width();
+                let width = types[0].byte_width();
                 let input = match at {
                     At::Lent => lent.vortex_expect("a lent block").bytes,
                     _ => &scratch_bytes(&mut scratch[0])?[first * width..(first + n) * width],
                 };
                 dst[start * width..(start + n) * width].write_copy_of_slice(input);
             }
+            changed.push(validity, start, n, &window);
             start = rows.end;
         }
         Ok(())
@@ -315,25 +320,16 @@ fn scratch_bytes(scratch: &mut Option<Box<BlockBuf>>) -> VortexResult<&mut [u8]>
     }
 }
 
-/// The output's validity: the input mask, unless an op changed a row.
-fn output_validity(
-    input: &Mask,
-    changed: Option<BitBufferMut>,
-    nullability: Nullability,
-) -> VortexResult<Validity> {
-    let changed = changed.map(BitBufferMut::freeze);
+/// The output's validity from its mask, which a non-nullable output must have no nulls in.
+fn output_validity(mask: Mask, nullability: Nullability) -> VortexResult<Validity> {
     if nullability == Nullability::NonNullable {
-        let all_valid = match &changed {
-            Some(bits) => bits.true_count() == bits.len(),
-            None => input.all_true(),
-        };
-        vortex_ensure!(all_valid, "a non-nullable block program produced null rows");
+        vortex_ensure!(
+            mask.all_true(),
+            "a non-nullable block program produced null rows"
+        );
         return Ok(Validity::NonNullable);
     }
-    Ok(match changed {
-        Some(bits) => Validity::from(bits),
-        None => Validity::from_mask(input.clone(), nullability),
-    })
+    Ok(Validity::from_mask(mask, nullability))
 }
 
 /// Where a program writes its values.
