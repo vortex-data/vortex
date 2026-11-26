@@ -11599,6 +11599,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-functions",
  "vortex-mask",
  "vortex-session",
