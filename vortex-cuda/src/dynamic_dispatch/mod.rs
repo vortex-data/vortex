@@ -2029,6 +2029,21 @@ mod tests {
     }
 
     #[crate::test]
+    async fn test_fused_alp_rd_slice_of_sliced_codes() -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        let values = PrimitiveArray::from_iter((0..3500).map(|i| sample[i % sample.len()]));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        let mut ctx = SESSION.create_execution_ctx();
+        let sliced = <ALPRD as SliceKernel>::slice(encoded.as_view(), 1021..3300, &mut ctx)?
+            .ok_or_else(|| vortex_err!("expected ALP-RD slice"))?;
+
+        let actual = decode_fused(&sliced.slice(10..500)?).await?;
+        let expected = values.into_array().slice(1031..1521)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
     async fn test_fused_alp_rd_dictionary_values() -> VortexResult<()> {
         let sample = [0.1f32, 0.2, 0.3];
         let values = PrimitiveArray::from_iter(
