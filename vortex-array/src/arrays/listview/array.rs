@@ -724,32 +724,46 @@ fn validate_zctl(
     });
     vortex_ensure!(offsets_sorted, "offsets must be sorted");
 
-    // Validate that offset[i] + size[i] <= offset[i+1] for all items
-    // This ensures views are non-overlapping and properly ordered for zero-copy-to-list
-    fn validate_monotonic_ends<O: IntegerPType, S: IntegerPType>(
+    // Validate that offset[i] + size[i] == offset[i + 1] for all adjacent views.
+    // This ensures views are non-overlapping, ordered, and contiguous without gaps
+    // (including around empty lists), while still allowing leading and trailing unreferenced
+    // elements.
+    fn validate_contiguous_views<O: IntegerPType, S: IntegerPType>(
         offsets_slice: &[O],
         sizes_slice: &[S],
-        len: usize,
+        elements_len: usize,
     ) -> VortexResult<()> {
-        let mut max_end = 0usize;
+        let mut prev_end: Option<usize> = None;
 
-        for i in 0..len {
-            let offset = offsets_slice[i].to_usize().unwrap_or(usize::MAX);
-            let size = sizes_slice[i].to_usize().unwrap_or(usize::MAX);
+        for (i, (&offset, &size)) in offsets_slice.iter().zip(sizes_slice).enumerate() {
+            let offset = offset
+                .to_usize()
+                .ok_or_else(|| vortex_err!("offset[{i}] does not fit in usize"))?;
+            let size = size
+                .to_usize()
+                .ok_or_else(|| vortex_err!("size[{i}] does not fit in usize"))?;
 
-            // Check that this view starts at or after the previous view ended
+            if let Some(expected_offset) = prev_end {
+                vortex_ensure!(
+                    offset >= expected_offset,
+                    "Zero-copy-to-list requires views to be non-overlapping and ordered: \
+                     view[{i}] starts at {offset} but previous views extend to {expected_offset}",
+                );
+                vortex_ensure_eq!(
+                    offset,
+                    expected_offset,
+                    "Zero-copy-to-list requires contiguous views without gaps at view[{i}]",
+                );
+            }
+
+            let end = offset.checked_add(size).ok_or_else(|| {
+                vortex_err!("view[{i}] offset ({offset}) + size ({size}) overflowed")
+            })?;
             vortex_ensure!(
-                offset >= max_end,
-                "Zero-copy-to-list requires views to be non-overlapping and ordered: \
-                 view[{}] starts at {} but previous views extend to {}",
-                i,
-                offset,
-                max_end
+                end <= elements_len,
+                "view[{i}] end ({end}) exceeds elements length {elements_len}",
             );
-
-            // Update max_end for the next iteration
-            let end = offset.saturating_add(size);
-            max_end = max_end.max(end);
+            prev_end = Some(end);
         }
 
         Ok(())
@@ -757,72 +771,21 @@ fn validate_zctl(
 
     let offsets_dtype = offsets_primitive.dtype();
     let sizes_dtype = sizes_primitive.dtype();
-    let len = offsets_primitive.len();
 
     // Offsets/sizes are non-negative; reinterpret to unsigned (4x4 instead of 8x8).
     let offsets_unsigned =
         offsets_primitive.reinterpret_cast(offsets_dtype.as_ptype().to_unsigned());
     let sizes_unsigned = sizes_primitive.reinterpret_cast(sizes_dtype.as_ptype().to_unsigned());
 
-    // Check that offset + size values are monotonic (no overlaps)
     match_each_unsigned_integer_ptype!(offsets_unsigned.ptype(), |O| {
         match_each_unsigned_integer_ptype!(sizes_unsigned.ptype(), |S| {
-            let offsets_slice = offsets_unsigned.as_slice::<O>();
-            let sizes_slice = sizes_unsigned.as_slice::<S>();
-
-            validate_monotonic_ends(offsets_slice, sizes_slice, len)?;
+            validate_contiguous_views(
+                offsets_unsigned.as_slice::<O>(),
+                sizes_unsigned.as_slice::<S>(),
+                elements.len(),
+            )?;
         })
     });
-
-    // TODO(connor)[ListView]: Making this allocation is expensive, but the more efficient
-    // implementation would be even more complicated than this. We could use a bit buffer denoting
-    // if positions in `elements` are used, and then additionally store a separate flag that tells
-    // us if a position is used more than once.
-    let mut element_references = vec![0u8; elements.len()];
-
-    fn count_references<O: IntegerPType, S: IntegerPType>(
-        element_references: &mut [u8],
-        offsets_primitive: PrimitiveArray,
-        sizes_primitive: PrimitiveArray,
-    ) {
-        let offsets_slice = offsets_primitive.as_slice::<O>();
-        let sizes_slice = sizes_primitive.as_slice::<S>();
-
-        // Note that we ignore nulls here, as the "null" view metadata must still maintain the same
-        // invariants as non-null views, even for a `bool` information.
-        for i in 0..offsets_slice.len() {
-            let offset: usize = offsets_slice[i].as_();
-            let size: usize = sizes_slice[i].as_();
-            for j in offset..offset + size {
-                element_references[j] = element_references[j].saturating_add(1);
-            }
-        }
-    }
-
-    match_each_unsigned_integer_ptype!(offsets_unsigned.ptype(), |O| {
-        match_each_unsigned_integer_ptype!(sizes_unsigned.ptype(), |S| {
-            count_references::<O, S>(&mut element_references, offsets_unsigned, sizes_unsigned);
-        })
-    });
-
-    // Allow leading and trailing unreferenced elements, but not gaps in the middle.
-    let leftmost_used = element_references
-        .iter()
-        .position(|&references| references != 0);
-    let rightmost_used = element_references
-        .iter()
-        .rposition(|&references| references != 0);
-
-    if let (Some(first_ref), Some(last_ref)) = (leftmost_used, rightmost_used) {
-        vortex_ensure!(
-            element_references[first_ref..=last_ref]
-                .iter()
-                .all(|&references| references != 0),
-            "found gap in elements array between first and last referenced elements"
-        );
-    }
-
-    vortex_ensure!(element_references.iter().all(|&references| references <= 1));
 
     Ok(())
 }
