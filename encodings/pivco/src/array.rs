@@ -96,7 +96,7 @@ pub struct PivcoMetadata {
     /// Base `u64`-word offset subtracted from `block_headers` `raw_word_offset` when sliced.
     #[prost(uint32, tag = "5")]
     pub raw_base_word_offset: u32,
-    /// Compact serialized [`PivcoTree`] pre-order opcodes.
+    /// Compact serialized `PivcoTree` pre-order opcodes.
     #[prost(bytes, tag = "6")]
     pub tree_bytes: Vec<u8>,
     /// Whether child 0 is a serialized validity bitmap array.
@@ -931,7 +931,7 @@ impl PivcoData {
         &self.tree
     }
 
-    /// Serialized [`PivcoTree`] metadata bytes.
+    /// Serialized `PivcoTree` metadata bytes.
     #[inline]
     pub fn tree_bytes(&self) -> &Arc<[u8]> {
         &self.tree_bytes
