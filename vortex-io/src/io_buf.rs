@@ -190,7 +190,7 @@ unsafe impl<const A: usize> IoBuf for ConstByteBuffer<A> {
     }
 }
 
-unsafe impl<T: Unpin + Send + 'static> IoBuf for Buffer<T> {
+unsafe impl<T: Unpin + Send + Sync + 'static> IoBuf for Buffer<T> {
     fn read_ptr(&self) -> *const u8 {
         self.as_ptr().cast()
     }

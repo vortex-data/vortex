@@ -51,6 +51,17 @@ use crate::trusted_len::TrustedLen;
 /// use vortex_buffer::{Alignment, Buffer};
 /// let _ = Buffer::<()>::from_bytes_aligned(Bytes::new(), Alignment::none());
 /// ```
+///
+/// A buffer is a shared handle: every clone hands out `&[T]` to the same elements. Like `Arc<T>`,
+/// it can only cross threads when `T` can be shared between them, so a `Cell` cannot be raced:
+///
+/// ```compile_fail
+/// use std::cell::Cell;
+/// use vortex_buffer::BufferMut;
+/// let a = BufferMut::<Cell<u8>>::empty().freeze();
+/// let b = a.clone();
+/// std::thread::spawn(move || drop(b));
+/// ```
 #[derive(Clone)]
 pub struct Buffer<T> {
     /// The first element in this view; may dangle for an empty buffer.
@@ -63,11 +74,12 @@ pub struct Buffer<T> {
     pub(crate) backing: Option<Arc<BufferBacking>>,
 }
 
-// SAFETY: Buffer is an immutable view over backing memory. Its pointer remains valid while the
-// backing is live, and sharing elements follows the same bounds as sharing a slice.
-unsafe impl<T: Send> Send for Buffer<T> {}
+// SAFETY: Buffer is an immutable view over backing memory whose pointer remains valid while the
+// backing is live. It is a shared handle, so it follows `Arc<[T]>`: sending one clone to another
+// thread shares the elements with every other clone, which needs `T: Sync` as well as `T: Send`.
+unsafe impl<T: Send + Sync> Send for Buffer<T> {}
 // SAFETY: see the Send implementation above.
-unsafe impl<T: Sync> Sync for Buffer<T> {}
+unsafe impl<T: Send + Sync> Sync for Buffer<T> {}
 
 impl<T> Default for Buffer<T> {
     fn default() -> Self {
@@ -865,9 +877,9 @@ pub struct BufferIterator<T: Copy> {
 }
 
 // SAFETY: `BufferIterator` is a `Buffer<T>` plus two cursors into it, so it can safely be
-// `Send`/`Sync` exactly when `Buffer<T>` is. Same bounds as `std::vec::IntoIter`.
-unsafe impl<T: Copy + Send> Send for BufferIterator<T> {}
-unsafe impl<T: Copy + Sync> Sync for BufferIterator<T> {}
+// `Send`/`Sync` exactly when `Buffer<T>` is.
+unsafe impl<T: Copy + Send + Sync> Send for BufferIterator<T> {}
+unsafe impl<T: Copy + Send + Sync> Sync for BufferIterator<T> {}
 
 impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
