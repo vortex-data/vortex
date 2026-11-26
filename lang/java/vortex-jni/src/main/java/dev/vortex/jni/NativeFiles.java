@@ -24,12 +24,20 @@ public final class NativeFiles {
 
     /** List all Vortex files reachable under {@code uri}. */
     public static List<String> listFiles(Session session, String uri, Map<String, String> options) {
-        return listFiles(session.nativePointer(), uri, options);
+        try {
+            return listFiles(session.nativePointer(), uri, options);
+        } finally {
+            Reference.reachabilityFence(session);
+        }
     }
 
     /** Delete files at the given URIs. Silently tolerates an empty list. */
     public static void delete(Session session, String[] uris, Map<String, String> options) {
-        delete(session.nativePointer(), uris, options);
+        try {
+            delete(session.nativePointer(), uris, options);
+        } finally {
+            Reference.reachabilityFence(session);
+        }
     }
 
     /**
@@ -40,7 +48,11 @@ public final class NativeFiles {
      * default, so a segment that falls outside the file-tail read costs an extra round trip.
      */
     public static Map<String, byte[]> readMetadata(Session session, String uri, Map<String, String> options) {
-        return readMetadata(session.nativePointer(), uri, options);
+        try {
+            return readMetadata(session.nativePointer(), uri, options);
+        } finally {
+            Reference.reachabilityFence(session);
+        }
     }
 
     /**
@@ -62,7 +74,11 @@ public final class NativeFiles {
         if (length < 0) {
             throw new IllegalArgumentException(String.format("readable for %s reported negative length", name));
         }
-        return readMetadataFromReadable(session.nativePointer(), readable, name, length);
+        try {
+            return readMetadataFromReadable(session.nativePointer(), readable, name, length);
+        } finally {
+            Reference.reachabilityFence(session);
+        }
     }
 
     /**
@@ -73,7 +89,11 @@ public final class NativeFiles {
      */
     public static List<VortexColumnStatistics> readStatistics(
             Session session, String uri, Map<String, String> options) {
-        return List.of(readStatistics(session.nativePointer(), uri, options));
+        try {
+            return List.of(readStatistics(session.nativePointer(), uri, options));
+        } finally {
+            Reference.reachabilityFence(session);
+        }
     }
 
     /**
@@ -95,7 +115,11 @@ public final class NativeFiles {
         if (length < 0) {
             throw new IllegalArgumentException(String.format("readable for %s reported negative length", name));
         }
-        return List.of(readStatisticsFromReadable(session.nativePointer(), readable, name, length));
+        try {
+            return List.of(readStatisticsFromReadable(session.nativePointer(), readable, name, length));
+        } finally {
+            Reference.reachabilityFence(session);
+        }
     }
 
     /**

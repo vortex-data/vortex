@@ -58,6 +58,13 @@ on:
         description: "libFuzzer RSS limit per fuzzing job in MB. 0 disables the limit."
         required: false
         type: number
+        default: 2048
+      seed_merge_timeout:
+        description: >-
+          Seconds to wait for libFuzzer to finish replaying saved corpus. After
+          that fuzzer restarts and doesn't replay the corpus. 0 to disable.
+        required: false
+        type: number
         default: 0
       report:
         description: "Open an issue and start fix automation when a crash is found."
@@ -103,6 +110,7 @@ jobs:
         ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run')
             && inputs.cycle_hours || 0 }}
       RSS_LIMIT_MB: ${{ inputs.rss_limit_mb }}
+      SEED_MERGE_TIMEOUT: ${{ inputs.seed_merge_timeout }}
     timeout-minutes: 180
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
