@@ -41,8 +41,11 @@ use crate::sequence::SequentialStreamExt;
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Compresses one chunk of a stream, reusing the decisions of earlier chunks. The default
-    /// ignores `reuse`.
+    /// Compresses one chunk of a stream, reusing the decisions of earlier chunks.
+    ///
+    /// `reuse` is the BtrBlocks [`PlanReuse`] state managed by [`CompressingStrategy`] when plan
+    /// reuse is enabled. Plugins that do not use BtrBlocks plan reuse only need to implement
+    /// [`Self::compress_chunk`]; the default implementation ignores `reuse` and delegates to it.
     fn compress_stream_chunk(
         &self,
         chunk: &ArrayRef,
