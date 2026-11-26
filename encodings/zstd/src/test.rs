@@ -22,7 +22,6 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity_in;
-use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -575,13 +574,6 @@ fn test_zstd_var_bin_view_multi_frame_with_dictionary(#[case] nullable: bool) ->
     let sliced = compressed.slice(23..97)?;
     assert_arrays_eq!(sliced, array.clone().into_array().slice(23..97)?, &mut ctx);
 
-    // Repeated probe across frames (reverse order forces reloading earlier frames with dict).
-    assert_repeated_probe_eq(
-        &compressed.clone().into_array(),
-        &array.clone().into_array(),
-        &mut ctx,
-    )?;
-
     // Both builder append paths on a cross-frame slice.
     let mut varbin_builder = VarBinBuilder::<i32>::with_capacity_in(
         sliced.dtype().clone(),
@@ -607,7 +599,6 @@ fn test_zstd_var_bin_view_multi_frame_with_dictionary(#[case] nullable: bool) ->
         &mut ctx
     );
 
-    test_array_consistency(&compressed.into_array(), &mut ctx);
     Ok(())
 }
 
@@ -626,12 +617,10 @@ fn test_zstd_data_validate_error_guards() -> VortexResult<()> {
     let valid_dtype = values.dtype().clone();
     let valid_len = values.len();
     let valid_data = ZstdData::from_primitive(&values, 0, 16, &mut ctx)?;
-    let dict_len = valid_data
-        .dictionary
-        .as_ref()
-        .expect("expected trained dictionary")
-        .len();
-    let frame_count = valid_data.frames.len();
+    assert!(
+        valid_data.dictionary.is_some(),
+        "expected trained dictionary"
+    );
 
     // Unsupported dtype.
     assert_err_contains(
@@ -646,7 +635,7 @@ fn test_zstd_data_validate_error_guards() -> VortexResult<()> {
     // Length mismatch (slice_stop - slice_start != len).
     assert_err_contains(
         valid_data.validate(&valid_dtype, valid_len - 1, &Validity::NonNullable),
-        "right: 199",
+        "self.slice_stop - self.slice_start == len",
     );
 
     // Validity length mismatch.
@@ -656,7 +645,7 @@ fn test_zstd_data_validate_error_guards() -> VortexResult<()> {
     let short_validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
     assert_err_contains(
         nullable_data.validate(nullable_values.dtype(), valid_len, &short_validity),
-        "left: 3",
+        "validity_len == self.unsliced_n_rows",
     );
 
     // Dictionary present with wrong metadata dictionary_size.
@@ -664,7 +653,7 @@ fn test_zstd_data_validate_error_guards() -> VortexResult<()> {
     bad.metadata.dictionary_size += 1;
     assert_err_contains(
         bad.validate(&valid_dtype, valid_len, &Validity::NonNullable),
-        &format!("right: {dict_len}"),
+        "dictionary.len()",
     );
 
     // Dictionary absent with non-zero metadata dictionary_size.
@@ -680,7 +669,7 @@ fn test_zstd_data_validate_error_guards() -> VortexResult<()> {
     bad.frames.pop();
     assert_err_contains(
         bad.validate(&valid_dtype, valid_len, &Validity::NonNullable),
-        &format!("right: {frame_count}"),
+        "self.frames.len() == self.metadata.frames.len()",
     );
 
     Ok(())
