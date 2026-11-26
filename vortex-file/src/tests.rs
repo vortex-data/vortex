@@ -27,6 +27,7 @@ use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -2372,6 +2373,70 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
 
     first.finish().await?;
     second.finish().await?;
+
+    Ok(())
+}
+
+#[rstest]
+#[case::default_buffer(None, false)]
+#[case::small_buffer(Some(16 << 10), true)]
+#[case::no_buffer(Some(0), true)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_column_buffer_bytes_writes_chunks_while_open(
+    #[case] column_buffer_bytes: Option<u64>,
+    #[case] expect_written_while_open: bool,
+) -> VortexResult<()> {
+    const CHUNK_ROWS: u64 = 1024;
+
+    fn keep_uncompressed(chunk: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(chunk.clone())
+    }
+
+    // Each chunk holds 8 KiB per column, and each column 512 KiB: less than twice the default
+    // buffer, which therefore holds every chunk until the write finishes.
+    let mut chunks = Vec::new();
+    for index in 0..64 {
+        let rows = index * CHUNK_ROWS..(index + 1) * CHUNK_ROWS;
+        chunks.push(
+            StructArray::from_fields(&[
+                ("a", PrimitiveArray::from_iter(rows.clone()).into_array()),
+                ("b", PrimitiveArray::from_iter(rows.rev()).into_array()),
+            ])?
+            .into_array(),
+        );
+    }
+    let dtype = chunks[0].dtype().clone();
+
+    let mut builder = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+        .with_compressor(keep_uncompressed)
+        .with_row_block_size(CHUNK_ROWS as usize)
+        .with_data_block_target_bytes(None);
+    if let Some(bytes) = column_buffer_bytes {
+        builder = builder.with_column_buffer_bytes(bytes);
+    }
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_strategy(builder.build())
+        .writer(&mut buf, dtype.clone());
+    for chunk in &chunks {
+        writer.push(chunk.clone()).await?;
+    }
+    let written_while_open = writer.bytes_written() > crate::MAGIC_BYTES.len() as u64;
+    writer.finish().await?;
+    assert_eq!(written_while_open, expect_written_while_open);
+
+    let actual = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let expected = ChunkedArray::try_new(chunks, dtype)?;
+    assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }

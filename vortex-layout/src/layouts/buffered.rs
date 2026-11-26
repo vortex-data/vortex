@@ -72,7 +72,7 @@ impl LayoutStrategy for BufferedStrategy {
                     break;
                 }
 
-                if nbytes < 2 * buffer_size {
+                if nbytes < buffer_size.saturating_mul(2) {
                     continue;
                 };
 
