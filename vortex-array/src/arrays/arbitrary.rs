@@ -36,7 +36,6 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
-use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
 use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
@@ -73,7 +72,11 @@ impl<'a> ArbitraryWith<'a, ArbitraryArrayConfig> for ArbitraryArray {
             Some(dtype) => dtype.clone(),
             None => u.arbitrary()?,
         };
-        let len = u.int_in_range(config.len.clone())?;
+        // When the input runs out, every value reads as zero. Rows past the remaining input
+        // bytes are therefore not controlled by the input, so they only make each run slower.
+        let min_len = *config.len.start();
+        let max_len = (*config.len.end()).min(u.len()).max(min_len);
+        let len = u.int_in_range(min_len..=max_len)?;
 
         random_array(u, &dtype, Some(len)).map(ArbitraryArray)
     }
@@ -143,20 +146,18 @@ fn random_array_chunk(
         },
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(decimal.canonical_values_type(), |D| {
-                let mut builder = DecimalBuilder::new_in::<D>(
-                    *decimal,
-                    *n,
-                    vortex_buffer::BufferAllocatorRef::static_ref(),
-                );
-                for _i in 0..elem_len {
-                    let random_decimal = random_scalar(u, d)?;
-                    builder.append_scalar(&random_decimal).vortex_expect(
-                        "was somehow unable to append a decimal to a decimal builder",
-                    );
-                }
-                Ok(builder.finish())
-            })
+            let mut builder = DecimalBuilder::new_in(
+                *decimal,
+                *n,
+                vortex_buffer::BufferAllocatorRef::static_ref(),
+            );
+            for _ in 0..elem_len {
+                let scalar = random_scalar(u, d)?;
+                builder
+                    .append_scalar(&scalar)
+                    .vortex_expect("random scalar has the builder's decimal dtype");
+            }
+            Ok(builder.finish())
         }
         DType::Utf8(n) => random_string(u, *n, chunk_len),
         DType::Binary(n) => random_bytes(u, *n, chunk_len),
@@ -315,7 +316,6 @@ fn random_list_with_offset_type<O: OffsetBuilderPType>(
     let mut builder = ListViewBuilder::<O, O>::with_capacity_in(
         Arc::clone(elem_dtype),
         null,
-        array_length,
         10,
         vortex_buffer::BufferAllocatorRef::static_ref(),
     );

@@ -35,10 +35,12 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::MapBuilder;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
@@ -213,6 +215,34 @@ fn scalar_access_preserves_null_and_empty_maps() -> VortexResult<()> {
 }
 
 #[test]
+fn scalar_probe_preserves_map_rows() -> VortexResult<()> {
+    let array = sample_array()?.into_array();
+    test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[test]
+fn scalar_probe_handles_non_struct_entry_encoding() -> VortexResult<()> {
+    let map_dtype = map_dtype()?;
+    let entry = Scalar::struct_(map_dtype.entries_dtype(), vec![key(7), value(None)]);
+    let elements = ConstantArray::new(entry, 4).into_array();
+    let offsets = PrimitiveArray::from_iter([0u32, 1, 2, 3]).into_array();
+    let sizes = PrimitiveArray::from_iter([1u32, 0, 2, 1]).into_array();
+    let validity = Validity::from_iter([true, true, true, false]);
+    let entries = ListViewArray::try_new(
+        elements,
+        offsets,
+        sizes,
+        validity,
+        &mut SESSION.create_execution_ctx(),
+    )?;
+    let array = MapArray::try_new(map_dtype, entries)?.into_array();
+
+    test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[test]
 fn scalar_access_preserves_variable_entry_counts_and_utf8_pairs() -> VortexResult<()> {
     let map_dtype = MapDType::try_new(
         DType::Utf8(Nullability::NonNullable),
@@ -299,7 +329,7 @@ fn slice_preserves_map_rows() -> VortexResult<()> {
             Some(vec![]),
         ],
     )?;
-    let sliced = source.slice(0..2)?;
+    let sliced = source.slice(0..2)?.optimize_ctx(&SESSION)?;
     let mut ctx = SESSION.create_execution_ctx();
 
     assert!(sliced.is::<Map>());
@@ -314,11 +344,15 @@ fn filter_handles_all_none_and_mixed_maps() -> VortexResult<()> {
     let map_dtype = map_dtype()?;
     let mut ctx = SESSION.create_execution_ctx();
 
-    let all = source.filter(Mask::from_iter([true, true, true]))?;
+    let all = source
+        .filter(Mask::from_iter([true, true, true]))?
+        .optimize_ctx(&SESSION)?;
     assert!(all.is::<Map>());
     assert_arrays_eq!(all, sample_array()?, &mut ctx);
 
-    let none = source.filter(Mask::from_iter([false, false, false]))?;
+    let none = source
+        .filter(Mask::from_iter([false, false, false]))?
+        .optimize_ctx(&SESSION)?;
     let expected_none = map_array_from_rows(
         map_dtype.clone(),
         Nullability::Nullable,
@@ -327,7 +361,9 @@ fn filter_handles_all_none_and_mixed_maps() -> VortexResult<()> {
     assert!(none.is::<Map>());
     assert_arrays_eq!(none, expected_none, &mut ctx);
 
-    let mixed = source.filter(Mask::from_iter([true, false, true]))?;
+    let mixed = source
+        .filter(Mask::from_iter([true, false, true]))?
+        .optimize_ctx(&SESSION)?;
     let expected_mixed = map_array_from_rows(
         map_dtype,
         Nullability::Nullable,
@@ -375,7 +411,7 @@ fn filter_dropping_nonempty_middle_row_clears_zero_copy_flag() -> VortexResult<(
     let mask = Mask::from_iter([true, false, true]);
     let mut ctx = SESSION.create_execution_ctx();
 
-    let reduced = source.filter(mask.clone())?;
+    let reduced = source.filter(mask.clone())?.optimize_ctx(&SESSION)?;
     assert!(reduced.is::<Map>());
     // The dropped middle row leaves a gap in the referenced entry elements, so the filtered
     // entries must not claim zero-copy-to-list convertibility.
@@ -410,7 +446,9 @@ fn take_supports_reordered_duplicate_and_nullable_indices() -> VortexResult<()> 
     let map_dtype = map_dtype()?;
     let mut ctx = SESSION.create_execution_ctx();
 
-    let taken = source.take(PrimitiveArray::from_iter([2u64, 0, 0]).into_array())?;
+    let taken = source
+        .take(PrimitiveArray::from_iter([2u64, 0, 0]).into_array())?
+        .optimize_ctx(&SESSION)?;
     let expected_taken = map_array_from_rows(
         map_dtype.clone(),
         Nullability::Nullable,
@@ -442,7 +480,8 @@ fn take_supports_reordered_duplicate_and_nullable_indices() -> VortexResult<()> 
     )?
     .into_array();
     let nullable_taken = nonnullable_source
-        .take(PrimitiveArray::from_option_iter([Some(1u64), None, Some(0)]).into_array())?;
+        .take(PrimitiveArray::from_option_iter([Some(1u64), None, Some(0)]).into_array())?
+        .optimize_ctx(&SESSION)?;
     let expected_nullable_taken = map_array_from_rows(
         map_dtype,
         Nullability::Nullable,
@@ -459,7 +498,7 @@ fn take_supports_reordered_duplicate_and_nullable_indices() -> VortexResult<()> 
 fn mask_combines_with_existing_map_validity() -> VortexResult<()> {
     let source = sample_array()?.into_array();
     let mask = BoolArray::from_iter([true, false, true]).into_array();
-    let masked = source.mask(mask)?;
+    let masked = source.mask(mask)?.optimize_ctx(&SESSION)?;
     let expected = map_array_from_rows(
         map_dtype()?,
         Nullability::Nullable,
@@ -516,7 +555,7 @@ fn cast_widens_map_key_value_and_outer_nullability() -> VortexResult<()> {
         .as_map_opt()
         .vortex_expect("target dtype is map")
         .clone();
-    let cast = source.cast(target_dtype)?;
+    let cast = source.cast(target_dtype)?.optimize_ctx(&SESSION)?;
     let expected = map_array_from_rows(
         target_map_dtype,
         Nullability::Nullable,
@@ -551,7 +590,9 @@ fn cast_can_drop_but_not_create_sortedness_assertion() -> VortexResult<()> {
         false,
         Nullability::Nullable,
     )?;
-    let cast = sorted_source.cast(unsorted_target)?;
+    let cast = sorted_source
+        .cast(unsorted_target)?
+        .optimize_ctx(&SESSION)?;
     let expected = map_array_from_rows(
         MapDType::try_new(
             DType::Primitive(PType::I32, Nullability::NonNullable),
@@ -589,7 +630,13 @@ fn cast_can_drop_but_not_create_sortedness_assertion() -> VortexResult<()> {
         true,
         Nullability::Nullable,
     )?;
-    assert!(unsorted_source.cast(sorted_target).is_err());
+    // The cast is rejected when it is optimized.
+    assert!(
+        unsorted_source
+            .cast(sorted_target)?
+            .optimize_ctx(&SESSION)
+            .is_err()
+    );
 
     Ok(())
 }
@@ -619,7 +666,7 @@ fn null_map_cast_cannot_create_sortedness_assertion() -> VortexResult<()> {
 
     let all_null =
         map_array_from_rows(unsorted_map_dtype, Nullability::Nullable, [None, None])?.into_array();
-    assert!(all_null.cast(sorted_dtype).is_err());
+    assert!(all_null.cast(sorted_dtype)?.optimize_ctx(&SESSION).is_err());
 
     Ok(())
 }

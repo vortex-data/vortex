@@ -5,8 +5,10 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::ArrayProbe;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::RepeatedArrayProbe;
@@ -21,9 +23,8 @@ use crate::search_sorted::IndexOrd;
 /// Reads go through a [`RepeatedArrayProbe`], so the encoding state and validity resolved on the
 /// first comparison are reused by the rest of the search rather than rebuilt per probe.
 ///
-/// Values can be searched as `T`, `Option<T>`, or `usize`. Searching as `T` or `usize` treats
-/// null elements as `T::zero()`; use `Option<T>` when the array may contain nulls, in which case
-/// nulls sort before all non-null values.
+/// Values can be searched as `T`, `Option<T>`, or `usize`. Null elements sort before all non-null
+/// values; use `Option<T>` when searching for nulls themselves.
 pub struct SearchSortedPrimitiveArray<'a, T> {
     reader: Reader<'a, T>,
     len: usize,
@@ -38,6 +39,9 @@ enum Reader<'a, T> {
     Values(&'a [T]),
     /// Anything else, through one probe reused by the whole search.
     Probe(RefCell<RepeatedArrayProbe>),
+    /// Anything else, through a probe the caller already holds, such as a child slot of the
+    /// array it is reading, so the search shares whatever that probe has resolved.
+    Borrowed(RefCell<ArrayProbe<'a>>),
 }
 
 impl<'a, T: NativePType> SearchSortedPrimitiveArray<'a, T> {
@@ -57,46 +61,83 @@ impl<'a, T: NativePType> SearchSortedPrimitiveArray<'a, T> {
         }
     }
 
+    /// Wraps the array `probe` reads for searching, reading through `probe` rather than a new
+    /// one, panicking if the array's [`PType`](crate::dtype::PType) is not `T::PTYPE`.
+    ///
+    /// A caller that already holds a probe of the array, such as a child slot of a
+    /// [`ProbeState`](crate::ProbeState), searches through it so a repeated read shares that
+    /// probe's state across its searches.
+    pub fn with_probe(probe: ArrayProbe<'a>, ctx: &'a mut ExecutionCtx) -> Self {
+        let array = probe.array();
+        assert_eq!(
+            array.dtype().as_ptype(),
+            T::PTYPE,
+            "Array PType must match primitive type"
+        );
+        let len = array.len();
+        let reader = match probe {
+            ArrayProbe::Once(array) => Self::reader(array),
+            ArrayProbe::Repeated(probe) if Self::values(probe.array()).is_some() => {
+                let probe: &'a RepeatedArrayProbe = probe;
+                Reader::Values(
+                    Self::values(probe.array()).vortex_expect("checked to offer values above"),
+                )
+            }
+            probe @ ArrayProbe::Repeated(_) => Reader::Borrowed(RefCell::new(probe)),
+        };
+        Self {
+            reader,
+            len,
+            ctx: RefCell::new(ctx),
+            _ptype: PhantomData,
+        }
+    }
+
     /// Reads the buffer directly when the array can offer one, and probes otherwise.
     ///
     /// A nullable array is excluded because the buffer holds an arbitrary value where an element
     /// is null, and a device-backed array because its buffer is not addressable here.
     fn reader(array: &'a ArrayRef) -> Reader<'a, T> {
+        match Self::values(array) {
+            Some(values) => Reader::Values(values),
+            None => Reader::Probe(RefCell::new(array.repeated_probe())),
+        }
+    }
+
+    /// The array's own buffer, if it is a canonical, non-nullable, host-backed array.
+    fn values(array: &ArrayRef) -> Option<&[T]> {
         if !array.dtype().is_nullable()
             && let Some(primitive) = array.as_opt::<Primitive>()
             && primitive.buffer_handle().as_host_opt().is_some()
-            && let Some(values) = primitive.data().as_slice::<T>().get(..array.len())
         {
-            return Reader::Values(values);
+            return primitive.data().as_slice::<T>().get(..array.len());
         }
-        Reader::Probe(RefCell::new(array.repeated_probe()))
+        None
     }
 
     /// Returns the value at `idx`, or `None` if the element is null.
     ///
     /// The probe and the context are separate cells, so the two borrows never overlap.
     fn typed_value(&self, idx: usize) -> VortexResult<Option<T>> {
-        let probe = match &self.reader {
+        let scalar = match &self.reader {
             Reader::Values(values) => return Ok(Some(values[idx])),
-            Reader::Probe(probe) => probe,
+            Reader::Probe(probe) => probe
+                .borrow_mut()
+                .execute_scalar(idx, &mut self.ctx.borrow_mut())?,
+            Reader::Borrowed(probe) => probe
+                .borrow_mut()
+                .execute_scalar(idx, &mut self.ctx.borrow_mut())?,
         };
-        Ok(probe
-            .borrow_mut()
-            .execute_scalar(idx, &mut self.ctx.borrow_mut())?
-            .as_primitive()
-            .typed_value::<T>())
-    }
-
-    /// Returns the value at `idx`, with nulls mapped to `T::zero()`.
-    fn value(&self, idx: usize) -> VortexResult<T> {
-        Ok(self.typed_value(idx)?.unwrap_or_else(|| T::zero()))
+        Ok(scalar.as_primitive().typed_value::<T>())
     }
 }
 
 impl<T: NativePType> IndexOrd<T> for SearchSortedPrimitiveArray<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &T) -> VortexResult<Option<Ordering>> {
-        let value = self.value(idx)?;
-        Ok(Some(value.total_compare(*elem)))
+        Ok(Some(match self.typed_value(idx)? {
+            Some(value) => value.total_compare(*elem),
+            None => Ordering::Less,
+        }))
     }
 
     fn index_len(&self) -> usize {
@@ -125,7 +166,9 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchSortedPrimitiveArray<'_, T> {
 
 impl<T: NativePType> IndexOrd<usize> for SearchSortedPrimitiveArray<'_, T> {
     fn index_cmp(&self, idx: usize, elem: &usize) -> VortexResult<Option<Ordering>> {
-        let value = self.value(idx)?;
+        let Some(value) = self.typed_value(idx)? else {
+            return Ok(Some(Ordering::Less));
+        };
 
         let Some(elem_t) = T::from_usize(*elem) else {
             return Ok(Some(Ordering::Less));
@@ -214,6 +257,26 @@ mod tests {
         );
         assert_eq!(
             searcher.search_sorted(&None, SearchSortedSide::Right)?,
+            SearchResult::Found(2)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_sorted_nullable_negative_and_zero_values() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter([None, Some(-5i32), Some(0)]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let searcher = SearchSortedPrimitiveArray::<i32>::new(&array, &mut ctx);
+        assert_eq!(
+            searcher.search_sorted(&-5i32, SearchSortedSide::Left)?,
+            SearchResult::Found(1)
+        );
+        assert_eq!(
+            searcher.search_sorted(&0i32, SearchSortedSide::Left)?,
+            SearchResult::Found(2)
+        );
+        assert_eq!(
+            searcher.search_sorted(&0usize, SearchSortedSide::Left)?,
             SearchResult::Found(2)
         );
         Ok(())

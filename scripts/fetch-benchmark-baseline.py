@@ -10,9 +10,9 @@
 """Fetch the develop baseline for a PR benchmark run from the benchmarks Postgres.
 
 Reads the PR's `--ingest-jsonl` records, finds the newest commit reachable from
-`HEAD` that recorded any of the same measurements, and writes that commit's
-matching rows in the same JSONL record shape. `compare-benchmark-jsons.py` then
-compares the two record files.
+the PR head (`HEAD` unless `--head` names another commit) that recorded any of
+the same measurements, and writes that commit's matching rows in the same JSONL
+record shape. `compare-benchmark-jsons.py` then compares the two record files.
 
 It connects as the read-only `bench_ci_read` Postgres user, with an RDS IAM token minted
 (by `post-ingest.py`'s token helper) from the AWS credentials of the assumed
@@ -32,9 +32,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from psycopg import Connection
 
-# Per record kind: the fact table and the natural-key columns other than
-# `commit_sha`. Rows from different commits match when these columns are equal.
-# `None` compares equal to `None`, as the ingest path stores absent dims as NULL.
+# Per record kind: the fact table, the columns rows from different commits match
+# on, and the columns read back. `None` compares equal to `None`, as the ingest path
+# stores absent dims as NULL. File sizes match on their (benchmark, scale factor,
+# format) scope rather than per file, so a scope is one lookup and the baseline also
+# holds the files the PR no longer writes.
 _KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "query_measurement": (
         "query_measurements",
@@ -56,6 +58,11 @@ _KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
         ("dataset", "format", "open_mode"),
         ("value_ns", "all_runtimes_ns"),
     ),
+    "file_size": (
+        "file_sizes",
+        ("benchmark", "scale_factor", "format"),
+        ("file", "value_bytes"),
+    ),
 }
 
 # Rows read per query while looking for an identity's newest reachable commit.
@@ -73,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         help="Libpq DSN of the benchmarks database. Without a password, an RDS IAM token is minted.",
     )
     parser.add_argument("--region", default=None, help="AWS region for RDS IAM token minting.")
+    parser.add_argument(
+        "--head",
+        default="HEAD",
+        help="The PR head commit. Give it when the checkout is not the PR, as in the fork PR report.",
+    )
     return parser.parse_args()
 
 
@@ -96,8 +108,8 @@ def identities_by_kind(records: list[dict]) -> dict[str, list[tuple]]:
     return {kind: sorted(keys, key=repr) for kind, keys in identities.items()}
 
 
-def reachable_commits() -> list[str]:
-    """Return every commit reachable from `HEAD`; a shallow checkout cannot pick a baseline."""
+def reachable_commits(head: str) -> list[str]:
+    """Return every commit reachable from `head`; a shallow checkout cannot pick a baseline."""
 
     is_shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"], check=True, capture_output=True, text=True
@@ -105,9 +117,9 @@ def reachable_commits() -> list[str]:
     if is_shallow == "true":
         raise SystemExit(
             "Cannot resolve a baseline from a shallow checkout: the baseline is the newest "
-            "recorded commit reachable from HEAD. Check the repository out with `fetch-depth: 0`."
+            "recorded commit reachable from the PR head. Check the repository out with `fetch-depth: 0`."
         )
-    commits = subprocess.run(["git", "rev-list", "HEAD"], check=True, capture_output=True, text=True).stdout
+    commits = subprocess.run(["git", "rev-list", head, "--"], check=True, capture_output=True, text=True).stdout
     return commits.split()
 
 
@@ -131,13 +143,39 @@ def identity_condition(kind: str, identity: tuple) -> tuple[str, list]:
     return " AND ".join(conditions), params
 
 
+def commit_selection_identities(identities: dict[str, list[tuple]]) -> dict[str, list[tuple]]:
+    """Return the identities that choose the baseline commit.
+
+    File sizes are written by the same job as the measurements beside them, so the commit
+    those measurements pick has them too. Leaving them out keeps the commit search off the
+    file-size scopes, whose rows (one per file per commit) make paging back through history slow.
+    """
+
+    others = {kind: keys for kind, keys in identities.items() if kind != "file_size"}
+    return others or identities
+
+
+def existing_kinds(conn: Connection, identities: dict[str, list[tuple]]) -> dict[str, list[tuple]]:
+    """Drop the kinds whose table the database does not have yet, so a new kind's table
+    being missing loses that kind alone and not the whole baseline."""
+
+    kept = {}
+    for kind, keys in identities.items():
+        table = _KINDS[kind][0]
+        if conn.execute("SELECT to_regclass(%s)", [f"public.{table}"]).fetchone()[0] is not None:
+            kept[kind] = keys
+        else:
+            print(f"The benchmarks database has no {table} table; reporting {kind} rows without a baseline.")
+    return kept
+
+
 def newest_baseline_commit(
     conn: Connection, identities: dict[str, list[tuple]], reachable: set[str]
 ) -> tuple[str, object] | None:
     """Return the newest reachable commit that recorded any PR identity, with its timestamp.
 
     Each identity's rows are read newest first, a page at a time, until one is from a commit
-    reachable from `HEAD`. That is usually the first page: the baseline is the PR's merge base
+    reachable from the PR head. That is usually the first page: the baseline is the PR's merge base
     or close to it. One query per identity, as Postgres plans a `UNION ALL` of them far worse.
     """
 
@@ -227,9 +265,10 @@ def main() -> None:
     identities = identities_by_kind(read_records(args.pr_records))
     records: list[dict] = []
     if identities:
-        commits = reachable_commits()
+        commits = reachable_commits(args.head)
         with connect_postgres(args.postgres, args.region) as conn:
-            newest = newest_baseline_commit(conn, identities, set(commits))
+            identities = existing_kinds(conn, identities)
+            newest = newest_baseline_commit(conn, commit_selection_identities(identities), set(commits))
             if newest is not None:
                 commit_sha, commit_timestamp = newest
                 records = baseline_records(conn, identities, commit_sha, commit_timestamp)

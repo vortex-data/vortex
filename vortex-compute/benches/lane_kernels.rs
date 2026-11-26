@@ -9,36 +9,14 @@
 //!   - propagates valid-lane overflow as `Err`, and
 //!   - suppresses null-lane overflow without the closure ever inspecting `valid`.
 //!
-//! Each Vortex kernel bench has a sibling `arrow_*` baseline bench using the
-//! equivalent arrow-rs kernel over the same data shape, so the divan report
-//! lines up side-by-side.
-//!
 //! `lanezip_checked_add_u32` carries `#[cpu_features]`, so it is measured on every
 //! walltime CPU-feature leg rather than in simulation: it is one lane loop compiled
-//! differently per leg. Its arrow-rs sibling is compiled only outside CodSpeed. The
-//! arrow kernel is not Vortex code, so a change in its walltime is never actionable,
-//! and it flipped by up to 67% between runs of identical code. Run `cargo bench`
-//! locally to compare the pair under the same build flags. The cast benches stay in
-//! simulation.
+//! differently per leg. The Vortex cast benches stay in simulation.
 
 #![expect(clippy::unwrap_used)]
-#![expect(clippy::clone_on_ref_ptr)]
 
 use std::mem::MaybeUninit;
-use std::sync::Arc;
 
-#[cfg(not(codspeed))]
-use arrow_arith::numeric::add;
-use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_array::Int32Array;
-use arrow_array::UInt16Array;
-#[cfg(not(codspeed))]
-use arrow_array::UInt32Array;
-use arrow_array::UInt64Array;
-use arrow_buffer::NullBuffer;
-use arrow_cast::CastOptions;
-use arrow_cast::cast_with_options;
-use arrow_schema::DataType;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use num_traits::AsPrimitive;
@@ -52,7 +30,6 @@ use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
-use vortex_compute::lane_kernels::ReinterpretSink;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -85,9 +62,6 @@ struct CastFixture {
     /// in-place-vs-out-of-place cast bench.
     values_i32: Buffer<i32>,
     mask: BitBuffer,
-    /// Validity as a plain `Vec<bool>` — the source of truth used to build both
-    /// the Vortex `BitBuffer` mask and the arrow `NullBuffer`.
-    valid: Vec<bool>,
 }
 
 fn cast_fixture(n: usize) -> CastFixture {
@@ -118,7 +92,6 @@ fn cast_fixture(n: usize) -> CastFixture {
         values_u16,
         values_i32,
         mask: BitBufferMut::from_iter(raw_valid.iter().copied()).freeze(),
-        valid: raw_valid,
     }
 }
 
@@ -148,20 +121,6 @@ fn try_map_into_narrow_u64_u32(bencher: Bencher, n: usize) {
                 .unwrap();
             out
         });
-}
-
-#[divan::bench(args = SIZES)]
-fn arrow_narrow_u64_u32(bencher: Bencher, n: usize) {
-    let f = cast_fixture(n);
-    let arr: ArrowArrayRef = Arc::new(UInt64Array::from(f.values_u64.as_slice().to_vec()));
-    let opts = CastOptions {
-        safe: false,
-        ..CastOptions::default()
-    };
-
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_values(|arr| cast_with_options(&arr, &DataType::UInt32, &opts).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
@@ -219,28 +178,12 @@ fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = SIZES)]
-fn arrow_widen_u16_u32(bencher: Bencher, n: usize) {
-    let f = cast_fixture(n);
-    let nulls = NullBuffer::from(f.valid.clone());
-    let arr: ArrowArrayRef = Arc::new(UInt16Array::new(
-        f.values_u16.as_slice().to_vec().into(),
-        Some(nulls),
-    ));
-
-    bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
-        cast_with_options(&arr, &DataType::UInt32, &CastOptions::default()).unwrap()
-    });
-}
-
 // -----------------------------------------------------------------------------
 // In-place vs out-of-place fallible cast i32 → u32 (same byte width).
 //
-// `try_map_masked_in_place` mutates the input via `ReinterpretSink` and
-// transmutes the wrapper — no output allocation. `try_map_masked_into` allocates
-// a fresh `BufferMut<u32>` and writes through it. Input values are all positive
-// `i32` so every lane succeeds; the two kernels do the same arithmetic, so any
-// delta is allocation + memory-traffic overhead.
+// Both kernels check whether each input fits in a `u32`. The in-place kernel
+// puts the resulting bits back into the input slice, and the out-of-place kernel
+// writes them to a separate output. All lanes succeed with this fixture.
 // -----------------------------------------------------------------------------
 
 #[divan::bench(args = SIZES)]
@@ -265,29 +208,12 @@ fn try_map_masked_in_place_narrow_i32_u32(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| (f.values_i32.as_slice().to_vec(), f.mask.clone()))
         .bench_values(|(mut values, mask)| {
-            ReinterpretSink::<i32, u32>::new(values.as_mut_slice())
-                .try_map_masked_in_place(&mask, <u32 as NumCast>::from)
+            values
+                .as_mut_slice()
+                .try_map_masked_in_place(&mask, |v| <u32 as NumCast>::from(v).map(u32::cast_signed))
                 .unwrap();
             values
         });
-}
-
-#[divan::bench(args = SIZES)]
-fn arrow_narrow_i32_u32(bencher: Bencher, n: usize) {
-    let f = cast_fixture(n);
-    let nulls = NullBuffer::from(f.valid.clone());
-    let arr: ArrowArrayRef = Arc::new(Int32Array::new(
-        f.values_i32.as_slice().to_vec().into(),
-        Some(nulls),
-    ));
-    let opts = CastOptions {
-        safe: false,
-        ..CastOptions::default()
-    };
-
-    bencher
-        .with_inputs(|| arr.clone())
-        .bench_values(|arr| cast_with_options(&arr, &DataType::UInt32, &opts).unwrap());
 }
 
 // -----------------------------------------------------------------------------
@@ -310,12 +236,6 @@ struct AddFixture {
     rhs: Buffer<u32>,
     lhs_mask: BitBuffer,
     rhs_mask: BitBuffer,
-    /// Plain `Vec<bool>` mirrors of the validity masks — used to build the arrow
-    /// `NullBuffer`s for the baseline bench.
-    #[cfg(not(codspeed))]
-    lhs_valid: Vec<bool>,
-    #[cfg(not(codspeed))]
-    rhs_valid: Vec<bool>,
 }
 
 fn add_fixture(n: usize) -> AddFixture {
@@ -358,10 +278,6 @@ fn add_fixture(n: usize) -> AddFixture {
         rhs,
         lhs_mask,
         rhs_mask,
-        #[cfg(not(codspeed))]
-        lhs_valid,
-        #[cfg(not(codspeed))]
-        rhs_valid,
     }
 }
 
@@ -386,24 +302,6 @@ fn lanezip_checked_add_u32(bencher: Bencher, n: usize) {
                 .unwrap();
             (combined, out)
         });
-}
-
-#[cfg(not(codspeed))]
-#[divan::bench(args = ADD_SIZES)]
-fn arrow_checked_add_u32(bencher: Bencher, n: usize) {
-    let f = add_fixture(n);
-    let lhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(
-        f.lhs.as_slice().to_vec().into(),
-        Some(NullBuffer::from(f.lhs_valid.clone())),
-    ));
-    let rhs_arr: ArrowArrayRef = Arc::new(UInt32Array::new(
-        f.rhs.as_slice().to_vec().into(),
-        Some(NullBuffer::from(f.rhs_valid.clone())),
-    ));
-
-    bencher
-        .with_inputs(|| (lhs_arr.clone(), rhs_arr.clone()))
-        .bench_values(|(lhs, rhs)| add(&lhs, &rhs).unwrap());
 }
 
 // -----------------------------------------------------------------------------

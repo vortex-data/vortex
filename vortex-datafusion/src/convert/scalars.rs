@@ -183,6 +183,15 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
                         }
                     },
+                    TemporalMetadata::Duration(unit) => match unit {
+                        TimeUnit::Nanoseconds => ScalarValue::DurationNanosecond(pv.as_::<i64>()),
+                        TimeUnit::Microseconds => ScalarValue::DurationMicrosecond(pv.as_::<i64>()),
+                        TimeUnit::Milliseconds => ScalarValue::DurationMillisecond(pv.as_::<i64>()),
+                        TimeUnit::Seconds => ScalarValue::DurationSecond(pv.as_::<i64>()),
+                        TimeUnit::Days => {
+                            unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
+                        }
+                    },
                 }
             }
         })
@@ -255,7 +264,11 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         | ScalarValue::TimestampSecond(v, _)
         | ScalarValue::TimestampMillisecond(v, _)
         | ScalarValue::TimestampMicrosecond(v, _)
-        | ScalarValue::TimestampNanosecond(v, _) => {
+        | ScalarValue::TimestampNanosecond(v, _)
+        | ScalarValue::DurationSecond(v)
+        | ScalarValue::DurationMillisecond(v)
+        | ScalarValue::DurationMicrosecond(v)
+        | ScalarValue::DurationNanosecond(v) => {
             let dtype = session
                 .arrow()
                 .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
@@ -424,10 +437,19 @@ mod tests {
 
     #[rstest]
     #[case::invalid_zone(ScalarValue::TimestampSecond(None, Some("Not/A/Timezone".into())))]
-    #[case::extreme_timestamp(ScalarValue::TimestampSecond(Some(i64::MAX), None))]
     #[case::extreme_time(ScalarValue::Time64Nanosecond(Some(i64::MIN)))]
     fn test_reject_invalid_temporal_scalar(#[case] value: ScalarValue) {
         assert!(scalar_from_df(&value, &VortexSession::default()).is_err());
+    }
+
+    #[test]
+    fn test_accept_extreme_timestamp_scalar() -> VortexResult<()> {
+        let expected = ScalarValue::TimestampSecond(Some(i64::MAX), None);
+        let scalar = scalar_from_df(&expected, &VortexSession::default())?;
+
+        assert_eq!(scalar.try_to_df()?, expected);
+
+        Ok(())
     }
 
     #[test]
@@ -978,7 +1000,7 @@ mod tests {
         #[case] nested: bool,
     ) -> VortexResult<()> {
         let dtype = DType::Extension(
-            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::Nullable))?.erased(),
+            ExtDType::<Json>::try_new(EmptyMetadata, Nullability::Nullable)?.erased(),
         );
         let scalar = Scalar::try_new(
             dtype.clone(),

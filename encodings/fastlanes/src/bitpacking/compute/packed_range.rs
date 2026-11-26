@@ -34,26 +34,17 @@ pub(super) fn packed_range<T: NativePType>(bit_width: u8) -> Option<(T, T)> {
     Some((T::zero(), T::from((1u64 << bit_width) - 1)?))
 }
 
-/// `value` everywhere except `predicate(patch)` at patched positions. Without patches or nulls
-/// it is a `ConstantArray`.
-pub(super) fn constant_result<T: NativePType>(
+/// `value` everywhere except `predicate(patch)` at patched positions.
+pub(super) fn constant_bits<T: NativePType>(
     array: ArrayView<'_, BitPacked>,
     value: bool,
-    nullability: Nullability,
     predicate: &dyn Fn(T) -> bool,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<BitBuffer> {
     let len = array.len();
     let allocator = ctx.allocator().clone();
-    let validity = array.validity()?.union_nullability(nullability);
     let Some(patches) = array.patches() else {
-        if validity.definitely_no_nulls() {
-            let scalar = Scalar::bool(value, validity.nullability());
-            return Ok(ConstantArray::new(scalar, len).into_array());
-        }
-        return Ok(
-            BoolArray::new(BitBuffer::full_in(value, len, allocator), validity).into_array(),
-        );
+        return Ok(BitBuffer::full_in(value, len, allocator));
     };
 
     let fill = if value { u8::MAX } else { 0 };
@@ -64,10 +55,45 @@ pub(super) fn constant_result<T: NativePType>(
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     let offset = patches.offset();
     match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        for (&index, &patch) in indices.as_slice::<I>().iter().zip(values.as_slice::<T>()) {
-            let index: usize = index.as_();
-            bits.set_to(index - offset, predicate(patch));
-        }
+        set_patch_bits(
+            &mut bits,
+            indices.as_slice::<I>(),
+            values.as_slice::<T>(),
+            offset,
+            predicate,
+        )
     });
-    Ok(BoolArray::new(bits.freeze(), validity).into_array())
+    Ok(bits.freeze())
+}
+
+/// `value` everywhere except `predicate(patch)` at patched positions. Without patches or nulls
+/// it is a `ConstantArray`.
+pub(super) fn constant_result<T: NativePType>(
+    array: ArrayView<'_, BitPacked>,
+    value: bool,
+    nullability: Nullability,
+    predicate: &dyn Fn(T) -> bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let validity = array.validity()?.union_nullability(nullability);
+    if array.patches().is_none() && validity.definitely_no_nulls() {
+        let scalar = Scalar::bool(value, validity.nullability());
+        return Ok(ConstantArray::new(scalar, array.len()).into_array());
+    }
+    let bits = constant_bits(array, value, predicate, ctx)?;
+    Ok(BoolArray::new(bits, validity).into_array())
+}
+
+/// Set the bit of each patch, at its index less `patch_offset`, to `predicate` of its value.
+pub(super) fn set_patch_bits<T: Copy, I: AsPrimitive<usize>>(
+    bits: &mut BitBufferMut,
+    indices: &[I],
+    values: &[T],
+    patch_offset: usize,
+    predicate: &dyn Fn(T) -> bool,
+) {
+    for (&index, &patch) in indices.iter().zip(values) {
+        let index: usize = index.as_();
+        bits.set_to(index - patch_offset, predicate(patch));
+    }
 }

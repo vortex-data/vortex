@@ -26,7 +26,8 @@ impl FixedWidthArray for Decimal {
         _len: usize,
         validity: Validity,
     ) -> VortexResult<DecimalArray> {
-        DecimalArray::try_new_handle(
+        // Fixed-width kernels copy values and validity together. Check the new byte layout.
+        DecimalArray::try_new_handle_from_trusted_values(
             BufferHandle::new_host(values),
             array.values_type(),
             array.decimal_dtype(),

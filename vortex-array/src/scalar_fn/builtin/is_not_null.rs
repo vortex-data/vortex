@@ -1,0 +1,195 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::slice;
+
+use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::arrays::ScalarFnArray;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::scalar_fn::Arity;
+use crate::scalar_fn::ChildName;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::builtin::boolean::Boolean;
+use crate::scalar_fn::builtin::not::Not;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::display::ExprDisplay;
+use crate::scalar_fn::is_not_null_node;
+
+/// Reduces a null check over `node`'s only child: `is_null` when `is_null` is set, and
+/// `is_not_null` otherwise.
+///
+/// In array context, reduce
+///
+/// IsNull(x) -> if !x.nullable lit(false) else not(x.validity())
+/// IsNotNull(x) -> if !x.nullable lit(true) or x.validity()
+///
+/// In expression and array contexts for x, y where x is nullable but y is not,
+/// reduce
+///
+/// 1. IsNull(and(x, y)) -> and(IsNull(x), y)
+/// 2. IsNull(or(x, y)) -> and(IsNull(x), not(y))
+/// 3. IsNotNull(and(x, y)) -> or(IsNotNull(x), not(y))
+/// 4. IsNotNull(or(x, y)) -> or(IsNotNull(x), y)
+///
+/// Latter optimizations make sense because calculating IsNull(x)/IsNotNull(x)
+/// is at most expensive as calculating x, but usually much cheaper. Although
+/// in two cases you exchange 4 computations to 4 computations, the latter
+/// four are cheaper.
+///
+/// `check` builds the same null check over a nullable node.
+pub fn reduce_null_check<T: ReduceNode>(
+    node: &T,
+    is_null: bool,
+    check: impl Fn(&T) -> VortexResult<T>,
+) -> VortexResult<Option<T>> {
+    let child = node.child(0);
+    if !child.node_dtype()?.is_nullable() {
+        return Ok(Some(node.new_constant((!is_null).into())));
+    }
+
+    if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
+        return Ok(Some(if is_null {
+            not_node(&validity)?
+        } else {
+            validity
+        }));
+    }
+
+    let Some(child_fn) = child.scalar_fn() else {
+        return Ok(None);
+    };
+    let Some(operator) = child_fn.as_opt::<Boolean>() else {
+        return Ok(None);
+    };
+    let is_and = *operator == BooleanOperator::And;
+
+    let left = child.child(0);
+    let right = child.child(1);
+    let (nullable, non_nullable) = match (
+        left.node_dtype()?.is_nullable(),
+        right.node_dtype()?.is_nullable(),
+    ) {
+        (true, false) => (left, right),
+        (false, true) => (right, left),
+        // (false, false) already rewritten by constant folding
+        _ => return Ok(None),
+    };
+
+    // is_null(nullable) (rule 1, 2)
+    // is_not_null(nullable) (3, 4)
+    let left = check(&nullable)?;
+    // non_nullable (1, 4)
+    // not(non_nullable) (2, 3)
+    let right = if is_null == is_and {
+        non_nullable
+    } else {
+        not_node(&non_nullable)?
+    };
+    let combine = if is_null {
+        BooleanOperator::And
+    } else {
+        BooleanOperator::Or
+    };
+    Ok(Some(node.new_node(Boolean.bind(combine), &[left, right])?))
+}
+
+fn not_node<T: ReduceNode>(value: &T) -> VortexResult<T> {
+    value.new_node(Not.bind(EmptyOptions), slice::from_ref(value))
+}
+
+/// Expression that checks for non-null values.
+#[derive(Clone)]
+pub struct IsNotNull;
+
+impl IsNotNull {
+    /// Creates a lazy non-null check over `input`.
+    #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
+    pub fn new(input: ArrayRef) -> ScalarFnArray {
+        ScalarFnArray::try_new(IsNotNull.bind(EmptyOptions), [input])
+            .vortex_expect("IsNotNull has one child and an infallible return dtype")
+    }
+}
+
+impl ScalarFnVTable for IsNotNull {
+    type Options = EmptyOptions;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.is_not_null");
+        *ID
+    }
+
+    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
+    }
+
+    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            _ => unreachable!("Invalid child index {} for IsNotNull expression", child_idx),
+        }
+    }
+
+    fn fmt_sql(
+        &self,
+        _options: &Self::Options,
+        expr: &dyn ExprDisplay,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(f, "is_not_null(")?;
+        Display::fmt(expr.display_child(0), f)?;
+        write!(f, ")")
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(DType::Bool(Nullability::NonNullable))
+    }
+
+    fn execute(
+        &self,
+        _data: &Self::Options,
+        args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(args.get(0)?.validity()?.to_array(args.row_count()))
+    }
+
+    fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        reduce_null_check(node, false, is_not_null_node)
+    }
+
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        // Null input produces the non-null boolean value `false`.
+        false
+    }
+
+    fn is_infallible(&self, _instance: &Self::Options) -> bool {
+        true
+    }
+}

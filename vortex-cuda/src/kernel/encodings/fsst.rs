@@ -34,7 +34,6 @@ use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::PushKernelArg;
 
@@ -117,7 +116,7 @@ impl CudaExecute for FSSTExecutor {
         }
 
         if validity.definitely_all_null() {
-            let views = ctx.copy_to_device(vec![0i128; fsst.len()])?.await?;
+            let views = ctx.copy_to_device(&vec![0i128; fsst.len()])?;
             return Ok(Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
             }));
@@ -188,7 +187,7 @@ pub(crate) async fn decode_fsst_varbin(
     } = i32_offsets_from_lengths(lens, ctx).await?;
 
     if total_size == 0 {
-        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
+        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
         let values = BufferHandle::new_device(allocation.slice(0..0));
         return Ok(DecodedVarBin {
             dtype,
@@ -231,18 +230,16 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx).await?;
 
-    let (symbols, symbol_lengths, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.ensure_on_device(validity_bits),
-        ctx.ensure_on_device(codes_bytes_handle),
-        ctx.ensure_on_device(codes_offsets_buffer),
-    )?;
+    let symbols = ctx.copy_to_device(&symbols_u64)?;
+    let symbol_lengths = ctx.copy_to_device(&symbol_lengths)?;
+    let validity_device = ctx.ensure_on_device(validity_bits)?;
+    let codes_bytes = ctx.ensure_on_device(codes_bytes_handle)?;
+    let codes_offsets = ctx.ensure_on_device(codes_offsets_buffer)?;
 
     // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
     // satisfy the widest store (u128 → 16).
     let mut output = ctx.device_alloc::<u8>(total_size)?;
-    let (output_base_ptr, _) = output.device_ptr(ctx.stream());
+    let output_base_ptr = output.device_address();
     assert_eq!(
         output_base_ptr % 16,
         0,
@@ -274,7 +271,7 @@ where
         dtype,
         len,
         offsets: output_offsets,
-        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))),
+        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?)),
         validity,
     })
 }
@@ -301,7 +298,7 @@ where
     .vortex_expect("total_size fits in usize");
 
     if total_size == 0 {
-        let views = ctx.copy_to_device(vec![0i128; num_strings])?.await?;
+        let views = ctx.copy_to_device(&vec![0i128; num_strings])?;
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
         }));
@@ -321,14 +318,12 @@ where
 
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx).await?;
 
-    let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.copy_to_device(output_offsets)?,
-        ctx.ensure_on_device(validity_bits),
-        ctx.ensure_on_device(codes_bytes_handle),
-        ctx.ensure_on_device(codes_offsets_buffer),
-    )?;
+    let symbols = ctx.copy_to_device(&symbols_u64)?;
+    let symbol_lengths = ctx.copy_to_device(&symbol_lengths)?;
+    let output_offsets = ctx.copy_to_device(&output_offsets)?;
+    let validity_device = ctx.ensure_on_device(validity_bits)?;
+    let codes_bytes = ctx.ensure_on_device(codes_bytes_handle)?;
+    let codes_offsets = ctx.ensure_on_device(codes_offsets_buffer)?;
 
     // The kernel checks store alignment relative to the base via
     // `out_pos % N`, so the base must satisfy the widest store (u128 → 16).
@@ -336,7 +331,7 @@ where
     let mut device_views = (total_size <= MAX_BUFFER_LEN)
         .then(|| ctx.device_alloc::<i128>(num_strings))
         .transpose()?;
-    let (output_base_ptr, _) = device_output.device_ptr(ctx.stream());
+    let output_base_ptr = device_output.device_address();
     assert_eq!(
         output_base_ptr % 16,
         0,
@@ -373,8 +368,8 @@ where
     // views directly and both buffers can remain on-device. Larger heaps use the host rollover
     // path below to split decoded bytes across multiple backing buffers.
     if let Some(device_views) = device_views {
-        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
-        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)?));
+        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)?));
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([bytes]), dtype, validity)
         }));
@@ -382,7 +377,7 @@ where
 
     // BinaryView offsets are u32. Retain the host rollover path for decoded heaps
     // that need multiple backing buffers; ordinary batches stay entirely on-device.
-    let host_bytes = CudaDeviceBuffer::new(device_output)
+    let host_bytes = CudaDeviceBuffer::new(device_output)?
         .copy_to_host(Alignment::new(1))?
         .await?;
     let host_bytes = host_bytes.slice(0..total_size);
@@ -406,6 +401,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
@@ -522,7 +518,7 @@ mod tests {
             VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
         let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
         let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
         assert_device_resident(&gpu_result);

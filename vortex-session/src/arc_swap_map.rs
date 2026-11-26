@@ -134,18 +134,25 @@ impl<K: Eq + Hash, V, S: BuildHasher> ArcSwapMap<K, V, S> {
 
     /// Insert `value` under `key` only if no value is stored there yet.
     ///
-    /// If a concurrent writer publishes a value under `key` first, that value
-    /// is kept and `value` is dropped. `value` is constructed by the caller
-    /// before this call, so no user code runs while the map is being updated.
-    pub fn insert_if_absent(&self, key: K, value: V)
+    /// Returns `true` if `value` was inserted, or `false` if a value was already
+    /// stored under `key` (in which case the existing value is kept and `value` is
+    /// dropped). `value` is constructed by the caller before this call, so no user
+    /// code runs while the map is being updated.
+    pub fn insert_if_absent(&self, key: K, value: V) -> bool
     where
         K: Clone,
         V: Clone,
         S: Clone,
     {
-        self.modify(|map| {
-            map.entry(key.clone()).or_insert_with(|| value.clone());
+        let previous = self.inner.rcu(|existing| {
+            if existing.contains_key(&key) {
+                return Arc::clone(existing);
+            }
+            let mut map = existing.as_ref().clone();
+            map.insert(key.clone(), value.clone());
+            Arc::new(map)
         });
+        !previous.contains_key(&key)
     }
 }
 
@@ -189,8 +196,8 @@ mod tests {
     #[test]
     fn insert_if_absent_keeps_first_value() {
         let map = ArcSwapMap::<u32, i32>::default();
-        map.insert_if_absent(1, 10);
-        map.insert_if_absent(1, 20);
+        assert!(map.insert_if_absent(1, 10));
+        assert!(!map.insert_if_absent(1, 20));
         assert_eq!(map.get(&1), Some(10));
     }
 

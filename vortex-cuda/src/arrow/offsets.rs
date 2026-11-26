@@ -13,7 +13,10 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::PushKernelArg;
 
@@ -39,7 +42,7 @@ pub(crate) async fn i32_offsets_from_lengths(
     let len = lengths.len();
     let ptype = lengths.ptype();
     let PrimitiveDataParts { buffer, .. } = lengths.into_data_parts();
-    let lengths = ctx.ensure_on_device(buffer).await?;
+    let lengths = ctx.ensure_on_device(buffer)?;
 
     match_each_integer_ptype!(ptype, |L| {
         i32_offsets_from_lengths_typed::<L>(&lengths, len, ctx).await
@@ -57,9 +60,10 @@ where
     let scan_len = len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("Arrow offset count overflow"))?;
-    let mut status = ctx.device_alloc::<u32>(1)?;
+    // Read back both words together: [validation status, final offset].
+    let mut offset_summary = ctx.device_alloc::<u32>(2)?;
     ctx.stream()
-        .memset_zeros(&mut status)
+        .memset_zeros(&mut offset_summary)
         .map_err(|err| vortex_err!("Failed to zero Arrow offset status buffer: {err}"))?;
     let lengths_view = lengths.cuda_view::<L>()?;
     let mut scan_input = ctx.device_alloc::<i32>(scan_len)?;
@@ -71,23 +75,13 @@ where
     ctx.launch_kernel(&scan_kernel, scan_len, |args| {
         args.arg(&lengths_view)
             .arg(&mut scan_input)
-            .arg(&mut status)
+            .arg(&mut offset_summary)
             .arg(&len_u64);
     })?;
 
     let offsets = exclusive_sum_i32(&scan_input, scan_len, ctx)?;
-    let scan_len_u64 = u64::try_from(scan_len)?;
-    let validate_kernel = ctx.load_function_with_suffixes("arrow_offsets", &["validate"])?;
-    ctx.launch_kernel(&validate_kernel, scan_len, |args| {
-        args.arg(&offsets).arg(&mut status).arg(&scan_len_u64);
-    })?;
-
-    let offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)));
-    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)));
-    let status_copy = status.try_to_host()?;
-    let total_copy = offsets.slice_typed::<i32>(len..scan_len).try_to_host()?;
-    let (status_bytes, total_bytes) = futures::try_join!(status_copy, total_copy)?;
-    match Buffer::<u32>::from_byte_buffer(status_bytes)[0] {
+    let [status, total] = read_offset_summary(&offsets, offset_summary, ctx).await?;
+    match status {
         0 => {}
         1 => vortex_bail!("cannot build Arrow offsets from a negative length"),
         2 => vortex_bail!("length sum exceeds Arrow i32 offset range"),
@@ -95,7 +89,27 @@ where
     }
 
     Ok(I32Offsets {
-        buffer: offsets,
-        total: usize::try_from(Buffer::<i32>::from_byte_buffer(total_bytes)[0])?,
+        buffer: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)?)),
+        total: usize::try_from(total)?,
     })
+}
+
+/// Check every scanned offset for overflow and read back `[status, final_offset]` together.
+/// The first word already holds the scan input's status; the total is usable only on success.
+pub(super) async fn read_offset_summary(
+    offsets: &CudaSlice<i32>,
+    mut summary: CudaSlice<u32>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<[u32; 2]> {
+    vortex_ensure_eq!(summary.len(), 2);
+    vortex_ensure!(!offsets.is_empty(), "missing final Arrow offset");
+    let scan_len = u64::try_from(offsets.len())?;
+    let kernel = ctx.load_function_with_suffixes("arrow_offsets", &["validate"])?;
+    ctx.launch_kernel(&kernel, offsets.len(), |args| {
+        args.arg(offsets).arg(&mut summary).arg(&scan_len);
+    })?;
+
+    let summary = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(summary)?));
+    let summary = Buffer::<u32>::from_byte_buffer(summary.try_to_host()?.await?);
+    Ok([summary[0], summary[1]])
 }

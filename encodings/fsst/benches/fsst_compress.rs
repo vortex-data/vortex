@@ -27,8 +27,9 @@ use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_session::VortexSession;
@@ -87,6 +88,7 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let encoded = fsst_compress(&array, &compressor, &mut ctx)
         .unwrap()
         .into_array();
+    mark_optimized(&encoded, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))
@@ -103,13 +105,15 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
         .unwrap()
         .into_array();
     let constant = ConstantArray::new(needle(&array, &mut ctx), len);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
                 .clone()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -129,6 +133,8 @@ fn canonicalize_compare(
         .unwrap()
         .into_array();
     let constant = ConstantArray::new(needle(&array, &mut ctx), len);
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+    mark_optimized(constant.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -138,7 +144,7 @@ fn canonicalize_compare(
                 .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -215,13 +221,16 @@ fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> 
         ));
     }
 
-    VarBinArray::from_iter(
+    let array = VarBinArray::from_iter(
         strings
             .into_iter()
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
     )
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 fn generate_chunked_test_data(
@@ -231,7 +240,7 @@ fn generate_chunked_test_data(
     unique_chars: u8,
 ) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    (0..chunk_size)
+    let array = (0..chunk_size)
         .map(|_| {
             let array = generate_test_data(string_count, avg_len, unique_chars);
             let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
@@ -240,5 +249,8 @@ fn generate_chunked_test_data(
                 .into_array()
         })
         .collect::<ChunkedArray>()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }

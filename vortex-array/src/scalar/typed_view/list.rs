@@ -164,7 +164,7 @@ impl<'a> ListScalar<'a> {
     /// scalar for each.
     ///
     /// Returns None if the list is null.
-    pub(crate) fn element_values(&self) -> Option<&'a [Option<ScalarValue>]> {
+    pub fn element_values(&self) -> Option<&'a [Option<ScalarValue>]> {
         self.elements
     }
 

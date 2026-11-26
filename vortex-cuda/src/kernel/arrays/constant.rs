@@ -119,7 +119,7 @@ where
     })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
-    let device_buffer = CudaDeviceBuffer::new(output_buffer);
+    let device_buffer = CudaDeviceBuffer::new(output_buffer)?;
     let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -146,6 +146,7 @@ where
             Buffer::<D>::empty(),
             decimal_dtype,
             validity,
+            ctx.execution_ctx(),
         )));
     }
 
@@ -175,15 +176,17 @@ where
     })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
-    let device_buffer = CudaDeviceBuffer::new(output_buffer);
+    let device_buffer = CudaDeviceBuffer::new(output_buffer)?;
     let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
 
-    Ok(Canonical::Decimal(DecimalArray::new_handle(
-        buffer_handle,
-        D::DECIMAL_TYPE,
-        decimal_dtype,
-        validity,
-    )))
+    Ok(Canonical::Decimal(
+        DecimalArray::try_new_handle_from_trusted_values(
+            buffer_handle,
+            D::DECIMAL_TYPE,
+            decimal_dtype,
+            validity,
+        )?,
+    ))
 }
 
 #[cfg(test)]

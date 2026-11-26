@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::Pco;
@@ -74,7 +74,11 @@ mod tests {
 
     use crate::Pco;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_pco_f32_to_f64() {

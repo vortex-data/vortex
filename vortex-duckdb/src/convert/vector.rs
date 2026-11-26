@@ -269,6 +269,13 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                     .into_array(),
             )
         }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS => {
+            let arr = vector_mapped(vector, len, |duckdb_timestamp_ns { nanos }| *nanos);
+            Ok(
+                TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, Some("UTC".into()))
+                    .into_array(),
+            )
+        }
         DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
             let arr = vector_mapped(vector, len, |duckdb_date { days }| *days);
             Ok(TemporalArray::new_date(arr, TimeUnit::Days).into_array())
@@ -297,7 +304,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(crs),
-                DType::Binary(Nullability::Nullable),
+                Nullability::Nullable,
             )?
             .erased();
 
@@ -384,7 +391,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let ext_dtype = ExtDType::<Uuid>::try_with_vtable(
                 Uuid,
                 UuidMetadata::default(),
-                storage.dtype().clone(),
+                storage.dtype().nullability(),
             )?
             .erased();
 

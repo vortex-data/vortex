@@ -48,13 +48,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 pub use self::array::InterleaveArray;
 pub use self::array::InterleaveArrayExt;
+pub use self::array::InterleaveArraySlotsExt;
 pub use self::array::InterleaveData;
-use self::array::InterleaveSlots;
+pub use self::array::InterleaveSlots;
+pub use self::array::InterleaveSlotsView;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -64,6 +65,7 @@ use crate::array::ArrayParts;
 use crate::array::ArraySlots;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
@@ -73,7 +75,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// The [`Interleave`] encoding. See the [module docs](self).
@@ -217,25 +218,6 @@ impl VTable for Interleave {
         InterleaveSlots::slot_name(idx)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Interleave array is not serializable")
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         execute::execute(array, ctx)
     }
@@ -244,33 +226,46 @@ impl VTable for Interleave {
 impl OperationsVTable<Interleave> for Interleave {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Interleave>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Interleave>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // Random-access gather: read the routing pair for `index` directly, then pull that row from
         // the selected value array. No cursor walk is required.
-        let branch_idx = array
-            .array_indices()
+        let branch_idx = state
+            .slot(InterleaveSlots::ARRAY_INDICES)?
+            .vortex_expect("validated interleave array_indices slot")
             .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("interleave array_indices is non-nullable");
-        let row = array
-            .row_indices()
+        let row = state
+            .slot(InterleaveSlots::ROW_INDICES)?
+            .vortex_expect("validated interleave row_indices slot")
             .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("interleave row_indices is non-nullable");
 
-        let scalar = array.value(branch_idx).execute_scalar(row, ctx)?;
+        let scalar = state
+            .slot(InterleaveSlots::VALUES_OFFSET + branch_idx)?
+            .vortex_expect("validated interleave value slot")
+            .execute_scalar(row, ctx)?;
         // The value may be non-nullable while the interleaved output is nullable; align the dtype.
-        Ok(if array.as_ref().dtype().is_nullable() {
+        Ok(if state.array().as_ref().dtype().is_nullable() {
             scalar.into_nullable()
         } else {
             scalar
         })
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Interleave>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -327,6 +322,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
     use crate::assert_arrays_eq;
+    use crate::compute::conformance::consistency::test_scalar_probe_consistency;
     use crate::dtype::DecimalDType;
     use crate::dtype::PType;
 
@@ -587,6 +583,18 @@ mod tests {
             &[&[None, Some(true), None], &[Some(false), None]],
             &[(1, 1), (0, 0), (1, 0), (0, 2), (0, 1)],
         )
+    }
+
+    #[test]
+    fn interleave_scalar_probe_with_nulls() -> VortexResult<()> {
+        let (values, array_indices, row_indices) = build(
+            &[&[None, Some(true), Some(false)], &[Some(false), None]],
+            &[(1, 1), (0, 0), (1, 0), (0, 2), (0, 1), (1, 1)],
+        );
+        let array = InterleaveArray::try_new(values, array_indices, row_indices)?.into_array();
+
+        test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]

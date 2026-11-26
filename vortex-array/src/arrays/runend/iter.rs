@@ -7,11 +7,19 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::IntegerPType;
 
-pub fn trimmed_ends_iter<E: IntegerPType>(
+/// Yields exclusive run ends relative to a logical slice.
+///
+/// Subtracts `offset` from each end and clamps it to `length`. One end is yielded per input run,
+/// including zero-length runs at the slice boundaries, so indices still match the values child.
+///
+/// # Panics
+///
+/// Panics if `offset` or `length` cannot be represented by `E`, or an input end is before `offset`.
+pub fn slice_relative_ends<E: IntegerPType>(
     run_ends: &[E],
     offset: usize,
     length: usize,
-) -> impl Iterator<Item = usize> + use<'_, E> {
+) -> impl ExactSizeIterator<Item = usize> + use<'_, E> {
     let offset_e = E::from_usize(offset).unwrap_or_else(|| {
         vortex_panic!(
             "offset {} cannot be converted to {}",

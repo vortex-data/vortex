@@ -1,4 +1,4 @@
-# Language Bindings
+# Language bindings
 
 Vortex provides bindings for multiple languages at varying levels of API depth. This page
 documents the **tier model** that governs what each language binding exposes, the current state of
@@ -20,7 +20,7 @@ support can reach this tier.
 
 Filter and projection pushdown via expressions. Expressions can be serialized as protobuf bytes or
 constructed natively in the host language. Results are still returned as Arrow streams, making this
-tier suitable for query engine integrations (e.g. DataFusion, DuckDB, Spark, Trino).
+tier suitable for query engine integrations (e.g. ClickHouse, DataFusion, DuckDB, Spark, Trino).
 
 **Capabilities:** everything in Tier 0, plus scan builder with filter, projection, limit, and row
 range pushdown, and expression construction.
@@ -67,13 +67,13 @@ layout plugins, and extension DTypes.
 
 ## Per-Language Status
 
-| Language      | Current Tier | Technology |
-|---------------|--------------|------------|
-| Rust          | 3            | Native     |
-| Python        | ~2           | PyO3       |
-| C             | ~1           | cbindgen   |
-| C++           | ~1           | C API      |
-| Java (JNI)    | ~1           | JNI        |
+| Language   | Current Tier | Technology |
+|------------|--------------|------------|
+| Rust       | 3            | Native     |
+| Python     | ~2           | PyO3       |
+| C          | ~1           | cbindgen   |
+| C++        | ~1           | C API      |
+| Java (JNI) | ~1           | JNI        |
 
 ### Rust
 
@@ -98,5 +98,5 @@ inspection, compute execution, and stabilized error handling and memory ownershi
 ### Java (JNI)
 
 Java JNI bindings provide Tier ~1 capabilities today (Arrow I/O and basic scan). JNI will remain
-at Tier 1 for broad JDK compatibility. This is the current integration point for Spark and Trino
-connectors.
+at Tier 1 for broad JDK compatibility. This is the current integration point for the Spark
+connector.

@@ -7,8 +7,11 @@
 //! ALP could not encode, whose exact float values live in the patches.
 
 use num_traits::AsPrimitive;
+use num_traits::Bounded;
+use num_traits::CheckedAdd;
+use num_traits::CheckedSub;
 use num_traits::One;
-use num_traits::Saturating;
+use num_traits::PrimInt;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -16,23 +19,30 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::ALP;
+use crate::ALPArraySlotsExt;
 use crate::ALPFloat;
 use crate::Exponents;
 
 /// A predicate that has the same answer for every row while keeping the array's validity.
-pub(super) fn constant_predicate(
+fn constant_predicate(
     array: ArrayView<'_, ALP>,
     value: bool,
     nullability: Nullability,
@@ -51,35 +61,90 @@ pub(super) fn constant_predicate(
     })
 }
 
-/// Returns the largest encoded integer that decodes strictly below `value`.
-///
-/// `value` must be finite and must not round-trip through `exponents`. Rounding down is not
-/// sufficient by itself: `floor(-0.0)` encodes to `0`, which decodes to `+0.0`, and in total
-/// order `+0.0` is above `-0.0`.
-pub(super) fn encode_strictly_below<F: ALPFloat + NativePType>(
+/// First integer decoding to at least `value`, or strictly above it for a strict bound.
+/// `None` denotes the position past the largest integer.
+pub(super) fn encoded_bound<F: ALPFloat + NativePType>(
     value: F,
     exponents: Exponents,
-) -> F::ALPInt {
-    let below = F::encode_below(value, exponents);
-    if NativePType::is_lt(F::decode_single(below, exponents), value) {
-        below
-    } else {
-        below.saturating_sub(F::ALPInt::one())
+    strict: bool,
+) -> Option<F::ALPInt> {
+    let min = F::ALPInt::min_value();
+    let max = F::ALPInt::max_value();
+    if !value.is_finite() {
+        return value.is_sign_negative().then_some(min);
     }
+
+    let before = |i| {
+        let decoded = F::decode_single(i, exponents);
+        if strict {
+            decoded.is_le(value)
+        } else {
+            decoded.is_lt(value)
+        }
+    };
+    let guess = F::encode_below(value, exponents);
+    let one = F::ALPInt::one();
+    let (mut lo, mut hi) = if before(guess) {
+        let next = guess.checked_add(&one)?;
+        if !before(next) {
+            return Some(next);
+        }
+        (next, max)
+    } else {
+        let Some(prev) = guess.checked_sub(&one) else {
+            return Some(min);
+        };
+        if before(prev) {
+            return Some(guess);
+        }
+        (min, prev)
+    };
+
+    // Decode is monotone, but rounding can give many adjacent integers the same float.
+    while lo < hi {
+        let mid = (lo & hi) + ((lo ^ hi) >> 1); // floor midpoint without signed overflow
+        if before(mid) {
+            lo = mid + one;
+        } else {
+            hi = mid;
+        }
+    }
+    (!before(lo)).then_some(lo)
 }
 
-/// Returns the smallest encoded integer that decodes strictly above `value`.
-///
-/// `value` must be finite and must not round-trip through `exponents`.
-pub(super) fn encode_strictly_above<F: ALPFloat + NativePType>(
-    value: F,
-    exponents: Exponents,
-) -> F::ALPInt {
-    let above = F::encode_above(value, exponents);
-    if NativePType::is_gt(F::decode_single(above, exponents), value) {
-        above
-    } else {
-        above.saturating_add(F::ALPInt::one())
+/// Tests membership in the half-open encoded interval. Either end can be past the maximum.
+pub(super) fn encoded_range<I: PrimInt + NativePType + Into<PValue>>(
+    array: ArrayView<'_, ALP>,
+    start: Option<I>,
+    end: Option<I>,
+    negate: bool,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let Some(start) = start else {
+        return constant_predicate(array, negate, nullability);
+    };
+    let scalar =
+        |i: I| ConstantArray::new(Scalar::primitive(i, nullability), array.len()).into_array();
+    let ints = array.encoded();
+    let compare =
+        |i, op: CompareOperator| ints.compare(scalar(i), if negate { op.inverse() } else { op });
+    match end {
+        Some(end) if end <= start => constant_predicate(array, negate, nullability),
+        Some(end) if end == start + I::one() => compare(start, CompareOperator::Eq),
+        Some(end) if start == I::min_value() => compare(end, CompareOperator::Lt),
+        Some(end) => {
+            let result = ints.clone().between(
+                scalar(start),
+                scalar(end),
+                BetweenOptions {
+                    lower_strict: StrictComparison::NonStrict,
+                    upper_strict: StrictComparison::Strict,
+                },
+            )?;
+            if negate { result.not() } else { Ok(result) }
+        }
+        None if start == I::min_value() => constant_predicate(array, !negate, nullability),
+        None => compare(start, CompareOperator::Gte),
     }
 }
 
@@ -104,16 +169,33 @@ pub(super) fn apply_patch_predicate<F: NativePType>(
     let offset = patches.offset();
 
     match_each_integer_ptype!(indices.ptype(), |I| {
-        for (&index, &value) in indices.as_slice::<I>().iter().zip(values) {
-            let index: usize = index.as_();
-            // Patch indices are absolute; a slice keeps only those within its range.
-            if let Some(local) = index.checked_sub(offset)
-                && local < bits.len()
-            {
-                bits.set_to(local, predicate(value));
-            }
-        }
+        set_patched_bits(
+            &mut bits,
+            indices.as_slice::<I>(),
+            values,
+            offset,
+            predicate,
+        )
     });
 
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+/// Sets each patched row of `bits` that lies within its range to `predicate` of its patch value.
+fn set_patched_bits<I: AsPrimitive<usize>, F: NativePType>(
+    bits: &mut BitBufferMut,
+    indices: &[I],
+    values: &[F],
+    offset: usize,
+    predicate: impl Fn(F) -> bool,
+) {
+    for (&index, &value) in indices.iter().zip(values) {
+        let index: usize = index.as_();
+        // Patch indices are absolute; a slice keeps only those within its range.
+        if let Some(local) = index.checked_sub(offset)
+            && local < bits.len()
+        {
+            bits.set_to(local, predicate(value));
+        }
+    }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+
 use arrow_buffer::ArrowNativeType;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -31,7 +33,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
-use crate::executor::max_iterations;
+use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
 
 /// Reference-counted type-erased grouped accumulator.
@@ -260,11 +262,15 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
     }
 
     fn flush(&mut self) -> VortexResult<ArrayRef> {
-        let mut states = std::mem::take(&mut self.partials);
-        if states.len() == 1 {
-            return Ok(states.pop().vortex_expect("checked one partial"));
+        if self.partials.len() == 1 {
+            return Ok(self.partials.pop().vortex_expect("checked one partial"));
         }
-        Ok(ChunkedArray::try_new(states, self.dtypes.partial_dtype.clone())?.into_array())
+        // Pass the `Vec` itself so that this shares the `try_new` instance of other callers.
+        Ok(ChunkedArray::try_new(
+            mem::take(&mut self.partials),
+            self.dtypes.partial_dtype.clone(),
+        )?
+        .into_array())
     }
 
     fn finish(&mut self) -> VortexResult<ArrayRef> {
@@ -290,7 +296,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-        for _ in 0..max_iterations() {
+        for _ in 0..ctx.max_iterations() {
             // Try a registered grouped kernel for the current element encoding.
             if let Some(kernel) = ctx
                 .aggregate_kernels()
@@ -383,22 +389,33 @@ fn list_view_group_ranges(
     let sizes = groups.sizes().cast(offsets.dtype().clone())?;
 
     let ranges = match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
-        let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
-        let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-        offsets
-            .as_ref()
-            .iter()
-            .zip(sizes.as_ref().iter())
-            .map(|(offset, size)| {
-                (
-                    offset.to_usize().vortex_expect("Offset value is not usize"),
-                    size.to_usize().vortex_expect("Size value is not usize"),
-                )
-            })
-            .collect::<Vec<_>>()
-    });
+        execute_group_ranges::<O>(offsets, sizes, ctx)
+    })?;
 
     Ok(GroupRanges::ListView { ranges })
+}
+
+fn execute_group_ranges<O: NativePType + ArrowNativeType>(
+    offsets: &ArrayRef,
+    sizes: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<(usize, usize)>> {
+    let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
+    let sizes = sizes.execute::<Buffer<O>>(ctx)?;
+    Ok(collect_group_ranges(&offsets, &sizes))
+}
+
+fn collect_group_ranges<O: ArrowNativeType>(offsets: &[O], sizes: &[O]) -> Vec<(usize, usize)> {
+    offsets
+        .iter()
+        .zip(sizes)
+        .map(|(offset, size)| {
+            (
+                offset.to_usize().vortex_expect("Offset value is not usize"),
+                size.to_usize().vortex_expect("Size value is not usize"),
+            )
+        })
+        .collect()
 }
 
 fn fixed_size_list_group_ranges(groups: &FixedSizeListArray) -> GroupRanges {

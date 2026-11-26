@@ -1,5 +1,5 @@
 ====================
-Common Configuration
+Common configuration
 ====================
 
 .. autosummary::

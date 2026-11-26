@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::NodeVisitor;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::BoundExpression;
+use crate::ExactBoundExpr;
+use crate::traversal::NodeExt;
+use crate::traversal::NodeVisitor;
+use crate::traversal::TraversalOrder;
 
 /// Labels keyed by bound-tree identity.
 pub type BoundLabels<L> = HashMap<ExactBoundExpr, L>;
@@ -69,12 +70,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::test_harness::struct_dtype;
-
     use super::*;
+    use crate::col;
+    use crate::eq;
+    use crate::lit;
+    use crate::test_harness::struct_dtype;
 
     #[test]
     fn test_tree_depth() -> VortexResult<()> {

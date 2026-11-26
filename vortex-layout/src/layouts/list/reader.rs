@@ -19,16 +19,18 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::BoundExpression;
+use vortex_expr::root;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
+use crate::BoundaryMode;
 use crate::LayoutReader;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
@@ -408,15 +410,21 @@ impl LayoutReader for ListReader {
                 if last_split == Some(split) {
                     continue;
                 }
-                splits.push(
-                    split_range
-                        .row_offset()
-                        .checked_add(split)
-                        .vortex_expect("List layout split offset overflow"),
-                );
+
+                let root_split = split_range
+                    .row_offset()
+                    .checked_add(split)
+                    .vortex_expect("List layout split offset overflow");
+                splits.push(root_split);
+                if splits.mode() == BoundaryMode::WithSoftMarks {
+                    // The grid spreads the element work across splits. Other fields of a struct
+                    // do not have these boundaries, but the scan must not merge them away.
+                    splits.mark_pinned([root_split]);
+                }
                 last_split = Some(split);
             }
         }
+
         splits.push(split_range.root_row_range().end);
         Ok(())
     }
@@ -587,7 +595,7 @@ fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
     let constant = ConstantArray::new(first, offsets.len())
         .into_array()
         .cast(offsets.dtype().clone())?;
-    offsets.binary(constant, Operator::Sub)
+    offsets.numeric(constant, NumericOperator::Sub)
 }
 
 /// Compute `offsets[i + 1] - offsets[i]` as the unmasked list length values.
@@ -595,7 +603,7 @@ fn list_lengths_from_offsets(offsets: ArrayRef) -> VortexResult<ArrayRef> {
     let len = offsets.len().saturating_sub(1);
     offsets
         .slice(1..offsets.len())?
-        .binary(offsets.slice(0..len)?, Operator::Sub)
+        .numeric(offsets.slice(0..len)?, NumericOperator::Sub)
 }
 
 fn apply_lengths_validity(
@@ -623,19 +631,19 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::list_length;
-    use vortex_array::expr::lit;
     use vortex_buffer::buffer;
+    use vortex_expr::Expression;
+    use vortex_expr::cast;
+    use vortex_expr::gt;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_functions::expr::is_null;
+    use vortex_functions::expr::list_length;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
-    use vortex_session::VortexSession;
 
     use super::*;
     use crate::LayoutRef;
@@ -1283,16 +1291,27 @@ mod tests {
     }
 
     #[rstest]
-    #[case::one_cut(&[2], false)]
-    #[case::two_cuts(&[1, 3], false)]
-    #[case::null_and_empty_at_cuts(&[1, 3], true)]
+    #[case::one_cut(&[2], false, false)]
+    #[case::two_cuts(&[1, 3], false, false)]
+    #[case::null_and_empty_at_cuts(&[1, 3], true, false)]
+    #[case::list_view_chunks(&[1, 3], true, true)]
+    #[case::non_nullable_list_view_chunks(&[1, 3], false, true)]
     #[tokio::test]
     async fn sliced_list_chunks_round_trip(
         #[case] cuts: &[usize],
         #[case] nullable: bool,
+        #[case] as_list_view: bool,
     ) -> VortexResult<()> {
         let list = create_ten_element_list_array(nullable);
-        let chunks = sliced_chunks(&list, cuts)?;
+        let source = if as_list_view {
+            let mut ctx = SESSION.create_execution_ctx();
+            list.clone()
+                .execute::<ListViewArray>(&mut ctx)?
+                .into_array()
+        } else {
+            list.clone()
+        };
+        let chunks = sliced_chunks(&source, cuts)?;
         assert_round_trips(&chunked_list_strategy(), chunks, list).await
     }
 

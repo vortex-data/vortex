@@ -16,6 +16,7 @@
 //! split strategy, and task concurrency settings, then produces array streams or iterators.
 pub mod arrays;
 pub mod layouts;
+pub mod lowering;
 pub mod plan;
 
 pub use children::*;
@@ -28,11 +29,14 @@ pub use strategy::*;
 use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
+pub use vortex_scan::analysis;
 mod children;
 pub mod display;
 mod encoding;
+pub mod expr_cache;
 pub mod flatbuffers;
 mod layout;
+pub mod partition;
 mod reader;
 mod reader_context;
 pub mod scan;

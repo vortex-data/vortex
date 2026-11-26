@@ -9,7 +9,7 @@ use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 
 impl MaskReduce for Widen {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

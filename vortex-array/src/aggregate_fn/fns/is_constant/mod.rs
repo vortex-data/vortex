@@ -45,12 +45,12 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
 
 /// Check if two arrays of the same length have equal values at every position (null-safe).
 ///
@@ -77,7 +77,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
-    let eq_result = a.binary(b.clone(), Operator::Eq)?;
+    let eq_result = a.compare(b.clone(), CompareOperator::Eq)?;
     let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
@@ -459,7 +459,10 @@ impl AggregateFnVTable for IsConstant {
         _args: AggregateArgs<'_, Self::Options>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
+        // A null partial is the empty state of an empty or null group, which is not constant.
+        partials
+            .get_item(NAMES.get(0).vortex_expect("out of bounds").clone())?
+            .fill_null(false)
     }
 
     fn finalize_scalar(
@@ -491,7 +494,9 @@ mod tests {
     use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::is_constant::IsConstant;
     use crate::aggregate_fn::fns::is_constant::IsConstantPartial;
     use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -501,9 +506,11 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::runend::RunEnd;
+    use crate::assert_arrays_eq;
     use crate::builders::MapBuilder;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -511,8 +518,8 @@ mod tests {
     use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::stats::Stat;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -637,18 +644,10 @@ mod tests {
     fn test_decimal_is_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
-        let array = DecimalArray::new(
-            buffer![0i128, 1i128, 2i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([0i128, 1i128, 2i128], DecimalDType::new(19, 0));
         assert!(!is_constant(&array.into_array(), &mut ctx)?);
 
-        let array = DecimalArray::new(
-            buffer![100i128, 100i128, 100i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i128, 100i128, 100i128], DecimalDType::new(19, 0));
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())
     }
@@ -792,6 +791,59 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::leading_unused_elements(
+        // [1, 2], [1, 2], after two elements that no list uses
+        vec![Some(9i32), Some(9), Some(1), Some(2), Some(1), Some(2)],
+        vec![2u32, 4, 6],
+        true
+    )]
+    #[case::difference_in_last_element(
+        // [1, 2], [1, 2], [1, 3]
+        vec![Some(1i32), Some(2), Some(1), Some(2), Some(1), Some(3)],
+        vec![0u32, 2, 4, 6],
+        false
+    )]
+    #[case::rotated_elements(
+        // [1, 2], [2, 1]
+        vec![Some(1i32), Some(2), Some(2), Some(1)],
+        vec![0u32, 2, 4],
+        false
+    )]
+    fn test_list_is_constant_compares_shifted_elements(
+        #[case] elements: Vec<Option<i32>>,
+        #[case] offsets: Vec<u32>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list_array = ListArray::try_new(
+            PrimitiveArray::from_option_iter(elements).into_array(),
+            PrimitiveArray::from_iter(offsets).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+
+        assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_view_that_is_not_packed_compares_every_list() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // [1, 2], [1, 2], [2, 3]
+        let list_view = ListViewArray::try_new(
+            buffer![1i32, 2, 3, 1, 2].into_array(),
+            buffer![0i32, 3, 1].into_array(),
+            buffer![2i32, 2, 2].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        assert!(!list_view.is_zero_copy_to_list());
+
+        assert!(!is_constant(&list_view.into_array(), &mut ctx)?);
+        Ok(())
+    }
+
     #[test]
     fn test_map_is_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -897,6 +949,34 @@ mod tests {
         acc.accumulate(&empty, &mut ctx)?;
 
         assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_is_constant() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements = PrimitiveArray::from_option_iter([Some(5i32), Some(5), Some(6), None, None])
+            .into_array();
+        let dtype = elements.dtype().clone();
+
+        // The groups are `[5, 5]`, `[5, 6]`, `[]`, `[null, null]`, and a null group.
+        let groups = ListViewArray::try_new(
+            elements,
+            buffer![0i32, 1, 0, 3, 0].into_array(),
+            buffer![2i32, 2, 0, 2, 0].into_array(),
+            Validity::from_iter([true, true, true, true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let mut acc = GroupedAccumulator::try_new(IsConstant, EmptyOptions, dtype)?;
+        acc.accumulate_list(&groups, &mut ctx)?;
+
+        assert_arrays_eq!(
+            acc.finish()?,
+            BoolArray::from_iter([true, false, false, true, false]),
+            &mut ctx
+        );
         Ok(())
     }
 }

@@ -14,9 +14,9 @@ use vortex_array::MaskFuture;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -94,18 +94,40 @@ impl SplitRange {
     }
 }
 
+/// What a [`RowSplits`] collector is asked to gather.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BoundaryMode {
+    /// Boundary positions only; readers skip classifying soft boundaries.
+    #[default]
+    PositionsOnly,
+    /// Boundary positions plus soft marks (see [`RowSplits::mark_soft`]).
+    WithSoftMarks,
+}
+
 /// A collection of root-coordinate row split points.
 ///
 /// Boundaries arrive as non-descending runs, one per layout subtree walked; a descending push
 /// starts a new run. A run that exactly repeats the previous surviving run — common when sibling
 /// columns share chunk boundaries — is dropped as it completes, and the final sort is skipped
 /// when only a single run survives (the boundaries are then already ascending).
+///
+/// A boundary can also be marked soft: one that only some of a struct's fields have. A split there
+/// lets the fields that chunk across it decode the same chunk in two splits, so the scan may merge
+/// it away (see [`crate::scan::split_by::SplitBy::LayoutSubSplitting`]).
+///
+/// A boundary can also be pinned: one a reader chose to spread work across splits, such as the
+/// grid of a list layout. A pinned boundary is never soft, so the scan never merges it away.
 pub struct RowSplits {
     splits: Vec<u64>,
     /// Start index of the run currently being appended.
     run_start: usize,
     /// Start index of the surviving run immediately before `run_start`.
     prev_run_start: usize,
+    /// Boundaries marked soft, unsorted and possibly repeated.
+    soft: Vec<u64>,
+    /// Boundaries marked pinned, unsorted and possibly repeated.
+    pinned: Vec<u64>,
+    mode: BoundaryMode,
 }
 
 impl RowSplits {
@@ -162,13 +184,68 @@ impl RowSplits {
         self.splits.reserve(additional);
     }
 
+    /// The collection mode requested by the consumer.
+    pub fn mode(&self) -> BoundaryMode {
+        self.mode
+    }
+
+    /// An empty collector with the given capacity that inherits `self`'s mode.
+    pub(crate) fn new_like(&self, capacity: usize) -> Self {
+        Self::new_capacity_with_mode(capacity, self.mode)
+    }
+
+    /// Create a new RowSplits with preallocated "capacity" and the given mode.
+    pub(crate) fn new_capacity_with_mode(capacity: usize, mode: BoundaryMode) -> Self {
+        Self {
+            mode,
+            ..Self::new_capacity(capacity)
+        }
+    }
+
+    /// Mark boundaries soft: ones that only some fields of a struct have. They must also be
+    /// pushed.
+    pub fn mark_soft(&mut self, rows: impl IntoIterator<Item = u64>) {
+        self.soft.extend(rows);
+    }
+
+    /// Pin boundaries: ones a reader chose to spread work across splits. They must also be
+    /// pushed. A pinned boundary is never soft, even where only some fields of a struct have it.
+    pub(crate) fn mark_pinned(&mut self, rows: impl IntoIterator<Item = u64>) {
+        self.pinned.extend(rows);
+    }
+
     /// Create a new RowSplits with preallocated "capacity"
     pub(crate) fn new_capacity(capacity: usize) -> Self {
         Self {
             splits: Vec::with_capacity(capacity),
             run_start: 0,
             prev_run_start: 0,
+            soft: Vec::new(),
+            pinned: Vec::new(),
+            mode: BoundaryMode::PositionsOnly,
         }
+    }
+
+    /// The sorted, deduplicated boundaries, and the sorted soft ones among them. A pinned
+    /// boundary is never soft.
+    pub(crate) fn into_sorted_deduped_with_soft(self) -> (Vec<u64>, Vec<u64>) {
+        let (boundaries, mut soft, pinned) = self.into_sorted_deduped_with_marks();
+        soft.retain(|row| pinned.binary_search(row).is_err());
+        (boundaries, soft)
+    }
+
+    /// The sorted, deduplicated boundaries, and the sorted soft and pinned ones among them. A
+    /// boundary can be in both sets; the pinned mark takes precedence.
+    pub(crate) fn into_sorted_deduped_with_marks(mut self) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+        let mut soft = std::mem::take(&mut self.soft);
+        soft.sort_unstable();
+        soft.dedup();
+
+        let mut pinned = std::mem::take(&mut self.pinned);
+        pinned.sort_unstable();
+        pinned.dedup();
+
+        (self.into_sorted_deduped(), soft, pinned)
     }
 
     pub(crate) fn into_sorted_deduped(mut self) -> Vec<u64> {
@@ -204,6 +281,32 @@ pub trait LayoutReader: 'static + Send + Sync {
 
     /// Returns the number of rows in the layout.
     fn row_count(&self) -> u64;
+
+    /// Returns whether whole-file statistics reject the expression.
+    ///
+    /// Scan execution uses this result separately from split statistics.
+    fn can_prune_file(&self, _expr: &BoundExpression) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    /// Returns a statistics mask for a split, without whole-file statistics.
+    ///
+    /// Readers with whole-file statistics must override this method to evaluate only split statistics.
+    fn split_pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        self.pruning_evaluation(row_range, expr, mask)
+    }
+
+    /// Returns whether split rejection for this expression comes from statistics.
+    ///
+    /// Readers that evaluate a predicate during split pruning must return `false` for that expression.
+    fn split_pruning_is_statistics(&self, _expr: &BoundExpression) -> VortexResult<bool> {
+        Ok(true)
+    }
 
     /// Register natural split boundaries for this reader.
     ///

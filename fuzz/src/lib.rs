@@ -1,9 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Fuzz drivers for Vortex arrays, compression, storage, and Arrow transport.
+//!
+//! Each target owns its input generation and checks, while this crate shares session and runtime
+//! initialization across generated cases. Binaries in `fuzz_targets` connect the drivers to their
+//! platform-specific fuzzing engines.
+
 #![expect(clippy::use_debug)]
 
+#[cfg(feature = "native")]
+use std::sync::LazyLock;
+
+use vortex_session::VortexSession;
+
+/// Session for the Arrow round-trip target, including every covered extension and Variant plugin.
+///
+/// Separate registration keeps these plugins from changing other fuzz drivers' sessions.
+#[cfg(feature = "native")]
+pub(crate) static ARROW_ROUND_TRIP_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    vortex_uuid::initialize(&session);
+    vortex_json::initialize(&session);
+    vortex_parquet_variant::initialize(&session);
+    vortex_tensor::initialize(&session);
+    vortex_spatial::initialize(&session);
+    session
+});
+
 mod array;
+/// Exact Arrow transport of owned logical types.
+#[cfg(feature = "native")]
+pub mod arrow_roundtrip;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
@@ -26,6 +54,14 @@ pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::FuzzFileCorruption;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::has_duplicate_field_names;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::has_nullable_struct;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::run_file_corruption;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
 #[cfg(feature = "cuda")]
@@ -45,7 +81,7 @@ const FUZZ_EDITIONS: [vortex::editions::EditionId; 3] = [
     vortex::editions::UNSTABLE,
 ];
 
-fn enable_fuzz_editions(session: &vortex_session::VortexSession) {
+fn enable_fuzz_editions(session: &VortexSession) {
     use vortex::editions::EditionSessionExt;
     use vortex_error::VortexExpect;
 

@@ -1,4 +1,4 @@
-Input and Output
+Input and output
 ================
 
 Vortex arrays support reading and writing to local and remote file systems, including plain-old
@@ -17,6 +17,7 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
    ~vortex.RepeatedScan
    ~vortex.io.read_url
    ~vortex.io.write
+   ~vortex.io.write_to
 
 .. raw:: html
 

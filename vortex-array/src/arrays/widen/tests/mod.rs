@@ -10,9 +10,13 @@
 mod aggregates;
 mod compute;
 mod decimal;
+mod decimal_aggregates;
+mod decimal_cast;
 mod decimal_compare;
 mod decimal_fallback;
+mod decimal_stored;
 mod encoding;
+mod integer_stored;
 mod numeric;
 mod serde;
 
@@ -35,7 +39,7 @@ use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -66,17 +70,17 @@ fn canonical(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>
 fn assert_compare_matches_canonical(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
-    operator: Operator,
+    operator: CompareOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let canonical_lhs = canonical(lhs, ctx)?;
     let canonical_rhs = canonical(rhs, ctx)?;
 
-    let expected = canonical_lhs.binary(canonical_rhs.clone(), operator)?;
-    assert_arrays_eq!(lhs.binary(rhs.clone(), operator)?, expected, ctx);
+    let expected = canonical_lhs.compare(canonical_rhs.clone(), operator)?;
+    assert_arrays_eq!(lhs.compare(rhs.clone(), operator)?, expected, ctx);
 
-    let expected = canonical_rhs.binary(canonical_lhs, operator)?;
-    assert_arrays_eq!(rhs.binary(lhs.clone(), operator)?, expected, ctx);
+    let expected = canonical_rhs.compare(canonical_lhs, operator)?;
+    assert_arrays_eq!(rhs.compare(lhs.clone(), operator)?, expected, ctx);
 
     Ok(())
 }

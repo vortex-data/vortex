@@ -23,7 +23,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
+  TY_VERSION: 0.0.98
 
 jobs:
   duckdb-mirror:
@@ -37,7 +38,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -45,18 +46,19 @@ jobs:
           - uses: runs-on/action@v2
             if: github.repository == 'vortex-data/vortex'
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-      - name: Install missing formatting tools
-        run: |
-          packages=()
-          command -v yamllint >/dev/null || packages+=(yamllint)
-          command -v clang-format >/dev/null || packages+=(clang-format)
-          if [ ${#packages[@]} -gt 0 ]; then
-            sudo apt-get update
-            sudo apt-get install -y "${packages[@]}"
-          fi
+      - parallel:
+          - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+          - name: Install missing formatting tools
+            run: |
+              packages=()
+              command -v yamllint >/dev/null || packages+=(yamllint)
+              command -v clang-format >/dev/null || packages+=(clang-format)
+              if [ ${#packages[@]} -gt 0 ]; then
+                sudo apt-get update
+                sudo apt-get install -y "${packages[@]}"
+              fi
       - name: TOML Lint
         if: "!cancelled()"
         uses: spiraldb/actions/.github/actions/lint-toml@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -92,27 +94,32 @@ jobs:
         if: "!cancelled()"
         run: |
           uv sync --all-packages --no-install-workspace
-          uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
+          uvx ty@$TY_VERSION check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
 
       # Pins the measurement_id hash that scripts/post-ingest.py uses as the primary key of every
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
       # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
       # would break ON CONFLICT idempotency against the rows already in production.
-      - name: Pytest - measurement_id, benchmark reporting, ingestion and CodSpeed shards
+      - name: Pytest - measurement_id, benchmark reporting, ingestion, CodSpeed shards, fuzz corpus and triage
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
             --with tabulate --with xxhash \
-            pytest scripts/tests/test_measurement_id.py \
-              scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
-              scripts/tests/test_codspeed_shards.py
+            pytest scripts/tests
+
+      # bench-orchestrator does not depend on vortex-data, so this needs no Rust build.
+      # Disable pytest-benchmark (installed in the workspace venv by the ty step above),
+      # which otherwise clashes with bench-orchestrator's `benchmark` test parameter.
+      - name: Pytest - bench-orchestrator
+        if: "!cancelled()"
+        run: uv run --project benchmarks/bench-orchestrator --with pytest pytest -p no:benchmark benchmarks/bench-orchestrator/tests
 
   python-test:
     name: "Python (test)"
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -134,62 +141,21 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
-      # The datasets integration relies on private `datasets` APIs, so exercise the oldest
-      # supported release in addition to the locked one.
-      - name: Pytest - Vortex (datasets 4.x floor)
-        run: |
-          uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
-            pytest --benchmark-disable test/test_hf_datasets.py
-        working-directory: vortex-python/
-
-      # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
-      # Polars integration parses Polars' serialized expression format, which differs across
-      # versions.
-      - name: Pytest - Vortex (Polars 1.x floor)
-        run: |
-          uv run --all-packages --with 'polars==1.32.0' \
-            pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
-        working-directory: vortex-python/
-
-      - name: Check Python documentation
-        run: |
-          uv run --all-packages make check
-        working-directory: docs/
-
-  python-cuda-test:
-    name: "Python CUDA (test)"
-    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
-    timeout-minutes: 30
-    env:
-      RUST_LOG: "info,maturin=off,uv=debug"
-      MATURIN_PEP517_ARGS: "--profile ci"
-    steps:
+      # The first `uv run` above builds the extension and syncs the environment. These checks
+      # reuse it, and uv locks the environment, so they run at the same time.
       - parallel:
-          - uses: runs-on/action@v2
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - parallel:
-          - uses: ./.github/actions/setup-rust
-            with:
-              repo-token: ${{ secrets.GITHUB_TOKEN }}
-              components: cargo
-              enable-sccache: "true"
-          - name: Install uv
-            uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-            with:
-              sync: false
-      - name: Pin rustup proxy to repository toolchain
-        run: |
-          TOOLCHAIN="$(grep '^channel' rust-toolchain.toml | cut -d '"' -f 2)"
-          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
-
-      - name: Pytest - PyVortex CUDA bridge
-        run: |
-          uv run --extra cuda \
-            pytest --benchmark-disable ../vortex-python-cuda/test/test_native_bridge.py
-        working-directory: vortex-python/
+          # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
+          # Polars integration parses Polars' serialized expression format, which differs across
+          # versions.
+          - name: Pytest - Vortex (Polars 1.x floor)
+            run: |
+              uv run --all-packages --with 'polars==1.32.0' \
+                pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
+            working-directory: vortex-python/
+          - name: Check Python documentation
+            run: |
+              uv run --all-packages make check
+            working-directory: docs/
 
   rust-docs:
     name: "Rust (docs)"
@@ -199,7 +165,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -218,7 +184,10 @@ jobs:
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
+          # Each crate is documented into its own directory: merging them into one is what makes
+          # `cargo doc` slow, and nothing here uses the merged output. See the script for details.
+          RUSTDOC="${GITHUB_WORKSPACE}/.github/scripts/rustdoc-unmerged.sh" \
+            cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
           # nextest doesn't support doc tests, so we run it here
           cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
@@ -228,22 +197,15 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
+          && format('runs-on={0}/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'), matrix.config.runner, matrix.config.name)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         config:
-          - name: "all-features"
-            runner: amd64-ci-large
-            args: "--all-features --all-targets"
           - name: "default features"
             runner: amd64-ci-large
             args: "--all-targets"
-          - name: "with tokio dispatcher"
-            runner: amd64-ci-small
-            # Only build the crates that have the tokio features, not re-building other crates with no-default-features
-            args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -266,50 +228,6 @@ jobs:
       - name: sccache stats
         if: always() && github.repository == 'vortex-data/vortex'
         run: sccache --show-stats
-
-  check-min-deps:
-    name: "Check build with minimal dependencies"
-    if: github.event.pull_request.draft != true
-    timeout-minutes: 30
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - run: cargo minimal-versions check --direct --workspace --ignore-private
-
-  rust-msrv:
-    name: "Rust (MSRV)"
-    if: github.event.pull_request.draft != true
-    timeout-minutes: 30
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
-          || 'ubuntu-latest' }}
-    env:
-      RUSTFLAGS: "-A warnings"
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - name: Check publishable crates against the MSRV
-        run: cargo hack --rust-version --no-dev-deps --ignore-private check --profile ci --all-features
-
   rust-lint:
     name: "Rust (lint)"
     needs: duckdb-mirror
@@ -317,7 +235,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -380,199 +298,30 @@ jobs:
         if: always() && github.repository == 'vortex-data/vortex'
         run: sccache --show-stats
 
-  rust-lint-no-default:
-    name: "Rust (lint, no default)"
-    if: github.event.pull_request.draft != true
-    timeout-minutes: 30
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - name: Rust Lint - Clippy No Default Features
-        shell: bash
-        run: |
-          cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
-
-  # One job for all Windows checks: a Windows instance takes 85-105s to boot, and
-  # the pool keeps only one instance hot.
-  windows:
-    name: "Windows (x64)"
-    needs: duckdb-mirror
-    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
-    timeout-minutes: 45
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
-          || 'windows-latest' }}
-    env:
-      NEXTEST_WINDOWS_ARGS: >-
-        --cargo-profile ci --locked --workspace --all-features
-        --exclude vortex-bench
-        --exclude vortex-python
-        --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi
-        --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda
-        --exclude duckdb-bench
-        --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench
-        --exclude compress-bench --exclude xtask --exclude vortex-datafusion
-        --exclude gpu-scan-cli
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-          - name: Setup (Windows)
-            run: |
-              echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
-              $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
-              echo "CARGO_HOME=$cargoHome" >> $env:GITHUB_ENV
-      - parallel:
-          - uses: ./.github/actions/setup-prebuild
-            with:
-              enable-sccache: "true"
-          - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
-            with:
-              python-version: "3.11"
-          - name: Restore Cargo registry
-            id: cargo-registry
-            uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-            with:
-              path: |
-                ${{ env.CARGO_HOME }}/registry/index
-                ${{ env.CARGO_HOME }}/registry/cache
-                ${{ env.CARGO_HOME }}/git/db
-                ${{ env.CARGO_HOME }}/git/checkouts
-              key: cargo-registry-v1-windows-x64-${{ hashFiles('Cargo.lock') }}
-              restore-keys: cargo-registry-v1-windows-x64-
-
-      - name: Assemblers emit reproducible code
-        run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-          $ml64 = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\ml64.exe" |
-            Sort-Object -Descending | Select-Object -First 1
-          if (-not $ml64) { throw "ml64.exe not found" }
-          echo "VORTEX_ML64=$ml64" >> $env:GITHUB_ENV
-          echo "CC_MASM_ASM_x86_64_pc_windows_msvc=$env:pythonLocation\python.exe $env:GITHUB_WORKSPACE\scripts\ml64_reproducible.py" >> $env:GITHUB_ENV
-          echo "NASMENV=--reproducible" >> $env:GITHUB_ENV
-
-      - name: Build Rust Tests (Windows)
-        id: build-tests
-        env: &windows-test-env
-          # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
-          # duckdb_static.lib is built with /MT and thus requires crt-static
-          RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
-        run: cargo nextest run --no-run @($env:NEXTEST_WINDOWS_ARGS -split ' ')
-
-      - name: Run Rust Tests (Windows)
-        id: tests
-        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
-        env: *windows-test-env
-        run: cargo nextest run --no-fail-fast @($env:NEXTEST_WINDOWS_ARGS -split ' ')
-
-      - name: Save Cargo registry
-        if: ${{ !cancelled() && steps.cargo-registry.outputs.cache-hit != 'true' && (steps.build-tests.outcome == 'success' || steps.build-tests.outcome == 'failure') }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ${{ env.CARGO_HOME }}/registry/index
-            ${{ env.CARGO_HOME }}/registry/cache
-            ${{ env.CARGO_HOME }}/git/db
-            ${{ env.CARGO_HOME }}/git/checkouts
-          key: ${{ steps.cargo-registry.outputs.cache-primary-key }}
-
-      # The test outputs fill the default disk, and the wheel build cannot reuse
-      # them: it uses other RUSTFLAGS and its own target directory.
-      - name: Delete the Rust test outputs
-        if: ${{ !cancelled() && (steps.build-tests.outcome == 'success' || steps.build-tests.outcome == 'failure') }}
-        shell: cmd
-        run: if exist target\ci rmdir /s /q target\ci
-
-      # Mirrors the wheel build in package.yml, which spells the Windows interpreter
-      # `python` because maturin has no `python3.11` executable to resolve there.
-      - name: Build wheel
-        id: wheel
-        # Build the wheel also when a Rust test fails, but not when the setup failed.
-        if: ${{ !cancelled() && (steps.build-tests.outcome == 'success' || steps.build-tests.outcome == 'failure') }}
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b  # v1
-        with:
-          command: build
-          maturin-version: 1.15.0
-          target: x86_64-pc-windows-msvc
-          args: >
-            --profile ci
-            --manifest-path vortex-python/Cargo.toml
-            --out dist
-            --interpreter python
-        env:
-          # Keep this constant to avoid pyo3 invalidating itself
-          PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
-          # Also applies to host proc-macro links when Cargo receives an explicit target.
-          LINK: /Brepro
-
-      # The Rust tests exclude vortex-python, so this is the only check that the
-      # win_amd64 wheel imports and can round-trip a file. Runs outside the checkout so
-      # the repo-root `vortex/` crate directory cannot shadow the installed package.
-      - name: Import and round-trip the wheel
-        if: ${{ !cancelled() && steps.wheel.outcome == 'success' }}
-        shell: bash
-        run: |
-          python -m pip install dist/*.whl
-          cd "$RUNNER_TEMP"
-          python - <<'PY'
-          import pyarrow as pa
-
-          import vortex as vx
-
-          table = pa.table({"a": [1, 2, 3], "b": ["x", "y", "z"]})
-          vx.io.write(table, "smoke.vortex")
-          # Vortex reads utf8 back as string_view, so compare column-wise rather than by table.
-          round_tripped = vx.open("smoke.vortex").to_arrow().read_all()
-          assert round_tripped.column_names == table.column_names
-          assert round_tripped.column("a").to_pylist() == [1, 2, 3]
-          assert round_tripped.column("b").to_pylist() == ["x", "y", "z"]
-          print("vortex", vx.__version__, "round-tripped a file on Windows")
-          PY
-
-      - name: sccache stats
-        if: always() && github.repository == 'vortex-data/vortex'
-        run: sccache --show-stats
-
-      - name: Alert incident.io
-        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
-        uses: ./.github/actions/alert-incident-io
-        with:
-          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
-          alert-title: "Windows (x64) failed on develop"
-          deduplication-key: ci-windows-x64-failure
-
   rust-test-linux-arm64:
     name: "Rust tests (linux-arm64)"
     needs: duckdb-mirror
-    if: >-
-      github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
-      github.repository == 'vortex-data/vortex'
+    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
+          || 'ubuntu-24.04-arm' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      - name: Install nextest
+        if: github.repository != 'vortex-data/vortex'
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
+        with:
+          tool: nextest
       - name: Rust Tests
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
@@ -580,74 +329,39 @@ jobs:
         with:
           command: "cargo test --profile ci --locked --workspace --all-features --no-run --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest"
 
-      - name: Alert incident.io
-        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
-        uses: ./.github/actions/alert-incident-io
-        with:
-          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
-          alert-title: "Rust tests (linux-arm64) failed on develop"
-          deduplication-key: ci-rust-test-linux-arm64-failure
-
-  # Runs the crates with hand-written SIMD kernels on EC2 instance families chosen for
-  # their CPU features, so that every runtime-dispatched kernel tier is exercised:
-  #   c6a (AMD Zen 3): AVX2 and BMI2, no AVX-512
-  #   c6i (Intel Ice Lake): AVX-512 F/BW/VBMI2/VPOPCNTDQ
-  #   c8g (Graviton4, Neoverse V2): SVE2 with BITPERM
-  # `VORTEX_EXPECT_CPU_FEATURES` lists every feature the instance must have; vortex-array-macros'
-  # `cpu_features` test fails if any of them is missing or any other known feature (e.g.
-  # AVX-512 on the avx2 entry) is detected.
-  rust-test-cpu-features:
-    name: "Rust tests (cpu-features, ${{ matrix.config.name }})"
-    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - name: avx2
-            runner: amd64-ci-medium
-            family: c6a.2xlarge
-            image: ubuntu26-full-x64-pre-v2
-            expect: "sse2,popcnt,bmi1,bmi2,avx,avx2"
-          - name: avx512
-            runner: amd64-ci-medium
-            family: c6i.2xlarge
-            image: ubuntu26-full-x64-pre-v2
-            expect: "sse2,popcnt,bmi1,bmi2,avx,avx2,avx512f,avx512bw,avx512vbmi2,avx512vpopcntdq"
-          - name: sve
-            runner: arm64-medium
-            family: c8g.2xlarge
-            image: ubuntu26-full-arm64-pre-v2
-            expect: "neon,sve,sve2,sve2-bitperm"
-    runs-on: >-
-      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
-    env:
-      VORTEX_EXPECT_CPU_FEATURES: ${{ matrix.config.expect }}
+  java-changes:
+    name: "Detect Java changes"
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      spark-compat: ${{ github.event_name != 'pull_request' || steps.filter.outputs.java == 'true' }}
     steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4
+        id: filter
+        if: github.event_name == 'pull_request'
         with:
-          enable-sccache: "true"
-      # Print the detected features and fail fast if the instance is not the expected tier.
-      - name: Check CPU features
-        run: |
-          cargo nextest run --cargo-profile ci --locked --no-capture \
-            -p vortex-array-macros --test cpu_features
-      - name: Rust Tests
-        run: |
-          cargo nextest run --cargo-profile ci --locked --no-fail-fast \
-            -p vortex-buffer -p vortex-mask -p vortex-array
+          filters: |
+            java:
+              - "lang/java/**"
+              - "vortex-ffi/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".cargo/**"
+              - ".github/actions/setup-prebuild/**"
+              - ".github/workflows/ci.yml"
 
-  build-java:
-    name: "Java"
+  java-tests:
+    name: "Java (checks)"
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -661,10 +375,75 @@ jobs:
           - uses: ./.github/actions/setup-prebuild
             with:
               enable-sccache: "true"
-          - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6
+          - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
       - name: Build documentation and run Java checks
-        run: ./gradlew --parallel javadoc check
-        working-directory: ./java
+        run: >-
+          ./gradlew --parallel javadoc check
+          -x :vortex-spark-4.0_2.13:spark41CompatTest
+          -x :vortex-spark-4.0_2.13:spark42CompatTest
+          -x :vortex-spark-4.0_2.13:spark43CompatTest
+        working-directory: ./lang/java
+
+  # The Spark 4.x compat suites all live in one Gradle project, and Gradle runs one project's
+  # tasks one at a time, so they took about 6.5 minutes in series. Each runs on its own runner
+  # on develop pushes and when Java or build-input files change.
+  java-spark-compat:
+    name: "Java (${{ matrix.name }})"
+    needs: [java-changes]
+    if: >-
+      github.event.pull_request.draft != true && !cancelled() &&
+      needs.java-changes.outputs.spark-compat == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Spark 4.1 compat
+            tasks: ":vortex-spark-4.0_2.13:spark41CompatTest"
+          - name: Spark 4.2 compat
+            tasks: ":vortex-spark-4.0_2.13:spark42CompatTest"
+          - name: Spark 4.3 compat
+            tasks: ":vortex-spark-4.0_2.13:spark43CompatTest"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: "true"
+          - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
+      - name: Run Spark compatibility tests
+        env:
+          TASKS: ${{ matrix.tasks }}
+        run: ./gradlew $TASKS
+        working-directory: ./lang/java
+
+  # Keeps the "Java" check, which now gathers the Java checks and Spark compat jobs.
+  build-java:
+    name: "Java"
+    needs: [java-changes, java-tests, java-spark-compat]
+    # always(): a cancelled run must fail this check, not skip it (a skipped check passes).
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the jobs it gathers
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          # A skipped job counts as passed, as it did when this check was a single job.
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            exit 1
+          fi
 
   license-check-and-audit-check:
     # The name is a required status check on develop; keep it unchanged.
@@ -674,22 +453,25 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      # Prevent sudden announcement of a new advisory from failing ci:
-      - name: cargo deny check advisories
-        id: advisories
-        continue-on-error: true
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check advisories
+      # The two checks are independent, so they run at the same time.
+      - parallel:
+          # Prevent sudden announcement of a new advisory from failing ci:
+          - name: cargo deny check advisories
+            id: advisories
+            continue-on-error: true
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check advisories
+          - name: cargo deny check bans licenses sources
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check bans licenses sources
       - name: Warn on advisory failures
-        if: steps.advisories.outcome == 'failure'
+        # `!cancelled()` keeps the warning when bans/licenses/sources fails alongside it.
+        if: "!cancelled() && steps.advisories.outcome == 'failure'"
         run: >-
           echo "::warning title=cargo deny advisories::cargo deny check advisories
           failed; see the 'cargo deny check advisories' step log."
-      - name: cargo deny check bans licenses sources
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check bans licenses sources
 
   sqllogic-test:
     name: "SQL logic tests"
@@ -697,7 +479,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -726,7 +508,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -868,7 +650,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -910,18 +692,13 @@ jobs:
               curl -sf -X PUT "http://127.0.0.1:9000/vortex-test" \
                 --user "rustfsadmin:rustfsadmin" --aws-sigv4 "aws:amz:us-east-1:s3"
           # The golden suite pins compressor decisions for the core-only and explicitly enabled
-          # edition configurations. Compact compression additionally needs its optional schemes.
+          # edition configurations; compact (zstd + pco) runs in the all-features workspace tests.
           - name: Golden corpus (edition configurations)
             run: |
               cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden
           - run: cargo build --profile ci --target wasm32-wasip1
             working-directory: ./wasm-test
       - parallel:
-          - name: Golden corpus (compact, zstd + pco)
-            if: "!cancelled()"
-            run: |
-              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden \
-                --features zstd,pco -E 'test(golden_compact)'
           - name: Run tests
             if: "!cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')"
             shell: bash

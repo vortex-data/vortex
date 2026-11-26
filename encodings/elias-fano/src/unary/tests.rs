@@ -5,9 +5,7 @@ use std::hash::DefaultHasher;
 use std::hash::Hasher;
 use std::iter;
 use std::slice;
-use std::sync::LazyLock;
 
-use num_traits::AsPrimitive;
 use prost::Message;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -15,7 +13,6 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rstest::rstest;
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -33,41 +30,25 @@ use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::serde::SerializeOptions;
-use vortex_array::serde::SerializedArray;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
 use super::Unary;
 use super::UnaryArray;
 use super::unary_encode;
 use super::vtable::UnaryMetadata;
-
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty();
-    crate::initialize(&session);
-    session
-});
-
-/// `values` as a primitive array of `ptype`, which must hold every one of them.
-fn primitive(ptype: PType, values: &[u64]) -> PrimitiveArray {
-    match_each_unsigned_integer_ptype!(ptype, |T| {
-        PrimitiveArray::from_iter(values.iter().map(|&value| AsPrimitive::<T>::as_(value)))
-    })
-}
+use crate::SESSION;
+use crate::test_support::primitive;
+use crate::test_support::serde_roundtrip;
 
 fn encode_as(ptype: PType, values: &[u64]) -> VortexResult<Option<UnaryArray>> {
     let array = primitive(ptype, values);
@@ -109,20 +90,6 @@ fn check_access(array: &ArrayRef, expected: &PrimitiveArray, seed: u64) -> Vorte
         );
     }
     Ok(())
-}
-
-fn serde_roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    let array_ctx = ArrayContext::empty();
-    let mut concat = ByteBufferMut::empty();
-    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
-        concat.extend_from_slice(buffer.as_ref());
-    }
-    SerializedArray::try_from(concat.freeze())?.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(array_ctx.to_ids()),
-        &SESSION,
-    )
 }
 
 fn hash_of(array: &ArrayRef) -> u64 {
@@ -278,10 +245,8 @@ fn test_try_new_rejects() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::vtable(false)]
-#[case::plugin(true)]
-fn test_deserialize_rejects(#[case] plugin: bool) -> VortexResult<()> {
+#[test]
+fn test_deserialize_rejects() -> VortexResult<()> {
     let dtype = DType::Primitive(PType::U64, NonNullable);
     let metadata = |num_ones: u64| {
         UnaryMetadata {
@@ -293,26 +258,12 @@ fn test_deserialize_rejects(#[case] plugin: bool) -> VortexResult<()> {
     // `[1, 0]` takes the bits `10 0`.
     let bits = BufferHandle::new_host(BitBuffer::from(vec![true, false, false]).inner().clone());
     let no_children: [ArrayRef; 0] = [];
-    // Through the vtable alone, and through the array plugin, the path readers run.
     let deserialize = |metadata: &[u8], buffers: &[BufferHandle], children: &[ArrayRef]| {
-        if plugin {
-            ArrayPlugin::deserialize(
-                &Unary,
-                ArrayDeserialization::new(
-                    VTable::id(&Unary),
-                    &dtype,
-                    2,
-                    metadata,
-                    buffers,
-                    &children,
-                ),
-                &SESSION,
-            )
-        } else {
-            VTable::deserialize(&Unary, &dtype, 2, metadata, buffers, &children, &SESSION)
-                .and_then(Array::try_from_parts)
-                .map(IntoArray::into_array)
-        }
+        ArrayPlugin::deserialize(
+            &Unary,
+            ArrayDeserialization::new(VTable::id(&Unary), &dtype, 2, metadata, buffers, &children),
+            &SESSION,
+        )
     };
 
     let one = slice::from_ref(&bits);

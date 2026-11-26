@@ -38,7 +38,7 @@ impl FlatLayoutFixture for DecimalCanonicalWidthsFixture {
         vec![Decimal.id()]
     }
 
-    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let max_p19 = 10i128.pow(19) - 1;
         let max_p38 = 10i128.pow(38) - 1;
         let max_p39 = i256_max_by_precision(39);
@@ -48,41 +48,49 @@ impl FlatLayoutFixture for DecimalCanonicalWidthsFixture {
             buffer![-9i8, -1, 0, 1, 9],
             DecimalDType::new(1, 0),
             Validity::NonNullable,
+            ctx,
         );
         let i8_p2_s1 = DecimalArray::new(
             buffer![-99i8, -1, 0, 1, 99],
             DecimalDType::new(2, 1),
             Validity::NonNullable,
+            ctx,
         );
         let i16_p3_s1 = DecimalArray::new(
             buffer![-999i16, -1, 0, 1, 999],
             DecimalDType::new(3, 1),
             Validity::NonNullable,
+            ctx,
         );
         let i16_p4_s2 = DecimalArray::new(
             buffer![-9_999i16, -1, 0, 1, 9_999],
             DecimalDType::new(4, 2),
             Validity::NonNullable,
+            ctx,
         );
         let i128_p19_s2 = DecimalArray::new(
             buffer![-max_p19, -1, 0, 1, max_p19],
             DecimalDType::new(19, 2),
             Validity::NonNullable,
+            ctx,
         );
         let i128_p38_s2 = DecimalArray::new(
             buffer![-max_p38, -1, 0, 1, max_p38],
             DecimalDType::new(38, 2),
             Validity::NonNullable,
+            ctx,
         );
         let i256_p39_s2 = DecimalArray::new(
             buffer![-max_p39, -i256::ONE, i256::ZERO, i256::ONE, max_p39],
             DecimalDType::new(39, 2),
             Validity::NonNullable,
+            ctx,
         );
         let i256_p76_s0 = DecimalArray::new(
             buffer![-max_p76, -i256::ONE, i256::ZERO, i256::ONE, max_p76],
             DecimalDType::new(76, 0),
             Validity::NonNullable,
+            ctx,
         );
         let i128_p38_s2_nullable = DecimalArray::from_option_iter(
             [Some(-max_p38), None, Some(0), None, Some(max_p38)],

@@ -34,7 +34,6 @@ use crate::dtype::PType;
 use crate::scalar::Scalar;
 #[cfg(not(codspeed))]
 use crate::test_harness::trace::trace_op;
-use crate::validity::Validity;
 
 /// Compare registered dispatch and the direct kernel with a decoded primitive reference.
 #[track_caller]
@@ -244,12 +243,7 @@ fn empty_arrays_and_clipped_runs(
 #[test]
 fn decimal_kernel_declines() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let values = DecimalArray::new(
-        buffer![100i64, 200],
-        DecimalDType::new(10, 2),
-        Validity::NonNullable,
-    )
-    .into_array();
+    let values = DecimalArray::from_iter([100i64, 200], DecimalDType::new(10, 2)).into_array();
     let array = RunEnd::try_new(buffer![2u64, 4].into_array(), values, &mut ctx)?.into_array();
 
     for aggregate in [

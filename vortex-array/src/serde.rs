@@ -32,14 +32,14 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
 use crate::optimizer::mark_decoded_optimized;
 use crate::session::ArraySessionExt;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::stats::StatsSet;
 
 /// Options for serializing an array.
@@ -789,7 +789,6 @@ mod tests {
     use vortex_session::registry::CachedId;
 
     use super::*;
-    use crate::Array;
     use crate::ArrayPlugin;
     use crate::ArraySerialization;
     use crate::ArrayVTable;
@@ -868,16 +867,18 @@ mod tests {
                 "old primitive wire ID cannot represent length {}",
                 parts.len,
             );
-            Ok(Array::<Primitive>::try_from_parts(ArrayVTable::deserialize(
+            ArrayPlugin::deserialize(
                 &Primitive,
-                parts.dtype,
-                parts.len,
-                parts.metadata,
-                parts.buffers,
-                parts.children,
+                ArrayDeserialization::new(
+                    old_primitive_id(),
+                    parts.dtype,
+                    parts.len,
+                    parts.metadata,
+                    parts.buffers,
+                    parts.children,
+                ),
                 session,
-            )?)?
-            .into_array())
+            )
         }
     }
 

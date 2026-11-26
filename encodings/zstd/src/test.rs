@@ -5,6 +5,7 @@
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -19,6 +20,7 @@ use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -34,7 +36,11 @@ use crate::ZstdData;
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 #[test]
 fn test_zstd_compress_decompress() {
@@ -283,7 +289,9 @@ fn test_zstd_append_to_view_builder_keeps_only_the_sliced_bytes() -> VortexResul
         .collect::<Vec<_>>();
     let array = VarBinViewArray::from_iter_str(&values);
     // Three values per frame, so the slice below starts and ends inside a frame holding more.
-    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx)?.slice(4..8)?;
+    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx)?
+        .slice(4..8)?
+        .optimize_ctx(&SESSION)?;
 
     // Seeded with a value of its own so the pushed buffers land after an in-progress buffer, and
     // appended to twice so the second push has to rebase past the first.
@@ -426,10 +434,10 @@ fn test_zstd_reads_legacy_single_frame_var_bin_metadata() -> VortexResult<()> {
     assert_arrays_eq!(compressed, array.clone().into_array(), &mut ctx);
     assert_arrays_eq!(
         compressed.slice(2..5)?,
-        array.into_array().slice(2..5)?,
+        array.clone().into_array().slice(2..5)?,
         &mut ctx
     );
-    Ok(())
+    assert_repeated_probe_eq(&compressed.into_array(), &array.into_array(), &mut ctx)
 }
 
 /// The same legacy metadata for fixed-width values recovers the count from the frame size, which
@@ -450,6 +458,24 @@ fn test_zstd_reads_legacy_primitive_frame_metadata() -> VortexResult<()> {
         PrimitiveArray::from_iter(100..105_i32),
         &mut ctx
     );
+    assert_repeated_probe_eq(&compressed.into_array(), &array.into_array(), &mut ctx)
+}
+
+/// Read every row of `array` through one repeated probe, last row first, so that each frame is
+/// decompressed again after a later one.
+fn assert_repeated_probe_eq(
+    array: &ArrayRef,
+    expected: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let mut probe = array.repeated_probe();
+    for index in (0..array.len()).rev() {
+        assert_eq!(
+            probe.execute_scalar(index, ctx)?,
+            expected.execute_scalar(index, ctx)?,
+            "row {index}"
+        );
+    }
     Ok(())
 }
 

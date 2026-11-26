@@ -86,6 +86,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_date, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_duration, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_time, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_timestamp, &m)?)?;
 
@@ -177,8 +178,7 @@ impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
         Ok(session()
             .arrow()
-            .to_arrow_field("", &self.0)?
-            .data_type()
+            .to_arrow_datatype(&self.0)?
             .to_pyarrow(py)?)
     }
 

@@ -39,9 +39,9 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 custom-labels = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

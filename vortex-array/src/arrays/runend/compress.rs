@@ -1,21 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
@@ -25,16 +28,16 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::buffer::BufferHandle;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
@@ -185,6 +188,86 @@ fn runend_encode_nullable_primitive<T: NativePType>(
     )
 }
 
+/// Run-end encode a `BoolArray` without nulls, returning a tuple of `(ends, values)`.
+///
+/// The values child keeps the input's nullability.
+///
+/// # Errors
+///
+/// Returns an error if the array contains nulls.
+pub fn runend_encode_bool(
+    array: ArrayView<Bool>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(PrimitiveArray, ArrayRef)> {
+    let has_nulls = match array.validity()? {
+        Validity::NonNullable | Validity::AllValid => false,
+        Validity::AllInvalid => !array.is_empty(),
+        Validity::Array(validity) => {
+            validity
+                .execute::<BoolArray>(ctx)?
+                .to_bit_buffer()
+                .true_count()
+                != array.len()
+        }
+    };
+    if has_nulls {
+        vortex_bail!("run-end encoding of booleans with nulls is not supported");
+    }
+
+    let bits = array.to_bit_buffer();
+
+    let mut ends = BufferMut::<u64>::empty();
+    for_each_transition_word(&bits, |base, mut transitions| {
+        while transitions != 0 {
+            ends.push((base + transitions.trailing_zeros() as usize) as u64);
+            transitions &= transitions - 1;
+        }
+    });
+    if !bits.is_empty() {
+        ends.push(bits.len() as u64);
+    }
+
+    // Runs alternate between `true` and `false`, so the first bit gives all of the values.
+    let first = !bits.is_empty() && bits.value(0);
+    let values = BitBuffer::collect_bool(ends.len(), |run| first ^ (run % 2 == 1));
+
+    let ends = PrimitiveArray::new(ends.freeze(), Validity::NonNullable).narrow(ctx)?;
+    ends.statistics()
+        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+    let values = BoolArray::new(values, array.dtype().nullability().into()).into_array();
+    Ok((ends, values))
+}
+
+/// Count the runs of equal values in a bitmap, a word at a time.
+pub fn bool_run_count(bits: &BitBuffer) -> usize {
+    if bits.is_empty() {
+        return 0;
+    }
+
+    let mut transitions = 0;
+    for_each_transition_word(bits, |_, word| transitions += word.count_ones() as usize);
+    transitions + 1
+}
+
+/// Calls `f(base, transitions)` for each word of `bits`, of at most 64 bits, where bit `j` of
+/// `transitions` is set when bit `base + j` differs from bit `base + j - 1`.
+///
+/// Bit 0 of the bitmap never counts as a transition.
+fn for_each_transition_word(bits: &BitBuffer, mut f: impl FnMut(usize, u64)) {
+    if bits.is_empty() {
+        return;
+    }
+
+    // Seed the carry with the first bit, so that bit 0 compares equal to its predecessor.
+    let mut carry = u64::from(bits.value(0));
+
+    for_each_mask_word(bits, |word, base, len| {
+        // The shift moves the last bit of a full word out, so only a short word needs the mask.
+        f(base, (word ^ ((word << 1) | carry)) & low_bits_mask(len));
+        carry = word >> (len - 1);
+    });
+}
+
 pub fn runend_decode_primitive(
     ends: PrimitiveArray,
     values: PrimitiveArray,
@@ -204,7 +287,7 @@ pub fn runend_decode_primitive(
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
                 validity_mask,
                 values.dtype().nullability(),
@@ -220,17 +303,24 @@ pub fn runend_decode_primitive(
 ///
 /// This is the core decode loop shared by primitive and varbinview run-end decoding.
 fn runend_decode_slice<T: Copy + Default>(
-    run_ends: impl Iterator<Item = usize>,
+    run_ends: impl ExactSizeIterator<Item = usize>,
     values: &[T],
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
     allocator: &BufferAllocatorRef,
 ) -> (Buffer<T>, Validity) {
+    // Checked once here so the loops can use `zip`, which unlike `zip_eq` compiles to a single
+    // counted loop over the slices instead of checking both iterators for their end on every run.
+    assert_eq!(
+        run_ends.len(),
+        values.len(),
+        "run ends and values must have the same length"
+    );
     match values_validity {
         Mask::AllTrue(_) => {
             let mut decoded = RunWriter::new(length, allocator);
-            for (end, &value) in run_ends.zip_eq(values) {
+            for (end, &value) in run_ends.zip(values) {
                 decoded.write_run(value, end);
             }
             (decoded.finish(), values_nullability.into())
@@ -243,7 +333,7 @@ fn runend_decode_slice<T: Copy + Default>(
             let mut decoded_validity = BitBufferMut::full(true, length);
             let mut null_start = None;
             for (end, (&value, is_valid)) in
-                run_ends.zip_eq(values.iter().zip(mask.bit_buffer().iter()))
+                run_ends.zip(values.iter().zip(mask.bit_buffer().iter()))
             {
                 let start = decoded.len();
                 decoded.write_run(if is_valid { value } else { T::default() }, end);
@@ -342,7 +432,7 @@ impl<T: Copy> RunWriter<T> {
 }
 
 pub fn runend_decode_typed_primitive<T: NativePType>(
-    run_ends: impl Iterator<Item = usize>,
+    run_ends: impl ExactSizeIterator<Item = usize>,
     values: &[T],
     values_validity: Mask,
     values_nullability: Nullability,
@@ -381,7 +471,7 @@ pub fn runend_decode_decimal(
     Ok(match_each_decimal_value_type!(values.values_type(), |D| {
         let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_slice(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.buffer::<D>().as_slice(),
                 validity_mask,
                 values.dtype().nullability(),
@@ -389,7 +479,9 @@ pub fn runend_decode_decimal(
                 ctx.allocator(),
             )
         });
-        DecimalArray::new(decoded, values.decimal_dtype(), validity).into_array()
+        // SAFETY: Decoding repeats each value and its validity for the same run length.
+        unsafe { DecimalArray::new_unchecked(decoded, values.decimal_dtype(), validity) }
+            .into_array()
     }))
 }
 
@@ -414,7 +506,7 @@ pub fn runend_decode_varbinview(
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_slice(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+            slice_relative_ends(ends.as_slice::<E>(), offset, length),
             views,
             validity_mask,
             values.dtype().nullability(),
@@ -442,16 +534,66 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::RunEnd;
+    use crate::arrays::bool::BoolArrayExt;
+    use crate::arrays::runend::compress::bool_run_count;
     use crate::arrays::runend::compress::runend_decode_primitive;
+    use crate::arrays::runend::compress::runend_decode_typed_primitive;
     use crate::arrays::runend::compress::runend_encode;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Bits alternate in runs of `run`, with lengths on 64-bit word boundaries. `valid` adds a
+    /// validity bitmap that is all valid (`true`) or has one null (`false`).
+    #[rstest]
+    #[case(0, 1, None)]
+    #[case(1, 1, None)]
+    #[case(63, 62, None)]
+    #[case(64, 63, None)]
+    #[case(65, 64, None)]
+    #[case(130, 1, None)]
+    #[case(300, 61, Some(true))]
+    #[case(300, 61, Some(false))]
+    fn encode_bool(
+        #[case] len: usize,
+        #[case] run: usize,
+        #[case] valid: Option<bool>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bits: Vec<bool> = (0..len).map(|i| (i / run) % 2 == 1).collect();
+        // Array-backed even when all valid, which `Validity::from(BitBuffer)` would collapse.
+        let validity = valid.map_or(Validity::NonNullable, |v| {
+            Validity::Array(BoolArray::from_iter((0..len).map(|i| v || i != 1)).into_array())
+        });
+        let arr = BoolArray::new(BitBuffer::from(bits.clone()), validity);
+        let runs = |b: &[bool]| b.len().min(1) + b.windows(2).filter(|w| w[0] != w[1]).count();
+        for offset in [0, 1].into_iter().filter(|&o| o <= len) {
+            let sliced = arr.to_bit_buffer().slice(offset..);
+            assert_eq!(bool_run_count(&sliced), runs(&bits[offset..]));
+
+            let sliced = BoolArray::new(sliced, Validity::NonNullable);
+            let encoded = RunEnd::encode(sliced.clone().into_array(), &mut ctx)?;
+            assert_arrays_eq!(encoded, sliced, &mut ctx);
+        }
+
+        let encoded = RunEnd::encode(arr.clone().into_array(), &mut ctx);
+        if valid == Some(false) {
+            assert!(encoded.is_err());
+        } else {
+            assert_arrays_eq!(encoded?, arr, &mut ctx);
+        }
+        Ok(())
+    }
 
     #[test]
     fn encode() -> VortexResult<()> {
@@ -538,5 +680,19 @@ mod tests {
         )?;
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "run ends and values must have the same length")]
+    fn typed_primitive_rejects_mismatched_run_ends() {
+        let ctx = SESSION.create_execution_ctx();
+        runend_decode_typed_primitive(
+            [1, 3, 4].into_iter(),
+            &[1i32, 2],
+            Mask::AllTrue(2),
+            Nullability::NonNullable,
+            4,
+            ctx.allocator(),
+        );
     }
 }

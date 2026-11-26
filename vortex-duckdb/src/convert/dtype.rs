@@ -186,21 +186,14 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {
                 let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
                 DType::Extension(
-                    ExtDType::<WellKnownBinary>::try_new(
-                        SpatialMetadata::new(crs),
-                        DType::Binary(nullability),
-                    )?
-                    .erased(),
+                    ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::new(crs), nullability)?
+                        .erased(),
                 )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_UUID => DType::Extension(
-                ExtDType::<Uuid>::try_with_vtable(
-                    Uuid,
-                    UuidMetadata::default(),
-                    uuid_storage_dtype(nullability),
-                )?
-                .erased(),
+                ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), nullability)?
+                    .erased(),
             ),
             other @ (DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ
             | DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL
@@ -306,14 +299,6 @@ impl TryFrom<&DType> for LogicalType {
     }
 }
 
-fn uuid_storage_dtype(nullability: Nullability) -> DType {
-    DType::FixedSizeList(
-        Arc::new(DType::Primitive(U8, Nullability::NonNullable)),
-        16,
-        nullability,
-    )
-}
-
 fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
     let duckdb_type = match temporal {
         TemporalMetadata::Timestamp(unit, None) => match unit {
@@ -323,17 +308,16 @@ fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
             TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
             _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
         },
-        // TIMESTAMP_TZ's timezone is a display unit, time is stored in UTC
-        // microseconds
-        TemporalMetadata::Timestamp(unit, Some(_)) => {
-            if unit != &TimeUnit::Microseconds {
-                vortex_bail!(
-                    "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
-                    unit
-                );
-            }
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-        }
+        // A zoned timestamp's timezone is a display unit, time is stored in UTC
+        // microseconds or nanoseconds
+        TemporalMetadata::Timestamp(unit, Some(_)) => match unit {
+            TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS,
+            TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ,
+            _ => vortex_bail!(
+                "Invalid TimeUnit {} for timestamp_tz, must be Microseconds or Nanoseconds",
+                unit
+            ),
+        },
         TemporalMetadata::Date(unit) => match unit {
             TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
             _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
@@ -343,6 +327,9 @@ fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
             TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS,
             _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
         },
+        TemporalMetadata::Duration(_) => {
+            vortex_bail!("DuckDB does not support Duration extension type")
+        }
     };
 
     Ok(LogicalType::new(duckdb_type))
@@ -634,25 +621,6 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_with_timezone() {
-        use vortex::extension::datetime::TimeUnit;
-
-        let dtype = DType::Extension(
-            Timestamp::new_with_tz(
-                TimeUnit::Microseconds,
-                Some("UTC".into()),
-                Nullability::NonNullable,
-            )
-            .erased(),
-        );
-
-        assert_eq!(
-            LogicalType::try_from(&dtype).unwrap().as_type_id(),
-            cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-        );
-    }
-
-    #[test]
     fn test_temporal_extension_invalid_time_units() {
         use vortex::extension::datetime::TimeUnit;
 
@@ -665,6 +633,17 @@ mod tests {
         let dtype =
             DType::Extension(Time::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
         assert!(LogicalType::try_from(&dtype).is_err());
+
+        // Invalid zoned TIMESTAMP time unit
+        let dtype = DType::Extension(
+            Timestamp::new_with_tz(
+                TimeUnit::Milliseconds,
+                Some("UTC".into()),
+                Nullability::NonNullable,
+            )
+            .erased(),
+        );
+        assert!(LogicalType::try_from(&dtype).is_err());
     }
 
     #[test]
@@ -672,7 +651,7 @@ mod tests {
         let vortex_geometry = DType::Extension(
             ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(Some("EPSG:4326".to_string())),
-                DType::Binary(Nullability::NonNullable),
+                Nullability::NonNullable,
             )?
             .erased(),
         );
@@ -700,13 +679,8 @@ mod tests {
         use vortex::encodings::uuid::Uuid;
         use vortex::encodings::uuid::UuidMetadata;
 
-        let storage = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            16,
-            nullability,
-        );
         let vortex_uuid = DType::Extension(
-            ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), storage)?.erased(),
+            ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), nullability)?.erased(),
         );
 
         let duckdb_uuid = LogicalType::try_from(&vortex_uuid)?;
@@ -724,6 +698,7 @@ mod tests {
         struct TestExt;
         impl ExtVTable for TestExt {
             type Metadata = EmptyMetadata;
+            type StoredMetadata = Self::Metadata;
             type NativeValue<'a> = &'a str;
 
             #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -735,12 +710,20 @@ mod tests {
                 Ok(vec![])
             }
 
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
                 Ok(EmptyMetadata)
             }
 
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
+            fn metadata_from_storage(
+                &self,
+                stored_metadata: Self::StoredMetadata,
+                _storage_dtype: &DType,
+            ) -> VortexResult<Self::Metadata> {
+                Ok(stored_metadata)
+            }
+
+            fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+                DType::Primitive(PType::I32, Nullability::NonNullable)
             }
 
             fn unpack_native<'a>(
@@ -751,12 +734,9 @@ mod tests {
             }
         }
 
-        let ext_dtype = ExtDType::<TestExt>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        )
-        .unwrap()
-        .erased();
+        let ext_dtype = ExtDType::<TestExt>::try_new(EmptyMetadata, Nullability::NonNullable)
+            .unwrap()
+            .erased();
         let dtype = DType::Extension(ext_dtype);
 
         assert!(LogicalType::try_from(&dtype).is_err());

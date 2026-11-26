@@ -33,7 +33,7 @@ pub const MAX_SCALE: i8 = <i256 as NativeDecimalType>::MAX_SCALE;
 /// Decimal types allow real numbers with a similar precision and scale to be represented exactly.
 /// Precision must be non-zero.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DecimalDType {
     precision: NonZero<u8>,
     scale: i8,

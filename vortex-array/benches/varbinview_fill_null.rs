@@ -18,6 +18,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -51,6 +52,7 @@ fn varbinview_fill_null_outlined(bencher: Bencher) {
 
 fn bench_fill_null(bencher: Bencher, fill: &str) {
     let array = fixture(LEN);
+    mark_optimized(&array, &SESSION).unwrap();
     let fill = Scalar::utf8(fill, Nullability::NonNullable);
 
     bencher

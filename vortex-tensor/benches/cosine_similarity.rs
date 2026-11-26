@@ -17,7 +17,6 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
-use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -30,6 +29,8 @@ use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::test_harness::mark_decoded;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -88,19 +89,19 @@ fn constant_vector(width: usize) -> ArrayRef {
         .map(|i| Scalar::primitive(((i % 97) as f64) - 48.0, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar);
+    let ext_scalar = Scalar::try_extension_from_storage::<Vector>((), fsl_scalar).unwrap();
     ConstantArray::new(ext_scalar, ELEMENTS / width).into_array()
 }
 
 fn bench_cosine(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
     bencher
         .with_inputs(|| {
-            (
-                CosineSimilarity::try_new(lhs.clone(), rhs.clone())
-                    .unwrap()
-                    .into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = CosineSimilarity::try_new(lhs.clone(), rhs.clone())
+                .unwrap()
+                .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
@@ -125,11 +126,16 @@ fn extension_constant_vector(width: usize) -> ArrayRef {
         .map(|i| Scalar::primitive(((i % 97) as f64) - 48.0, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    ExtensionArray::new(
+    let array = ExtensionArray::new(
         ext_dtype,
         ConstantArray::new(fsl_scalar, ELEMENTS / width).into_array(),
     )
-    .into_array()
+    .into_array();
+
+    // The optimizer folds this shape into a constant extension array, but a file can hold it.
+    mark_decoded(&array);
+
+    array
 }
 
 /// The rhs is the same broadcast query represented as extension-wrapped constant storage.

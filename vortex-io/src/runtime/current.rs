@@ -2,11 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future::Future;
+use std::pin::pin;
 use std::sync::Arc;
 
 use async_channel::TryRecvError;
+use futures::FutureExt;
+use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
+use futures::channel::mpsc;
 use futures::stream::BoxStream;
 use parking_lot::Mutex;
 use smol::block_on;
@@ -91,6 +95,35 @@ impl CurrentThreadRuntime {
             driver: Arc::new(Mutex::new(Some(driver))),
         }
     }
+
+    /// Returns an iterator that drives a stream in a background task, keeping at most one
+    /// completed item ready ahead of the single consumer.
+    ///
+    /// Use this instead of [`block_on_stream_thread_safe`](Self::block_on_stream_thread_safe)
+    /// when items are large and a per-core output queue would retain too many of them.
+    pub fn block_on_stream_prefetch<S, R>(&self, stream: S) -> PrefetchIterator<R>
+    where
+        S: Stream<Item = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        // A zero-capacity mpsc still gives the sender one slot, and `send` resolves only once the
+        // receiver takes the item, so the driver never pulls a second item ahead.
+        let (mut result_tx, result_rx) = mpsc::channel(0);
+        let driver = self.executor.async_executor().spawn(async move {
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                if result_tx.send(item).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        PrefetchIterator {
+            executor: Arc::clone(&self.executor),
+            results: result_rx,
+            driver: Some(driver),
+        }
+    }
 }
 
 impl BlockingRuntime for CurrentThreadRuntime {
@@ -105,7 +138,7 @@ impl BlockingRuntime for CurrentThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        block_on(self.executor.run(fut))
+        drive(&self.executor, fut)
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -120,6 +153,15 @@ impl BlockingRuntime for CurrentThreadRuntime {
     }
 }
 
+/// Drives `fut` to completion on the calling thread.
+fn drive<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
+    let mut fut = pin!(fut);
+    if let Some(output) = fut.as_mut().now_or_never() {
+        return output;
+    }
+    block_on(executor.run(fut))
+}
+
 /// An iterator that wraps up a stream to drive it using the current thread execution.
 pub struct CurrentThreadIterator<'a, T> {
     executor: Arc<SmolExecutor>,
@@ -130,7 +172,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.executor.run(self.stream.next()))
+        drive(&self.executor, self.stream.next())
     }
 }
 
@@ -184,6 +226,32 @@ impl<T> ThreadSafeIterator<T> {
     }
 }
 
+/// A single-consumer iterator that keeps at most one completed item ahead of the consumer.
+pub struct PrefetchIterator<T> {
+    executor: Arc<SmolExecutor>,
+    results: mpsc::Receiver<T>,
+    /// Joined once the stream ends so a panic raised while driving it is re-raised.
+    driver: Option<smol::Task<()>>,
+}
+
+impl<T> Iterator for PrefetchIterator<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = match self.results.try_recv() {
+            Ok(item) => Some(item),
+            Err(mpsc::TryRecvError::Closed) => None,
+            Err(mpsc::TryRecvError::Empty) => block_on(self.executor.run(self.results.next())),
+        };
+        if item.is_none()
+            && let Some(driver) = self.driver.take()
+        {
+            block_on(self.executor.run(driver));
+        }
+        item
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -201,6 +269,16 @@ mod tests {
     use parking_lot::Mutex;
 
     use super::*;
+
+    #[test]
+    fn block_on_runs_tasks_for_a_future_that_is_not_ready() {
+        let runtime = CurrentThreadRuntime::new();
+        assert_eq!(runtime.block_on(async { 7 }), 7);
+        // The spawned task has not run when the future is first polled, so it is ready only once
+        // block_on enters the executor, which runs the task.
+        let task = runtime.handle().spawn(async { 11 });
+        assert_eq!(runtime.block_on(task), 11);
+    }
 
     #[test]
     fn test_worker_thread() {
@@ -626,5 +704,38 @@ mod tests {
 
         assert_eq!(results.len(), num_items);
         assert_eq!(results, (0..num_items).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_block_on_stream_prefetch_keeps_one_item_ahead() {
+        let runtime = CurrentThreadRuntime::new();
+        let produced = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&produced);
+        let items = stream::iter(0..16).inspect(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let mut iter = runtime.block_on_stream_prefetch(items);
+        assert_eq!(iter.next(), Some(0));
+        runtime.block_on(async {
+            for _ in 0..64 {
+                runtime.handle().spawn(async {}).await;
+            }
+        });
+        assert_eq!(produced.load(Ordering::SeqCst), 2);
+        assert_eq!(iter.collect::<Vec<_>>(), (1..16).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_block_on_stream_prefetch_propagates_driver_panic() {
+        let runtime = CurrentThreadRuntime::new();
+        let items = stream::iter(0..2).map(|value| {
+            assert!(value != 1, "stream driver panic");
+            value
+        });
+        let mut iter = runtime.block_on_stream_prefetch(items);
+        assert_eq!(iter.next(), Some(0));
+        let panic = std::panic::catch_unwind(AssertUnwindSafe(|| iter.next()))
+            .expect_err("stream panic must propagate through iterator");
+        assert!(panic_message(panic.as_ref()).contains("stream driver panic"));
     }
 }

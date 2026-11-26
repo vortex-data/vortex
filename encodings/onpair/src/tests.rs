@@ -20,12 +20,14 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -218,7 +220,7 @@ fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
 
     // Equality compare drives CodesWindow over the u64 codes_offsets.
     let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
-    let eq = wide.into_array().binary(needle, Operator::Eq)?;
+    let eq = wide.into_array().compare(needle, CompareOperator::Eq)?;
     assert_arrays_eq!(
         &eq,
         &BoolArray::from_iter([true, false, false, false, true]),
@@ -284,7 +286,7 @@ fn test_onpair_scalar_at_window() -> vortex_error::VortexResult<()> {
     // Sliced array: `codes_offsets` is narrowed (first boundary > 0), so the
     // point lookup must resolve indices relative to the slice.
     let (start, end) = (700usize, 1300usize);
-    let sliced = arr.slice(start..end)?;
+    let sliced = arr.slice(start..end)?.optimize_ctx(&SESSION)?;
     assert!(sliced.is::<OnPair>(), "slice dropped OnPair encoding");
     for &j in &[0usize, 1, 300, end - start - 1] {
         let got = sliced.execute_scalar(j, &mut ctx)?;
@@ -549,7 +551,7 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
     // interior (start>0, end<n), LIMIT-like (start=0, end<n), tail (start>0,
     // end=n), and a near-full window.
     for (start, end) in [(1234usize, 1240usize), (0, 7), (4993, n), (1, n - 1)] {
-        let sliced = arr.clone().slice(start..end)?;
+        let sliced = arr.clone().slice(start..end)?.optimize_ctx(&SESSION)?;
         assert_eq!(sliced.len(), end - start);
         assert!(
             sliced.is::<OnPair>(),
@@ -609,6 +611,39 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
+/// A repeated probe reads each row's codes boundaries and decoded length through the children's
+/// own probes, so it must match the input in any order, also from a slice.
+#[test]
+fn test_onpair_probe_consistency() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = take_input().into_array();
+    let encoded = compress_onpair(&input, &mut ctx)?.into_array();
+
+    for (array, expected) in [
+        (encoded.clone(), input.clone()),
+        (
+            encoded.slice(7..1_500)?.optimize_ctx(&SESSION)?,
+            input.slice(7..1_500)?,
+        ),
+    ] {
+        assert!(array.is::<OnPair>());
+
+        let mut probe = array.repeated_probe();
+        let order = (0..array.len()).rev().chain((0..array.len()).step_by(13));
+        for index in order {
+            assert_eq!(
+                probe.execute_scalar(index, &mut ctx)?,
+                expected.execute_scalar(index, &mut ctx)?,
+                "row {index}"
+            );
+        }
+
+        test_array_consistency(&array, &mut ctx);
+    }
+
+    Ok(())
+}
+
 /// Take gathers token runs without decoding, retraining or copying the pair dictionary.
 #[test]
 fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
@@ -644,5 +679,82 @@ fn test_dict_over_onpair_uses_take_kernel() -> vortex_error::VortexResult<()> {
 
     let expected = values.into_array().take(codes)?;
     assert_arrays_eq!(dict, expected, &mut ctx);
+    Ok(())
+}
+
+/// A sparse dictionary over OnPair values appends through the take kernel, with null and repeated
+/// codes, after the values already in the builder.
+#[test]
+fn test_sparse_dict_over_onpair_appends_to_builder() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = take_input();
+    let onpair = compress_onpair(&values.clone().into_array(), &mut ctx)?;
+    let codes =
+        PrimitiveArray::from_option_iter([Some(1999u32), None, Some(0), Some(7), Some(1999)])
+            .into_array();
+    let dict = DictArray::try_new(codes.clone(), onpair.into_array())?.into_array();
+
+    let mut builder =
+        VarBinBuilder::<i32>::new_in(DType::Utf8(Nullability::Nullable), ctx.allocator());
+    builder.append_value("prefix");
+    dict.append_to_builder(&mut builder, &mut ctx)?;
+
+    let mut expected =
+        VarBinBuilder::<i32>::new_in(DType::Utf8(Nullability::Nullable), ctx.allocator());
+    expected.append_value("prefix");
+    values
+        .into_array()
+        .take(codes)?
+        .append_to_builder(&mut expected, &mut ctx)?;
+    assert_arrays_eq!(
+        builder.finish_into_varbin(),
+        expected.finish_into_varbin(),
+        &mut ctx
+    );
+    Ok(())
+}
+
+/// Regression for #11420: the `onpair` crate grows the codes from empty, and the compressed array
+/// must not keep the spare capacity of their last growth.
+#[rstest::rstest]
+#[case::str_len_64(64)]
+#[case::str_len_80(80)]
+#[case::str_len_160(160)]
+fn codes_buffer_has_little_spare_capacity(
+    #[case] str_len: usize,
+) -> vortex_error::VortexResult<()> {
+    let mut x: u64 = 1;
+    let strings: Vec<String> = (0..8192)
+        .map(|_| {
+            (0..str_len / 16)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    format!("{x:016x}")
+                })
+                .collect()
+        })
+        .collect();
+    let array = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let onpair = compress_onpair(&array, &mut ctx)?;
+
+    let codes = onpair
+        .as_view()
+        .codes()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_buffer::<u16>();
+    drop(onpair);
+    let codes = codes
+        .try_into_mut()
+        .map_err(|_| vortex_error::vortex_err!("codes buffer is still shared"))?;
+    let spare = codes.capacity() - codes.len();
+    assert!(
+        spare <= codes.len() / 4,
+        "{} codes have {spare} codes of spare capacity",
+        codes.len()
+    );
     Ok(())
 }

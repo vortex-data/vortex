@@ -9,17 +9,18 @@ use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
-use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
-use vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::mask::Mask;
-use vortex_array::scalar_fn::fns::mask::MaskExecuteAdaptor;
-use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::compare::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::builtin::mask::Mask;
+use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
+use vortex_array::scalar_fn::builtin::mask::MaskExecuteAdaptor;
+use vortex_array::scalar_fn::builtin::mask::MaskReduceAdaptor;
+use vortex_functions::between::Between;
+use vortex_functions::between::BetweenExecuteAdaptor;
+use vortex_functions::between::BetweenReduceAdaptor;
 use vortex_session::VortexSession;
 
 use crate::ALP;
@@ -27,15 +28,16 @@ use crate::ALP;
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Between.id(), ALP, BetweenExecuteAdaptor(ALP));
-    kernels.register_execute_parent_kernel(Binary.id(), ALP, CompareExecuteAdaptor(ALP));
+    kernels.register_execute_parent_kernel(Compare.id(), ALP, CompareExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Filter.id(), ALP, FilterExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Mask.id(), ALP, MaskExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Slice.id(), ALP, SliceExecuteAdaptor(ALP));
     kernels.register_execute_parent_kernel(Dict.id(), ALP, TakeExecuteAdaptor(ALP));
 }
 
-pub(super) const RULES: ParentRuleSet<ALP> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&BetweenReduceAdaptor(ALP)),
-    ParentRuleSet::lift(&CastReduceAdaptor(ALP)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ALP)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Between, ALP, const { &BetweenReduceAdaptor(ALP) });
+    kernels.register_reduce_parent_rule(Cast, ALP, const { &CastReduceAdaptor(ALP) });
+    kernels.register_reduce_parent_rule(MaskFn, ALP, const { &MaskReduceAdaptor(ALP) });
+}

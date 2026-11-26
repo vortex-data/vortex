@@ -37,7 +37,8 @@ use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
-use vortex_array::expr::stats::Stat;
+use vortex_array::proto::expr as pb;
+use vortex_array::stats::Stat;
 use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_error::VortexExpect;
@@ -45,6 +46,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -60,11 +62,14 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
-use crate::layouts::zoned::schema::AggregateSpecProto;
 use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::layouts::zoned::schema::try_aggregate_fns_from_specs;
+use crate::lowering::LegacyStats as LegacyStatsPlanEncoding;
+use crate::lowering::slots_from_layout_slots;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::ZonedPlan;
 use crate::segments::SegmentSource;
 
 /// Zoned layout vtable.
@@ -174,6 +179,10 @@ impl VTable for Zoned {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        zoned_plan(layout)
+    }
 }
 
 impl VTable for LegacyStats {
@@ -242,6 +251,51 @@ impl VTable for LegacyStats {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        zoned_plan(layout)
+    }
+}
+
+/// Plans a zoned or legacy stats layout. Both share a child shape: transparent data, auxiliary
+/// zones.
+///
+/// Unoptimized, the plan reads only its data; the optimizer rewrites a statistics predicate over
+/// it into a pruning plan. Without zones or statistics it plans the data child directly.
+fn zoned_plan<V: VTable<LayoutData = ZonedData>>(layout: &Layout<V>) -> VortexResult<PlanRef> {
+    let metadata = layout.data();
+    // Without zones, or with a zone table holding no statistics, nothing can be pruned.
+    let no_stats = metadata
+        .stats_table_dtype()
+        .as_struct_fields_opt()
+        .is_none_or(|fields| fields.nfields() == 0);
+    if metadata.zone_len() == 0 || no_stats {
+        let data = layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
+        return data.new_plan();
+    }
+    let slots = slots_from_layout_slots(&layout.to_layout(), [0, 1]);
+    let zone_len = u64::try_from(metadata.zone_len())?;
+    // A legacy table is converted to the aggregate schema when the plan is optimized.
+    Ok(match metadata.legacy_stats() {
+        Some(stats) => LegacyStatsPlanEncoding::from_slots(
+            layout.dtype().clone(),
+            layout.row_count(),
+            slots,
+            zone_len,
+            Arc::clone(stats),
+        )
+        .into_plan(),
+        None => ZonedPlan::from_slots(
+            layout.dtype().clone(),
+            layout.row_count(),
+            slots,
+            zone_len,
+            metadata.aggregate_fns(),
+        )
+        .into_plan(),
+    })
 }
 
 impl LegacyStatsLayout {
@@ -452,7 +506,7 @@ fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ZonedMetadata {
     pub(super) zone_len: u32,
-    pub(super) aggregate_specs: Arc<[AggregateSpecProto]>,
+    pub(super) aggregate_specs: Arc<[pb::AggregateFn]>,
 }
 
 /// Serialized metadata for legacy `vortex.stats` layouts.
@@ -469,7 +523,7 @@ struct ZonedMetadataProto {
     #[prost(uint32, tag = "1")]
     zone_len: u32,
     #[prost(message, repeated, tag = "2")]
-    aggregate_specs: Vec<AggregateSpecProto>,
+    aggregate_specs: Vec<pb::AggregateFn>,
 }
 
 impl DeserializeMetadata for ZonedMetadata {
@@ -557,6 +611,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -571,12 +626,13 @@ mod tests {
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomFilter;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
+    use crate::layouts::zoned::schema::unknown_aggregate_spec;
     use crate::segments::SegmentId;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    fn aggregate_spec(aggregate_fn: AggregateFnRef) -> AggregateSpecProto {
-        AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn).unwrap()
+    fn aggregate_spec(aggregate_fn: AggregateFnRef) -> pb::AggregateFn {
+        aggregate_fn.serialize_proto().unwrap()
     }
 
     #[rstest]
@@ -612,7 +668,7 @@ mod tests {
         });
         let metadata = ZonedMetadata {
             zone_len: 314,
-            aggregate_specs: Arc::new([AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn)?]),
+            aggregate_specs: Arc::new([aggregate_fn.serialize_proto()?]),
         };
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;
@@ -621,6 +677,24 @@ mod tests {
             .expect("known aggregates resolve");
 
         assert_eq!(aggregate_fns.as_ref(), std::slice::from_ref(&aggregate_fn));
+        Ok(())
+    }
+
+    /// Zoned metadata written before specs were stored as `vortex.expr.AggregateFn` omits the
+    /// options field when the options are empty. It must still resolve.
+    #[test]
+    fn test_metadata_without_options_field_resolves() -> VortexResult<()> {
+        // Version 1, `zone_len: 8`, one spec holding only `id: "vortex.sum"`.
+        let bytes = b"\x01\x08\x08\x12\x0c\x0a\x0avortex.sum";
+        let metadata = ZonedMetadata::deserialize(bytes)?;
+        assert_eq!(metadata.zone_len, 8);
+
+        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, &SESSION)?
+            .expect("known aggregates resolve");
+        assert_eq!(
+            aggregate_fns.as_ref(),
+            [Sum.bind(NumericalAggregateOpts::include_nans())]
+        );
         Ok(())
     }
 
@@ -745,7 +819,7 @@ mod tests {
 
         let metadata = ZonedMetadata {
             zone_len: 8,
-            aggregate_specs: Arc::new([AggregateSpecProto::new_unknown("vortex.test.unknown")]),
+            aggregate_specs: Arc::new([unknown_aggregate_spec("vortex.test.unknown")]),
         };
 
         let layout = <Zoned as VTable>::build(
@@ -780,7 +854,7 @@ mod tests {
 
         let metadata = ZonedMetadata {
             zone_len: 8,
-            aggregate_specs: Arc::new([AggregateSpecProto::new_unknown("vortex.test.unknown")]),
+            aggregate_specs: Arc::new([unknown_aggregate_spec("vortex.test.unknown")]),
         };
 
         let result = <Zoned as VTable>::build(

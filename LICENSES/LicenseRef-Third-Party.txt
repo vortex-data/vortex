@@ -1,0 +1,6 @@
+Files marked LicenseRef-Third-Party are not licensed by the Vortex project.
+
+The Apache-2.0 and CC-BY-4.0 grants that cover the rest of this repository do not apply to
+them. Copyright in each file belongs to the holder named in its SPDX-FileCopyrightText entry
+in REUSE.toml, and any trademarks it shows belong to their owners. For permission to reuse
+one of these files, contact its holder.

@@ -17,16 +17,51 @@ pub use serde::*;
 #[cfg(test)]
 #[cfg(feature = "serde")]
 mod test {
+    use rstest::rstest;
     use serde::de::DeserializeSeed;
     use serde_test::Token;
     use serde_test::assert_tokens;
 
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
     use crate::dtype::serde::DTypeSerde;
     use crate::dtype::test::SESSION;
+
+    #[test]
+    fn test_serde_decimal_roundtrip() {
+        assert_tokens(
+            &DecimalDType::new(76, -128),
+            &[
+                Token::Struct {
+                    name: "DecimalDType",
+                    len: 2,
+                },
+                Token::Str("precision"),
+                Token::U8(76),
+                Token::Str("scale"),
+                Token::I8(-128),
+                Token::StructEnd,
+            ],
+        );
+    }
+
+    #[rstest]
+    #[case::zero_precision(0, 0, "decimal precision must be between 1 and 76")]
+    #[case::excessive_precision(77, 0, "decimal precision 77 exceeds MAX_PRECISION 76")]
+    #[case::scale_above_precision(2, 3, "decimal scale 3 is greater than precision 2")]
+    fn test_serde_decimal_rejects_invalid_dtype(
+        #[case] precision: u8,
+        #[case] scale: i8,
+        #[case] message: &str,
+    ) {
+        let value = serde_json::json!({ "precision": precision, "scale": scale });
+        let error = serde_json::from_value::<DecimalDType>(value).unwrap_err();
+
+        assert!(error.to_string().contains(message), "{error}");
+    }
 
     #[test]
     fn test_serde_ptype_json() {

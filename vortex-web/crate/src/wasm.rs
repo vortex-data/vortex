@@ -40,6 +40,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
@@ -58,13 +59,13 @@ struct BlobReadAt {
     size: u64,
 }
 
-// SAFETY: WASM is single-threaded — Blob is never accessed from multiple threads.
+// SAFETY: BlobReadAt stays on its creating Web Worker; WasmRuntime uses spawn_local.
 unsafe impl Send for BlobReadAt {}
 unsafe impl Sync for BlobReadAt {}
 
 /// Wrapper to mark a `JsFuture` as `Send`.
 ///
-/// SAFETY: WASM is single-threaded, so `JsFuture` is never accessed from multiple threads.
+/// SAFETY: The future stays on its creating Web Worker, driven by `WasmRuntime`'s `spawn_local`.
 struct SendFuture(JsFuture);
 
 unsafe impl Send for SendFuture {}
@@ -104,7 +105,7 @@ impl VortexReadAt for BlobReadAt {
             .blob
             .slice_with_f64_and_f64(start, end)
             .expect("Blob.slice() failed");
-        // SAFETY: WASM is single-threaded so the non-Send JsFuture is safe to wrap.
+        // SAFETY: WasmRuntime polls and drops this future on its creating Web Worker.
         let future = SendFuture(JsFuture::from(slice.array_buffer()));
         async move {
             let array_buffer = future.await.expect("Blob.arrayBuffer() failed");
@@ -781,9 +782,7 @@ fn array_to_record_batch(
     };
     let target = Field::new("", data_type, array.dtype().is_nullable());
     let mut ctx = session.create_execution_ctx();
-    let arrow = session
-        .arrow()
-        .execute_arrow(array, Some(&target), &mut ctx)?;
+    let arrow = array.execute_arrow(Some(&target), &mut ctx)?;
     match dtype {
         DType::Struct(..) => Ok(RecordBatch::from(arrow.as_struct().clone())),
         _ => Ok(RecordBatch::try_new(schema.clone(), vec![arrow])?),

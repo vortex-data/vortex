@@ -3,6 +3,8 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
@@ -12,12 +14,15 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
+use crate::ChildPolicy;
 use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
 use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
+use crate::schemes::boolean;
+use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -62,19 +67,19 @@ impl CompressionMode {
                 excluded.push(binary::ZstdBuffersScheme.id());
             }
             Self::Cuda => {
-                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other
-                // string fragmentation and dictionary schemes still require unsupported decode
-                // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
-                // decode is benchmarked against the schemes it would displace.
+                // Keep ALP-RD, which has a CUDA decoder; FSST, which has a CUDA decoder and direct
+                // Arrow offset-based export; and string dictionaries, which the CUDA dictionary
+                // gather decodes into views over the decoded values. Other string fragmentation
+                // schemes and binary dictionaries still require unsupported decode paths.
                 excluded.extend([
-                    integer::DeltaScheme::default().id(),
+                    boolean::BoolRunEndScheme.id(),
+                    boolean::BoolSparseScheme.id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
-                    float::ALPRDScheme.id(),
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
-                    string::StringDictScheme.id(),
+                    fixed_size_list::FixedSizeListSparseScheme.id(),
                     binary::BinaryDictScheme.id(),
                 ]);
                 // Both binary Zstd schemes are kept. Buffer-level compression preserves binary
@@ -137,6 +142,7 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
     allowed: AllowedIds,
     mode: CompressionMode,
+    child_policy: Option<Arc<dyn ChildPolicy>>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -145,9 +151,10 @@ impl BtrBlocksCompressorBuilder {
     /// in the session and permitted by its enabled editions.
     pub fn from_session(session: &VortexSession) -> Self {
         Self {
-            schemes: session.compression().schemes().to_vec(),
+            schemes: session.compression().schemes(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
+            child_policy: None,
         }
     }
 
@@ -160,6 +167,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: Vec::new(),
             allowed: AllowedIds::all(),
             mode: CompressionMode::All,
+            child_policy: None,
         }
     }
 
@@ -225,10 +233,21 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Sets a policy that decides, child by child, whether to compress the children schemes
+    /// register, overriding the schemes' own decisions.
+    pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
+        self.child_policy = Some(policy);
+        self
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
+        let compressor = CascadingCompressor::new(self.allowed_schemes());
+        BtrBlocksCompressor(match self.child_policy {
+            Some(policy) => compressor.with_child_policy(policy),
+            None => compressor,
+        })
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
@@ -252,10 +271,17 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::VTable;
+    use vortex_array::arrays::Constant;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::VarBin;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
+    use vortex_edition::EDITION_DECLARATIONS;
+    use vortex_edition::EDITION_FAMILIES;
+    use vortex_edition::EditionSessionExt;
+    use vortex_edition::declarations::core::CORE_2026_08_3;
+    use vortex_edition::declarations::preview::PREVIEW_2026_11_0;
+    use vortex_error::VortexResult;
     use vortex_fastlanes::bitpacked_v1_id;
     use vortex_fastlanes::bitpacked_v2_id;
     use vortex_fastlanes::for_v1_id;
@@ -274,25 +300,55 @@ mod tests {
     #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
     #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
     #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
-    #[case::bitpacking_v1_id(
+    #[case::bitpacking_without_constant(
         &integer::BITPACKING_V1,
         vec![bitpacked_v1_id(), Patched.id()],
+        false
+    )]
+    #[case::bitpacking_v1_id(
+        &integer::BITPACKING_V1,
+        vec![bitpacked_v1_id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::bitpacking_both_ids(
         &integer::BITPACKING_V1,
-        vec![bitpacked_v1_id(), bitpacked_v2_id(), Patched.id()],
+        vec![bitpacked_v1_id(), bitpacked_v2_id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::bitpacking_v2_only(
         &integer::BITPACKING_V1,
-        vec![bitpacked_v2_id(), Patched.id()],
+        vec![bitpacked_v2_id(), Constant.id(), Patched.id()],
         false
     )]
     #[case::for_without_bitpacked(&integer::FOR_V1, vec![for_v1_id()], false)]
     #[case::for_with_bitpacked(
         &integer::FOR_V1,
-        vec![for_v1_id(), bitpacked_v1_id(), Patched.id()],
+        vec![for_v1_id(), bitpacked_v1_id(), Constant.id(), Patched.id()],
+        true
+    )]
+    #[case::alp_without_constant(
+        &float::ALPScheme,
+        vec![vortex_alp::ALP.id()],
+        false
+    )]
+    #[case::alp_with_constant(
+        &float::ALPScheme,
+        vec![vortex_alp::ALP.id(), Constant.id()],
+        true
+    )]
+    #[case::alprd_without_bitpacked(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), Constant.id()],
+        false
+    )]
+    #[case::alprd_without_constant(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id()],
+        false
+    )]
+    #[case::alprd_with_dependencies(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()],
         true
     )]
     fn test_allowed_schemes(
@@ -306,17 +362,45 @@ mod tests {
         assert_eq!(!builder.allowed_schemes().is_empty(), retained);
     }
 
+    #[rstest]
+    #[case::core(false)]
+    #[case::preview(true)]
+    fn delta_follows_editions_in_all_writer_presets(#[case] preview: bool) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        vortex_fastlanes::initialize(&session);
+        for family in EDITION_FAMILIES {
+            session.editions().declare_family(family)?;
+        }
+        for declaration in EDITION_DECLARATIONS {
+            session.register_edition(declaration)?;
+        }
+        session.enable_edition(CORE_2026_08_3)?;
+        if preview {
+            session.enable_edition(PREVIEW_2026_11_0)?;
+        }
+
+        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        let delta = integer::DeltaScheme::default().id();
+        for preset in [
+            builder.clone(),
+            builder.clone().with_compact(),
+            builder.only_cuda_compatible(),
+        ] {
+            assert_eq!(
+                preset.allowed_schemes().iter().any(|s| s.id() == delta),
+                preview
+            );
+        }
+        Ok(())
+    }
+
     #[test]
-    fn delta_is_excluded_only_by_cuda() {
-        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
-        let has_delta = |builder: BtrBlocksCompressorBuilder| {
-            builder
-                .allowed_schemes()
-                .iter()
-                .any(|s| s.id() == integer::DeltaScheme::default().id())
-        };
-        assert!(has_delta(builder.clone()));
-        assert!(has_delta(builder.clone().with_compact()));
-        assert!(!has_delta(builder.only_cuda_compatible()));
+    fn cuda_keeps_string_dictionaries_but_not_binary_ones() {
+        let cuda = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .only_cuda_compatible();
+        let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
+        assert!(has(string::StringDictScheme.id()));
+        assert!(!has(binary::BinaryDictScheme.id()));
     }
 }

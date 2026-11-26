@@ -4,20 +4,31 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Dict;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::not::NotReduce;
-use vortex_array::scalar_fn::fns::not::NotReduceAdaptor;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::builtin::not::Not;
+use vortex_array::scalar_fn::builtin::not::NotReduce;
+use vortex_array::scalar_fn::builtin::not::NotReduceAdaptor;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::Sparse;
 use crate::SparseExt as _;
 
-pub(crate) static RULES: ParentRuleSet<Sparse> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(Sparse)),
-    ParentRuleSet::lift(&NotReduceAdaptor(Sparse)),
-]);
+mod dict_codes;
+
+pub(crate) use dict_codes::SlicedSparseCodes;
+pub(crate) use dict_codes::SparseCodes;
+
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Dict, Sparse, const { &SparseCodes });
+    kernels.register_reduce_parent_rule(Cast, Sparse, const { &CastReduceAdaptor(Sparse) });
+    kernels.register_reduce_parent_rule(Not, Sparse, const { &NotReduceAdaptor(Sparse) });
+}
 
 impl NotReduce for Sparse {
     fn invert(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

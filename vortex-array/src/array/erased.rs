@@ -27,6 +27,7 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::VTable;
 use crate::aggregate_fn::fns::sum::sum;
@@ -44,14 +45,14 @@ use crate::arrays::SliceArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProviderExt;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -109,6 +110,11 @@ impl ArrayRef {
     /// Only the optimizer can read or set the record.
     pub(crate) fn optimized_state(&self) -> &OptimizedState {
         &self.0.optimized
+    }
+
+    /// Returns whether another owner holds this array too.
+    pub(crate) fn is_shared(&self) -> bool {
+        Arc::strong_count(&self.0) > 1
     }
 
     /// Returns the Arc::as_ptr().addr() of the underlying array.
@@ -240,40 +246,32 @@ impl ArrayRef {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::try_new(self.clone(), range)?
-            .into_array()
-            .optimize()?;
+        let sliced = SliceArray::try_new(self.clone(), range)?.into_array();
 
         // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
-        }
+        self.statistics().with_iter(|iter| {
+            sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                matches!(
+                    stat,
+                    Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                ) && value
+                    .as_ref()
+                    .as_exact()
+                    .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
+            }));
+        });
 
         Ok(sliced)
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(self.clone(), mask)?
-            .into_array()
-            .optimize()
+        Ok(FilterArray::try_new(self.clone(), mask)?.into_array())
     }
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, self.clone())?
-            .into_array()
-            .optimize()
+        Ok(DictArray::try_new(indices, self.clone())?.into_array())
     }
 
     /// Execute the array to extract a scalar at the given index.
@@ -407,7 +405,9 @@ impl ArrayRef {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.0.data.append_to_builder(self, builder, ctx)
+        let array = self.optimize_ctx(ctx)?;
+
+        array.0.data.append_to_builder(&array, builder, ctx)
     }
 
     /// Returns the statistics of the array.
@@ -545,7 +545,7 @@ impl ArrayRef {
     /// # Safety
     /// The caller must put back a slot with the same logical dtype and length before exposing the
     /// parent array, and must only use this for physical rewrites.
-    pub(crate) unsafe fn take_slot_unchecked(
+    pub unsafe fn take_slot_unchecked(
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
@@ -579,7 +579,7 @@ impl ArrayRef {
     /// # Safety
     /// The replacement must have the same logical dtype and length as the taken slot, and this
     /// must only be used for physical rewrites.
-    pub(crate) unsafe fn put_slot_unchecked(
+    pub unsafe fn put_slot_unchecked(
         mut self,
         slot_idx: usize,
         replacement: ArrayRef,
@@ -679,18 +679,29 @@ impl ArrayRef {
         self.0.data.reduce(self)
     }
 
-    pub fn reduce_parent(
-        &self,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        self.0.data.reduce_parent(self, parent, child_idx)
-    }
-
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: the Arc outlives the DynArrayData function call
-        unsafe { (&*inner).data.execute(self, ctx) }
+        let len = self.len();
+        let dtype = self.dtype().clone();
+        let stats = self.statistics().share_existing();
+        let encoding_id = self.encoding_id();
+        let result = self.execute_encoding_unchecked(ctx)?;
+
+        if matches!(result.step(), ExecutionStep::Done) {
+            if cfg!(debug_assertions) {
+                vortex_ensure_eq!(
+                    result.array().len(),
+                    len,
+                    "Result length mismatch for {encoding_id}"
+                );
+                vortex_ensure_eq!(
+                    result.array().dtype(),
+                    &dtype,
+                    "Executed canonical dtype mismatch for {encoding_id}"
+                );
+            }
+            result.array().statistics().transfer_from(&stats);
+        }
+        Ok(result)
     }
 
     /// Execute a single encoding step without applying `Done`-result postconditions.
@@ -702,11 +713,12 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
-        // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
-        // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
-        unsafe { (&*inner).data.execute_unchecked(self, ctx) }
+        // Take the step as a function first, so no borrow of the array's data is live while the
+        // step runs and possibly drops the last reference. Moving `self` in without an extra
+        // `Arc` clone preserves uniqueness, so execute-time metadata cursors can use
+        // `Arc::get_mut`.
+        let execute = self.0.data.execute_fn();
+        execute(self, ctx)
     }
 
     // ArrayVisitor delegation methods

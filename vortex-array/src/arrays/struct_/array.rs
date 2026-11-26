@@ -35,7 +35,7 @@ use crate::validity::Validity;
 pub struct StructSlots {
     /// The optional row-level validity child.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
     /// The field arrays, one per struct field, all sharing the outer length.
     #[slot(1..)]
     pub fields: Vec<ArrayRef>,
@@ -201,9 +201,9 @@ pub(super) fn make_struct_slots(
 
 /// Struct-specific accessors.
 ///
-/// Slot accessors (`validity`, `fields`, `slots_view`) live on the generated
-/// [`StructArraySlotsExt`] supertrait; this trait layers struct-specific lookups on top.
-pub trait StructArrayExt: StructArraySlotsExt {
+/// Slot accessors (`validity_child`, `fields`, `slots_view`) live on the generated
+/// [`StructArraySlotsExt`] trait; this trait layers struct-specific lookups on top.
+pub trait StructArrayExt: TypedArrayRef<Struct> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::Struct(_, nullability) => *nullability,
@@ -216,7 +216,7 @@ pub trait StructArrayExt: StructArraySlotsExt {
     }
 
     fn struct_validity(&self) -> Validity {
-        child_to_validity(self.validity(), self.nullability())
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     /// Iterate over the field arrays in declaration order.

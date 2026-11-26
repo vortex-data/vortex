@@ -3,18 +3,19 @@
 
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::compare::CompareExecuteAdaptor;
+use vortex_functions::between::Between;
+use vortex_functions::between::BetweenExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::rules::register_parent_rules;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(
-        Binary.id(),
+        Compare.id(),
         DecimalByteParts,
         CompareExecuteAdaptor(DecimalByteParts),
     );
@@ -23,4 +24,5 @@ pub(crate) fn initialize(session: &VortexSession) {
         DecimalByteParts,
         BetweenExecuteAdaptor(DecimalByteParts),
     );
+    register_parent_rules(session);
 }

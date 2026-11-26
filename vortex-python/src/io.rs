@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::error::Error;
+use std::io::Error as IoError;
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::ffi_stream::RecordBatchStreamReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -19,12 +21,14 @@ use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::std_file::FileWrite;
+use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::PyVortex;
@@ -35,7 +39,8 @@ use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
 use crate::current_runtime;
 use crate::dataset::ProjectionColumn;
-use crate::dataset::PyVortexDataset;
+use crate::dataset::open_dataset;
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::hf_store::HfStore;
@@ -47,6 +52,7 @@ use crate::opendal_store::CosStore;
 use crate::opendal_store::GoosefsStore;
 use crate::session::session;
 use crate::session::write_session;
+use crate::writable::PyWritable;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -55,6 +61,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(read_url, &m)?)?;
     m.add_function(wrap_pyfunction!(write, &m)?)?;
+    m.add_function(wrap_pyfunction!(write_to, &m)?)?;
 
     m.add_class::<PyVortexWriteOptions>()?;
 
@@ -66,7 +73,9 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Parameters
 /// ----------
 /// url : str
-///     The URL to read from.
+///     The URL to read from. Like a source of :func:`vortex.open_dataset`, it can also name a
+///     directory, an object store prefix ending in ``/`` or a glob pattern, and then reads the rows
+///     of every Vortex file it names, in sorted order.
 /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     Pre-configured object store with credentials and settings.
 ///     If provided, uses this store's configuration.
@@ -132,16 +141,12 @@ pub fn read_url<'py>(
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> PyVortexResult<PyArrayRef> {
-    let store_arc = if let Some(store_obj) = store {
-        let py_store: AnyVortexStore = store_obj.extract()?;
-        Some(py_store.into_inner())
-    } else {
-        None
-    };
+    let store = store
+        .map(|store| store.extract::<AnyVortexStore>())
+        .transpose()?;
+    let dataset = open_dataset(py, vec![url.to_string()], store, None, true)?;
 
-    let dataset =
-        py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?;
-    dataset.to_array_inner(py, projection, row_filter, indices, row_range)
+    dataset.to_array_inner(py, projection, row_filter, indices, row_range, None)
 }
 
 /// A store object accepted by `read_url` / `write`.
@@ -284,6 +289,35 @@ pub fn write(
     Ok(())
 }
 
+/// Write a Vortex file to a caller-provided binary output stream.
+///
+/// The stream must be positioned at the start of a new file and implement
+/// ``write(bytes) -> int`` and ``flush()``. Vortex flushes it once the file is complete.
+/// The caller is responsible for closing it.
+///
+/// Parameters
+/// ----------
+/// iter : vortex.Array | vortex.ArrayIterator | pyarrow.Table | pyarrow.RecordBatchReader
+///     The data to write.
+/// output : object
+///     The binary file object that receives the encoded bytes. No seeking is needed.
+/// edition : str | None
+///     The Vortex edition to write, or ``None`` for the default.
+#[pyfunction]
+#[pyo3(signature = (iter, output, *, edition = None))]
+fn write_to(
+    py: Python,
+    iter: &Bound<'_, PyAny>,
+    output: &Bound<'_, PyAny>,
+    edition: Option<String>,
+) -> PyVortexResult<()> {
+    PyVortexWriteOptions {
+        use_compact_encodings: false,
+        edition,
+    }
+    .write_to(py, iter, output)
+}
+
 /// Write Vortex files with custom configuration.
 ///
 /// See also
@@ -417,20 +451,12 @@ impl PyVortexWriteOptions {
     ) -> PyVortexResult<()> {
         let session = write_session(self.edition.as_deref())?;
         py.detach(|| {
-            let mut compressor = BtrBlocksCompressorBuilder::from_session(&session);
-            if self.use_compact_encodings {
-                compressor = compressor.with_compact();
-            }
-            let strategy =
-                WriteStrategyBuilder::from_session(&session).with_btrblocks_builder(compressor);
-            let strategy = strategy.build();
+            let options = self.write_options(&session);
             current_runtime().block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
-                        session
-                            .write_options()
-                            .with_strategy(strategy)
+                        options
                             .write(&mut store, iter.into_inner().into_array_stream())
                             .await?;
                         store.shutdown().await?;
@@ -438,9 +464,7 @@ impl PyVortexWriteOptions {
                     }
                     ResolvedStore::Path(path) => {
                         let mut w = FileWrite::create(path, current_runtime().handle()).await?;
-                        session
-                            .write_options()
-                            .with_strategy(strategy)
+                        options
                             .write(&mut w, iter.into_inner().into_array_stream())
                             .await?;
                         w.shutdown().await?;
@@ -452,6 +476,50 @@ impl PyVortexWriteOptions {
 
         Ok(())
     }
+
+    /// Write a Vortex file to a binary output stream with these options.
+    ///
+    /// The caller owns the stream. See :func:`vortex.io.write_to` for its contract.
+    pub fn write_to(
+        &self,
+        py: Python,
+        iter: &Bound<'_, PyAny>,
+        output: &Bound<'_, PyAny>,
+    ) -> PyVortexResult<()> {
+        let output = PyWritable::try_new(output)?;
+        let session = write_session(self.edition.as_deref())?;
+        let iter = iter.extract::<PyIntoArrayIterator>()?.into_inner();
+        py.detach(|| {
+            self.write_options(&session)
+                .blocking(&current_runtime())
+                .write(output, iter)
+        })
+        .map_err(|error| {
+            let python_error = error
+                .source()
+                .and_then(|source| source.downcast_ref::<IoError>())
+                .and_then(IoError::get_ref)
+                .and_then(|source| source.downcast_ref::<PyErr>());
+            match python_error {
+                Some(python_error) => PyVortexError::from(python_error.clone_ref(py)),
+                None => PyVortexError::from(error),
+            }
+        })?;
+        Ok(())
+    }
+}
+
+impl PyVortexWriteOptions {
+    fn write_options(&self, session: &VortexSession) -> VortexWriteOptions {
+        let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
+        if self.use_compact_encodings {
+            compressor = compressor.with_compact();
+        }
+        let strategy = WriteStrategyBuilder::from_session(session)
+            .with_btrblocks_builder(compressor)
+            .build();
+        session.write_options().with_strategy(strategy)
+    }
 }
 
 /// Conversion type for converting Python objects into a [`vortex::ArrayIterator`].
@@ -462,9 +530,11 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
 
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(py_iter) = ob.cast::<PyArrayIterator>() {
-            return Ok(PyVortex(py_iter.get().take().unwrap_or_else(|| {
+            let py_iter = py_iter.get();
+            let iter = ob.py().detach(|| py_iter.take())?;
+            return Ok(PyVortex(iter.unwrap_or_else(|| {
                 Box::new(
-                    Canonical::empty(py_iter.get().dtype())
+                    Canonical::empty(py_iter.dtype())
                         .into_array()
                         .to_array_iterator(),
                 )
@@ -481,7 +551,7 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
         }
 
         // Try to convert from Arrow objects (Table, RecordBatchReader, etc.)
-        if let Ok(arrow_iter) = try_arrow_stream_to_iterator(&ob) {
+        if let Some(arrow_iter) = try_arrow_stream_to_iterator(&ob)? {
             return Ok(PyVortex(arrow_iter));
         }
 
@@ -492,9 +562,12 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
 }
 
 /// Try to convert a PyArrow object to a Vortex ArrayIterator using Arrow FFI streams.
+///
+/// Returns `None` if the object is not a PyArrow table or reader, and an error if it is one that
+/// cannot be imported.
 fn try_arrow_stream_to_iterator(
     ob: &Borrowed<'_, '_, PyAny>,
-) -> PyResult<Box<dyn ArrayIterator + Send>> {
+) -> PyResult<Option<Box<dyn ArrayIterator + Send>>> {
     let py = ob.py();
 
     let pa_table = table_class(py)?;
@@ -502,7 +575,7 @@ fn try_arrow_stream_to_iterator(
 
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
-        let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
+        let arrow_stream = RecordBatchStreamReader::from_pyarrow(ob)?;
         let dtype = session()
             .arrow()
             .from_arrow_schema(arrow_stream.schema().as_ref())
@@ -517,10 +590,11 @@ fn try_arrow_stream_to_iterator(
                 session().arrow().from_arrow_record_batch(batch, &schema)
             });
 
-        Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))
+        Ok(Some(Box::new(ArrayIteratorAdapter::new(
+            dtype,
+            vortex_iter,
+        ))))
     } else {
-        Err(PyTypeError::new_err(
-            "Object is not a supported Arrow streaming type",
-        ))
+        Ok(None)
     }
 }

@@ -1,4 +1,4 @@
-# Vtables and Dispatch
+# Vtables and dispatch
 
 Vortex uses custom vtable traits rather than Rust's built-in `dyn Trait` vtables. This design
 gives us capabilities that are not possible with trait objects: colocating instance methods with
@@ -31,7 +31,7 @@ FooRef          thin Arc wrapper, delegates to DynFoo
 **Data struct** `Foo<V>` is generic over the vtable type `V`. It holds the vtable instance
 (which may be zero-sized for native implementations or non-zero-sized for language bindings),
 common fields, and a VTable-specific associated type for concept-specific data (e.g.
-`V::Metadata` for ExtDType, `V::Array` for Array). `Foo<V>` is not Arc-wrapped — it lives
+`V::Metadata` for ExtDType, `V::Array` for Array). `Foo<V>` is not Arc-wrapped, it lives
 behind `Arc` inside `FooRef`. `Foo<V>` has inherent methods for all operations, with
 pre/post-condition enforcement. These delegate to `FooVTable` methods.
 
@@ -41,7 +41,7 @@ the result of downcasting from `&FooRef`), while common methods on `Foo<V>` rema
 via normal method resolution.
 
 **Sealed trait** `DynFoo` is object-safe and has a blanket `impl<V: FooVTable> DynFoo for Foo<V>`.
-This blanket impl is a thin forwarder to `Foo<V>` inherent methods — no logic of its own.
+This blanket impl is a thin forwarder to `Foo<V>` inherent methods, no logic of its own.
 Its purpose is to enable dynamic dispatch from `FooRef` through to the typed `Foo<V>`.
 `DynFoo` must stay private (`pub(super)`) because it exposes internal plumbing
 (`as_any`, `metadata_any`) that should not be part of the public API.
@@ -56,6 +56,9 @@ without propagating generic parameters. Cloning is cheap (Arc clone).
 FooRef::as_::<V>(&self) -> &Foo<V>           borrow, free after type check
 FooRef::downcast::<V>(self) -> Arc<Foo<V>>   owned, free after type check
 ```
+
+Extension dtypes provide borrowed metadata access through `metadata::<V>()` and owned typed access
+through `downcast::<V>()`, as shown in the extension dtype example below.
 
 **Plugin** `FooPlugin` is a separate trait for registry-based deserialization. It knows how to
 reconstruct a `FooRef` from serialized bytes without knowing `V` at compile time. Plugins are
@@ -86,16 +89,25 @@ For Array encodings, each encoding has its own module (e.g. `arrays/primitive/`)
 Extension dtypes follow this pattern:
 
 ```rust
-trait ExtDTypeVTable: Sized + Send + Sync + Clone + Debug {
+trait ExtVTable: Sized + Send + Sync + Clone + Debug {
     type Metadata: Send + Sync + Clone + Debug + Display + Eq + Hash;
+    type StoredMetadata;
 
     fn id(&self) -> ExtId;
-    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
-    fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
+    fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<Self::StoredMetadata>;
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata>;
+    fn storage_dtype(metadata: &Self::Metadata) -> DType;
+    fn validate_metadata(_metadata: &Self::Metadata) -> VortexResult<()> {
+        Ok(())
+    }
 }
 
-struct ExtDType<V: ExtDTypeVTable> {
+struct ExtDType<V: ExtVTable> {
     vtable: V,
     metadata: V::Metadata,
     storage_dtype: DType,
@@ -107,10 +119,46 @@ struct ExtDTypeRef(Arc<dyn DynExtDType>);
 Downcasting from the erased form recovers the typed data struct:
 
 ```rust
-let ext: & ExtDTypeRef = dtype.ext();
-let ts: & ExtDType<Timestamp> = ext.as_::<Timestamp>();
-let unit: & TimeUnit = & ts.metadata;     // V::Metadata is concrete
+let ext: &ExtDTypeRef = dtype.as_extension();
+let metadata = ext.metadata::<Timestamp>();
+let unit: &TimeUnit = &metadata.unit; // V::Metadata is concrete.
+let ts: Arc<ExtDType<Timestamp>> = ext.clone().downcast::<Timestamp>();
 ```
+
+## Storage and nullability
+
+`ExtDType::try_new(metadata, nullability)` uses a default vtable. `try_with_vtable` accepts an
+explicit vtable instance. Both validate metadata before deriving storage through
+`ExtVTable::storage_dtype`.
+
+The in-memory metadata determines the storage structure, element types, and nested nullability.
+`ExtDType` applies the requested top-level nullability. For example, a vector's metadata holds its
+float element type and dimension, and its storage is a fixed-size list of non-nullable elements.
+The outer list can be nullable independently of its elements.
+
+`with_nullability` keeps the metadata and rebuilds storage from the declaration with the requested
+outer nullability. It does not validate metadata again. Storage of `DType::Null`, including an
+extension over it, is always nullable. `with_nullability` panics if asked to make that storage
+non-nullable, while fallible constructors return an error.
+
+`StoredMetadata` is the in-memory form of the metadata stored alongside the storage dtype.
+Callers can also construct it directly. Complete `Metadata` adds facts inferred from storage.
+For a vector, stored metadata is `()`, and storage supplies the element type and dimension.
+Stored tensor metadata supplies shape, dimension names, and permutation, while storage supplies
+the element type. A timestamp uses the same type for both, because storage cannot determine its
+unit or time zone.
+
+`ExtDType::try_from_storage(stored_metadata, storage_dtype)` reconstructs metadata through
+`metadata_from_storage`. It passes a nullable outer storage level, validates the metadata, and
+requires its declaration to match the supplied storage exactly, including nested nullability.
+The resulting dtype keeps the supplied outer nullability. `try_from_storage_with_vtable` accepts
+an explicit vtable. `ExtensionArray::try_from_storage` and
+`Scalar::try_extension_from_storage` use the actual storage array or scalar's dtype. The scalar
+constructor also validates the value.
+
+On read, `deserialize_metadata` decodes bytes into `StoredMetadata`. The dtype plugin then uses the
+same checked storage constructor. Serialized bytes can omit facts represented by storage, and a
+storage mismatch returns an error naming both dtypes.
 
 ## Why Not `dyn Trait`
 
@@ -121,7 +169,9 @@ needs:
 But operations like deserialization need to construct a new instance from raw bytes -- there
 is no instance yet. Vortex vtables colocate instance logic (e.g. `serialize`) with type-level
 logic (e.g. `deserialize`) in the same struct, since the vtable itself is a lightweight value
-(often zero-sized) that can be default-constructed.
+(often zero-sized) that can be default-constructed. Array vtables are the exception: their serde
+lives on a separate `ArrayPlugin` implementation, usually on the vtable type itself, so a vtable
+without one is in-memory only.
 
 **No associated type access.** A `dyn Trait` erases all associated types. With Vortex vtables,
 the typed form `Foo<V>` preserves full access to `V::Metadata` and other associated types,
@@ -145,7 +195,7 @@ on the same type triggers `clippy::same_name_method`. The correct handling is:
    delegation to `FooVTable` all happen here.
 2. **`DynFoo` blanket impl is a thin forwarder.** Each method body is just `self.method()`.
    Rust's method resolution picks inherent methods over trait methods, so this calls the
-   inherent impl — no infinite recursion.
+   inherent impl, no infinite recursion.
 3. **`#[allow(clippy::same_name_method)]`** on the `Foo<V>` inherent impl block
    acknowledges the intentional shadowing.
 
@@ -167,7 +217,7 @@ impl<V: FooVTable> DynFoo for Foo<V> {
 `DynFoo` must stay **private** (`pub(super)`) because it exposes internal plumbing
 (`as_any`, `metadata_any`) that external callers should never reach. Making it public
 or implementing it for `FooRef` would leak these internals. Instead, `FooRef` has its
-own inherent methods that delegate to `DynFoo` — providing a clean public API without
+own inherent methods that delegate to `DynFoo`, providing a clean public API without
 exposing the dispatch machinery.
 
 Methods that exist only for erased dispatch (e.g. `as_any`, `metadata_any`,
@@ -176,29 +226,30 @@ Methods that exist only for erased dispatch (e.g. `as_any`, `metadata_any`,
 
 ## Registration and Deserialization
 
-Vtables are registered in the session by their ID. When a serialized value is encountered
-(e.g. an extension dtype in a file footer), the session's registry resolves the ID to the
-`FooPlugin` and calls `deserialize` to reconstruct the value. The result is returned as the
-erased form (`FooRef`) so it can be stored without generic parameters.
+Vtables are registered in the session by their ID. An array vtable registers through its
+`ArrayPlugin` implementation, and a vtable without one cannot be registered. When a serialized
+value is encountered (e.g. an extension dtype in a file footer), the session's registry resolves
+the ID to the `FooPlugin` and calls `deserialize` to reconstruct the value. The result is returned
+as the erased form (`FooRef`) so it can be stored without generic parameters.
 
 This pattern -- register plugin by ID, deserialize via plugin, store as erased ref -- is
 consistent across all vtable-backed types in Vortex.
 
 ## Migration Status
 
-All four vtable-backed types are converging on the pattern described above.
+All four vtable-backed types are converging on the pattern described above. The extension dtype
+status reflects the API above. The remaining subsections retain the broader migration plan.
 
-### ExtDType -- Partially done
+### ExtDType -- Done
 
-File split already matches conventions: `vtable.rs`, `typed.rs`, `erased.rs`,
-`plugin.rs`, `matcher.rs`. Remaining:
+The file split matches the conventions: `vtable.rs`, `typed.rs`, `erased.rs`, `plugin.rs`, and
+`matcher.rs`.
 
-- **Drop internal Arc from `ExtDType<V>`.** Currently wraps
-  `Arc<ExtDTypeAdapter<V>>`. Should become the data struct itself, with
-  `ExtDTypeRef(Arc<dyn DynExtDType>)` holding the Arc. Remove `ExtDTypeAdapter`.
-- **Rename** `ExtDTypeImpl` → `DynExtDType`, `DynExtVTable` → `ExtDTypePlugin`.
-- **Remove `ExtDTypeMetadata`** erased wrapper. Its methods (`serialize`, `Display`,
-  `Debug`, `PartialEq`, `Hash`) should move to `ExtDTypeRef`.
+- `ExtDType<V>` is the data struct. `ExtDTypeRef(Arc<dyn DynExtDType>)` owns the shared allocation.
+- `ExtVTable` is the public implementation trait, `DynExtDType` provides private erased dispatch,
+  and `ExtDTypePlugin` provides registry-based deserialization.
+- Metadata stays typed inside `ExtDType<V>`. `ExtDTypeRef` exposes serialization, `Display`,
+  `Debug`, equality, and hashing through the private dispatch layer.
 
 ### Expr -- Not started
 
@@ -251,7 +302,7 @@ with pre/post-condition enforcement. These delegate to `ArrayVTable` methods.
 the associated type are callable directly on `&Array<V>`. Common methods
 (`dtype()`, `len()`) are inherent on `Array<V>` and resolve first.
 
-Children live in `V::Array` — each encoding owns its child representation.
+Children live in `V::Array`, each encoding owns its child representation.
 The VTable provides `nchildren()` / `child(i)` for generic traversal.
 
 Constructors live on the vtable ZST: `Primitive::new(...) -> ArrayRef`.

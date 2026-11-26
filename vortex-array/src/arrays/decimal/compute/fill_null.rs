@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::max;
 use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -20,7 +18,7 @@ use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 impl FillNullKernel for Decimal {
@@ -29,59 +27,40 @@ impl FillNullKernel for Decimal {
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let result_validity = Validity::from(fill_value.dtype().nullability());
+        let Validity::Array(is_valid) = array.validity()? else {
+            unreachable!("checked in entry point");
+        };
+        let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
+        let fill = fill_value
+            .as_decimal()
+            .decimal_value()
+            .vortex_expect("fill_null requires a non-null fill value");
+        let validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(Some(match array.validity()? {
-            Validity::Array(is_valid) => {
-                let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
-                let decimal_scalar = fill_value.as_decimal();
-                let decimal_value = decimal_scalar
-                    .decimal_value()
-                    .vortex_expect("fill_null requires a non-null fill value");
-                match_each_decimal_value_type!(array.values_type(), |T| {
-                    fill_invalid_positions::<T>(
-                        array,
-                        &is_invalid,
-                        &decimal_value,
-                        result_validity,
-                    )?
-                })
-            }
-            _ => unreachable!("checked in entry point"),
-        }))
+        let result = match_each_decimal_value_type!(array.values_type(), |T| {
+            fill_buffer::<T>(array, &is_invalid, &fill, validity)
+        });
+        Ok(Some(result.into_array()))
     }
 }
 
-fn fill_invalid_positions<T: NativeDecimalType>(
-    array: ArrayView<'_, Decimal>,
-    is_invalid: &BitBuffer,
-    decimal_value: &DecimalValue,
-    result_validity: Validity,
-) -> VortexResult<ArrayRef> {
-    match decimal_value.cast::<T>() {
-        Some(fill_val) => fill_buffer::<T>(array, is_invalid, fill_val, result_validity),
-        None => {
-            let target = max(array.values_type(), decimal_value.decimal_type());
-            let upcasted = upcast_decimal_values(array, target)?;
-            match_each_decimal_value_type!(upcasted.values_type(), |U| {
-                let upcasted = upcasted.as_view();
-                fill_invalid_positions::<U>(upcasted, is_invalid, decimal_value, result_validity)
-            })
-        }
-    }
-}
-
+/// Replaces the value of each row set in `is_invalid` with `fill`, cast to the canonical type `T`
+/// of the array.
 fn fill_buffer<T: NativeDecimalType>(
     array: ArrayView<'_, Decimal>,
     is_invalid: &BitBuffer,
-    fill_val: T,
-    result_validity: Validity,
-) -> VortexResult<ArrayRef> {
+    fill: &DecimalValue,
+    validity: Validity,
+) -> DecimalArray {
+    let fill = fill
+        .cast::<T>()
+        .vortex_expect("fill scalar fits the array's decimal precision");
     let mut buffer = array.buffer::<T>().into_mut();
-    for invalid_index in is_invalid.set_indices() {
-        buffer[invalid_index] = fill_val;
-    }
-    Ok(DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity).into_array())
+    buffer.fill_where::<false>(is_invalid, fill);
+
+    // SAFETY: Newly valid slots contain the fill scalar. Other values keep their original
+    // precision, and the fill preserves the length.
+    unsafe { DecimalArray::new_unchecked(buffer.freeze(), array.decimal_dtype(), validity) }
 }
 
 #[cfg(test)]
@@ -89,7 +68,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -102,7 +81,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
-    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -168,31 +146,24 @@ mod tests {
         );
     }
 
-    /// fill_null with a value that overflows the array's storage type should upcast the array.
     #[rstest]
-    #[case(DecimalValue::I16(200), DecimalType::I16)]
-    #[case(DecimalValue::I128(200), DecimalType::I128)]
-    fn fill_null_overflow_upcasts(#[case] fill: DecimalValue, #[case] expected_type: DecimalType) {
+    #[case::canonical(DecimalValue::I16(200))]
+    #[case::wide(DecimalValue::I128(200))]
+    fn fill_null_preserves_canonical_width(#[case] fill: DecimalValue) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let decimal_dtype = DecimalDType::new(3, 0);
-        let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
-        // i8 max is 127, so 200 requires widening to the fill value's storage type.
-        let result = arr
+        let dtype = DecimalDType::new(3, 0);
+        let result = DecimalArray::from_option_iter([None, Some(10i8), None], dtype)
             .into_array()
-            .fill_null(Scalar::decimal(
-                fill,
-                DecimalDType::new(3, 0),
-                Nullability::NonNullable,
-            ))
-            .unwrap()
-            .execute::<DecimalArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(result.values_type(), expected_type);
+            .fill_null(Scalar::decimal(fill, dtype, Nullability::NonNullable))?
+            .execute::<DecimalArray>(&mut ctx)?;
+
+        assert_eq!(result.values_type(), DecimalType::I16);
         assert_arrays_eq!(
             result,
-            DecimalArray::from_iter([200i16, 10, 200], decimal_dtype),
+            DecimalArray::from_iter([200i16, 10, 200], dtype),
             &mut ctx
         );
+        Ok(())
     }
 
     #[test]
@@ -200,10 +171,9 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
-        let arr = DecimalArray::new(
-            buffer![800i128, 1000i128, 1200i128, 1400i128, 1600i128],
+        let arr = DecimalArray::from_iter(
+            [800i128, 1000i128, 1200i128, 1400i128, 1600i128],
             decimal_dtype,
-            Validity::NonNullable,
         );
         let p = arr
             .into_array()
