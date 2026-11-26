@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::for_v2_id;
-use vortex_fastlanes::for_v3_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -102,7 +101,7 @@ impl CompressionMode {
             Self::All | Self::Default | Self::Compact => Vec::new(),
             // Multi-part DecimalByteParts arrays and FoR arrays with per-chunk references have no
             // CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), for_v3_id()],
+            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id()],
         }
     }
 }

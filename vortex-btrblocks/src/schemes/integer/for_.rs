@@ -36,7 +36,6 @@ use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::FoRReferences;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
-use vortex_fastlanes::for_v3_id;
 
 use super::BitPackingScheme;
 use super::RunEndScheme;
@@ -83,15 +82,14 @@ pub(crate) static FOR_V2: FoRScheme = FoRScheme::v2();
 /// The v1 mode subtracts one reference, the array's minimum. The v2 mode subtracts one reference
 /// per 1024-element chunk, the chunk's minimum. Arrays with a single reference, including v2
 /// arrays whose references compress to a constant, serialize as `fastlanes.for`, while per-chunk
-/// references serialize as `fastlanes.for.v2` (same-width residuals) or `fastlanes.for.v3`
-/// (narrowed unsigned residuals).
+/// references serialize as `fastlanes.for.v2`.
 ///
 /// The encoded child is always bit-packed by [`BitPackingScheme`] called directly, not chosen by
 /// the compressor, so this scheme declares the child's serialized IDs as its own. Excluding the
 /// BitPacking scheme does not stop FoR from bit-packing; disallowing `fastlanes.bitpacked` does.
 ///
-/// The default uses v1. [`refine`](Scheme::refine) picks v2 references when both
-/// `fastlanes.for.v2` and `fastlanes.for.v3` are allowed.
+/// The default uses v1. [`refine`](Scheme::refine) picks v2 references when `fastlanes.for.v2`
+/// is allowed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FoRScheme {
     mode: FoRSchemeMode,
@@ -131,14 +129,14 @@ impl Scheme for FoRScheme {
     fn produced_encodings(&self) -> Vec<ArrayId> {
         let mut encodings = match self.mode {
             FoRSchemeMode::V1 => vec![for_v1_id()],
-            FoRSchemeMode::V2 => vec![for_v1_id(), for_v2_id(), for_v3_id()],
+            FoRSchemeMode::V2 => vec![for_v1_id(), for_v2_id()],
         };
         encodings.extend(BitPackingScheme.produced_encodings());
         encodings
     }
 
     fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
-        if allowed(&for_v2_id()) && allowed(&for_v3_id()) {
+        if allowed(&for_v2_id()) {
             &FOR_V2
         } else {
             &FOR_V1
@@ -566,7 +564,6 @@ mod tests {
     use vortex_array::ArrayId;
     use vortex_fastlanes::for_v1_id;
     use vortex_fastlanes::for_v2_id;
-    use vortex_fastlanes::for_v3_id;
 
     use super::BitPackingScheme;
     use super::FOR_V1;
@@ -574,30 +571,24 @@ mod tests {
     use crate::Scheme;
     use crate::SchemeExt;
 
-    /// Both variants refine to v2 exactly when both blocked FoR IDs (`v2` and `v3`) are allowed.
+    /// Both variants refine to v2 exactly when `fastlanes.for.v2` is allowed.
     #[rstest]
-    #[case::neither(false, false, false, false)]
-    #[case::v1(true, false, false, false)]
-    #[case::v2_only(false, true, false, false)]
-    #[case::v3_only(false, false, true, false)]
-    #[case::v2_and_v3(false, true, true, true)]
-    #[case::all(true, true, true, true)]
-    fn refine_picks_v2_when_blocked_ids_are_allowed(
+    #[case::neither(false, false, false)]
+    #[case::v1(true, false, false)]
+    #[case::v2(false, true, true)]
+    #[case::both(true, true, true)]
+    fn refine_picks_v2_when_v2_is_allowed(
         #[case] allow_v1: bool,
         #[case] allow_v2: bool,
-        #[case] allow_v3: bool,
         #[case] expect_v2: bool,
         #[values(&FOR_V1, &FOR_V2)] scheme: &'static dyn Scheme,
     ) {
-        let allowed = |id: &ArrayId| {
-            (allow_v1 && *id == for_v1_id())
-                || (allow_v2 && *id == for_v2_id())
-                || (allow_v3 && *id == for_v3_id())
-        };
+        let allowed =
+            |id: &ArrayId| (allow_v1 && *id == for_v1_id()) || (allow_v2 && *id == for_v2_id());
         let refined = scheme.refine(&allowed);
         assert_eq!(refined.id(), scheme.id());
         let mut expected = if expect_v2 {
-            vec![for_v1_id(), for_v2_id(), for_v3_id()]
+            vec![for_v1_id(), for_v2_id()]
         } else {
             vec![for_v1_id()]
         };

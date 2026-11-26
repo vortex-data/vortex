@@ -18,13 +18,11 @@ use vortex_session::registry::CachedId;
 use crate::FoR;
 use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
-use crate::for_::array::FoRArraySlotsExt;
 
 #[cfg(test)]
 mod tests;
 mod v1;
 mod v2;
-mod v3;
 
 /// The frozen FoR serialized ID for arrays with a single reference.
 pub fn for_v1_id() -> ArrayId {
@@ -32,26 +30,16 @@ pub fn for_v1_id() -> ArrayId {
     *ID
 }
 
-/// The in-memory FoR ID, and the serialized ID for arrays whose chunks have different references
-/// and same-width residuals.
+/// The in-memory FoR ID, and the serialized ID for arrays whose chunks have different references.
 pub fn for_v2_id() -> ArrayId {
     static ID: CachedId = CachedId::new("fastlanes.for.v2");
-    *ID
-}
-
-/// The serialized ID for blocked FoR arrays whose `encoded` residuals child is narrowed to a
-/// smaller unsigned integer type.
-pub fn for_v3_id() -> ArrayId {
-    static ID: CachedId = CachedId::new("fastlanes.for.v3");
     *ID
 }
 
 /// Serde for the [`FoR`] array.
 ///
 /// Arrays with constant references serialize as `fastlanes.for`, which stores the reference in
-/// its metadata. Arrays whose chunks have different references serialize as `fastlanes.for.v2`
-/// when `encoded` has the logical primitive type, or `fastlanes.for.v3` when `encoded` is
-/// narrowed to a smaller unsigned integer type.
+/// its metadata. Arrays whose chunks have different references serialize as `fastlanes.for.v2`.
 ///
 /// Register this plugin, or call [`crate::initialize`], to enable serde. [`FoR`] does not
 /// implement [`ArrayPlugin`], so it cannot be registered on its own.
@@ -64,11 +52,11 @@ impl ArrayPlugin for FoRPlugin {
     }
 
     fn read_ids(&self) -> Vec<ArrayId> {
-        vec![for_v1_id(), for_v2_id(), for_v3_id()]
+        vec![for_v1_id(), for_v2_id()]
     }
 
     fn write_ids(&self) -> Vec<ArrayId> {
-        vec![for_v1_id(), for_v2_id(), for_v3_id()]
+        vec![for_v1_id(), for_v2_id()]
     }
 
     fn serialize(
@@ -81,13 +69,7 @@ impl ArrayPlugin for FoRPlugin {
             .ok_or_else(|| vortex_err!("FoR plugin cannot serialize {}", array.encoding_id()))?;
         Ok(Some(match view.references() {
             FoRReferences::Global(reference) => v1::serialize(view, reference),
-            FoRReferences::Blocked(references) => {
-                if view.encoded().dtype().as_ptype() == view.ptype() {
-                    v2::serialize(view, references)
-                } else {
-                    v3::serialize(view, references)
-                }
-            }
+            FoRReferences::Blocked(references) => v2::serialize(view, references),
         }))
     }
 
@@ -100,8 +82,6 @@ impl ArrayPlugin for FoRPlugin {
             v1::deserialize(parts, session)
         } else if parts.serialized_id == for_v2_id() {
             v2::deserialize(parts)
-        } else if parts.serialized_id == for_v3_id() {
-            v3::deserialize(parts)
         } else {
             vortex_bail!(
                 "FoR plugin does not recognize serialized ID {}",

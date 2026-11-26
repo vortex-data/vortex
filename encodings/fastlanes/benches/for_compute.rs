@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks blocked FoR compute kernels (`compare`, `is_constant`, `is_sorted`) and narrowed
-//! vs same-width blocked FoR `decode`.
+//! Benchmarks blocked FoR compute kernels (`decode`, `compare`, `is_constant`, `is_sorted`).
 //!
 //! Run with `cargo bench -p vortex-fastlanes --bench for_compute`.
 
@@ -58,10 +57,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 const LEN: usize = 64 * 1024;
 const BIT_WIDTH: u8 = 7;
 
-fn climbing_blocked_for(narrowed: bool) -> (ArrayRef, ArrayRef) {
+fn climbing_blocked_for() -> (ArrayRef, ArrayRef) {
     let mut ctx = SESSION.create_execution_ctx();
     // Each 1,024-row chunk climbs by 1,000 with an in-chunk spread < 128 so residuals pack to 7
-    // bits (and narrow to `u8` when `narrowed` is true).
+    // bits.
     let raw: Buffer<i64> = (0..LEN)
         .map(|i| 1_000 * (1 + (i / 1024) as i64) + ((i % 1024) as i64 * 100) / 1024)
         .collect();
@@ -70,22 +69,7 @@ fn climbing_blocked_for(narrowed: bool) -> (ArrayRef, ArrayRef) {
     let FoRReferences::Blocked(refs) = for_arr.references() else {
         unreachable!("each chunk has a distinct reference");
     };
-    let encoded = if narrowed {
-        for_arr.encoded().clone()
-    } else {
-        // Re-widen residuals to `i64` to measure same-width vs narrowed blocked FoR decode.
-        let wide: Buffer<i64> = for_arr
-            .encoded()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap()
-            .as_slice::<u8>()
-            .iter()
-            .map(|&v| i64::from(v))
-            .collect();
-        PrimitiveArray::new(wide, Validity::NonNullable).into_array()
-    };
-    let packed = BitPacked::encode(&encoded, BIT_WIDTH, &mut ctx)
+    let packed = BitPacked::encode(for_arr.encoded(), BIT_WIDTH, &mut ctx)
         .unwrap()
         .into_array();
     (packed, refs.clone())
@@ -100,18 +84,8 @@ fn fresh_blocked_for(encoded: &ArrayRef, refs: &ArrayRef) -> ArrayRef {
 }
 
 #[divan::bench]
-fn decode_blocked_narrowed_i64(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
-    let array = fresh_blocked_for(&encoded, &refs);
-    bencher
-        .counter(ItemsCount::new(LEN))
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
-}
-
-#[divan::bench]
-fn decode_blocked_same_width_i64(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(false);
+fn decode_blocked_i64(bencher: Bencher) {
+    let (encoded, refs) = climbing_blocked_for();
     let array = fresh_blocked_for(&encoded, &refs);
     bencher
         .counter(ItemsCount::new(LEN))
@@ -121,7 +95,7 @@ fn decode_blocked_same_width_i64(bencher: Bencher) {
 
 #[divan::bench]
 fn compare_eq_blocked_pruned(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     let array = fresh_blocked_for(&encoded, &refs);
     // Target falls inside chunk 32 only; the other 63 chunks prune without unpacking.
     let rhs = ConstantArray::new(33_050i64, LEN).into_array();
@@ -139,7 +113,7 @@ fn compare_eq_blocked_pruned(bencher: Bencher) {
 
 #[divan::bench]
 fn compare_eq_decode_fallback(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     let array = fresh_blocked_for(&encoded, &refs);
     let rhs = ConstantArray::new(33_050i64, LEN).into_array();
     mark_optimized(&rhs, &SESSION).unwrap();
@@ -159,7 +133,7 @@ fn compare_eq_decode_fallback(bencher: Bencher) {
 
 #[divan::bench]
 fn compare_lt_blocked_pruned(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     let array = fresh_blocked_for(&encoded, &refs);
     let rhs = ConstantArray::new(33_050i64, LEN).into_array();
     mark_optimized(&rhs, &SESSION).unwrap();
@@ -176,7 +150,7 @@ fn compare_lt_blocked_pruned(bencher: Bencher) {
 
 #[divan::bench]
 fn compare_lt_decode_fallback(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     let array = fresh_blocked_for(&encoded, &refs);
     let rhs = ConstantArray::new(33_050i64, LEN).into_array();
     mark_optimized(&rhs, &SESSION).unwrap();
@@ -196,7 +170,7 @@ fn compare_lt_decode_fallback(bencher: Bencher) {
 
 #[divan::bench]
 fn is_constant_blocked_early_exit(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| {
@@ -210,7 +184,7 @@ fn is_constant_blocked_early_exit(bencher: Bencher) {
 
 #[divan::bench]
 fn is_constant_decode_fallback(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| {
@@ -230,7 +204,7 @@ fn is_constant_decode_fallback(bencher: Bencher) {
 
 #[divan::bench]
 fn is_sorted_blocked_true(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| {
@@ -244,7 +218,7 @@ fn is_sorted_blocked_true(bencher: Bencher) {
 
 #[divan::bench]
 fn is_sorted_decode_fallback(bencher: Bencher) {
-    let (encoded, refs) = climbing_blocked_for(true);
+    let (encoded, refs) = climbing_blocked_for();
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| {

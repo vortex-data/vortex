@@ -26,7 +26,6 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
@@ -103,7 +102,6 @@ where
         + PrimInt
         + WrappingAdd
         + WrappingSub
-        + AsPrimitive<T>
         + AsPrimitive<T::Physical>,
     T::Physical: BitPacking
         + BitPackingCompare
@@ -113,10 +111,6 @@ where
         + AsPrimitive<T>
         + AsPrimitive<u64>,
     u64: AsPrimitive<T::Physical>,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
     T: TryFrom<PValue, Error = VortexError>,
     PValue: From<T>,
 {
@@ -182,7 +176,6 @@ where
         + PrimInt
         + WrappingAdd
         + WrappingSub
-        + AsPrimitive<T>
         + AsPrimitive<T::Physical>,
     T::Physical: BitPacking
         + BitPackingCompare
@@ -192,10 +185,6 @@ where
         + AsPrimitive<T>
         + AsPrimitive<u64>,
     u64: AsPrimitive<T::Physical>,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
 {
     let len = lhs.len();
     let result_nullability = lhs.dtype().nullability() | rhs_nullability;
@@ -217,47 +206,27 @@ where
         && bp.offset() == lhs.offset()
     {
         let bit_width = usize::from(bp.bit_width());
-        if bp.dtype().as_ptype() == T::PTYPE {
-            return compare_blocked_bitpacked::<T, T>(
-                lhs, bp, bit_width, refs, rhs, validity, operator, ctx,
-            );
-        }
-        return match_each_unsigned_integer_ptype!(bp.dtype().as_ptype(), |U| {
-            compare_blocked_bitpacked::<T, U>(
-                lhs, bp, bit_width, refs, rhs, validity, operator, ctx,
-            )
-        });
+        return compare_blocked_bitpacked::<T>(
+            lhs, bp, bit_width, refs, rhs, validity, operator, ctx,
+        );
     }
 
     let encoded = lhs.encoded().clone().execute::<PrimitiveArray>(ctx)?;
-    if encoded.ptype() == T::PTYPE {
-        Ok(compare_blocked_primitive::<T, T>(
-            encoded.as_slice::<T>(),
-            usize::from(lhs.offset()),
-            refs,
-            rhs,
-            validity,
-            operator,
-        ))
-    } else {
-        Ok(match_each_unsigned_integer_ptype!(encoded.ptype(), |U| {
-            compare_blocked_primitive::<T, U>(
-                encoded.as_slice::<U>(),
-                usize::from(lhs.offset()),
-                refs,
-                rhs,
-                validity,
-                operator,
-            )
-        }))
-    }
+    Ok(compare_blocked_primitive::<T>(
+        encoded.as_slice::<T>(),
+        usize::from(lhs.offset()),
+        refs,
+        rhs,
+        validity,
+        operator,
+    ))
 }
 
 #[expect(
     clippy::too_many_arguments,
     reason = "typed blocked compare parameters"
 )]
-fn compare_blocked_bitpacked<T, U>(
+fn compare_blocked_bitpacked<T>(
     lhs: ArrayView<'_, FoR>,
     bp: ArrayView<'_, BitPacked>,
     bit_width: usize,
@@ -270,20 +239,19 @@ fn compare_blocked_bitpacked<T, U>(
 where
     T: IntegerPType
         + PhysicalPType
+        + BitPackedIter
         + PrimInt
         + WrappingAdd
         + WrappingSub
         + AsPrimitive<T::Physical>,
-    T::Physical: AsPrimitive<u64>,
-    U: PhysicalPType + BitPackedIter + AsPrimitive<T>,
-    U::Physical: BitPacking
+    T::Physical: BitPacking
         + BitPackingCompare
-        + FastLanesComparable<Bitpacked = U::Physical>
+        + FastLanesComparable<Bitpacked = T::Physical>
         + NativePType
         + Zero
         + AsPrimitive<T>
         + AsPrimitive<u64>,
-    u64: AsPrimitive<U::Physical>,
+    u64: AsPrimitive<T::Physical>,
 {
     let len = lhs.len();
     let offset = usize::from(lhs.offset());
@@ -299,9 +267,9 @@ where
     {
         let words = words.as_mut_slice();
         let mut lane_major = [0u64; WORDS_PER_CHUNK];
-        let mut scratch = [U::Physical::zero(); FL_CHUNK_SIZE];
-        for_each_packed_chunk::<U, _>(
-            bp.packed_slice::<U::Physical>(),
+        let mut scratch = [T::Physical::zero(); FL_CHUNK_SIZE];
+        for_each_packed_chunk::<T, _>(
+            bp.packed_slice::<T::Physical>(),
             bit_width,
             offset,
             len,
@@ -339,8 +307,8 @@ where
                             );
                             out.fill(if ans { u64::MAX } else { 0 });
                         } else {
-                            let dist_phys: U::Physical = distance.as_();
-                            unpack_cmp_block::<U::Physical>(
+                            let dist_phys: T::Physical = distance.as_();
+                            unpack_cmp_block::<T::Physical>(
                                 bit_width,
                                 packed_chunk,
                                 dist_phys,
@@ -352,12 +320,12 @@ where
                     }
                 } else {
                     if bit_width == 0 {
-                        scratch.fill(U::Physical::zero());
+                        scratch.fill(T::Physical::zero());
                     } else {
                         // SAFETY: `packed_chunk` holds one chunk at `bit_width` and `scratch`
                         // holds `FL_CHUNK_SIZE` values.
                         unsafe {
-                            U::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch)
+                            T::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch)
                         };
                     }
                     for (word_idx, word) in out.iter_mut().enumerate() {
@@ -380,7 +348,7 @@ where
 
     if let Some(patches) = bp.patches() {
         let bit_len = bits.len();
-        for_each_decoded_patch::<T, U>(
+        for_each_decoded_patch::<T>(
             &patches,
             bit_len,
             offset,
@@ -454,8 +422,8 @@ fn unpack_cmp_block<P>(
     }
 }
 
-fn compare_blocked_primitive<T, U>(
-    encoded: &[U],
+fn compare_blocked_primitive<T>(
+    encoded: &[T],
     offset: usize,
     refs: &[T],
     rhs: T,
@@ -464,7 +432,6 @@ fn compare_blocked_primitive<T, U>(
 ) -> ArrayRef
 where
     T: NativePType + WrappingAdd + Ord,
-    U: Copy + AsPrimitive<T>,
 {
     let len = encoded.len();
     let mut bits = BitBufferMut::with_capacity(len);
@@ -474,8 +441,8 @@ where
         .chain(rest.chunks(FL_CHUNK_SIZE))
         .zip(refs)
     {
-        for &val in chunk {
-            let decoded = ref_b.wrapping_add(&val.as_());
+        for val in chunk {
+            let decoded = ref_b.wrapping_add(val);
             bits.append(eval_cmp(decoded, rhs, operator));
         }
     }
@@ -982,7 +949,7 @@ mod tests {
         ];
         assert_matches_primitive(&blocked, &values, constants, &mut ctx)?;
 
-        // Also test non-zero offset slice across chunk boundaries (unpatched narrow u16).
+        // Also test non-zero offset slice across chunk boundaries (unpatched).
         let unpatched_raw = PrimitiveArray::from_iter((0..3500i64).map(|i| match i / 1024 {
             0 => -1_000_000 + (i % 100),
             1 => i % 100,
@@ -1021,9 +988,9 @@ mod tests {
     }
 
     #[test]
-    fn blocked_unsigned_and_bw0_and_narrowed() -> VortexResult<()> {
+    fn blocked_unsigned_and_bw0() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Bit-width 0 chunks (constant per chunk, varying across chunks) + narrowed u8.
+        // Bit-width 0 chunks (constant per chunk, varying across chunks).
         let values = PrimitiveArray::from_iter((0..3000u64).map(|i| match i / 1024 {
             0 => 10u64,
             1 => 10_000_000,

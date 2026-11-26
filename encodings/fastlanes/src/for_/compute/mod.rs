@@ -131,41 +131,29 @@ fn filter_blocked(
         .filter(mask.clone())?
         .execute::<PrimitiveArray>(ctx)?;
 
-    if filtered_encoded.ptype() == refs.ptype() {
-        match_each_integer_ptype!(refs.ptype(), |T| {
-            filter_blocked_same_width::<T>(
-                filtered_encoded,
-                refs.as_slice::<T>(),
-                offset,
-                mask_values,
-                ctx,
-            )
-        })
-    } else {
-        match_each_integer_ptype!(refs.ptype(), |T| {
-            filter_blocked_narrow_t::<T>(
-                filtered_encoded,
-                refs.as_slice::<T>(),
-                offset,
-                mask_values,
-                ctx,
-            )
-        })
-    }
+    match_each_integer_ptype!(refs.ptype(), |T| {
+        filter_blocked_primitive::<T>(
+            filtered_encoded,
+            refs.as_slice::<T>(),
+            offset,
+            mask_values,
+            ctx,
+        )
+    })
 }
 
-/// Fused FastLanes `BitPacked` + blocked-`FoR` chunk decoder for same-width types.
+/// Fused FastLanes `BitPacked` + blocked-`FoR` chunk decoder.
 ///
 /// Decodes in `T::Physical` (unsigned two's-complement wrapping addition is bit-for-bit identical
 /// to signed wrapping addition) so `filter_chunked` compacts chunks straight out of L1 cache.
-struct FoRPackedSameWidth<'a, T: PhysicalPType> {
+struct FoRPacked<'a, T: PhysicalPType> {
     packed: &'a [T::Physical],
     bit_width: usize,
     packed_chunk_len: usize,
     refs: &'a [T],
 }
 
-impl<'a, T: PhysicalPType> FoRPackedSameWidth<'a, T> {
+impl<'a, T: PhysicalPType> FoRPacked<'a, T> {
     fn new(packed: &'a [T::Physical], bit_width: usize, refs: &'a [T]) -> Self {
         Self {
             packed,
@@ -182,7 +170,7 @@ impl<'a, T: PhysicalPType> FoRPackedSameWidth<'a, T> {
 }
 
 // SAFETY: both `decode_chunk` and `decode_indices` initialize every element of `dst`.
-unsafe impl<T> ChunkDecoder<T::Physical> for FoRPackedSameWidth<'_, T>
+unsafe impl<T> ChunkDecoder<T::Physical> for FoRPacked<'_, T>
 where
     T: PhysicalPType + AsPrimitive<T::Physical>,
     T::Physical: BitPacking + FastLanesFoR + WrappingAdd + Zero,
@@ -242,81 +230,6 @@ where
     }
 }
 
-/// Fused FastLanes `BitPacked` + blocked-`FoR` chunk decoder for narrowed unsigned residuals.
-struct FoRPackedNarrow<'a, T, U> {
-    packed: &'a [U],
-    bit_width: usize,
-    packed_chunk_len: usize,
-    refs: &'a [T],
-}
-
-impl<'a, T, U> FoRPackedNarrow<'a, T, U> {
-    fn new(packed: &'a [U], bit_width: usize, refs: &'a [T]) -> Self {
-        Self {
-            packed,
-            bit_width,
-            packed_chunk_len: FL_CHUNK_SIZE * bit_width / (8 * size_of::<U>()),
-            refs,
-        }
-    }
-
-    #[inline]
-    fn chunk(&self, chunk_idx: usize) -> &[U] {
-        &self.packed[chunk_idx * self.packed_chunk_len..][..self.packed_chunk_len]
-    }
-}
-
-// SAFETY: both `decode_chunk` and `decode_indices` initialize every element of `dst`.
-unsafe impl<T, U> ChunkDecoder<T> for FoRPackedNarrow<'_, T, U>
-where
-    T: NativePType + WrappingAdd,
-    U: BitPacking + Zero + Copy + AsPrimitive<T>,
-{
-    #[inline]
-    fn decode_chunk(&self, chunk_idx: usize, dst: &mut [MaybeUninit<T>; FILTER_CHUNK_LEN]) {
-        let ref_b = self.refs[chunk_idx];
-        if self.bit_width == 0 {
-            dst.fill(MaybeUninit::new(ref_b));
-            return;
-        }
-        let mut scratch = [U::zero(); FILTER_CHUNK_LEN];
-        // SAFETY: `chunk` holds `FL_CHUNK_SIZE` values at `bit_width` and `scratch` holds one chunk.
-        unsafe {
-            BitPacking::unchecked_unpack(self.bit_width, self.chunk(chunk_idx), &mut scratch)
-        };
-        for (out, &val) in dst.iter_mut().zip(&scratch) {
-            out.write(ref_b.wrapping_add(&val.as_()));
-        }
-    }
-
-    #[inline]
-    fn decode_indices(&self, chunk_idx: usize, indices: &[usize], dst: &mut [MaybeUninit<T>]) {
-        let ref_b = self.refs[chunk_idx];
-        if self.bit_width == 0 {
-            dst.fill(MaybeUninit::new(ref_b));
-            return;
-        }
-        debug_assert!(indices.iter().all(|&index| index < FL_CHUNK_SIZE));
-        let mut scratch = [const { MaybeUninit::<U>::uninit() }; FILTER_CHUNK_LEN];
-        let n = indices.len();
-        // SAFETY: every index is within the chunk and `unchecked_unpack_indices` initializes
-        // `scratch[..n]`.
-        unsafe {
-            BitPacking::unchecked_unpack_indices(
-                self.bit_width,
-                self.chunk(chunk_idx),
-                indices,
-                &mut scratch[..n],
-            );
-        }
-        for (out, raw) in dst.iter_mut().zip(&scratch[..n]) {
-            // SAFETY: initialized by `unchecked_unpack_indices` above.
-            let val = unsafe { raw.assume_init() };
-            out.write(ref_b.wrapping_add(&val.as_()));
-        }
-    }
-}
-
 fn filter_blocked_bitpacked<T>(
     bp: ArrayView<'_, BitPacked>,
     bit_width: usize,
@@ -327,66 +240,13 @@ fn filter_blocked_bitpacked<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray>
 where
-    T: IntegerPType + PhysicalPType + WrappingAdd + AsPrimitive<T> + AsPrimitive<T::Physical>,
+    T: IntegerPType + PhysicalPType + WrappingAdd + AsPrimitive<T::Physical>,
     T::Physical: BitPacking + FastLanesFoR + NativePType + WrappingAdd,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
 {
-    if bp.dtype().as_ptype() == T::PTYPE {
-        let chunks =
-            FoRPackedSameWidth::<T>::new(bp.packed_slice::<T::Physical>(), bit_width, references);
-        let buffer = filter_chunked(&chunks, offset, mask_values.selection(), ctx.allocator());
-        let buffer = if let Some(patches) = bp.patches() {
-            apply_filtered_patches_buffer::<T, T, T::Physical>(
-                buffer,
-                &patches,
-                offset,
-                references,
-                mask_values,
-                ctx,
-            )?
-        } else {
-            buffer
-        };
-        Ok(PrimitiveArray::from_byte_buffer(
-            buffer.into_byte_buffer(),
-            T::PTYPE,
-            validity,
-        ))
-    } else {
-        match_each_unsigned_integer_ptype!(bp.dtype().as_ptype(), |U| {
-            filter_blocked_bitpacked_narrow::<T, U>(
-                bp,
-                bit_width,
-                references,
-                offset,
-                validity,
-                mask_values,
-                ctx,
-            )
-        })
-    }
-}
-
-fn filter_blocked_bitpacked_narrow<T, U>(
-    bp: ArrayView<'_, BitPacked>,
-    bit_width: usize,
-    references: &[T],
-    offset: usize,
-    validity: Validity,
-    mask_values: &MaskValues,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd + AsPrimitive<T>,
-    U: PhysicalPType<Physical = U> + BitPacking + Zero + AsPrimitive<T>,
-{
-    let chunks = FoRPackedNarrow::<T, U>::new(bp.packed_slice::<U>(), bit_width, references);
+    let chunks = FoRPacked::<T>::new(bp.packed_slice::<T::Physical>(), bit_width, references);
     let buffer = filter_chunked(&chunks, offset, mask_values.selection(), ctx.allocator());
     let buffer = if let Some(patches) = bp.patches() {
-        apply_filtered_patches_buffer::<T, U, T>(
+        apply_filtered_patches_buffer::<T, T::Physical>(
             buffer,
             &patches,
             offset,
@@ -397,10 +257,14 @@ where
     } else {
         buffer
     };
-    Ok(PrimitiveArray::new(buffer, validity))
+    Ok(PrimitiveArray::from_byte_buffer(
+        buffer.into_byte_buffer(),
+        T::PTYPE,
+        validity,
+    ))
 }
 
-fn apply_filtered_patches_buffer<T, U, O>(
+fn apply_filtered_patches_buffer<T, O>(
     buffer: Buffer<O>,
     patches: &Patches,
     for_offset: usize,
@@ -410,7 +274,6 @@ fn apply_filtered_patches_buffer<T, U, O>(
 ) -> VortexResult<Buffer<O>>
 where
     T: NativePType + WrappingAdd + AsPrimitive<O>,
-    U: NativePType + AsPrimitive<T>,
     O: NativePType,
 {
     let p_idx = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
@@ -427,10 +290,10 @@ where
     };
 
     match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-        apply_filtered_patches_typed::<T, U, O, I>(
+        apply_filtered_patches_typed::<T, O, I>(
             out.as_mut_slice(),
             p_idx.as_slice::<I>(),
-            p_val.as_slice::<U>(),
+            p_val.as_slice::<T>(),
             p_off,
             for_offset,
             references,
@@ -458,17 +321,16 @@ fn gallop_ge<I: AsPrimitive<usize>>(indices: &[I], start: usize, target: usize) 
     lo + 1 + indices[lo + 1..hi].partition_point(|&i| i.as_() < target)
 }
 
-fn apply_filtered_patches_typed<T, U, O, I>(
+fn apply_filtered_patches_typed<T, O, I>(
     out: &mut [O],
     p_idx: &[I],
-    p_val: &[U],
+    p_val: &[T],
     p_off: usize,
     for_offset: usize,
     references: &[T],
     mask_values: &MaskValues,
 ) where
     T: NativePType + WrappingAdd + AsPrimitive<O>,
-    U: Copy + AsPrimitive<T>,
     O: Copy + 'static,
     I: AsPrimitive<usize>,
 {
@@ -516,21 +378,20 @@ fn apply_filtered_patches_typed<T, U, O, I>(
         rank += mask_bits.slice(prev_pos..orig_pos).true_count();
         prev_pos = orig_pos;
         let ref_b = references[(for_offset + orig_pos) / FL_CHUNK_SIZE];
-        out[rank] = ref_b.wrapping_add(&val.as_()).as_();
+        out[rank] = ref_b.wrapping_add(&val).as_();
     }
 }
 
-fn gallop_apply_filtered_patches<T, U, O, I>(
+fn gallop_apply_filtered_patches<T, O, I>(
     out: &mut [O],
     p_idx: &[I],
-    p_val: &[U],
+    p_val: &[T],
     p_off: usize,
     for_offset: usize,
     references: &[T],
     positions: impl Iterator<Item = usize>,
 ) where
     T: NativePType + WrappingAdd + AsPrimitive<O>,
-    U: Copy + AsPrimitive<T>,
     O: Copy + 'static,
     I: AsPrimitive<usize>,
 {
@@ -540,13 +401,13 @@ fn gallop_apply_filtered_patches<T, U, O, I>(
         cursor = gallop_ge(p_idx, cursor, target);
         if cursor < p_idx.len() && p_idx[cursor].as_() == target {
             let ref_b = references[(for_offset + orig_pos) / FL_CHUNK_SIZE];
-            out[out_rank] = ref_b.wrapping_add(&p_val[cursor].as_()).as_();
+            out[out_rank] = ref_b.wrapping_add(&p_val[cursor]).as_();
             cursor += 1;
         }
     }
 }
 
-fn filter_blocked_same_width<T: NativePType + WrappingAdd + AsPrimitive<T>>(
+fn filter_blocked_primitive<T: NativePType + WrappingAdd>(
     encoded: PrimitiveArray,
     references: &[T],
     offset: usize,
@@ -592,58 +453,13 @@ fn filter_blocked_same_width<T: NativePType + WrappingAdd + AsPrimitive<T>>(
     Ok(PrimitiveArray::new(buffer, validity))
 }
 
-fn filter_blocked_narrow_t<T>(
-    encoded: PrimitiveArray,
+fn filter_blocked_alloc<T: NativePType + WrappingAdd>(
+    src: &[T],
     references: &[T],
     offset: usize,
     mask_values: &MaskValues,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
-{
-    match_each_unsigned_integer_ptype!(encoded.ptype(), |U| {
-        filter_blocked_narrow::<T, U>(encoded, references, offset, mask_values, ctx)
-    })
-}
-
-fn filter_blocked_narrow<T, U>(
-    encoded: PrimitiveArray,
-    references: &[T],
-    offset: usize,
-    mask_values: &MaskValues,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    U: NativePType + AsPrimitive<T>,
-{
-    let validity = encoded.validity()?;
-    let buffer = filter_blocked_alloc(
-        encoded.as_slice::<U>(),
-        references,
-        offset,
-        mask_values,
-        ctx,
-    );
-    Ok(PrimitiveArray::new(buffer, validity))
-}
-
-fn filter_blocked_alloc<T, U>(
-    src: &[U],
-    references: &[T],
-    offset: usize,
-    mask_values: &MaskValues,
-    ctx: &mut ExecutionCtx,
-) -> Buffer<T>
-where
-    T: NativePType + WrappingAdd,
-    U: Copy + AsPrimitive<T>,
-{
+) -> Buffer<T> {
     let len = src.len();
     let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
     let dst = &mut out.spare_capacity_mut()[..len];
@@ -656,11 +472,11 @@ where
                 let chunk = abs_pos / FL_CHUNK_SIZE;
                 let run_len = (end - pos).min(FL_CHUNK_SIZE - (abs_pos % FL_CHUNK_SIZE));
                 let reference = references[chunk];
-                for (slot, &val) in dst[out_idx..out_idx + run_len]
+                for (slot, val) in dst[out_idx..out_idx + run_len]
                     .iter_mut()
                     .zip(&src[out_idx..out_idx + run_len])
                 {
-                    slot.write(reference.wrapping_add(&val.as_()));
+                    slot.write(reference.wrapping_add(val));
                 }
                 pos += run_len;
                 out_idx += run_len;
@@ -668,13 +484,13 @@ where
         }
         debug_assert_eq!(out_idx, len);
     } else {
-        for ((slot, &val), orig_pos) in dst
+        for ((slot, val), orig_pos) in dst
             .iter_mut()
             .zip(src)
             .zip(mask_values.bit_buffer().set_indices())
         {
             let reference = references[(offset + orig_pos) / FL_CHUNK_SIZE];
-            slot.write(reference.wrapping_add(&val.as_()));
+            slot.write(reference.wrapping_add(val));
         }
     }
     // SAFETY: every slot in `0..len` was initialized above.
@@ -699,32 +515,19 @@ fn take_blocked(
         .execute_mask(indices_prim.len(), ctx)?;
     let offset = usize::from(array.offset());
 
-    if taken_encoded.ptype() == refs.ptype() {
-        match_each_integer_ptype!(refs.ptype(), |T| {
-            take_blocked_same_width_t::<T>(
-                taken_encoded,
-                refs.as_slice::<T>(),
-                &indices_prim,
-                &idx_mask,
-                offset,
-                ctx,
-            )
-        })
-    } else {
-        match_each_integer_ptype!(refs.ptype(), |T| {
-            take_blocked_narrow_t::<T>(
-                taken_encoded,
-                refs.as_slice::<T>(),
-                &indices_prim,
-                &idx_mask,
-                offset,
-                ctx,
-            )
-        })
-    }
+    match_each_integer_ptype!(refs.ptype(), |T| {
+        take_blocked_t::<T>(
+            taken_encoded,
+            refs.as_slice::<T>(),
+            &indices_prim,
+            &idx_mask,
+            offset,
+            ctx,
+        )
+    })
 }
 
-fn take_blocked_same_width_t<T: NativePType + WrappingAdd + AsPrimitive<T>>(
+fn take_blocked_t<T: NativePType + WrappingAdd>(
     taken_encoded: PrimitiveArray,
     references: &[T],
     indices: &PrimitiveArray,
@@ -733,7 +536,7 @@ fn take_blocked_same_width_t<T: NativePType + WrappingAdd + AsPrimitive<T>>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     match_each_integer_ptype!(indices.ptype(), |I| {
-        take_blocked_same_width::<T, I>(
+        take_blocked_typed::<T, I>(
             taken_encoded,
             references,
             indices.as_slice::<I>(),
@@ -744,7 +547,7 @@ fn take_blocked_same_width_t<T: NativePType + WrappingAdd + AsPrimitive<T>>(
     })
 }
 
-fn take_blocked_same_width<T, I>(
+fn take_blocked_typed<T, I>(
     taken_encoded: PrimitiveArray,
     references: &[T],
     indices: &[I],
@@ -753,7 +556,7 @@ fn take_blocked_same_width<T, I>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray>
 where
-    T: NativePType + WrappingAdd + AsPrimitive<T>,
+    T: NativePType + WrappingAdd,
     I: NativePType + AsPrimitive<usize>,
 {
     let validity = taken_encoded.validity()?;
@@ -798,81 +601,8 @@ where
     Ok(PrimitiveArray::new(buffer, validity))
 }
 
-fn take_blocked_narrow_t<T>(
-    taken_encoded: PrimitiveArray,
-    references: &[T],
-    indices: &PrimitiveArray,
-    idx_mask: &Mask,
-    offset: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
-{
-    match_each_unsigned_integer_ptype!(taken_encoded.ptype(), |U| {
-        take_blocked_narrow_tu::<T, U>(taken_encoded, references, indices, idx_mask, offset, ctx)
-    })
-}
-
-fn take_blocked_narrow_tu<T, U>(
-    taken_encoded: PrimitiveArray,
-    references: &[T],
-    indices: &PrimitiveArray,
-    idx_mask: &Mask,
-    offset: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    U: NativePType + AsPrimitive<T>,
-{
-    match_each_integer_ptype!(indices.ptype(), |I| {
-        take_blocked_narrow::<T, U, I>(
-            taken_encoded,
-            references,
-            indices.as_slice::<I>(),
-            idx_mask,
-            offset,
-            ctx,
-        )
-    })
-}
-
-fn take_blocked_narrow<T, U, I>(
-    taken_encoded: PrimitiveArray,
-    references: &[T],
-    indices: &[I],
-    idx_mask: &Mask,
-    offset: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    U: NativePType + AsPrimitive<T>,
-    I: NativePType + AsPrimitive<usize>,
-{
-    let validity = taken_encoded.validity()?;
-    let len = taken_encoded.len();
-    if len == 0 || matches!(idx_mask, Mask::AllFalse(_)) {
-        return Ok(PrimitiveArray::new(Buffer::<T>::zeroed(len), validity));
-    }
-    let buffer = take_blocked_alloc(
-        taken_encoded.as_slice::<U>(),
-        references,
-        indices,
-        idx_mask,
-        offset,
-        ctx,
-    );
-    Ok(PrimitiveArray::new(buffer, validity))
-}
-
-fn take_blocked_alloc<T, U, I>(
-    src: &[U],
+fn take_blocked_alloc<T, I>(
+    src: &[T],
     references: &[T],
     indices: &[I],
     idx_mask: &Mask,
@@ -881,7 +611,6 @@ fn take_blocked_alloc<T, U, I>(
 ) -> Buffer<T>
 where
     T: NativePType + WrappingAdd,
-    U: Copy + AsPrimitive<T>,
     I: NativePType + AsPrimitive<usize>,
 {
     let len = src.len();
@@ -889,17 +618,17 @@ where
     let dst = &mut out.spare_capacity_mut()[..len];
     match idx_mask {
         Mask::AllTrue(_) => {
-            for ((slot, &val), &idx) in dst.iter_mut().zip(src).zip(indices) {
+            for ((slot, val), &idx) in dst.iter_mut().zip(src).zip(indices) {
                 let chunk = (offset + idx.as_()) / FL_CHUNK_SIZE;
-                slot.write(references[chunk].wrapping_add(&val.as_()));
+                slot.write(references[chunk].wrapping_add(val));
             }
         }
         Mask::Values(mask_values) => {
             let bits = mask_values.bit_buffer();
-            for (i, ((slot, &val), &idx)) in dst.iter_mut().zip(src).zip(indices).enumerate() {
+            for (i, ((slot, val), &idx)) in dst.iter_mut().zip(src).zip(indices).enumerate() {
                 if bits.value(i) {
                     let chunk = (offset + idx.as_()) / FL_CHUNK_SIZE;
-                    slot.write(references[chunk].wrapping_add(&val.as_()));
+                    slot.write(references[chunk].wrapping_add(val));
                 } else {
                     slot.write(T::zero());
                 }
@@ -1058,9 +787,9 @@ mod tests {
     }
 
     #[test]
-    fn test_blocked_filter_and_take_multi_chunk_narrowed_patched_sliced() -> VortexResult<()> {
+    fn test_blocked_filter_and_take_multi_chunk_patched_sliced() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Multi-chunk nullable i64 narrowed to u16 with patches across chunk boundaries.
+        // Multi-chunk nullable i64 with patches across chunk boundaries.
         let raw = PrimitiveArray::from_option_iter((0..3500usize).map(|i| {
             if i % 23 == 0 {
                 return None;
@@ -1194,7 +923,7 @@ mod tests {
             &mut ctx
         );
 
-        // Narrowed i64 -> u16 at bit_width=0 with patches.
+        // Blocked i64 at bit_width=0 with patches.
         let raw_i64 = PrimitiveArray::from_iter((0..2500usize).map(|i| {
             let base = (i / 1024) as i64 * 100_000_000;
             if i % 7 == 0 { base + 20_000 } else { base }

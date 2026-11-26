@@ -165,10 +165,6 @@ fn decompress_many_refs(
     offset: u16,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    if encoded.dtype().as_ptype() != references.ptype() {
-        return decompress_many_refs_narrow(encoded, &references, offset, ctx);
-    }
-
     // Try to do fused unpack. BitPacked chunks line up with FoR chunks when the offsets match.
     let encoded = match encoded.try_downcast::<BitPacked>() {
         Ok(bp) if bp.offset() == offset => {
@@ -179,179 +175,6 @@ fn decompress_many_refs(
     };
 
     add_references(encoded.downcast::<Primitive>(), &references, offset, ctx)
-}
-
-/// Decompress a blocked FoR array whose `encoded` child was narrowed to a smaller unsigned integer.
-fn decompress_many_refs_narrow(
-    encoded: ArrayRef,
-    references: &PrimitiveArray,
-    offset: u16,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    let encoded = match encoded.try_downcast::<BitPacked>() {
-        Ok(bp) if bp.offset() == offset => {
-            return fused_decompress_many_refs_narrow(bp.as_view(), references, ctx);
-        }
-        Ok(bp) => bp.into_array(),
-        Err(encoded) => encoded,
-    };
-
-    add_references_narrow(encoded.downcast::<Primitive>(), references, offset, ctx)
-}
-
-fn add_references_narrow(
-    encoded: PrimitiveArray,
-    references: &PrimitiveArray,
-    offset: u16,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    match_each_integer_ptype!(references.ptype(), |T| {
-        add_references_narrow_t::<T>(encoded, references, offset, ctx)
-    })
-}
-
-fn add_references_narrow_t<T>(
-    encoded: PrimitiveArray,
-    references: &PrimitiveArray,
-    offset: u16,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
-{
-    match_each_unsigned_integer_ptype!(encoded.ptype(), |U| {
-        add_references_narrow_typed::<T, U>(encoded, references.as_slice::<T>(), offset, ctx)
-    })
-}
-
-fn add_references_narrow_typed<T, U>(
-    encoded: PrimitiveArray,
-    references: &[T],
-    offset: u16,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    U: NativePType + AsPrimitive<T>,
-{
-    let validity = encoded.validity()?;
-    let len = encoded.len();
-    if len == 0 {
-        return Ok(PrimitiveArray::new(Buffer::<T>::empty(), validity));
-    }
-
-    let first_len = (FL_CHUNK_SIZE - usize::from(offset)).min(len);
-    let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-    let (first, rest) = encoded.as_slice::<U>().split_at(first_len);
-    let inputs = iter::once(first).chain(rest.chunks(FL_CHUNK_SIZE));
-    let outputs = chunks_mut(&mut values.spare_capacity_mut()[..len], first_len);
-    for ((output, input), &reference) in outputs.zip(inputs).zip_eq(references) {
-        for (output, &value) in output.iter_mut().zip(input) {
-            output.write(reference.wrapping_add(&value.as_()));
-        }
-    }
-    // SAFETY: the loop above initialized every value.
-    unsafe { values.set_len(len) };
-    Ok(PrimitiveArray::new(values.freeze(), validity))
-}
-
-fn fused_decompress_many_refs_narrow(
-    bp: ArrayView<'_, BitPacked>,
-    references: &PrimitiveArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    match_each_integer_ptype!(references.ptype(), |T| {
-        fused_decompress_many_refs_narrow_t::<T>(bp, references, ctx)
-    })
-}
-
-fn fused_decompress_many_refs_narrow_t<T>(
-    bp: ArrayView<'_, BitPacked>,
-    references: &PrimitiveArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
-{
-    match_each_unsigned_integer_ptype!(bp.dtype().as_ptype(), |U| {
-        fused_unpack_narrow::<T, U>(bp, references.as_slice::<T>(), ctx)
-    })
-}
-
-fn fused_unpack_narrow<T, U>(
-    bp: ArrayView<'_, BitPacked>,
-    references: &[T],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray>
-where
-    T: NativePType + WrappingAdd,
-    U: PhysicalPType<Physical = U> + BitPacking + AsPrimitive<T>,
-{
-    let len = bp.len();
-    let mut builder =
-        PrimitiveBuilder::<T>::with_capacity_in(bp.dtype().nullability(), len, ctx.allocator());
-    let mut uninit_range = builder.uninit_range(len);
-    unsafe {
-        uninit_range.append_mask(&bp.validity()?.execute_mask(len, ctx)?);
-    }
-
-    // SAFETY: `unpack_chunks_narrow` initializes every value in this range.
-    let output = unsafe { uninit_range.slice_uninit_mut(0, len) };
-    unpack_chunks_narrow::<T, U>(bp, references, output)?;
-
-    if let Some(patches) = bp.patches() {
-        apply_patches::<T, U>(
-            &mut uninit_range,
-            &patches,
-            usize::from(bp.offset()),
-            |chunk| references[chunk],
-            ctx,
-        )?;
-    }
-
-    // SAFETY: validity mask and every element in `output` have been initialized.
-    unsafe {
-        uninit_range.finish();
-    }
-
-    Ok(builder.finish_into_primitive())
-}
-
-fn unpack_chunks_narrow<T, U>(
-    bp: ArrayView<'_, BitPacked>,
-    references: &[T],
-    output: &mut [MaybeUninit<T>],
-) -> VortexResult<()>
-where
-    T: NativePType + WrappingAdd,
-    U: PhysicalPType<Physical = U> + BitPacking + AsPrimitive<T>,
-{
-    let offset = usize::from(bp.offset());
-    let packed = bp.packed_slice::<U>();
-    let bit_width = usize::from(bp.bit_width());
-    let mut scratch = [U::zero(); FL_CHUNK_SIZE];
-    for_each_packed_chunk::<U, _>(packed, bit_width, offset, bp.len(), |packed, range| {
-        let reference = references[range.start / FL_CHUNK_SIZE];
-        let skip = offset.saturating_sub(range.start);
-        let dst = &mut output[range.start + skip - offset..range.end - offset];
-        if bit_width == 0 {
-            dst.fill(MaybeUninit::new(reference));
-        } else {
-            // SAFETY: `packed` holds one chunk at `bit_width` and `scratch` holds one chunk.
-            unsafe { U::unchecked_unpack(bit_width, packed, &mut scratch) };
-            for (out, &val) in dst.iter_mut().zip(&scratch[skip..range.len()]) {
-                out.write(reference.wrapping_add(&val.as_()));
-            }
-        }
-    })
 }
 
 /// Add each chunk's reference to `encoded` in place.
@@ -490,7 +313,7 @@ fn fused_unpack<
 
     if let Some(patches) = bp.patches() {
         let offset = usize::from(bp.offset());
-        apply_patches::<T, T>(&mut uninit_range, &patches, offset, &chunk_reference, ctx)?;
+        apply_patches::<T>(&mut uninit_range, &patches, offset, &chunk_reference, ctx)?;
     }
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `len` values and
@@ -561,7 +384,7 @@ unsafe fn unfor_pack_into<T: FoR>(
 }
 
 /// Executes `patches` and invokes `visit(pos, decoded_value)` for every in-bounds patch entry.
-pub(crate) fn for_each_decoded_patch<T, U>(
+pub(crate) fn for_each_decoded_patch<T>(
     patches: &Patches,
     len: usize,
     for_offset: usize,
@@ -571,11 +394,10 @@ pub(crate) fn for_each_decoded_patch<T, U>(
 ) -> VortexResult<()>
 where
     T: NativePType + WrappingAdd,
-    U: NativePType + AsPrimitive<T>,
 {
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-    let values = values.as_slice::<U>();
+    let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         for_each_decoded_patch_typed(
             indices.as_slice::<P>(),
@@ -590,9 +412,9 @@ where
     Ok(())
 }
 
-fn for_each_decoded_patch_typed<P, T, U>(
+fn for_each_decoded_patch_typed<P, T>(
     indices: &[P],
-    values: &[U],
+    values: &[T],
     patch_offset: usize,
     len: usize,
     for_offset: usize,
@@ -601,7 +423,6 @@ fn for_each_decoded_patch_typed<P, T, U>(
 ) where
     P: AsPrimitive<usize>,
     T: NativePType + WrappingAdd,
-    U: Copy + AsPrimitive<T>,
 {
     for (&index, &value) in indices.iter().zip_eq(values) {
         let Some(pos) = <P as AsPrimitive<usize>>::as_(index).checked_sub(patch_offset) else {
@@ -611,14 +432,14 @@ fn for_each_decoded_patch_typed<P, T, U>(
             continue;
         }
         let reference = chunk_reference((for_offset + pos) / FL_CHUNK_SIZE);
-        visit(pos, reference.wrapping_add(&value.as_()));
+        visit(pos, reference.wrapping_add(&value));
     }
 }
 
 /// Write each patch value plus the reference of the chunk it falls in.
 ///
 /// `offset` is the position of the first value within the first chunk, as in `fused_unpack`.
-fn apply_patches<T, U>(
+fn apply_patches<T>(
     uninit_range: &mut UninitRange<T>,
     patches: &Patches,
     offset: usize,
@@ -627,7 +448,6 @@ fn apply_patches<T, U>(
 ) -> VortexResult<()>
 where
     T: NativePType + WrappingAdd,
-    U: NativePType + AsPrimitive<T>,
 {
     assert_eq!(patches.array_len(), uninit_range.len());
     assert!(
@@ -635,7 +455,7 @@ where
         "Patch values must be all valid"
     );
     let len = uninit_range.len();
-    for_each_decoded_patch::<T, U>(
+    for_each_decoded_patch::<T>(
         patches,
         len,
         offset,

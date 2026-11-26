@@ -17,7 +17,6 @@ mod plugin;
 pub use plugin::FoRPlugin;
 pub use plugin::for_v1_id;
 pub use plugin::for_v2_id;
-pub use plugin::for_v3_id;
 
 mod vtable;
 pub use vtable::FoR;

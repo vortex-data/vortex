@@ -193,13 +193,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 68_972 } else { 68_908 }
+    if cfg!(feature = "zstd") { 70_004 } else { 69_940 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_128
+        55_088
     )
 )]
 #[tokio::test]

@@ -4,10 +4,8 @@
 use std::mem::MaybeUninit;
 
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
-use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -15,8 +13,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -90,23 +86,16 @@ fn encode_primitive<T: NativePType + WrappingSub + PrimInt>(
 
 fn encode_chunked_typed<T>(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray>
 where
-    T: PhysicalPType + WrappingSub + PrimInt + Default + AsPrimitive<T::Physical>,
-    T::Physical: AsPrimitive<u64> + AsPrimitive<u8> + AsPrimitive<u16> + AsPrimitive<u32>,
+    T: NativePType + WrappingSub + PrimInt + Default,
     PValue: From<T>,
 {
     let validity = array.validity()?;
     let mask = validity.execute_mask(array.len(), ctx)?;
     let values = array.as_slice::<T>();
 
-    let (references, max_span, bits_opt) = match mask.bit_buffer() {
-        AllOr::All => {
-            let (references, max_span) = chunk_mins_all_valid(values);
-            (references, max_span, None)
-        }
-        AllOr::Some(bits) => {
-            let (references, max_span) = chunk_mins_mixed_validity(values, bits);
-            (references, max_span, Some(bits))
-        }
+    let (references, bits_opt) = match mask.bit_buffer() {
+        AllOr::All => (chunk_mins_all_valid(values), None),
+        AllOr::Some(bits) => (chunk_mins_mixed_validity(values, bits), Some(bits)),
         // Every value is null, so constants stand in for both children.
         AllOr::None => {
             let dtype = array.dtype();
@@ -130,82 +119,24 @@ where
         );
     }
 
-    let encoded: ArrayRef = match narrowed_residual_ptype(T::PTYPE, max_span) {
-        PType::U8 if T::PTYPE != PType::U8 => {
-            let buf = match bits_opt {
-                None => subtract_all_valid_narrow::<T, u8>(values, &references),
-                Some(bits) => subtract_mixed_validity_narrow::<T, u8>(values, bits, &references),
-            };
-            PrimitiveArray::new(buf, validity).into_array()
-        }
-        PType::U16 if T::PTYPE != PType::U16 => {
-            let buf = match bits_opt {
-                None => subtract_all_valid_narrow::<T, u16>(values, &references),
-                Some(bits) => subtract_mixed_validity_narrow::<T, u16>(values, bits, &references),
-            };
-            PrimitiveArray::new(buf, validity).into_array()
-        }
-        PType::U32 if T::PTYPE != PType::U32 => {
-            let buf = match bits_opt {
-                None => subtract_all_valid_narrow::<T, u32>(values, &references),
-                Some(bits) => subtract_mixed_validity_narrow::<T, u32>(values, bits, &references),
-            };
-            PrimitiveArray::new(buf, validity).into_array()
-        }
-        _ => {
-            let buf = match bits_opt {
-                None => subtract_all_valid(values, &references),
-                Some(bits) => subtract_mixed_validity(values, bits, &references),
-            };
-            PrimitiveArray::new(buf, validity).into_array()
-        }
+    let encoded = match bits_opt {
+        None => subtract_all_valid(values, &references),
+        Some(bits) => subtract_mixed_validity(values, bits, &references),
     };
 
     FoR::try_new_chunked(
-        encoded,
+        PrimitiveArray::new(encoded, validity).into_array(),
         PrimitiveArray::new(references, Validity::NonNullable).into_array(),
         0,
     )
 }
 
-/// Choose the narrowest unsigned residual ptype for blocked FoR on 32-bit and 64-bit integers.
-fn narrowed_residual_ptype(logical: PType, max_span: u64) -> PType {
-    if logical.byte_width() < 4 {
-        return logical;
-    }
-    if max_span <= u64::from(u8::MAX) {
-        PType::U8
-    } else if max_span <= u64::from(u16::MAX) {
-        PType::U16
-    } else if logical.byte_width() > 4 && max_span <= u64::from(u32::MAX) {
-        PType::U32
-    } else {
-        logical
-    }
-}
-
-/// Find each all-valid chunk's minimum and the maximum per-chunk span across all chunks.
-fn chunk_mins_all_valid<T>(values: &[T]) -> (Buffer<T>, u64)
-where
-    T: PhysicalPType + PrimInt + WrappingSub + AsPrimitive<T::Physical>,
-    T::Physical: AsPrimitive<u64>,
-{
-    let mut max_span = 0u64;
-    let references = values
+/// Find each all-valid chunk's minimum.
+fn chunk_mins_all_valid<T: PrimInt>(values: &[T]) -> Buffer<T> {
+    values
         .chunks(FL_CHUNK_SIZE)
-        .map(|chunk| {
-            let mut min = T::max_value();
-            let mut max = T::min_value();
-            for &v in chunk {
-                min = min.min(v);
-                max = max.max(v);
-            }
-            let span: u64 = <T::Physical as AsPrimitive<u64>>::as_(max.wrapping_sub(&min).as_());
-            max_span = max_span.max(span);
-            min
-        })
-        .collect::<Buffer<T>>();
-    (references, max_span)
+        .map(|chunk| chunk.iter().copied().min().unwrap_or_else(T::zero))
+        .collect::<Buffer<T>>()
 }
 
 fn subtract_all_valid<T: PrimInt + WrappingSub>(values: &[T], references: &[T]) -> Buffer<T> {
@@ -225,50 +156,16 @@ fn subtract_all_valid<T: PrimInt + WrappingSub>(values: &[T], references: &[T]) 
     encoded.freeze()
 }
 
-fn subtract_all_valid_narrow<T, U>(values: &[T], references: &[T]) -> Buffer<U>
-where
-    T: PhysicalPType + PrimInt + WrappingSub + AsPrimitive<T::Physical>,
-    T::Physical: AsPrimitive<U>,
-    U: NativePType,
-{
-    let mut encoded = BufferMut::<U>::with_capacity(values.len());
-    let out = &mut encoded.spare_capacity_mut()[..values.len()];
-    for ((chunk, out), &reference) in values
-        .chunks(FL_CHUNK_SIZE)
-        .zip(out.chunks_mut(FL_CHUNK_SIZE))
-        .zip(references)
-    {
-        for (slot, v) in out.iter_mut().zip(chunk) {
-            slot.write(<T::Physical as AsPrimitive<U>>::as_(
-                v.wrapping_sub(&reference).as_(),
-            ));
-        }
-    }
-    // SAFETY: the loop above initialized every value.
-    unsafe { encoded.set_len(values.len()) };
-    encoded.freeze()
-}
-
-/// Find each mixed-validity chunk's minimum valid value and the maximum per-chunk span.
-fn chunk_mins_mixed_validity<T>(values: &[T], bits: &BitBuffer) -> (Buffer<T>, u64)
-where
-    T: PhysicalPType + PrimInt + WrappingSub + AsPrimitive<T::Physical>,
-    T::Physical: AsPrimitive<u64>,
-{
+/// Find each mixed-validity chunk's minimum valid value.
+fn chunk_mins_mixed_validity<T: PrimInt>(values: &[T], bits: &BitBuffer) -> Buffer<T> {
     let bits = bits.as_view();
-    let mut max_span = 0u64;
     let mins = values
         .chunks(FL_CHUNK_SIZE)
         .enumerate()
         .map(|(i, chunk)| {
             let start = i * FL_CHUNK_SIZE;
             let mask = bits.slice(start..start + chunk.len());
-            valid_min_max(chunk, mask).map(|(min, max)| {
-                let span: u64 =
-                    <T::Physical as AsPrimitive<u64>>::as_(max.wrapping_sub(&min).as_());
-                max_span = max_span.max(span);
-                min
-            })
+            valid_min(chunk, mask)
         })
         .collect::<Vec<_>>();
 
@@ -279,14 +176,12 @@ where
         .next()
         .copied()
         .unwrap_or_else(T::zero);
-    let references = mins
-        .into_iter()
+    mins.into_iter()
         .map(|min| {
             previous = min.unwrap_or(previous);
             previous
         })
-        .collect::<Buffer<T>>();
-    (references, max_span)
+        .collect::<Buffer<T>>()
 }
 
 fn subtract_mixed_validity<T: PrimInt + WrappingSub + Default>(
@@ -312,44 +207,13 @@ fn subtract_mixed_validity<T: PrimInt + WrappingSub + Default>(
     encoded.freeze()
 }
 
-fn subtract_mixed_validity_narrow<T, U>(
-    values: &[T],
-    bits: &BitBuffer,
-    references: &[T],
-) -> Buffer<U>
-where
-    T: PhysicalPType + PrimInt + WrappingSub + AsPrimitive<T::Physical>,
-    T::Physical: AsPrimitive<U>,
-    U: NativePType + Default,
-{
-    let bits = bits.as_view();
-    let mut encoded = BufferMut::<U>::with_capacity(values.len());
-    let out = &mut encoded.spare_capacity_mut()[..values.len()];
-    for ((i, (chunk, out)), &reference) in values
-        .chunks(FL_CHUNK_SIZE)
-        .zip(out.chunks_mut(FL_CHUNK_SIZE))
-        .enumerate()
-        .zip(references)
-    {
-        let start = i * FL_CHUNK_SIZE;
-        let mask = bits.slice(start..start + chunk.len());
-        chunk.map_masked_into(mask, out, |v| {
-            <T::Physical as AsPrimitive<U>>::as_(v.wrapping_sub(&reference).as_())
-        });
-    }
-    // SAFETY: the loop above initialized every value.
-    unsafe { encoded.set_len(values.len()) };
-    encoded.freeze()
-}
-
-/// The `(min, max)` of the valid `values`, or `None` if none are valid.
+/// The minimum of the valid `values`, or `None` if none are valid.
 #[inline]
-fn valid_min_max<T: PrimInt>(values: &[T], mask: BitBufferView) -> Option<(T, T)> {
+fn valid_min<T: PrimInt>(values: &[T], mask: BitBufferView) -> Option<T> {
     if mask.true_count() == 0 {
         return None;
     }
     let mut min = T::max_value();
-    let mut max = T::min_value();
     for_each_mask_word(mask, |word, start, len| {
         let bytes = word.to_le_bytes();
         for (j, &v) in values[start..start + len].iter().enumerate() {
@@ -357,11 +221,10 @@ fn valid_min_max<T: PrimInt>(values: &[T], mask: BitBufferView) -> Option<(T, T)
             // An `if` compiles to a conditional move. Blending with an all-ones mask instead took
             // 16 instructions per value and made encoding a third slower.
             min = min.min(if valid { v } else { T::max_value() });
-            max = max.max(if valid { v } else { T::min_value() });
         }
     });
 
-    Some((min, max))
+    Some(min)
 }
 
 #[cfg(test)]

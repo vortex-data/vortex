@@ -110,8 +110,7 @@ fn copy_primitive<E: NativePType>(encoded: &PrimitiveArray) -> PrimitiveArray {
     )
 }
 
-/// Each iteration decodes a uniquely owned blocked FoR array (narrowed to unsigned residuals when
-/// chunk spans fit, otherwise same-width in place).
+/// Each iteration decodes a uniquely owned blocked FoR array in place.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {

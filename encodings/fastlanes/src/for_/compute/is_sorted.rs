@@ -132,52 +132,28 @@ where
         + BitPackedIter
         + PrimInt
         + WrappingAdd
-        + AsPrimitive<T>
         + AsPrimitive<T::Physical>,
     T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
-    u8: AsPrimitive<T>,
-    u16: AsPrimitive<T>,
-    u32: AsPrimitive<T>,
-    u64: AsPrimitive<T>,
 {
     if let Some(bp) = array.encoded().as_opt::<BitPacked>()
         && bp.offset() == array.offset()
     {
         let bit_width = usize::from(bp.bit_width());
-        if bp.dtype().as_ptype() == T::PTYPE {
-            return is_sorted_blocked_bitpacked::<T, T>(
-                bp, bit_width, refs, start_row, strict, ctx,
-            );
-        }
-        return match_each_unsigned_integer_ptype!(bp.dtype().as_ptype(), |U| {
-            is_sorted_blocked_bitpacked::<T, U>(bp, bit_width, refs, start_row, strict, ctx)
-        });
+        return is_sorted_blocked_bitpacked::<T>(bp, bit_width, refs, start_row, strict, ctx);
     }
 
     let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
     let offset = usize::from(array.offset());
-    if encoded.ptype() == T::PTYPE {
-        Ok(is_sorted_blocked_primitive::<T, T>(
-            encoded.as_slice::<T>(),
-            offset,
-            refs,
-            start_row,
-            strict,
-        ))
-    } else {
-        Ok(match_each_unsigned_integer_ptype!(encoded.ptype(), |U| {
-            is_sorted_blocked_primitive::<T, U>(
-                encoded.as_slice::<U>(),
-                offset,
-                refs,
-                start_row,
-                strict,
-            )
-        }))
-    }
+    Ok(is_sorted_blocked_primitive::<T>(
+        encoded.as_slice::<T>(),
+        offset,
+        refs,
+        start_row,
+        strict,
+    ))
 }
 
-fn is_sorted_blocked_bitpacked<T, U>(
+fn is_sorted_blocked_bitpacked<T>(
     bp: ArrayView<'_, BitPacked>,
     bit_width: usize,
     refs: &[T],
@@ -186,9 +162,13 @@ fn is_sorted_blocked_bitpacked<T, U>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool>
 where
-    T: IntegerPType + PrimInt + WrappingAdd,
-    U: PhysicalPType + BitPackedIter + AsPrimitive<U::Physical>,
-    U::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
+    T: IntegerPType
+        + PhysicalPType
+        + BitPackedIter
+        + PrimInt
+        + WrappingAdd
+        + AsPrimitive<T::Physical>,
+    T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
 {
     let len = bp.len();
     let offset = usize::from(bp.offset());
@@ -203,20 +183,20 @@ where
 
     if let Some((p_idx, p_val, p_off)) = patch_data {
         match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-            Ok(is_sorted_blocked_bitpacked_inner::<T, U, I>(
-                bp.packed_slice::<U::Physical>(),
+            Ok(is_sorted_blocked_bitpacked_inner::<T, I>(
+                bp.packed_slice::<T::Physical>(),
                 bit_width,
                 offset,
                 len,
                 start_row,
                 strict,
                 refs,
-                Some((p_idx.as_slice::<I>(), p_val.as_slice::<U>(), p_off)),
+                Some((p_idx.as_slice::<I>(), p_val.as_slice::<T>(), p_off)),
             ))
         })
     } else {
-        Ok(is_sorted_blocked_bitpacked_inner::<T, U, u64>(
-            bp.packed_slice::<U::Physical>(),
+        Ok(is_sorted_blocked_bitpacked_inner::<T, u64>(
+            bp.packed_slice::<T::Physical>(),
             bit_width,
             offset,
             len,
@@ -232,27 +212,31 @@ where
     clippy::too_many_arguments,
     reason = "typed blocked is_sorted execution parameters"
 )]
-fn is_sorted_blocked_bitpacked_inner<T, U, I>(
-    packed: &[U::Physical],
+fn is_sorted_blocked_bitpacked_inner<T, I>(
+    packed: &[T::Physical],
     bit_width: usize,
     offset: usize,
     len: usize,
     start_row: usize,
     strict: bool,
     refs: &[T],
-    patches: Option<(&[I], &[U], usize)>,
+    patches: Option<(&[I], &[T], usize)>,
 ) -> bool
 where
-    T: IntegerPType + PrimInt + WrappingAdd,
-    U: PhysicalPType + BitPackedIter + AsPrimitive<U::Physical>,
-    U::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
+    T: IntegerPType
+        + PhysicalPType
+        + BitPackedIter
+        + PrimInt
+        + WrappingAdd
+        + AsPrimitive<T::Physical>,
+    T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
     I: AsPrimitive<usize>,
 {
-    let elems_per_chunk = 128 * bit_width / size_of::<U>();
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
     let padded_len = offset + len;
     let num_chunks = padded_len.div_ceil(FL_CHUNK_SIZE);
     let start_chunk = (offset + start_row) / FL_CHUNK_SIZE;
-    let mut scratch = [U::Physical::zero(); FL_CHUNK_SIZE];
+    let mut scratch = [T::Physical::zero(); FL_CHUNK_SIZE];
     let mut patch_cursor = patches
         .map(|(p_idx, _, p_off)| {
             p_idx.partition_point(|&idx| idx.as_().saturating_sub(p_off) < start_row)
@@ -270,11 +254,11 @@ where
         let lane_end = offset + chunk_hi - chunk_start_padded;
 
         if bit_width == 0 {
-            scratch[lane_start..lane_end].fill(U::Physical::zero());
+            scratch[lane_start..lane_end].fill(T::Physical::zero());
         } else {
             let packed_chunk = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
             // SAFETY: `packed_chunk` holds one chunk at `bit_width` and `scratch` holds one chunk.
-            unsafe { U::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch) };
+            unsafe { T::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch) };
         }
 
         if let Some((p_idx, p_val, p_off)) = patches {
@@ -308,8 +292,8 @@ where
     true
 }
 
-fn is_sorted_blocked_primitive<T, U>(
-    encoded: &[U],
+fn is_sorted_blocked_primitive<T>(
+    encoded: &[T],
     offset: usize,
     refs: &[T],
     start_row: usize,
@@ -317,7 +301,6 @@ fn is_sorted_blocked_primitive<T, U>(
 ) -> bool
 where
     T: NativePType + WrappingAdd + Ord,
-    U: Copy + AsPrimitive<T>,
 {
     let mut prev: Option<T> = None;
     let mut pos = start_row;
@@ -327,8 +310,8 @@ where
         let chunk = abs_pos / FL_CHUNK_SIZE;
         let run_len = (len - pos).min(FL_CHUNK_SIZE - (abs_pos % FL_CHUNK_SIZE));
         let ref_b = refs[chunk];
-        for &val in &encoded[pos..pos + run_len] {
-            let decoded = ref_b.wrapping_add(&val.as_());
+        for val in &encoded[pos..pos + run_len] {
+            let decoded = ref_b.wrapping_add(val);
             if let Some(p) = prev {
                 let ok = if strict { decoded > p } else { decoded >= p };
                 if !ok {

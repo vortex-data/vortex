@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ProbeState;
-use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar::PrimitiveScalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
@@ -20,26 +16,6 @@ use crate::FL_CHUNK_SIZE;
 use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRSlots;
-
-fn cast_scalar<U: NativePType + AsPrimitive<P>, P: NativePType>(
-    encoded: &PrimitiveScalar<'_>,
-) -> Option<P> {
-    encoded.typed_value::<U>().map(AsPrimitive::as_)
-}
-
-fn encoded_scalar_as<P: NativePType>(encoded: &PrimitiveScalar<'_>) -> Option<P>
-where
-    u8: AsPrimitive<P>,
-    u16: AsPrimitive<P>,
-    u32: AsPrimitive<P>,
-    u64: AsPrimitive<P>,
-{
-    if encoded.ptype() == P::PTYPE {
-        encoded.typed_value::<P>()
-    } else {
-        match_each_unsigned_integer_ptype!(encoded.ptype(), |U| { cast_scalar::<U, P>(encoded) })
-    }
-}
 
 impl OperationsVTable<FoR> for FoR {
     type ProbeState = ();
@@ -68,7 +44,8 @@ impl OperationsVTable<FoR> for FoR {
         let reference = reference.as_primitive();
 
         Ok(match_each_integer_ptype!(array.ptype(), |P| {
-            encoded_scalar_as::<P>(&encoded_pvalue)
+            encoded_pvalue
+                .typed_value::<P>()
                 .map(|v| {
                     v.wrapping_add(
                         reference

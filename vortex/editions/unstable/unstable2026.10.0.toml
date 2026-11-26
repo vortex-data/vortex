@@ -14,7 +14,6 @@ immutable = false
 [added]
 arrays = [
     "fastlanes.for.v2",
-    "fastlanes.for.v3",
 ]
 layouts = []
 dtypes = [
@@ -27,7 +26,6 @@ aggregates = []
 [components]
 arrays = [
     "fastlanes.for.v2",
-    "fastlanes.for.v3",
 ]
 layouts = []
 dtypes = [

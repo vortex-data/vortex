@@ -35,12 +35,11 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
-use vortex_fastlanes::for_v3_id;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 fn has_blocked_for(ids: &[ArrayId]) -> bool {
-    ids.contains(&for_v2_id()) || ids.contains(&for_v3_id())
+    ids.contains(&for_v2_id())
 }
 
 static FOR_V1: FoRScheme = FoRScheme::v1();
