@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Estimates retained heap storage for DType graphs.
+//!
+//! Lazy fields are projected from their wire representation without resolving them. Sharing is
+//! deduplicated within one graph, but not across separate estimates; allocator bookkeeping, Arc
+//! control blocks, and hidden extension allocations are omitted.
+
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::OnceLock;
