@@ -26,8 +26,8 @@ use futures::try_join;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::WidenArray;
@@ -179,30 +179,26 @@ impl LayoutStrategy for DictStrategy {
         let (stream, sample) = peek_probe_sample(stream, options.probe_len).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-        // The probe is the first compression of the column, long before the first full chunk.
-        // Record it, so that the size estimate of the write has a ratio early. The codes have
-        // a different form and ratio than the values, so keep the codes part of the probe for
-        // the codes scopes.
-        let codes_probe = match sample {
-            None => None, // empty stream
+        let should_fallback = match sample {
+            None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
-                    .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
-                let sample_size =
-                    u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
-                        .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
-                ctx.size_scope()
-                    .record_probe(sample_size, compressed.nbytes());
+                let is_dict =
+                    self.probe_compressor
+                        .may_compress_to(&sample, &Dict.id(), &mut exec_ctx)?;
 
-                probe_dict_codes(&compressed).map(|codes| {
-                    let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
-                    (codes.len() as u64 * element_size, codes.nbytes())
-                })
+                if is_dict || !matches!(dtype, DType::Decimal(..)) {
+                    !is_dict
+                } else {
+                    // A decimal dictionary can also be inside byte parts. Only the compressed
+                    // sample shows it.
+                    let compressed = self
+                        .probe_compressor
+                        .compress_chunk(&sample, &mut exec_ctx)?;
+                    probe_dict_codes(&compressed).is_none()
+                }
             }
         };
-        let should_fallback = codes_probe.is_none();
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
@@ -240,9 +236,6 @@ impl LayoutStrategy for DictStrategy {
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
                 let ctx2 = ctx.clone().with_child_size_scope();
-                if let Some((uncompressed, compressed)) = codes_probe {
-                    ctx2.size_scope().record_probe(uncompressed, compressed);
-                }
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
                 let codes_fut = handle.spawn_nested(move |_| async move {

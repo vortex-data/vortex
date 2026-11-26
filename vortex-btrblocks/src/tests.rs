@@ -764,6 +764,11 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
 #[case::few_strings(
     VarBinViewArray::from_iter_str((0..4096).map(|i| ["red", "green", "blue"][i % 3])).into_array(),
 )]
+// The dictionary trial runs, but OnPair wins.
+#[case::mid_cardinality_strings(
+    VarBinViewArray::from_iter_str((0..1024).map(|i| format!("user-{:06}@example.com", i % 512)))
+        .into_array(),
+)]
 #[case::constant_strings(VarBinViewArray::from_iter_str(iter::repeat_n("same", 4096)).into_array())]
 #[case::null_strings(
     VarBinViewArray::from_iter(iter::repeat_n(None::<&str>, 4096), DType::Utf8(Nullability::Nullable))

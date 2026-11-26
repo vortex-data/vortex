@@ -388,18 +388,8 @@ impl CascadingCompressor {
         }
     }
 
-    /// Returns `true` if the array that [`compress`](Self::compress) returns for `array` can have
-    /// the encoding `encoding`.
-    ///
-    /// For a leaf array, this runs the scheme selection of `compress`. If the winning scheme
-    /// declares its [`top_level_encodings`](Scheme::top_level_encodings), the winning scheme does
-    /// not run, and the result is `true` if `encoding` is in its declared encodings, matches a
-    /// recorded trial output, or is the encoding of the uncompressed array (because `compress`
-    /// returns the uncompressed array if the output of the winner is not smaller). If the winning
-    /// scheme leaves `top_level_encodings` empty, this falls back to compressing with it. The
-    /// selection stops early when no scheme that can return `encoding` can win. Thus, the deferred
-    /// estimates, such as sample compressions, that only rank the other schemes do not run. If
-    /// `array` is not a leaf array, this compresses `array`.
+    /// Returns `true` if the array that [`compress`](Self::compress) returns for `array` has the
+    /// encoding `encoding`.
     ///
     /// # Errors
     ///
@@ -430,22 +420,23 @@ impl CascadingCompressor {
         match self.choose(compact, CompressorContext::new(), Some(encoding), exec_ctx)? {
             Choice::Decided(selection) => Ok(selection.into_array().encoding_id() == *encoding),
             Choice::Scheme(winner) => {
-                if winner.data.array().encoding_id() == *encoding
-                    || winner
-                        .data
-                        .get::<TrialOutput>()
-                        .is_some_and(|trial| trial.array.encoding_id() == *encoding)
+                // `compress` keeps the output of the winner, a smaller trial output, or the input.
+                let declared = winner.scheme.top_level_encodings();
+                let trial_has_target = winner
+                    .data
+                    .get::<TrialOutput>()
+                    .is_some_and(|trial| trial.array.encoding_id() == *encoding);
+
+                if !declared.is_empty()
+                    && !declared.contains(encoding)
+                    && !trial_has_target
+                    && winner.data.array().encoding_id() != *encoding
                 {
-                    return Ok(true);
+                    return Ok(false);
                 }
 
-                let declared = winner.scheme.top_level_encodings();
-                if declared.is_empty() {
-                    let compressed = self.compress_with_winner(winner, exec_ctx)?.into_array();
-                    Ok(compressed.encoding_id() == *encoding)
-                } else {
-                    Ok(declared.contains(encoding))
-                }
+                let compressed = self.compress_with_winner(winner, exec_ctx)?.into_array();
+                Ok(compressed.encoding_id() == *encoding)
             }
         }
     }

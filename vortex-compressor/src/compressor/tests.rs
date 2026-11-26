@@ -645,16 +645,13 @@ impl Scheme for TopLevelEncodingScheme {
     }
 }
 
-/// `may_compress_to` does not run the winner. It accepts the top-level encodings of the winner and
-/// the encoding of the uncompressed array, which `compress` can fall back to.
+/// `may_compress_to` does not run a winner that does not declare the target.
 #[test]
 fn may_compress_to_does_not_compress() -> VortexResult<()> {
     let compressor = CascadingCompressor::new(vec![&TopLevelEncodingScheme]);
     let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    assert!(compressor.may_compress_to(&array, &Constant.id(), &mut exec_ctx)?);
-    assert!(compressor.may_compress_to(&array, &Primitive.id(), &mut exec_ctx)?);
     assert!(!compressor.may_compress_to(&array, &Dict.id(), &mut exec_ctx)?);
 
     Ok(())
@@ -713,13 +710,13 @@ fn may_compress_to_compresses_undeclared_winner() -> VortexResult<()> {
     let mut exec_ctx = SESSION.create_execution_ctx();
 
     assert!(compressor.may_compress_to(&array, &Constant.id(), &mut exec_ctx)?);
-    assert!(compressor.may_compress_to(&array, &Primitive.id(), &mut exec_ctx)?);
+    assert!(!compressor.may_compress_to(&array, &Primitive.id(), &mut exec_ctx)?);
     assert!(!compressor.may_compress_to(&array, &Dict.id(), &mut exec_ctx)?);
 
     Ok(())
 }
 
-/// A test scheme that counts its estimates. Its `compress` panics.
+/// A test scheme that counts its estimates. Its `compress` returns a dictionary.
 #[derive(Debug)]
 struct CountingScheme {
     name: &'static str,
@@ -784,11 +781,12 @@ impl Scheme for CountingScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        unreachable!("`may_compress_to` must not compress")
+        assert!(self.returns_dict, "`may_compress_to` must not compress");
+        Ok(dict_encode(data.array(), exec_ctx)?.into_array())
     }
 }
 
@@ -838,13 +836,15 @@ fn may_compress_to_stops_when_target_cannot_win() -> VortexResult<()> {
     Ok(())
 }
 
-/// When the dictionary scheme can win, `may_compress_to` runs each estimate once, and it does not
-/// compress.
+/// When the dictionary scheme can win, `may_compress_to` runs each estimate once. A dictionary
+/// that is not smaller than its input does not count.
 #[rstest]
-#[case::dict_wins(4.0, true)]
-#[case::dict_loses(1.5, false)]
+#[case::dict_wins(4.0, 2, true)]
+#[case::dict_not_smaller(4.0, 64, false)]
+#[case::dict_loses(1.5, 2, false)]
 fn may_compress_to_evaluates_each_scheme_once(
     #[case] dict_ratio: f64,
+    #[case] distinct: i32,
     #[case] expected: bool,
 ) -> VortexResult<()> {
     let dict_calls: &'static AtomicUsize = Box::leak(Box::new(AtomicUsize::new(0)));
@@ -865,7 +865,7 @@ fn may_compress_to_evaluates_each_scheme_once(
     }));
 
     let compressor = CascadingCompressor::new(vec![dict, other]);
-    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+    let array = PrimitiveArray::from_iter((0..64i32).map(|i| i % distinct)).into_array();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
     assert_eq!(
