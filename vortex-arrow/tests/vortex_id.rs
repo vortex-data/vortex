@@ -17,14 +17,18 @@ use arrow_array::DictionaryArray;
 use arrow_array::Int32Array;
 use arrow_array::Int64Array;
 use arrow_array::MapArray;
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchIterator;
 use arrow_array::RunArray;
 use arrow_array::StructArray as ArrowStructArray;
+use arrow_array::ffi_stream;
 use arrow_array::types::Int32Type;
 use arrow_buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::Metadata;
+use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -49,8 +53,10 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_array::iter::ArrayIterator;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
+use vortex_arrow::ArrowArrayStreamAdapter;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::Datum;
 use vortex_arrow::ExecuteArrowExt;
@@ -452,6 +458,55 @@ fn vortex_id_imports_types_registered_after_the_arrow_session() -> VortexResult<
     session.dtypes().register(Tagged);
 
     assert_eq!(session.arrow().from_arrow_field(&field)?, *array.dtype());
+
+    Ok(())
+}
+
+/// Registering an extension dtype between batches cannot cause `ArrowArrayStreamAdapter` to yield
+/// a batch whose dtype disagrees with `ArrayIterator::dtype()`.
+#[rstest]
+#[case::early_registration(true)]
+#[case::late_registration_changes_dtype(false)]
+fn stream_adapter_rejects_dtype_change_between_batches(
+    #[case] register_before_open: bool,
+) -> VortexResult<()> {
+    let field = SESSION
+        .arrow()
+        .to_arrow_field("t", tagged_i64s(0xff)?.dtype())?;
+    let schema = Arc::new(Schema::new(vec![field]));
+    let values: ArrowArrayRef = Arc::new(Int64Array::from(vec![Some(1), None, Some(3)]));
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![values])?;
+    let reader = RecordBatchIterator::new([Ok(batch.clone()), Ok(batch)], Arc::clone(&schema));
+    let stream = ffi_stream::RecordBatchStreamReader::try_new(
+        ffi_stream::FFI_ArrowArrayStream::new(Box::new(reader)),
+    )?;
+
+    let session = VortexSession::empty();
+    if register_before_open {
+        session.dtypes().register(Tagged);
+    }
+
+    let mut adapter = ArrowArrayStreamAdapter::try_new(&session.arrow(), stream)?;
+    let first = adapter.next().expect("first batch")?;
+    assert_eq!(first.dtype(), adapter.dtype());
+
+    if !register_before_open {
+        session.dtypes().register(Tagged);
+    }
+
+    let second = adapter.next().expect("second batch");
+    if register_before_open {
+        let array = second?;
+        assert_eq!(array.dtype(), adapter.dtype());
+    } else {
+        let err = second.expect_err("mid-stream dtype change must fail");
+        assert!(err.to_string().contains("i64"), "unexpected error: {err}");
+        assert!(
+            err.to_string().contains("test.tagged"),
+            "unexpected error: {err}"
+        );
+    }
+    assert!(adapter.next().is_none());
 
     Ok(())
 }

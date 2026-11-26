@@ -25,13 +25,13 @@ pub fn test_filter_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Test with arrays of any size
     if len > 0 {
         test_all_filter(array, ctx);
-        test_none_filter(array);
+        test_none_filter(array, ctx);
         test_selective_filter(array, ctx);
         test_single_element_filter(array, ctx);
     }
 
     // Test edge cases
-    test_empty_array_filter(array.dtype());
+    test_empty_array_filter(array.dtype(), ctx);
     test_mismatched_lengths(array);
 }
 
@@ -46,14 +46,13 @@ fn test_all_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 }
 
 /// Tests that filtering with an all-false mask returns an empty array with the same dtype
-fn test_none_filter(array: &ArrayRef) {
+fn test_none_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let len = array.len();
     let mask = Mask::new_false(len);
     let filtered = array
         .filter(mask)
         .vortex_expect("filter should succeed in conformance test");
-    assert_eq!(filtered.len(), 0);
-    assert_eq!(filtered.dtype(), array.dtype());
+    assert_arrays_eq!(filtered, Canonical::empty(array.dtype()), ctx);
 }
 
 fn test_selective_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
@@ -164,19 +163,19 @@ fn test_single_element_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 }
 
-fn test_empty_array_filter(dtype: &DType) {
+fn test_empty_array_filter(dtype: &DType, ctx: &mut ExecutionCtx) {
     let empty_array = Canonical::empty(dtype).into_array();
     let empty_mask = Mask::new_false(0);
     let filtered = empty_array
         .filter(empty_mask)
         .vortex_expect("filter should succeed in conformance test");
-    assert_eq!(filtered.len(), 0);
+    assert_arrays_eq!(filtered, &empty_array, ctx);
 
     let empty_mask = Mask::new_true(0);
     let filtered = empty_array
         .filter(empty_mask)
         .vortex_expect("filter should succeed in conformance test");
-    assert_eq!(filtered.len(), 0);
+    assert_arrays_eq!(filtered, &empty_array, ctx);
 }
 
 fn test_mismatched_lengths(array: &ArrayRef) {

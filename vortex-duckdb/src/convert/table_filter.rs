@@ -243,10 +243,12 @@ pub fn try_from_virtual_column_filter(
     match filter.as_class() {
         TableFilterClass::ExpressionRef(expr) => try_from_v2_virtual_column_filter(expr),
         TableFilterClass::InFilter(values) => {
-            let indices = values
+            let mut indices = values
                 .iter()
                 .map(nonnegative_number_from_value)
                 .collect::<VortexResult<Vec<u64>>>()?;
+            indices.sort_unstable();
+            indices.dedup();
             Ok((
                 Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter(indices))?),
                 None,
@@ -260,6 +262,7 @@ pub fn try_from_virtual_column_filter(
             ))
         }
         TableFilterClass::ConjunctionAnd(conj) => {
+            let mut has_range = false;
             let mut start = 0u64;
             let mut end = u64::MAX;
             let mut indices: Option<Vec<u64>> = None;
@@ -272,11 +275,12 @@ pub fn try_from_virtual_column_filter(
                     });
                 }
                 if let Some(r) = range {
+                    has_range = true;
                     start = start.max(r.start);
                     end = end.min(r.end);
                 }
             }
-            let range = (start < end).then_some(start..end);
+            let range = has_range.then_some(if start < end { start..end } else { 0..0 });
             let sel = indices
                 .map(|v| {
                     StrictSortedBuffer::try_new(Buffer::from_iter(v)).map(Selection::IncludeByIndex)
