@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::future::poll_fn;
 use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
@@ -28,16 +29,20 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::Expression;
+use vortex_expr::Lambda;
 use vortex_expr::and;
+use vortex_expr::col;
 use vortex_expr::eq;
 use vortex_expr::get_item;
 use vortex_expr::gt;
@@ -45,7 +50,11 @@ use vortex_expr::lit;
 use vortex_expr::lt;
 use vortex_expr::pack;
 use vortex_expr::root;
+use vortex_expr::var;
 use vortex_functions::expr::is_null;
+use vortex_functions::expr::list_length;
+use vortex_functions::expr::list_sum;
+use vortex_functions::expr::list_transform;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::execution::SegmentLocation;
@@ -56,6 +65,7 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::ChunkPlanner;
 use super::PreparedScan;
@@ -63,6 +73,7 @@ use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanFile;
+use crate::LayoutChildType;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -77,6 +88,7 @@ use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::CountingSegmentSource;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -740,6 +752,167 @@ async fn nullable_struct_projection_preserves_validity(
         assert_eq!(source.requests(), expected_requests);
     }
 
+    Ok(())
+}
+
+/// The column each segment of `layout` belongs to, by the path of its children.
+fn segment_columns(
+    layout: &LayoutRef,
+    path: &str,
+    columns: &mut HashMap<SegmentId, String>,
+) -> VortexResult<()> {
+    for id in layout.segment_ids() {
+        columns.insert(id, path.to_string());
+    }
+    for (child_type, child) in layout.child_types().zip(layout.children()?) {
+        let child_path = match child_type {
+            LayoutChildType::Field(name) if path.is_empty() => name.to_string(),
+            LayoutChildType::Field(name) => format!("{path}.{name}"),
+            LayoutChildType::Auxiliary(name) => format!("{path}.{name}"),
+            LayoutChildType::Chunk(_) | LayoutChildType::Transparent(_) => path.to_string(),
+        };
+        segment_columns(&child, &child_path, columns)?;
+    }
+    Ok(())
+}
+
+/// `{l: list<struct<a: i32, f: i32, g: list<struct<h: i32, i: i32>>>>, o: i32}`. The five lists
+/// have lengths [2, 3, 0, 3, 2], and when `nullable` the second is null over elements that are
+/// still stored.
+fn transform_table(nullable: bool) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner = StructArray::from_fields(&[
+        ("h", PrimitiveArray::from_iter(0..15_i32).into_array()),
+        ("i", PrimitiveArray::from_iter(100..115_i32).into_array()),
+    ])?
+    .into_array();
+    let g = ListArray::try_new(
+        inner,
+        Buffer::from_iter([0u32, 1, 3, 3, 4, 6, 6, 7, 9, 9, 15]).into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let elements = StructArray::from_fields(&[
+        ("a", PrimitiveArray::from_iter(0..10_i32).into_array()),
+        ("f", PrimitiveArray::from_iter(10..20_i32).into_array()),
+        ("g", g),
+    ])?
+    .into_array();
+    let validity = if nullable {
+        Validity::from_iter([true, false, true, true, true])
+    } else {
+        Validity::NonNullable
+    };
+    let l = ListArray::try_new(
+        elements,
+        Buffer::from_iter([0u32, 2, 5, 5, 8, 10]).into_array(),
+        validity,
+        &mut ctx,
+    )?
+    .into_array();
+    Ok(StructArray::from_fields(&[
+        ("l", l),
+        ("o", PrimitiveArray::from_iter(0..5_i32).into_array()),
+    ])?
+    .into_array())
+}
+
+fn lambda(param: &str, body: Expression) -> Lambda {
+    Lambda::new([param], body).vortex_expect("lambda is valid")
+}
+
+/// `list_transform(l, x -> body)`.
+fn transform(body: Expression) -> Expression {
+    list_transform(col("l"), lambda("x", body))
+}
+
+/// Leaves repartitioned into two-row chunks, so a read of part of a column skips segments.
+fn two_row_chunks() -> Arc<dyn LayoutStrategy> {
+    Arc::new(RepartitionStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: 2,
+            block_size_target: None,
+            canonicalize: true,
+        },
+    ))
+}
+
+const EVERY_LIST_COLUMN: &[&str] = &[
+    "l.offsets",
+    "l.elements.a",
+    "l.elements.f",
+    "l.elements.g.offsets",
+    "l.elements.g.elements.h",
+    "l.elements.g.elements.i",
+];
+
+/// An expression over a list reads only the list children it needs: a null check its validity,
+/// and its length its offsets. Anything else reads the lists whole, a `list_transform` too: its
+/// lambda is evaluated over the lists a chunk assembles.
+#[rstest]
+#[case::is_null(is_null(col("l")), &[])]
+#[case::length(list_length(col("l")), &["l.offsets"])]
+#[case::length_in_an_expression(gt(list_length(col("l")), lit(2u64)), &["l.offsets"])]
+#[case::length_beside_another_column(
+    pack([("n", list_length(col("l"))), ("o", col("o"))], Nullability::NonNullable),
+    &["l.offsets", "o"],
+)]
+#[case::whole(col("l"), EVERY_LIST_COLUMN)]
+#[case::transform(transform(get_item("f", var("x"))), EVERY_LIST_COLUMN)]
+#[case::transform_under_another_fn(list_sum(transform(get_item("f", var("x")))), EVERY_LIST_COLUMN)]
+#[case::length_beside_the_whole_list(
+    pack([("n", list_length(col("l"))), ("l", col("l"))], Nullability::NonNullable),
+    EVERY_LIST_COLUMN,
+)]
+#[tokio::test]
+async fn list_expressions_read_only_what_they_use(
+    #[case] expr: Expression,
+    #[case] columns: &[&str],
+    #[values(false, true)] nullable: bool,
+    #[values(None, Some(&[1u64, 3, 4][..]))] rows: Option<&'static [u64]>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let table = transform_table(nullable)?;
+    let strategy = TableStrategy::new(two_row_chunks(), two_row_chunks()).with_list_layout();
+    let (segments, layout) = write_chunks(&session, &strategy, vec![table.clone()]).await?;
+    let source = Arc::new(CountingSegmentSource::new(segments));
+    let scan_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+
+    let mut builder =
+        builder(&session, &scan_source, &layout)?.with_projection(expr.bind(layout.dtype())?);
+    if let Some(rows) = rows {
+        builder = builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::copy_from(rows))?);
+    }
+    let dtype = builder.dtype().clone();
+    let actual = collect_scan(dtype, builder).await?;
+
+    let keep = Mask::from_iter(
+        (0..table.len() as u64).map(|row| rows.is_none_or(|rows| rows.contains(&row))),
+    );
+    let expected = table.filter(keep)?.apply(&expr)?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+
+    let mut segment_column = HashMap::new();
+    segment_columns(&layout, "", &mut segment_column)?;
+    let read = source
+        .requested()
+        .iter()
+        .map(|id| segment_column[id].as_str())
+        .collect::<BTreeSet<_>>();
+    let columns: &[&str] = if columns.is_empty() && !nullable {
+        // A list that cannot be null has no validity to ask: its lengths answer instead.
+        &["l.offsets"]
+    } else {
+        columns
+    };
+    let mut expected_read = columns.iter().copied().collect::<BTreeSet<_>>();
+    if nullable {
+        expected_read.insert("l.validity");
+    }
+    assert_eq!(read, expected_read);
     Ok(())
 }
 

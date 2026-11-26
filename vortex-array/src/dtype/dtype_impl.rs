@@ -48,6 +48,26 @@ impl DType {
     /// The default `DType` for bytes.
     pub const BYTES: Self = Primitive(PType::U8, Nullability::NonNullable);
 
+    /// Whether `self` and `other` are clones of one another, which are equal without their
+    /// contents being compared.
+    ///
+    /// This is false for equal dtypes built separately, and for dtypes that hold nothing shared:
+    /// those are cheap to compare.
+    pub(crate) fn is_shared_with(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Struct(lhs, lhs_null), Struct(rhs, rhs_null)) => {
+                lhs_null == rhs_null && lhs.is_shared_with(rhs)
+            }
+            (List(lhs, lhs_null), List(rhs, rhs_null)) => {
+                lhs_null == rhs_null && Arc::ptr_eq(lhs, rhs)
+            }
+            (FixedSizeList(lhs, lhs_size, lhs_null), FixedSizeList(rhs, rhs_size, rhs_null)) => {
+                lhs_size == rhs_size && lhs_null == rhs_null && Arc::ptr_eq(lhs, rhs)
+            }
+            _ => false,
+        }
+    }
+
     /// Get the nullability of the `DType`.
     #[inline]
     pub fn nullability(&self) -> Nullability {

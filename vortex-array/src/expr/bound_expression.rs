@@ -36,7 +36,11 @@ use crate::scalar_fn::display::ExprDisplay;
 ///
 /// Binding is purely logical: it deals only in [`DType`]s and never sees an array, a length, or an
 /// encoding.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[allow(
+    clippy::derived_hash_with_manual_eq,
+    reason = "manual PartialEq compares the same fields without recursion"
+)]
+#[derive(Clone, Debug, Eq, Hash)]
 pub enum BoundExpression {
     /// A scalar function applied to bound children.
     Scalar {
@@ -55,6 +59,59 @@ pub enum BoundExpression {
         /// The dtype this node evaluates to.
         dtype: DType,
     },
+}
+
+/// Compares two trees node by node, without recursion.
+///
+/// The roots of an expression are clones of its scope's dtype, so a projection of a wide struct
+/// has a root for each field it reads, all of them sharing one dtype. Comparing two struct dtypes
+/// is linear in their fields, so each pair of shared root dtypes is compared once.
+impl PartialEq for BoundExpression {
+    fn eq(&self, other: &Self) -> bool {
+        let mut equal_roots: Option<(&DType, &DType)> = None;
+        let mut next = Some((self, other));
+        let mut pending = Vec::new();
+        while let Some(pair) = next.take().or_else(|| pending.pop()) {
+            match pair {
+                (Self::Root { dtype: lhs }, Self::Root { dtype: rhs }) => {
+                    let known = equal_roots.is_some_and(|(known_lhs, known_rhs)| {
+                        known_lhs.is_shared_with(lhs) && known_rhs.is_shared_with(rhs)
+                    });
+                    if !known {
+                        if lhs != rhs {
+                            return false;
+                        }
+                        equal_roots = Some((lhs, rhs));
+                    }
+                }
+                (
+                    Self::Scalar {
+                        dtype: lhs_dtype,
+                        scalar_fn: lhs_fn,
+                        children: lhs_children,
+                    },
+                    Self::Scalar {
+                        dtype: rhs_dtype,
+                        scalar_fn: rhs_fn,
+                        children: rhs_children,
+                    },
+                ) => {
+                    if lhs_fn != rhs_fn
+                        || lhs_children.len() != rhs_children.len()
+                        || lhs_dtype != rhs_dtype
+                    {
+                        return false;
+                    }
+                    if !Arc::ptr_eq(lhs_children, rhs_children) {
+                        pending.extend(lhs_children.iter().zip(rhs_children.iter()));
+                    }
+                }
+                (Self::Root { .. }, Self::Scalar { .. })
+                | (Self::Scalar { .. }, Self::Root { .. }) => return false,
+            }
+        }
+        true
+    }
 }
 
 /// A bound-expression wrapper that compares shared tree identity instead of structure.
@@ -381,7 +438,7 @@ impl BoundExpression {
     }
 
     /// Whether any node of this tree, visited depth-first, satisfies `predicate`.
-    fn any_node(&self, mut predicate: impl FnMut(&BoundExpression) -> bool) -> bool {
+    fn any_node<'a>(&'a self, mut predicate: impl FnMut(&'a BoundExpression) -> bool) -> bool {
         let mut stack = vec![self];
         while let Some(node) = stack.pop() {
             if predicate(node) {
@@ -422,7 +479,19 @@ impl BoundExpression {
     ///
     /// Expressions without a scope root, such as literals, match every dtype.
     pub fn is_root_bound_to(&self, dtype: &DType) -> bool {
-        !self.any_node(|node| node.is_root() && node.dtype() != dtype)
+        // The roots of an expression share their scope's dtype, which is compared once.
+        let mut bound_root: Option<&DType> = None;
+        !self.any_node(|node| {
+            if !node.is_root() {
+                return false;
+            }
+            let root = node.dtype();
+            if bound_root.is_some_and(|bound| bound.is_shared_with(root)) {
+                return false;
+            }
+            bound_root = Some(root);
+            root != dtype
+        })
     }
 
     /// Returns a new expression representing the validity mask output of this expression.
