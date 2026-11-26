@@ -106,9 +106,9 @@ statistics, footer, and user metadata segments referenced by the postscript. The
 - Each `SegmentSpec` stores an index into the footer's `encryption_specs`. Index 0 always denotes a plaintext segment,
   so files written before encryption existed remain valid. Index 1 holds the footer key.
 - The postscript itself is not authenticated, so readers configured for decryption reject an encrypted file whose
-  `DType`, layout, statistics, or footer segment is not encrypted with the footer key's spec, and whose user metadata
-  segment uses a spec the footer does not list. Otherwise an attacker could strip the protection of these segments and
-  forge their content.
+  `DType`, layout, statistics, or footer segment is not encrypted with the footer key's spec, and whose
+  user metadata or encrypted statistics segment uses a spec the footer does not list. Otherwise an attacker could
+  strip the protection of these segments and forge their content.
 - Keys are never stored in the file. The opaque `key_metadata` of an `EncryptionSpec` identifies the key to the
   reader, for example by a key management service key id.
 - AES-128, AES-192, and AES-256 are supported, selected by the length of the key.
@@ -125,8 +125,10 @@ name of a footer segment, or the key of a metadata segment. A segment moved with
 The identifier of the footer segment also binds the postscript entries that the footer does not list: a byte whose bit
 0 is set if the postscript has a `DType` segment and whose bit 1 is set if it has a statistics segment, followed by
 the number of metadata segments as a little-endian `uint64` and, for each in postscript order, the length of its key
-as a little-endian `uint64` and the key's UTF-8 bytes. An attacker who drops or reorders postscript entries therefore
-makes the footer fail to decrypt.
+as a little-endian `uint64` and the key's UTF-8 bytes, then the number of `encrypted_statistics` entries as a
+little-endian `uint64` and, for each in postscript order, the number of its fields as a little-endian `uint64` and the
+fields as little-endian `uint32` values. An attacker who drops or reorders postscript entries therefore makes the footer
+fail to decrypt.
 
 The AAD prefix is optional and application-defined, such as the file's path, and binds the file to an identity the
 reader knows, so that it cannot be replaced by another file encrypted with the same key. It is never stored in the
@@ -135,6 +137,20 @@ its length is 0.
 
 The footer is encrypted with the footer key, which hides the schema, layout, and statistics. Readers need the footer
 key to open the file.
+
+### Field keys
+
+Fields can be encrypted with their own keys, each recorded as a separate `EncryptionSpec`. Every segment of such a
+field, including its zone maps and dictionaries, uses the field's key. A reader without that key can still read every
+other field. Fields without their own key are encrypted with the footer key.
+
+File-level statistics are protected like the fields they describe. The `statistics` segment, encrypted with the footer
+key, holds the statistics of the fields whose segments are encrypted with the footer key.
+The statistics of every other field are stored in a segment per key, listed in the postscript's `encrypted_statistics`
+and encrypted with that key, and left empty in the `statistics` segment. The additional authenticated data of such a
+segment identifies it by its position in `encrypted_statistics` and by its field indices, as little-endian `uint16` and
+`uint32` values, so that its statistics cannot be attributed to other fields. A reader without a field's key therefore
+sees neither its data nor its statistics.
 
 ## Reified File Example
 

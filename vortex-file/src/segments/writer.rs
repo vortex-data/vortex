@@ -16,9 +16,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_layout::BufferedBytesReservation;
 use vortex_layout::BufferedBytesTracker;
+use vortex_layout::segments::EncryptionKeyName;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSink;
+use vortex_layout::segments::SegmentWriteOptions;
 use vortex_layout::sequence::SequenceId;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::encryption::SegmentCipher;
 use crate::encryption::SegmentRole;
@@ -81,8 +84,11 @@ pub struct BufferedSegmentSink {
     /// Counts the segments that the sink has not written yet, so that the writer's buffered bytes
     /// include them.
     buffered_bytes: BufferedBytesTracker,
-    /// The cipher that encrypts every segment, and the index of its spec in the footer.
-    cipher: Option<(SegmentCipher, u16)>,
+    /// The cipher for segments that require no particular key, and the index of its spec in the
+    /// footer.
+    default_cipher: Option<(SegmentCipher, u16)>,
+    /// The ciphers for segments that require a named key, and the indices of their specs.
+    named_ciphers: HashMap<EncryptionKeyName, (SegmentCipher, u16)>,
 }
 
 impl BufferedSegmentSink {
@@ -96,13 +102,27 @@ impl BufferedSegmentSink {
             byte_offset: AtomicU64::new(byte_offset),
             segment_specs: Default::default(),
             buffered_bytes,
-            cipher: None,
+            default_cipher: None,
+            named_ciphers: HashMap::default(),
         }
     }
 
-    /// Encrypt every segment with `cipher`, whose spec is at `encryption` in the footer.
-    pub(crate) fn with_cipher(mut self, cipher: SegmentCipher, encryption: u16) -> Self {
-        self.cipher = Some((cipher, encryption));
+    /// Encrypt segments that require no particular key with `cipher`, whose spec is at
+    /// `encryption` in the footer.
+    pub(crate) fn with_default_cipher(mut self, cipher: SegmentCipher, encryption: u16) -> Self {
+        self.default_cipher = Some((cipher, encryption));
+        self
+    }
+
+    /// Encrypt segments that require the key `name` with `cipher`, whose spec is at `encryption`
+    /// in the footer.
+    pub(crate) fn with_named_cipher(
+        mut self,
+        name: EncryptionKeyName,
+        cipher: SegmentCipher,
+        encryption: u16,
+    ) -> Self {
+        self.named_ciphers.insert(name, (cipher, encryption));
         self
     }
 
@@ -117,8 +137,18 @@ impl BufferedSegmentSink {
 impl SegmentSink for BufferedSegmentSink {
     async fn write(
         &self,
+        sequence_id: SequenceId,
+        buffers: Vec<ByteBuffer>,
+    ) -> VortexResult<SegmentId> {
+        self.write_with_options(sequence_id, buffers, SegmentWriteOptions::default())
+            .await
+    }
+
+    async fn write_with_options(
+        &self,
         mut sequence_id: SequenceId,
         buffers: Vec<ByteBuffer>,
+        options: SegmentWriteOptions,
     ) -> VortexResult<SegmentId> {
         // Segments reach the file in sequence order. A layout that holds an early sequence ID,
         // such as a dictionary that writes its values last, can hold back every later segment
@@ -126,7 +156,13 @@ impl SegmentSink for BufferedSegmentSink {
         let segment_bytes: usize = buffers.iter().map(|buffer| buffer.len()).sum();
         let reservation = self.buffered_bytes.reserve(segment_bytes as u64);
 
-        let cipher = self.cipher.as_ref();
+        let cipher = match &options.encryption {
+            None => self.default_cipher.as_ref(),
+            Some(name) => Some(self.named_ciphers.get(name).ok_or_else(|| {
+                vortex_err!("No encryption key named {name} was configured for the file")
+            })?),
+        };
+
         // We wait for all segment IDs before this one to be dropped. Then while we hold a strong
         // reference to this one, we essentially have an exclusive lock on the segment writer.
         sequence_id.collapse().await;

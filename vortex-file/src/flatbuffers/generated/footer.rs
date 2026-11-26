@@ -459,6 +459,7 @@ impl<'a> Postscript<'a> {
   pub const VT_STATISTICS: ::flatbuffers::VOffsetT = 8;
   pub const VT_FOOTER: ::flatbuffers::VOffsetT = 10;
   pub const VT_METADATA: ::flatbuffers::VOffsetT = 12;
+  pub const VT_ENCRYPTED_STATISTICS: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -470,6 +471,7 @@ impl<'a> Postscript<'a> {
     args: &'args PostscriptArgs<'args>
   ) -> ::flatbuffers::WIPOffset<Postscript<'bldr>> {
     let mut builder = PostscriptBuilder::new(_fbb);
+    if let Some(x) = args.encrypted_statistics { builder.add_encrypted_statistics(x); }
     if let Some(x) = args.metadata { builder.add_metadata(x); }
     if let Some(x) = args.footer { builder.add_footer(x); }
     if let Some(x) = args.statistics { builder.add_statistics(x); }
@@ -520,6 +522,17 @@ impl<'a> Postscript<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata>>>>(Postscript::VT_METADATA, None)}
   }
+  /// File-level statistics of fields whose segments are encrypted with a key other than the one
+  /// protecting the `statistics` segment, stored in a segment encrypted with that key, so that
+  /// only readers with the field's key see its statistics. One entry per key. The `statistics`
+  /// segment holds empty statistics for these fields.
+  #[inline]
+  pub fn encrypted_statistics(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<EncryptedStatistics<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<EncryptedStatistics>>>>(Postscript::VT_ENCRYPTED_STATISTICS, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for Postscript<'_> {
@@ -533,6 +546,7 @@ impl ::flatbuffers::Verifiable for Postscript<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("statistics", Self::VT_STATISTICS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("footer", Self::VT_FOOTER, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<PostscriptMetadata>>>>("metadata", Self::VT_METADATA, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<EncryptedStatistics>>>>("encrypted_statistics", Self::VT_ENCRYPTED_STATISTICS, false)?
      .finish();
     Ok(())
   }
@@ -543,6 +557,7 @@ pub struct PostscriptArgs<'a> {
     pub statistics: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
     pub footer: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
     pub metadata: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata<'a>>>>>,
+    pub encrypted_statistics: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<EncryptedStatistics<'a>>>>>,
 }
 impl<'a> Default for PostscriptArgs<'a> {
   #[inline]
@@ -553,6 +568,7 @@ impl<'a> Default for PostscriptArgs<'a> {
       statistics: None,
       footer: None,
       metadata: None,
+      encrypted_statistics: None,
     }
   }
 }
@@ -583,6 +599,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Postscript::VT_METADATA, metadata);
   }
   #[inline]
+  pub fn add_encrypted_statistics(&mut self, encrypted_statistics: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<EncryptedStatistics<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Postscript::VT_ENCRYPTED_STATISTICS, encrypted_statistics);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     PostscriptBuilder {
@@ -605,6 +625,126 @@ impl ::core::fmt::Debug for Postscript<'_> {
       ds.field("statistics", &self.statistics());
       ds.field("footer", &self.footer());
       ds.field("metadata", &self.metadata());
+      ds.field("encrypted_statistics", &self.encrypted_statistics());
+      ds.finish()
+  }
+}
+pub enum EncryptedStatisticsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// File-level statistics of some fields, encrypted with those fields' key.
+pub struct EncryptedStatistics<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for EncryptedStatistics<'a> {
+  type Inner = EncryptedStatistics<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> EncryptedStatistics<'a> {
+  pub const VT_FIELDS: ::flatbuffers::VOffsetT = 4;
+  pub const VT_SEGMENT: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    EncryptedStatistics { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args EncryptedStatisticsArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<EncryptedStatistics<'bldr>> {
+    let mut builder = EncryptedStatisticsBuilder::new(_fbb);
+    if let Some(x) = args.segment { builder.add_segment(x); }
+    if let Some(x) = args.fields { builder.add_fields(x); }
+    builder.finish()
+  }
+
+
+  /// Indices in the root struct of the fields whose statistics the segment holds, in order.
+  /// A field appears in at most one entry.
+  #[inline]
+  pub fn fields(&self) -> ::flatbuffers::Vector<'a, u32> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u32>>>(EncryptedStatistics::VT_FIELDS, None).unwrap()}
+  }
+  /// Segment containing a `FileStatistics` flatbuffer with one entry per listed field.
+  #[inline]
+  pub fn segment(&self) -> PostscriptSegment<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>(EncryptedStatistics::VT_SEGMENT, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for EncryptedStatistics<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("fields", Self::VT_FIELDS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("segment", Self::VT_SEGMENT, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct EncryptedStatisticsArgs<'a> {
+    pub fields: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
+    pub segment: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+}
+impl<'a> Default for EncryptedStatisticsArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    EncryptedStatisticsArgs {
+      fields: None, // required field
+      segment: None, // required field
+    }
+  }
+}
+
+pub struct EncryptedStatisticsBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> EncryptedStatisticsBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_fields(&mut self, fields: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u32>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(EncryptedStatistics::VT_FIELDS, fields);
+  }
+  #[inline]
+  pub fn add_segment(&mut self, segment: ::flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<PostscriptSegment>>(EncryptedStatistics::VT_SEGMENT, segment);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> EncryptedStatisticsBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    EncryptedStatisticsBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<EncryptedStatistics<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, EncryptedStatistics::VT_FIELDS,"fields");
+    self.fbb_.required(o, EncryptedStatistics::VT_SEGMENT,"segment");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for EncryptedStatistics<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("EncryptedStatistics");
+      ds.field("fields", &self.fields());
+      ds.field("segment", &self.segment());
       ds.finish()
   }
 }

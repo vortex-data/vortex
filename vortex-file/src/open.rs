@@ -462,7 +462,7 @@ impl VortexOpenOptions {
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
                 DeserializeStep::NeedKeys => deserializer.resolve_keys().await,
-                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
+                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(*footer),
             }
         }?;
 
@@ -975,7 +975,7 @@ mod tests {
 
         session
             .open_options()
-            .with_footer(cached_footer)
+            .with_footer(*cached_footer)
             .open_buffer(file_bytes)?;
 
         Ok(())
