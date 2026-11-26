@@ -4,6 +4,7 @@
 use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -16,15 +17,18 @@ use vortex_error::vortex_err;
 use super::EliasFano;
 use crate::Unary;
 use crate::elias_fano::EliasFanoArraySlotsExt;
+use crate::elias_fano::array::EliasFanoSlots;
 
 impl OperationsVTable<EliasFano> for EliasFano {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, EliasFano>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, EliasFano>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
+        // An EliasFano array is never nullable.
+        let array = state.array();
         let missing = || vortex_err!("EliasFanoArray has no bucket for index {index}");
 
         let bucket = match array.upper().as_opt::<Unary>() {
@@ -46,8 +50,9 @@ impl OperationsVTable<EliasFano> for EliasFano {
             }
         };
 
-        let low = array
-            .lower()
+        let low = state
+            .slot(EliasFanoSlots::LOWER)?
+            .ok_or_else(|| vortex_err!("EliasFanoArray has no lower child"))?
             .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<u64>()
@@ -64,5 +69,13 @@ impl OperationsVTable<EliasFano> for EliasFano {
             array.dtype().as_ptype(),
             |T| { Scalar::primitive::<T>(value.as_(), NonNullable) }
         ))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, EliasFano>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }

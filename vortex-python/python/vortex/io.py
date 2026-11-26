@@ -5,7 +5,7 @@ from typing import Protocol, runtime_checkable
 
 from typing_extensions import Buffer
 
-from vortex._lib.io import VortexWriteOptions, read_url, write
+from vortex._lib.io import VortexWriteOptions, read_url, write, write_to
 
 
 @runtime_checkable
@@ -102,4 +102,4 @@ class ReadBytesAt(Protocol):
         ...
 
 
-__all__ = ["read_url", "write", "ReadAt", "ReadBytesAt", "VortexWriteOptions"]
+__all__ = ["read_url", "write", "write_to", "ReadAt", "ReadBytesAt", "VortexWriteOptions"]

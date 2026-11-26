@@ -73,12 +73,55 @@ impl Display for PatchedData {
 }
 
 impl PatchedData {
+    /// Checks the lane count, offset and dtype, and returns the length of the `lane_offsets`
+    /// child: one entry per lane of each chunk holding `offset + len` values, plus a final end
+    /// offset.
+    pub(crate) fn lane_offsets_len(&self, dtype: &DType, len: usize) -> VortexResult<usize> {
+        vortex_ensure!(
+            dtype.is_primitive(),
+            "PatchedArray dtype must be primitive, got {dtype}"
+        );
+        vortex_ensure!(
+            self.n_lanes.is_power_of_two() && self.n_lanes <= 128,
+            "PatchedArray n_lanes must be a power of two between 1 and 128, got {}",
+            self.n_lanes
+        );
+        vortex_ensure!(
+            self.offset < 1024,
+            "PatchedArray offset must be less than 1024, got {}",
+            self.offset
+        );
+        self.offset
+            .checked_add(len)
+            .map(|end| end.div_ceil(1024))
+            .and_then(|n_chunks| n_chunks.checked_mul(self.n_lanes))
+            .and_then(|n_offsets| n_offsets.checked_add(1))
+            .ok_or_else(|| vortex_err!("PatchedArray lane offsets length overflowed usize"))
+    }
+
     pub(crate) fn validate(
         &self,
         dtype: &DType,
         len: usize,
         slots: &PatchedSlotsView,
     ) -> VortexResult<()> {
+        let lane_offsets_len = self.lane_offsets_len(dtype, len)?;
+        vortex_ensure_eq!(
+            slots.lane_offsets.dtype(),
+            <&DType>::from(PType::U32),
+            "PatchedArray lane offsets must be non-nullable u32",
+        );
+        vortex_ensure_eq!(slots.lane_offsets.len(), lane_offsets_len);
+        vortex_ensure_eq!(
+            slots.patch_indices.dtype(),
+            <&DType>::from(PType::U16),
+            "PatchedArray patch indices must be non-nullable u16",
+        );
+        vortex_ensure_eq!(
+            slots.patch_values.dtype(),
+            &dtype.as_nonnullable(),
+            "PatchedArray patch values must have the non-nullable outer dtype",
+        );
         vortex_ensure_eq!(
             slots.inner.dtype(),
             dtype,

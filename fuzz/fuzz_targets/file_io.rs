@@ -15,27 +15,21 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::assert_arrays_eq;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::StructFields;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
 use vortex_expr::ArrayExprExt;
 use vortex_file::OpenOptionsSessionExt;
-use vortex_file::WriteOptionsSessionExt;
-use vortex_file::WriteStrategyBuilder;
-use vortex_fuzz::CompressorStrategy;
 use vortex_fuzz::FuzzFileAction;
 use vortex_fuzz::RUNTIME;
 use vortex_fuzz::SESSION;
-use vortex_utils::aliases::DefaultHashBuilder;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_fuzz::has_duplicate_field_names;
+use vortex_fuzz::has_nullable_struct;
 
 fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let FuzzFileAction {
         array,
         projection_expr,
         filter_expr,
-        compressor_strategy,
+        write_settings,
     } = fuzz;
     let array_data = array;
 
@@ -61,16 +55,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
-    let write_options = match compressor_strategy {
-        CompressorStrategy::Default => SESSION.write_options(),
-        CompressorStrategy::Compact => SESSION.write_options().with_strategy(
-            WriteStrategyBuilder::from_session(&SESSION)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-                )
-                .build(),
-        ),
-    };
+    let write_options = write_settings.write_options();
 
     let mut full_buff = Vec::new();
     let _footer = write_options
@@ -115,33 +100,3 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     Corpus::Keep
 });
-
-fn has_nullable_struct(dtype: &DType) -> bool {
-    dtype.is_struct() && dtype.is_nullable()
-        || dtype
-            .as_struct_fields_opt()
-            .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
-            .unwrap_or(false)
-        || dtype
-            .as_list_element_opt()
-            .map(|e| has_nullable_struct(e.as_ref()))
-            .unwrap_or(false)
-}
-
-fn has_duplicate_field_names(dtype: &DType) -> bool {
-    if let Some(struct_dtype) = dtype.as_struct_fields_opt() {
-        struct_has_duplicate_names(struct_dtype)
-    } else if let Some(list_elem) = dtype.as_list_element_opt() {
-        has_duplicate_field_names(list_elem)
-    } else {
-        false
-    }
-}
-
-fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
-    HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
-        != struct_dtype.names().len()
-        || struct_dtype
-            .fields()
-            .any(|dtype| has_duplicate_field_names(&dtype))
-}
