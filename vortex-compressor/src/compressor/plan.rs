@@ -105,3 +105,26 @@ impl PlanState {
         self.recorded.into_inner()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::ratio_within;
+
+    #[rstest]
+    #[case::inside_lower_bound(9.01, 10.0, true)]
+    #[case::below_lower_bound(8.99, 10.0, false)]
+    #[case::inside_upper_bound(11.1, 10.0, true)]
+    #[case::above_upper_bound(11.12, 10.0, false)]
+    #[case::infinite_ratio_and_baseline(f64::INFINITY, f64::INFINITY, true)]
+    #[case::infinite_ratio_finite_baseline(f64::INFINITY, 10.0, false)]
+    #[case::finite_ratio_infinite_baseline(10.0, f64::INFINITY, false)]
+    fn ratio_within_uses_reciprocal_bounds(
+        #[case] ratio: f64,
+        #[case] baseline: f64,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(ratio_within(ratio, baseline, 0.1), expected);
+    }
+}

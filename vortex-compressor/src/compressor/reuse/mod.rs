@@ -20,11 +20,16 @@ use crate::CascadingCompressor;
 /// Configures when [`PlanReuse`] replays a plan and when it compares the plan with a new selection.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlanReuseOptions {
-    /// The largest relative deviation, between 0 and 1, of a replayed ratio from the baseline
-    /// ratio of the plan. Outside this range, the compressor also selects schemes again and keeps
-    /// the smaller result. The same limit applies to each child position of the plan.
+    /// The largest deviation, between 0 and 1, of a replayed ratio from the baseline ratio of the
+    /// plan. A replayed ratio is accepted when it is between `baseline * (1 - max_ratio_deviation)`
+    /// and `baseline / (1 - max_ratio_deviation)`. Outside this range, the compressor also selects
+    /// schemes again and keeps the smaller result. The same limit applies to each child position
+    /// of the plan.
     ///
     /// Both directions count: a ratio that rises can mean that a different scheme is now better.
+    /// The two bounds are reciprocal factors, so a ratio that falls by a factor and a ratio that
+    /// rises by the same factor get the same result. For example, with `0.1` and a baseline of
+    /// `10.0`, the accepted range is `9.0` to approximately `11.11`.
     pub max_ratio_deviation: f64,
 
     /// The number of replays before the next chunk also compares the plan with a new selection,

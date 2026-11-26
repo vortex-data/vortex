@@ -607,7 +607,6 @@ impl CascadingCompressor {
         // the scheme name and cascade history before propagating. Replays are not reported, because
         // the caller falls back to the full selection.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
-        let plan_ctx = compress_ctx.clone();
         let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
         let compressed = self
             .compress_with_scheme(winner, &data, &compress_ctx, exec_ctx)
@@ -647,10 +646,10 @@ impl CascadingCompressor {
 
         if accepted {
             let ratio = before_nbytes as f64 / after_nbytes.max(1) as f64;
-            record_decision(&plan_ctx, Decision::Scheme(winning_scheme), ratio);
+            record_decision(&compress_ctx, Decision::Scheme(winning_scheme), ratio);
             Ok(Selection::Compressed(compressed))
         } else {
-            record_decision(&plan_ctx, Decision::Unchanged, 1.0);
+            record_decision(&compress_ctx, Decision::Unchanged, 1.0);
             Ok(Selection::unchanged(data))
         }
     }
