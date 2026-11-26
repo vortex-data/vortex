@@ -961,6 +961,7 @@ mod tests {
 
     use itertools::Itertools;
     use num_traits::PrimInt;
+    use prost::Message;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -982,6 +983,7 @@ mod tests {
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
     use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::proto::expr as pb;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::ScalarFnVTable;
@@ -1535,6 +1537,47 @@ mod tests {
             lists.apply(&list_contains_opts(root(), lit(9i32), options)),
             [Some(false), None],
         )
+    }
+
+    /// Options written before the mode existed have no mode. They order floats in `ZerosEqual`.
+    #[test]
+    fn test_deserialize_without_mode_uses_zeros_equal() -> VortexResult<()> {
+        let bytes = pb::ListContainsOpts {
+            sql_null_semantics: true,
+            compare_mode: None,
+        }
+        .encode_to_vec();
+
+        assert_eq!(
+            ListContains.deserialize(&bytes, &SESSION)?,
+            ListContainsOptions {
+                sql_null_semantics: true,
+                compare_mode: CompareMode::from_float_order(FloatOrder::ZerosEqual),
+            }
+        );
+        Ok(())
+    }
+
+    /// A mode that this version cannot read fails the read, as it does for a comparison.
+    #[rstest]
+    #[case::no_float_order(vec![], "compare mode has no float order")]
+    #[case::unknown_type(
+        vec![pb::compare_mode::TypeOrder { order: None }],
+        "compare mode has the order of an unknown type"
+    )]
+    fn test_deserialize_rejects_invalid_mode(
+        #[case] orders: Vec<pb::compare_mode::TypeOrder>,
+        #[case] message: &str,
+    ) {
+        let bytes = pb::ListContainsOpts {
+            sql_null_semantics: false,
+            compare_mode: Some(pb::CompareMode { orders }),
+        }
+        .encode_to_vec();
+
+        let error = ListContains.deserialize(&bytes, &SESSION).unwrap_err();
+
+        assert!(error.to_string().contains(message), "{error}");
     }
 
     #[test]

@@ -1548,6 +1548,27 @@ fn compare_options_reject_invalid_mode(
     assert!(error.to_string().contains(message), "{error}");
 }
 
+/// A later version writes the order of another type with a field of `TypeOrder` that this version
+/// does not know. Prost decodes that entry as an entry without a value, so the read fails.
+#[test]
+fn compare_options_reject_unknown_type_order_field() {
+    // `CompareOpts { op: Eq, mode: { orders: [{ float: ZerosEqual }, { <field 2>: 1 }] } }`.
+    let bytes = [
+        0x12, 0x08, // Field 2 `mode`, 8 bytes.
+        0x0a, 0x02, 0x08, 0x00, // Field 1 `orders`: field 1 `float` = 0.
+        0x0a, 0x02, 0x10, 0x01, // Field 1 `orders`: unknown field 2 = 1.
+    ];
+
+    let error = Compare.deserialize(&bytes, &SESSION).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("compare mode has the order of an unknown type"),
+        "{error}"
+    );
+}
+
 /// The entry of a compare mode that holds the float order with the proto code `code`.
 fn float_order(code: i32) -> pb::compare_mode::TypeOrder {
     pb::compare_mode::TypeOrder {

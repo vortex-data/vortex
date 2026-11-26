@@ -474,7 +474,8 @@ pub fn bound_dynamic_with_options(
         .vortex_expect("dynamic comparisons require a compatible left-hand dtype")
 }
 
-/// Creates a dynamic comparison expression that compares floats in the default [`CompareMode`].
+/// Creates a dynamic comparison expression that compares floats in
+/// [`FloatOrder::ZerosEqual`](vortex_array::scalar_fn::builtin::operators::FloatOrder::ZerosEqual).
 #[allow(deprecated)]
 pub fn dynamic(
     operator: CompareOperator,

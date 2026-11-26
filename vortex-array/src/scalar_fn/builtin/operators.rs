@@ -403,6 +403,8 @@ impl TryFrom<PbCompareMode> for CompareMode {
     ///
     /// A later version can add the order of another type. This version decodes that order as an
     /// entry without a value and fails, because a comparison in another order gives wrong rows.
+    /// That entry is optional, and a writer emits it only when the operands contain that type, so
+    /// this version can still read the comparisons of other types.
     fn try_from(value: PbCompareMode) -> VortexResult<Self> {
         let mut float_order = None;
 

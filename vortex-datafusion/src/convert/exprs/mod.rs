@@ -55,9 +55,10 @@ use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::change_time_unit;
+use vortex::expr::compare_with_mode;
 use vortex::expr::ext_storage;
 use vortex::expr::get_item;
-use vortex::expr::in_list_of;
+use vortex::expr::in_list_of_with_mode;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -86,11 +87,15 @@ use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareMode;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
+use vortex::scalar_fn::builtin::operators::FloatOrder;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 
 use crate::row_index::RowIndex;
+
+/// The comparison semantics of DataFusion: `-0.0 = +0.0`, and other floats compare by their bits.
+const DATAFUSION_MODE: CompareMode = CompareMode::from_float_order(FloatOrder::ZerosEqual);
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -409,7 +414,6 @@ impl DefaultExpressionConverter {
         Ok(converted)
     }
 
-    #[allow(deprecated)]
     fn convert_expr(
         &self,
         expr: &Arc<dyn PhysicalExpr>,
@@ -467,12 +471,17 @@ impl DefaultExpressionConverter {
                     .as_opt::<Literal>()
                     .or_else(|| left.as_opt::<Literal>());
 
-                if !CompareMode::new().agrees_with_total_order(operator, &dtype, constant) {
+                if !DATAFUSION_MODE.agrees_with_total_order(operator, &dtype, constant) {
                     return Err(Unconverted::Unsupported);
                 }
             }
 
-            return Ok(binary(operator, left, right));
+            return Ok(match operator {
+                BinaryOperator::Compare(operator) => {
+                    compare_with_mode(operator, DATAFUSION_MODE, left, right)
+                }
+                operator => binary(operator, left, right),
+            });
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -753,11 +762,11 @@ impl DefaultExpressionConverter {
 
         // DataFusion's `IN` makes `-0.0` equal to `+0.0` and otherwise compares the bits of
         // floats, so a `NaN` matches only the same `NaN`. That is `FloatOrder::ZerosEqual`, the
-        // order of `in_list_of`.
+        // order of `DATAFUSION_MODE`.
         //
         // An element of another type than the value declines the pushdown: no implicit casts.
-        let membership =
-            in_list_of(value, value_dtype, elements).map_err(|_| Unconverted::Unsupported)?;
+        let membership = in_list_of_with_mode(value, value_dtype, elements, DATAFUSION_MODE)
+            .map_err(|_| Unconverted::Unsupported)?;
         Ok(if in_list.negated() {
             not(membership)
         } else {
@@ -1272,10 +1281,10 @@ fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
 /// Returns whether DataFusion compares the bits of the floats in operands of these types.
 ///
 /// DataFusion replaces `-0.0` with `+0.0` in float arrays and scalars, then compares in total
-/// order. This is the default Vortex comparison. DataFusion does not replace the zeros in the
-/// values of a dictionary or of a run-end encoded array, so it compares the bits of two such
-/// operands. The default Vortex comparison gives the same result only for a constant that is not
-/// a zero. A comparison of one such operand with a plain float has no Vortex mode, and stays in
+/// order. This is [`DATAFUSION_MODE`]. DataFusion does not replace the zeros in the values of a
+/// dictionary or of a run-end encoded array, so it compares the bits of two such operands. A
+/// comparison in [`DATAFUSION_MODE`] gives the same result only for a constant that is not a
+/// zero. A comparison of one such operand with a plain float has no Vortex mode, and stays in
 /// DataFusion.
 fn compares_float_bits(left: &DataType, right: &DataType) -> Conversion<bool> {
     fn is_encoded_float(data_type: &DataType, encoded: bool) -> bool {

@@ -74,12 +74,16 @@ message ShreddingSpecField {
 
 // How a type-specific comparison orders the values in its domain.
 //
-// The mode holds one order for each type with more than one useful order. A reader fails when the
-// order of a type that it knows is absent, and when it finds an order that it does not know. So
-// an older reader never compares in another order than the writer asked for.
+// The mode holds one order for each type with more than one useful order. Only the float order is
+// required. A reader fails when the float order is absent, and when it finds an order that it does
+// not know. So a reader that knows this field never compares in another order than the writer
+// asked for. Readers at 0.94.0 and earlier do not know this field. They drop the mode and compare
+// floats in total order.
 //
-// To add the order of another type, add a variant to `TypeOrder.order`. An older reader decodes
-// that variant as an empty `TypeOrder` and fails.
+// To add the order of another type, add a variant to `TypeOrder.order`. The new entry is optional:
+// when it is absent, the comparison orders that type as it did before the entry existed. A writer
+// emits the entry only when the operands contain that type, so that the comparisons of other types
+// stay readable. An older reader decodes the variant as an empty `TypeOrder` and fails.
 message CompareMode {
   // One entry for each type. A type has at most one entry.
   repeated TypeOrder orders = 1;
