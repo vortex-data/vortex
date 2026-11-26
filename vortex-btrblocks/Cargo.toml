@@ -16,6 +16,7 @@ all-features = true
 
 [dependencies]
 itertools = { workspace = true }
+num-traits = { workspace = true }
 parking_lot = { workspace = true }
 pco = { workspace = true, optional = true }
 rand = { workspace = true }
@@ -33,6 +34,7 @@ vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-onpair = { workspace = true }
 vortex-pco = { workspace = true, optional = true }
+vortex-pivco = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }

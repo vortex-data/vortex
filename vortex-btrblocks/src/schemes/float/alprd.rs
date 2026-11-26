@@ -17,8 +17,10 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
+use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DescendantAllowlist;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -29,7 +31,9 @@ use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
+use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::integer::PivcoScheme;
 
 /// ALPRD (ALP with Real Double) encoding variant.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -50,6 +54,22 @@ impl Scheme for ALPRDScheme {
         vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()]
     }
 
+    /// Children: left_parts=0.
+    fn num_children(&self) -> usize {
+        1
+    }
+
+    /// `left_parts` (child 0) already holds dictionary codes `0..8` bit-packed to `<= 3` bits by
+    /// `RDEncoder`. Restrict child 0 to `PivcoScheme` via an allow-list so default `CORE` /
+    /// `compact` / `cuda` output and future integer schemes never re-encode `left_parts`, while
+    /// `PivcoScheme` can compress skewed exponent codes when enabled.
+    fn descendant_allowlists(&self) -> Vec<DescendantAllowlist> {
+        vec![DescendantAllowlist {
+            allowed: vec![PivcoScheme::default().id()],
+            children: ChildSelection::One(0),
+        }]
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -68,7 +88,7 @@ impl Scheme for ALPRDScheme {
         &self,
         compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = compressor.with_compressed_validity(data.array(), exec_ctx)?;
@@ -86,6 +106,29 @@ impl Scheme for ALPRDScheme {
         let dtype = alp_rd.dtype().clone();
         let right_bit_width = alp_rd.right_bit_width();
         let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
+        // Only canonicalize and re-compress `left_parts` when `PivcoScheme` is actually eligible
+        // for child 0; otherwise keep `RDEncoder`'s `BitPacked` output at zero extra cost.
+        if parts.left_parts.nbytes() > 0
+            && compressor.is_child_scheme_eligible(
+                PivcoScheme::default().id(),
+                &compress_ctx,
+                self.id(),
+                0,
+            )
+        {
+            let compressed_left = compressor.compress_child(
+                &parts.left_parts,
+                &compress_ctx,
+                self.id(),
+                0,
+                exec_ctx,
+            )?;
+            if compressed_left.nbytes() < parts.left_parts.nbytes()
+                && compressed_left.dtype() == parts.left_parts.dtype()
+            {
+                parts.left_parts = compressed_left;
+            }
+        }
         parts.left_parts_patches = parts
             .left_parts_patches
             .map(|p| compress_patches(p, exec_ctx))

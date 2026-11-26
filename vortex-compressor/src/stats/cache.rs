@@ -258,7 +258,7 @@ impl ArrayAndStats {
     }
 
     /// Returns a custom cached value when one exists.
-    pub(crate) fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.cache.get::<T>()
     }
 

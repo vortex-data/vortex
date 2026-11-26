@@ -157,6 +157,20 @@ impl ErasedStats {
         }
     }
 
+    /// Returns the minimum valid value widened to `i128`.
+    pub fn min_i128(&self) -> i128 {
+        match self {
+            ErasedStats::U8(x) => i128::from(x.min),
+            ErasedStats::U16(x) => i128::from(x.min),
+            ErasedStats::U32(x) => i128::from(x.min),
+            ErasedStats::U64(x) => i128::from(x.min),
+            ErasedStats::I8(x) => i128::from(x.min),
+            ErasedStats::I16(x) => i128::from(x.min),
+            ErasedStats::I32(x) => i128::from(x.min),
+            ErasedStats::I64(x) => i128::from(x.min),
+        }
+    }
+
     /// Difference between max and min.
     pub fn max_minus_min(&self) -> u64 {
         match &self {

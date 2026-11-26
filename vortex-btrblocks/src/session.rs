@@ -33,6 +33,8 @@ static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 static ONPAIR_SCHEME: string::OnPairScheme =
     string::OnPairScheme::new(DEFAULT_CONFIG.max_dict_bits);
 
+static PIVCO_SCHEME: integer::PivcoScheme = integer::PivcoScheme::auto();
+
 type SchemeRegistration = (SchemeId, &'static dyn Scheme);
 type SchemeRegistry = Arc<RwLock<Vec<SchemeRegistration>>>;
 
@@ -71,6 +73,7 @@ impl Default for CompressionSession {
             &integer::SequenceScheme,
             &integer::IntRLEScheme,
             &DELTA_SCHEME,
+            &PIVCO_SCHEME,
             #[cfg(feature = "pco")]
             &integer::PcoScheme,
             ////////////////////////////////////////////////////////////////////////////////////

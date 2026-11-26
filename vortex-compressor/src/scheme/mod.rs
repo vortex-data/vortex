@@ -31,6 +31,7 @@ pub use estimate::EstimateScore;
 pub use estimate::EstimateVerdict;
 pub use exclusion::AncestorExclusion;
 pub use exclusion::ChildSelection;
+pub use exclusion::DescendantAllowlist;
 pub use exclusion::DescendantExclusion;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
@@ -168,6 +169,14 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// Each rule says: "when I cascade through child Y, do not use scheme X anywhere in that
     /// subtree." Only meaningful for schemes that register children with [`Child::new`].
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        Vec::new()
+    }
+
+    /// Restricts specific children's subtrees to only the listed schemes (push direction).
+    ///
+    /// Each rule says: "when I cascade through child Y, only schemes in `allowed` may be tried
+    /// in that subtree." An empty list imposes no allow-list restriction.
+    fn descendant_allowlists(&self) -> Vec<DescendantAllowlist> {
         Vec::new()
     }
 

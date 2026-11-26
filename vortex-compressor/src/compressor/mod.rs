@@ -21,6 +21,7 @@ pub(crate) use sample::sample_slices;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildPolicy;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -86,6 +87,32 @@ impl CascadingCompressor {
     pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
         self.child_policy = Some(policy);
         self
+    }
+
+    /// Returns the compression schemes enabled in this compressor.
+    pub fn allowed_schemes(&self) -> &[&'static dyn Scheme] {
+        &self.schemes
+    }
+
+    /// Returns `true` if `scheme_id` is enabled in this compressor and not excluded when
+    /// cascading from `parent_id`'s `child_index` under `parent_ctx`.
+    pub fn is_child_scheme_eligible(
+        &self,
+        scheme_id: SchemeId,
+        parent_ctx: &CompressorContext,
+        parent_id: SchemeId,
+        child_index: usize,
+    ) -> bool {
+        if parent_ctx.finished_cascading() {
+            return false;
+        }
+        let Some(candidate) = self.schemes.iter().copied().find(|s| s.id() == scheme_id) else {
+            return false;
+        };
+        let child_ctx = parent_ctx
+            .clone()
+            .descend_with_scheme(parent_id, child_index);
+        !self.is_excluded(candidate, &child_ctx)
     }
 }
 

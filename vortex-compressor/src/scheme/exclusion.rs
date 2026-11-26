@@ -40,6 +40,19 @@ pub struct DescendantExclusion {
     pub children: ChildSelection,
 }
 
+/// Push rule: declared by a cascading scheme to restrict the subtree rooted at the specified
+/// children to only the listed schemes.
+///
+/// Unlike [`DescendantExclusion`], which blocks named schemes while permitting future schemes by
+/// default, an allow-list permits only the listed schemes on the matching child subtrees.
+#[derive(Debug, Clone)]
+pub struct DescendantAllowlist {
+    /// The only schemes allowed in the matching children's subtrees.
+    pub allowed: Vec<SchemeId>,
+    /// Which children of the declaring scheme this rule applies to.
+    pub children: ChildSelection,
+}
+
 /// Pull rule: declared by a scheme to exclude itself when the specified ancestor is in the
 /// cascade chain.
 ///
