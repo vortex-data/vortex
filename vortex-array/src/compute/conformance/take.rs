@@ -5,10 +5,12 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
 use crate::RecursiveCanonical;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
 use crate::dtype::Nullability;
 
 /// Test conformance of the take compute function for an array.
@@ -31,7 +33,7 @@ pub fn test_take_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         test_take_repeated_indices(array, ctx);
     }
 
-    test_empty_indices(array);
+    test_empty_indices(array, ctx);
 
     // Additional edge cases for non-empty arrays
     if len > 0 {
@@ -220,14 +222,13 @@ pub(super) fn test_take_repeated_indices(array: &ArrayRef, ctx: &mut ExecutionCt
     }
 }
 
-fn test_empty_indices(array: &ArrayRef) {
+fn test_empty_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
     let result = array
         .take(indices.into_array())
         .vortex_expect("take should succeed in conformance test");
 
-    assert_eq!(result.len(), 0);
-    assert_eq!(result.dtype(), array.dtype());
+    assert_arrays_eq!(result, Canonical::empty(array.dtype()), ctx);
 }
 
 fn test_take_reverse(array: &ArrayRef, ctx: &mut ExecutionCtx) {

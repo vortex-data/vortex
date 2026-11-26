@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
 use std::ptr;
 
 use arbitrary::Arbitrary;
@@ -17,18 +18,18 @@ use vortex_file::EOF_SIZE;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::POSTSCRIPT_LEN_BYTES;
 use vortex_file::VERSION_BYTES;
-use vortex_file::WriteOptionsSessionExt;
 use vortex_file::flatbuffers::footer as fb;
 
 use crate::FUZZ_FILE_ARRAY_MAX_LEN;
 use crate::RUNTIME;
 use crate::SESSION;
+use crate::file::WriteSettings;
 use crate::file::has_duplicate_field_names;
 use crate::file::has_nullable_struct;
 
 const MAX_CORRUPTIONS: usize = 8;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum SegmentField {
     /// Although valid Offset is u64, generated files are usually small, so most
     /// such offsets are rejected in file size check. Same for Length
@@ -38,7 +39,7 @@ pub enum SegmentField {
     AlignmentExponent(u8),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Region {
     DataSegment(u8),
     Dtype,
@@ -47,7 +48,19 @@ pub enum Region {
     Footer,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl fmt::Debug for Region {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DataSegment(index) => write!(f, "data_segment[{index}]"),
+            Self::Dtype => f.write_str("dtype"),
+            Self::Layout => f.write_str("layout"),
+            Self::Statistics => f.write_str("statistics"),
+            Self::Footer => f.write_str("footer"),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum Corruption {
     FooterSegmentSpec {
         index: u8,
@@ -58,6 +71,34 @@ pub enum Corruption {
         offset: u32,
         byte: u8,
     },
+}
+
+impl Corruption {
+    fn is_noop(&self) -> bool {
+        matches!(self, Self::Bytes { byte: 0, .. })
+    }
+}
+
+impl fmt::Debug for Corruption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FooterSegmentSpec { index, field } => {
+                let (name, value) = match field {
+                    SegmentField::Offset(v) => ("offset", u32::from(*v)),
+                    SegmentField::Length(v) => ("length", u32::from(*v)),
+                    SegmentField::AlignmentExponent(v) => ("alignment_exponent", u32::from(*v)),
+                };
+                write!(f, "footer.segments[{index}].{name} = {value}")
+            }
+            Self::Bytes {
+                region,
+                offset,
+                byte,
+            } => {
+                write!(f, "{region:?}.bytes[{offset}] ^= {byte:#04x}")
+            }
+        }
+    }
 }
 
 impl<'a> Arbitrary<'a> for Corruption {
@@ -92,10 +133,24 @@ const NO_CORRUPTION: Corruption = Corruption::Bytes {
     byte: 0,
 };
 
-#[derive(Debug)]
 pub struct FuzzFileCorruption {
     pub array: ArrayRef,
     pub corruptions: [Corruption; MAX_CORRUPTIONS],
+    pub write_settings: WriteSettings,
+}
+
+impl fmt::Debug for FuzzFileCorruption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let corruptions: Vec<_> = self.corruptions.iter().filter(|c| !c.is_noop()).collect();
+        f.debug_struct("FuzzFileCorruption")
+            .field("array", &self.array)
+            .field(
+                "corruptions (offset % len, segment index % segments)",
+                &corruptions,
+            )
+            .field("write_settings", &self.write_settings)
+            .finish()
+    }
 }
 
 impl<'a> Arbitrary<'a> for FuzzFileCorruption {
@@ -110,18 +165,26 @@ impl<'a> Arbitrary<'a> for FuzzFileCorruption {
         for slot in corruptions.iter_mut().take(corruptions_len) {
             *slot = u.arbitrary()?;
         }
-        Ok(Self { array, corruptions })
+        Ok(Self {
+            array,
+            corruptions,
+            write_settings: WriteSettings::arbitrary(u)?,
+        })
     }
 }
 
 pub fn run_file_corruption(fuzz: FuzzFileCorruption) -> VortexResult<bool> {
-    let FuzzFileCorruption { array, corruptions } = fuzz;
+    let FuzzFileCorruption {
+        array,
+        corruptions,
+        write_settings,
+    } = fuzz;
     if has_nullable_struct(array.dtype()) || has_duplicate_field_names(array.dtype()) {
         return Ok(false);
     }
 
     let mut file = Vec::new();
-    SESSION
+    write_settings
         .write_options()
         .blocking(&*RUNTIME)
         .write(&mut file, array.to_array_iterator())?;
