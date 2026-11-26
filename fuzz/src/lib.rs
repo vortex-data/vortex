@@ -35,7 +35,12 @@ pub mod arrow_roundtrip;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
+#[cfg(test)]
+mod hegel_smoke;
 mod row;
+/// Untrusted wire-input fuzzing for IPC and protobuf boundaries.
+#[cfg(feature = "native")]
+pub mod wire;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
@@ -76,6 +81,10 @@ pub use gpu::FuzzCompressGpu;
 pub use gpu::run_compress_gpu;
 pub use row::FuzzRowEncode;
 pub use row::run_row_encode;
+#[cfg(feature = "native")]
+pub use wire::FuzzWireSafety;
+#[cfg(feature = "native")]
+pub use wire::run_wire_safety;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;
