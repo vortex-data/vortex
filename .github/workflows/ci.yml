@@ -177,19 +177,45 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - name: Docs
+      # Cargo locks each target directory, so the doctests build into their own one to run
+      # alongside the rustdoc build. They compile with `--all-features`, so they would not
+      # reuse the `cargo doc` artifacts anyway.
+      - parallel:
+          - name: Docs
+            id: docs
+            continue-on-error: true
+            env:
+              # required to make sure docs build for features
+              RUSTDOCFLAGS: "-D warnings --cfg docsrs"
+            run: |
+              # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
+              # including all private docs.
+              # Each crate is documented into its own directory: merging them into one is what makes
+              # `cargo doc` slow, and nothing here uses the merged output. See the script for details.
+              RUSTDOC="${GITHUB_WORKSPACE}/.github/scripts/rustdoc-unmerged.sh" \
+                cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
+          # nextest doesn't support doc tests, so we run them here
+          - name: Doctests
+            id: doctests
+            continue-on-error: true
+            env:
+              RUSTDOCFLAGS: "-D warnings --cfg docsrs"
+            run: >-
+              cargo test --profile ci --doc --target-dir target/doctest --workspace --all-features
+              --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
+      - name: Check docs results
+        if: always()
         env:
-          # required to make sure docs build for features
-          RUSTDOCFLAGS: "-D warnings --cfg docsrs"
+          DOCS: ${{ steps.docs.outcome }}
+          DOCTESTS: ${{ steps.doctests.outcome }}
         run: |
-          # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
-          # including all private docs.
-          # Each crate is documented into its own directory: merging them into one is what makes
-          # `cargo doc` slow, and nothing here uses the merged output. See the script for details.
-          RUSTDOC="${GITHUB_WORKSPACE}/.github/scripts/rustdoc-unmerged.sh" \
-            cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
-          # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
+          failed=""
+          if [ "$DOCS" = failure ]; then failed="$failed docs"; fi
+          if [ "$DOCTESTS" = failure ]; then failed="$failed doctests"; fi
+          if [ -n "$failed" ]; then
+            echo "::error::Failed:$failed"
+            exit 1
+          fi
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
