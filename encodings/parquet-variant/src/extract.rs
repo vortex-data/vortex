@@ -116,11 +116,47 @@ fn decode(value: &[u8]) -> Option<Variant<'static, '_>> {
     Variant::try_new(EMPTY_METADATA, value).ok()
 }
 
+/// Converts `variant` to an integer as Arrow's `variant_get` does: a Boolean becomes 0 or 1, and a
+/// float or decimal is truncated toward zero. Returns `None` for other values and out of range.
+fn as_int64(variant: &Variant<'_, '_>) -> Option<i64> {
+    match *variant {
+        Variant::BooleanFalse => Some(0),
+        Variant::BooleanTrue => Some(1),
+        Variant::Float(float) => float_as_int64(f64::from(float)),
+        Variant::Double(double) => float_as_int64(double),
+        Variant::Decimal4(decimal) => {
+            decimal_as_int64(i128::from(decimal.integer()), decimal.scale())
+        }
+        Variant::Decimal8(decimal) => {
+            decimal_as_int64(i128::from(decimal.integer()), decimal.scale())
+        }
+        Variant::Decimal16(decimal) => decimal_as_int64(decimal.integer(), decimal.scale()),
+        _ => variant.as_int64(),
+    }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the truncated value is checked to be in range"
+)]
+fn float_as_int64(float: f64) -> Option<i64> {
+    let truncated = float.trunc();
+
+    // `i64::MAX as f64` rounds up to 2^63, so the upper bound is exclusive.
+    (truncated >= i64::MIN as f64 && truncated < i64::MAX as f64).then_some(truncated as i64)
+}
+
+fn decimal_as_int64(unscaled: i128, scale: u8) -> Option<i64> {
+    let divisor = 10i128.checked_pow(u32::from(scale))?;
+
+    i64::try_from(unscaled / divisor).ok()
+}
+
 /// Appends the value of each row, which it converts to its dtype as the general kernel converts
 /// it.
 ///
 /// The kernel converts a value to a string with [`Variant::as_string`], to an integer with
-/// [`Variant::as_int64`], to a struct with [`Variant::as_object`], and to a list with
+/// [`as_int64`], to a struct with [`Variant::as_object`], and to a list with
 /// [`Variant::as_list`]. A value that does not convert is a null.
 trait Append {
     /// Appends `value`, converted to the builder's dtype. Returns `None` for bytes that are cut
@@ -434,7 +470,7 @@ impl Append for Int64Builder {
             (PRIMITIVE, INT32) => Some(i64::from(i32::from_le_bytes(array(payload)?))),
             (PRIMITIVE, INT64) => Some(i64::from_le_bytes(array(payload)?)),
             (OBJECT | ARRAY, _) => None,
-            _ => decode(value)?.as_int64(),
+            _ => as_int64(&decode(value)?),
         };
         self.push(integer);
         Some(())
