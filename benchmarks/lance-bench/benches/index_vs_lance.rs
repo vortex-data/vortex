@@ -23,7 +23,11 @@
 //!   reading the data.
 //!
 //! Both sides read from memory. Before timing, the benchmark prints both sides' recall@10 against
-//! an exact cosine search over every vector.
+//! an exact cosine search over every vector. The `vbench_sql` group runs VBench Q1 and Q4
+//! in DataFusion on both indexed tables. It includes SQL planning, native ANN retrieval,
+//! fetching candidate rows, and final cosine scoring and ordering. Queries rotate over the same
+//! 21 vectors on each side. Set `VBENCH_VORTEX_NPROBES` and `VBENCH_LANCE_NPROBES`
+//! independently to compare latency at similar measured recall (both default to 8).
 //!
 //! ```text
 //! cargo bench -p lance-bench --bench index_vs_lance
@@ -32,6 +36,8 @@
 
 #![expect(clippy::unwrap_used, reason = "benchmark setup fails loudly")]
 #![expect(clippy::cast_possible_truncation, reason = "small benchmark constants")]
+
+mod vbench;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -164,6 +170,10 @@ impl Data {
         }
     }
 
+    fn prices(&self) -> impl Iterator<Item = i64> {
+        (0..self.scale.rows).map(price)
+    }
+
     fn vortex_array(&self) -> VortexResult<ArrayRef> {
         let ids: PrimitiveArray = (0..self.scale.rows as u64).collect();
         let elements = PrimitiveArray::new(Buffer::copy_from(&self.vectors), Validity::NonNullable);
@@ -173,10 +183,15 @@ impl Data {
             Validity::NonNullable,
             self.scale.rows,
         );
-        Ok(
-            StructArray::from_fields(&[("id", ids.into_array()), ("emb", vectors.into_array())])?
-                .into_array(),
-        )
+        Ok(StructArray::from_fields(&[
+            ("id", ids.into_array()),
+            ("emb", vectors.into_array()),
+            (
+                "price",
+                self.prices().collect::<PrimitiveArray>().into_array(),
+            ),
+        ])?
+        .into_array())
     }
 
     fn lance_batch(&self) -> la::RecordBatch {
@@ -188,6 +203,7 @@ impl Data {
                 ls::DataType::FixedSizeList(Arc::clone(&item), self.scale.dim as i32),
                 false,
             ),
+            ls::Field::new("price", ls::DataType::Int64, false),
         ]));
         let vectors = la::FixedSizeListArray::new(
             item,
@@ -200,6 +216,7 @@ impl Data {
             vec![
                 Arc::new(la::UInt64Array::from_iter_values(0..self.scale.rows as u64)),
                 Arc::new(vectors),
+                Arc::new(la::Int64Array::from_iter_values(self.prices())),
             ],
         )
         .unwrap()
@@ -223,21 +240,27 @@ impl Data {
     }
 }
 
+// Use a different sequence from the embedding generator so price is independent of topic.
+fn price(row: usize) -> i64 {
+    ((row * 73 + 17) % 100) as i64
+}
+
 /// Exact cosine top-[`K`] rows, best first, ties by row.
-fn exact_cosine(data: &Data, query: &[f32]) -> Vec<u64> {
+fn exact_cosine(data: &Data, query: &[f32], min_price: Option<i64>) -> Vec<u64> {
     let norm = |v: &[f32]| v.iter().map(|x| x * x).sum::<f32>().sqrt();
     let query_norm = norm(query);
     let mut scored: Vec<(u64, f32)> = data
         .vectors
         .chunks_exact(data.scale.dim)
         .enumerate()
+        .filter(|(row, _)| min_price.is_none_or(|floor| price(*row) >= floor))
         .map(|(row, v)| {
             let dot: f32 = v.iter().zip(query).map(|(a, b)| a * b).sum();
             (row as u64, dot / (norm(v) * query_norm))
         })
         .collect();
     scored.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-    scored[..K].iter().map(|(row, _)| *row).collect()
+    scored.into_iter().take(K).map(|(row, _)| row).collect()
 }
 
 /// The Vortex side: a plain data file and a standalone IVF index file.
@@ -403,7 +426,7 @@ fn print_recall(runtime: &Runtime, data: &Data, vortex: &VortexSide, lance: &Dat
     let queries = data.vector_queries();
     let (mut vortex_found, mut lance_found) = (0, 0);
     for query in &queries {
-        let exact = exact_cosine(data, query);
+        let exact = exact_cosine(data, query, None);
         let hits = runtime.block_on(vortex.nearest_search(query)).unwrap();
         vortex_found += overlap(&rows(&hits), &exact);
         let ids = runtime.block_on(lance_nearest(lance, query)).unwrap();
@@ -491,6 +514,7 @@ fn index_vs_lance(c: &mut Criterion) {
         })
     });
     group.finish();
+    vbench::benchmark(c, &runtime, &data, Arc::new(vortex), Arc::new(lance));
 }
 
 criterion_group! {

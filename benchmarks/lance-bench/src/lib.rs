@@ -4,3 +4,4 @@
 pub mod compress;
 pub mod convert;
 pub mod random_access;
+pub mod vbench;

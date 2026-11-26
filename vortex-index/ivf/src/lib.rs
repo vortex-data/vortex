@@ -518,6 +518,15 @@ pub trait VectorSearch {
         nprobe: usize,
     ) -> impl Future<Output = VortexResult<Vec<Hit>>> + Send;
 
+    /// Searches the probed lists, admitting only physical rows in `eligible` to the top k.
+    fn search_vectors_filtered(
+        self: &Arc<Self>,
+        query: &[f32],
+        k: usize,
+        nprobe: usize,
+        eligible: RoaringBitmap,
+    ) -> impl Future<Output = VortexResult<Vec<Hit>>> + Send;
+
     /// [`search_vectors`](Self::search_vectors) as steps: the directory on the first search,
     /// then the probed lists.
     fn search_vectors_steps(
@@ -539,39 +548,61 @@ impl VectorSearch for IndexRows<IvfIndex> {
         async move { steps?.run().await }
     }
 
+    async fn search_vectors_filtered(
+        self: &Arc<Self>,
+        query: &[f32],
+        k: usize,
+        nprobe: usize,
+        eligible: RoaringBitmap,
+    ) -> VortexResult<Vec<Hit>> {
+        search_steps(self, query, k, nprobe, Some(eligible))?
+            .run()
+            .await
+    }
+
     fn search_vectors_steps(
         self: &Arc<Self>,
         query: &[f32],
         k: usize,
         nprobe: usize,
     ) -> VortexResult<IndexStep<Vec<Hit>>> {
-        let dim = self.options().dim as usize;
-        vortex_ensure_eq!(query.len(), dim, "Query vector has the wrong dimension");
-        if k == 0 {
+        search_steps(self, query, k, nprobe, None)
+    }
+}
+
+fn search_steps(
+    index: &Arc<IndexRows<IvfIndex>>,
+    query: &[f32],
+    k: usize,
+    nprobe: usize,
+    eligible: Option<RoaringBitmap>,
+) -> VortexResult<IndexStep<Vec<Hit>>> {
+    let dim = index.options().dim as usize;
+    vortex_ensure_eq!(query.len(), dim, "Query vector has the wrong dimension");
+    if k == 0 || eligible.as_ref().is_some_and(RoaringBitmap::is_empty) {
+        return Ok(IndexStep::Done(Vec::new()));
+    }
+    let mut query = query.to_vec();
+    normalize(&mut query);
+
+    let this = Arc::clone(index);
+    index.centroids_step()?.and_then(move |centroids| {
+        if centroids.is_empty() {
             return Ok(IndexStep::Done(Vec::new()));
         }
-        let mut query = query.to_vec();
-        normalize(&mut query);
+        let mut probes: Vec<(u32, f32)> = centroids
+            .chunks_exact(dim)
+            .enumerate()
+            .map(|(list, centroid)| Ok((u32::try_from(list)?, dot(&query, centroid))))
+            .collect::<VortexResult<_>>()?;
+        probes.sort_by(|a, b| b.1.total_cmp(&a.1));
+        probes.truncate(nprobe.max(1));
 
-        let this = Arc::clone(self);
-        self.centroids_step()?.and_then(move |centroids| {
-            if centroids.is_empty() {
-                return Ok(IndexStep::Done(Vec::new()));
-            }
-            let mut probes: Vec<(u32, f32)> = centroids
-                .chunks_exact(dim)
-                .enumerate()
-                .map(|(list, centroid)| Ok((u32::try_from(list)?, dot(&query, centroid))))
-                .collect::<VortexResult<_>>()?;
-            probes.sort_by(|a, b| b.1.total_cmp(&a.1));
-            probes.truncate(nprobe.max(1));
-
-            let mut wanted: Vec<u32> = probes.iter().map(|(list, _)| *list).collect();
-            wanted.sort_unstable();
-            this.cached_lists_step(wanted)?
-                .map(move |lists| Ok(score_lists(&lists, &query, dim, k)))
-        })
-    }
+        let mut wanted: Vec<u32> = probes.iter().map(|(list, _)| *list).collect();
+        wanted.sort_unstable();
+        this.cached_lists_step(wanted)?
+            .map(move |lists| Ok(score_lists(&lists, &query, dim, k, eligible.as_ref())))
+    })
 }
 
 /// Reads of an IVF index's lists and directory.
@@ -709,7 +740,13 @@ struct ListCache {
 ///
 /// Every code is scored, but only a code that would enter the current top `k` has its row looked
 /// up in the list's bitmap, so the cost is one dot product per code and little else.
-fn score_lists(lists: &[Arc<IvfEntries>], query: &[f32], dim: usize, k: usize) -> Vec<Hit> {
+fn score_lists(
+    lists: &[Arc<IvfEntries>],
+    query: &[f32],
+    dim: usize,
+    k: usize,
+    eligible: Option<&RoaringBitmap>,
+) -> Vec<Hit> {
     let quantized = QuantizedQuery::new(query);
     let code_len = 4 + dim;
     let candidates = lists
@@ -725,6 +762,7 @@ fn score_lists(lists: &[Arc<IvfEntries>], query: &[f32], dim: usize, k: usize) -
             for (position, &score) in (0u32..).zip(&scores) {
                 if best.may_admit(score)
                     && let Some(row) = rows.select(position)
+                    && eligible.is_none_or(|eligible| eligible.contains(row))
                 {
                     best.offer(Hit {
                         row: u64::from(row),
@@ -976,11 +1014,29 @@ mod tests {
             })
             .collect();
         assert_eq!(
-            score_lists(&lists, &query, dim, usize::MAX).len(),
+            score_lists(&lists, &query, dim, usize::MAX, None).len(),
             every.len()
         );
+        for eligible in [
+            RoaringBitmap::new(),
+            [7, 45].into_iter().collect(),
+            (0..600).step_by(5).collect(),
+        ] {
+            let expected = top_k(
+                every
+                    .iter()
+                    .copied()
+                    .filter(|hit| u32::try_from(hit.row).is_ok_and(|row| eligible.contains(row)))
+                    .collect(),
+                25,
+            );
+            assert_eq!(
+                score_lists(&lists, &query, dim, 25, Some(&eligible)),
+                expected
+            );
+        }
         let expected = top_k(every, 25);
-        let found = score_lists(&lists, &query, dim, 25);
+        let found = score_lists(&lists, &query, dim, 25, None);
         assert_eq!(
             found.iter().map(|h| (h.row, h.score)).collect::<Vec<_>>(),
             expected
