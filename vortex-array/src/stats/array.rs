@@ -248,6 +248,7 @@ impl StatsSetRef<'_> {
 
     /// Returns the value of `stat` by either fetching it from cache if it exists and is [`Precision::Exact`], or falling back to
     /// computation. The underlying compute kernels will cache the computed stat in the latter case.
+    /// Uncached extrema are unavailable for arrays with device-resident buffers.
     pub fn compute_stat(&self, stat: Stat, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>> {
         // If it's already computed and exact, we can return it.
         if let Precision::Exact(s) = self.get(stat) {
@@ -255,6 +256,7 @@ impl StatsSetRef<'_> {
         }
 
         Ok(match stat {
+            Stat::Min | Stat::Max if !self.dyn_array_ref.is_host() => None,
             Stat::Min => min_max(self.dyn_array_ref, ctx, NumericalAggregateOpts::default())?
                 .map(|MinMaxResult { min, max: _ }| min),
             Stat::Max => min_max(self.dyn_array_ref, ctx, NumericalAggregateOpts::default())?
