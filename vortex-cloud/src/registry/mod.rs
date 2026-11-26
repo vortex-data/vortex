@@ -296,13 +296,28 @@ fn num_segments(s: &str) -> usize {
 
 /// Returns the path of `url` skipping the first `depth` segments
 fn path_suffix(url: &Url, depth: usize) -> Result<Path, object_store::Error> {
-    // The segments come from a URL, so percent-decode them (one raw segment may decode to
-    // several path parts, e.g. `refs%2Fconvert%2Fparquet`).
-    let suffix = path_segments(url.path())
-        .skip(depth)
-        .collect::<Vec<_>>()
-        .join("/");
-    Path::from_url_path(suffix).map_err(|e| object_store::Error::Generic {
+    // Preserve empty path segments in the URL so warm cache hits reject `a//b` identically to
+    // cold lookups instead of collapsing them to a different object key.
+    let mut remainder = url.path();
+    if depth > 0 {
+        remainder = remainder.strip_prefix('/').unwrap_or(remainder);
+        for _ in 0..depth {
+            let (seg, rest) = match remainder.split_once('/') {
+                Some((seg, rest)) => (seg, rest),
+                None => (remainder, ""),
+            };
+            if seg.is_empty() {
+                return Err(object_store::Error::Generic {
+                    store: "ObjectStoreRegistry",
+                    source: Box::new(object_store::path::Error::EmptySegment {
+                        path: url.path().to_string(),
+                    }),
+                });
+            }
+            remainder = rest;
+        }
+    }
+    Path::from_url_path(remainder).map_err(|e| object_store::Error::Generic {
         store: "ObjectStoreRegistry",
         source: Box::new(e),
     })

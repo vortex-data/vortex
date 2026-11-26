@@ -120,6 +120,9 @@ PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
 /// expressions involving other macros or sizeof).
 #define KERNEL_FIXED_SHARED_BYTES 512
 
+/// Entries in an ALP-RD dictionary. Codes are masked to it, since null rows may hold any code.
+#define ALPRD_DICTIONARY_CAPACITY 8
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -128,9 +131,9 @@ extern "C" {
 ///
 /// patches_ptr lives on the union variant that owns it (BitunpackParams,
 /// AlpParams) — not per-stage — so the pointer is tied to its op.
-/// Adding a u64 can grow the union and every ScalarOp/SourceOp read in the
-/// tile loop; SourceParams was already 24 B (no change), ScalarParams grew
-/// 8→16 B (no measurable impact — tile loop is compute-bound).
+/// Growing a union grows every ScalarOp/SourceOp read in the tile loop.
+/// SourceParams is 24 B and ScalarParams 40 B, set by AlpRdParams, with no
+/// measurable impact on the tile loop.
 union SourceParams {
     /// Unpack FastLanes bit-packed data.
     struct BitunpackParams {
@@ -176,6 +179,7 @@ struct SourceOp {
 ///   - DICT: codes type → values type (e.g. u8 → u32)
 ///   - CAST: current type → requested output type
 ///   - EXTEND: narrow integer → wider integer of the same signedness
+///   - ALPRD: right bits → float bits of the same width
 ///
 /// The plan builder uses `output_ptype` to determine the element width
 /// for shared memory allocation and to propagate type information
@@ -201,6 +205,16 @@ union ScalarParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
     } dict;
 
+    /// ALP-RD decode: OR in the left bits from the dictionary entry of each row's code.
+    struct AlpRdParams {
+        uint64_t codes_ptr;
+        uint64_t patches_ptr; // device pointer to GPUPatches of u16 left parts (0 = none)
+        uint16_t dictionary[ALPRD_DICTIONARY_CAPACITY];
+        uint16_t codes_offset; // position of row 0 within the first codes chunk
+        uint8_t code_bit_width;
+        uint8_t right_bit_width;
+    } alprd;
+
     /// Extend a narrower integer to the output type (sign-extend signed,
     /// zero-extend unsigned). Must be the last scalar op: LOAD/BITUNPACK
     /// zero-extends to the output width, so prior ops produce correct low
@@ -211,7 +225,7 @@ union ScalarParams {
 };
 
 struct ScalarOp {
-    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST, EXTEND } op_code;
+    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST, EXTEND, ALPRD } op_code;
     /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG) this
     /// equals the input PType. For type-changing ops (ALP, DICT, CAST, EXTEND) this is
     /// the new output PType.
