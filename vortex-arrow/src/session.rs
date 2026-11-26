@@ -73,6 +73,7 @@ use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrowExportOptions;
 use crate::IntoVortexArray;
@@ -731,9 +732,15 @@ impl ArrowSession {
     /// If no plugin recognizes `field` and its extension name is a known Vortex ID, the result is
     /// that extension type over the converted storage (see [`ArrowSession`]).
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
+        self.import_field(field, &mut ImportCache::default())
+    }
+
+    fn import_field(&self, field: &Field, cache: &mut ImportCache) -> VortexResult<DType> {
         if let DataType::Dictionary(_, value_type) = field.data_type() {
-            return self
-                .from_arrow_field(&field.clone().with_data_type(value_type.as_ref().clone()));
+            return self.import_field(
+                &field.clone().with_data_type(value_type.as_ref().clone()),
+                cache,
+            );
         }
 
         if let Some(dtype) = self.infer_field_dtype_with_importers(field)? {
@@ -746,7 +753,7 @@ impl ArrowSession {
         }
 
         let storage_dtype =
-            self.from_arrow_datatype(field.data_type(), field.is_nullable().into())?;
+            self.import_datatype(field.data_type(), field.is_nullable().into(), cache)?;
 
         Ok(match self.ext_dtype_to_wrap(field, &storage_dtype)? {
             Some(ext_dtype) => DType::Extension(ext_dtype),
@@ -801,18 +808,25 @@ impl ArrowSession {
         data_type: &DataType,
         nullability: Nullability,
     ) -> VortexResult<DType> {
+        self.import_datatype(data_type, nullability, &mut ImportCache::default())
+    }
+
+    fn import_datatype(
+        &self,
+        data_type: &DataType,
+        nullability: Nullability,
+        cache: &mut ImportCache,
+    ) -> VortexResult<DType> {
         Ok(match data_type {
             DataType::List(elem)
             | DataType::LargeList(elem)
             | DataType::ListView(elem)
             | DataType::LargeListView(elem) => {
-                DType::List(Arc::new(self.from_arrow_field(elem.as_ref())?), nullability)
+                DType::List(self.import_element(elem, cache)?, nullability)
             }
-            DataType::FixedSizeList(elem, size) => DType::FixedSizeList(
-                Arc::new(self.from_arrow_field(elem.as_ref())?),
-                *size as u32,
-                nullability,
-            ),
+            DataType::FixedSizeList(elem, size) => {
+                DType::FixedSizeList(self.import_element(elem, cache)?, *size as u32, nullability)
+            }
             DataType::Map(entries, keys_sorted) => {
                 vortex_ensure!(
                     !entries.is_nullable(),
@@ -834,30 +848,57 @@ impl ArrowSession {
                     "Arrow map key field must be non-nullable"
                 );
                 DType::map(
-                    self.from_arrow_field(fields[0].as_ref())?,
-                    self.from_arrow_field(fields[1].as_ref())?,
+                    self.import_field(fields[0].as_ref(), cache)?,
+                    self.import_field(fields[1].as_ref(), cache)?,
                     *keys_sorted,
                     nullability,
                 )?
             }
-            DataType::Struct(fields) => DType::Struct(self.from_arrow_fields(fields)?, nullability),
+            DataType::Struct(fields) => {
+                let struct_fields = match cache.structs.get(fields) {
+                    Some(struct_fields) => struct_fields.clone(),
+                    None => {
+                        let struct_fields = self.import_fields(fields, cache)?;
+                        cache.structs.insert(fields.clone(), struct_fields.clone());
+                        struct_fields
+                    }
+                };
+                DType::Struct(struct_fields, nullability)
+            }
             DataType::Dictionary(_, value_type) => {
-                self.from_arrow_datatype(value_type.as_ref(), nullability)?
+                self.import_datatype(value_type.as_ref(), nullability, cache)?
             }
             DataType::RunEndEncoded(_, value_field) => {
-                self.from_arrow_field(&run_end_values_field(value_field, nullability))?
+                self.import_field(&run_end_values_field(value_field, nullability), cache)?
             }
             _ => from_arrow_data_type(data_type, nullability)?,
         })
     }
 
+    fn import_element(&self, elem: &FieldRef, cache: &mut ImportCache) -> VortexResult<Arc<DType>> {
+        if let Some(dtype) = cache.elements.get(elem) {
+            return Ok(Arc::clone(dtype));
+        }
+        let dtype = Arc::new(self.import_field(elem, cache)?);
+        cache.elements.insert(Arc::clone(elem), Arc::clone(&dtype));
+        Ok(dtype)
+    }
+
     /// Build Vortex [`StructFields`] for Arrow [`Fields`], dispatching each field through
     /// [`Self::from_arrow_field`].
     pub fn from_arrow_fields(&self, fields: &Fields) -> VortexResult<StructFields> {
+        self.import_fields(fields, &mut ImportCache::default())
+    }
+
+    fn import_fields(
+        &self,
+        fields: &Fields,
+        cache: &mut ImportCache,
+    ) -> VortexResult<StructFields> {
         fields
             .iter()
             .map(|f| {
-                self.from_arrow_field(f)
+                self.import_field(f, cache)
                     .map(|dt| (FieldName::from(f.name().as_str()), dt))
             })
             .collect::<VortexResult<StructFields>>()
@@ -1197,6 +1238,13 @@ impl ArrowSession {
         })?
         .into_array())
     }
+}
+
+/// Dtypes converted during one schema import, so identical nested Arrow types share one dtype.
+#[derive(Default)]
+struct ImportCache {
+    elements: HashMap<FieldRef, Arc<DType>>,
+    structs: HashMap<Fields, StructFields>,
 }
 
 /// The values field of an Arrow [`DataType::RunEndEncoded`], re-stamped with the run-end array's
@@ -2011,5 +2059,37 @@ mod tests {
             session.exports_without_plugins(&field),
             !leaf_names_exporter
         );
+    }
+
+    #[test]
+    fn test_schema_import_shares_identical_nested_dtypes() -> VortexResult<()> {
+        let list = || DataType::List(Arc::new(Field::new_list_field(DataType::Int64, true)));
+        let fields = || {
+            DataType::Struct(Fields::from(vec![
+                Field::new("x", DataType::Int64, true),
+                Field::new("y", list(), false),
+            ]))
+        };
+        let schema = Schema::new(vec![
+            Field::new("l0", list(), true),
+            Field::new("l1", list(), false),
+            Field::new("s0", fields(), true),
+            Field::new("s1", fields(), false),
+        ]);
+
+        let dtype = SESSION.arrow().from_arrow_schema(&schema)?;
+        let columns: Vec<&DType> = dtype.as_struct_fields().field_dtypes().collect();
+        let [
+            DType::List(l0, Nullability::Nullable),
+            DType::List(l1, Nullability::NonNullable),
+            DType::Struct(s0, Nullability::Nullable),
+            DType::Struct(s1, Nullability::NonNullable),
+        ] = columns.as_slice()
+        else {
+            vortex_bail!("unexpected dtype {dtype}");
+        };
+        assert!(Arc::ptr_eq(l0, l1));
+        assert!(std::ptr::eq(s0.names(), s1.names()));
+        Ok(())
     }
 }

@@ -11222,6 +11222,7 @@ dependencies = [
  "vortex-onpair",
  "vortex-scan",
  "vortex-session",
+ "vortex-utils",
  "vortex-zstd",
 ]
 
