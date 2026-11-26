@@ -30,8 +30,8 @@ use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
-use vortex_array::require_child;
 use vortex_array::require_patches;
+use vortex_array::require_spine;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -116,13 +116,14 @@ impl VTable for ALP {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
         require_patches!(
             array,
             ALPSlots::PATCH_INDICES,
             ALPSlots::PATCH_VALUES,
             ALPSlots::PATCH_CHUNK_OFFSETS
         );
+        // The encoded values are the spine: requested last, once the patches are executed.
+        let array = require_spine!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
 
         Ok(ExecutionResult::done(
             execute_decompress(array, ctx)?.into_array(),

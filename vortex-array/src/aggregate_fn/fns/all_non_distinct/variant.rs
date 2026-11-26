@@ -1,10 +1,87 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
+
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ExecutionCtx;
 use crate::arrays::VariantArray;
+use crate::dtype::DType;
+use crate::scalar::Scalar;
+
+/// Compare two decoded Variant scalars semantically: object fields are matched by name
+/// regardless of storage or shredded schema order, while lists are compared positionally.
+pub fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
+    match (lhs.is_null(), rhs.is_null()) {
+        (true, true) => return true,
+        (true, false) | (false, true) => return false,
+        (false, false) => {}
+    }
+
+    match (lhs.dtype(), rhs.dtype()) {
+        (DType::Variant(_), DType::Variant(_)) => {
+            match (lhs.as_variant().value(), rhs.as_variant().value()) {
+                (Some(l), Some(r)) => variant_scalars_equal(l, r),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        (DType::Struct(..), DType::Struct(..)) => {
+            let lhs_struct = lhs.as_struct();
+            let rhs_struct = rhs.as_struct();
+            let lhs_names = lhs_struct.names();
+            let rhs_names = rhs_struct.names();
+            if lhs_names.len() != rhs_names.len() {
+                return false;
+            }
+            let (Some(lhs_fields), Some(rhs_fields)) =
+                (lhs_struct.fields_iter(), rhs_struct.fields_iter())
+            else {
+                return false;
+            };
+            if lhs_names == rhs_names {
+                return lhs_fields
+                    .zip(rhs_fields)
+                    .all(|(l, r)| variant_scalars_equal(&l, &r));
+            }
+            let mut rhs_indices: HashMap<&str, VecDeque<usize>> =
+                HashMap::with_capacity(rhs_names.len());
+            for (idx, name) in rhs_names.iter().enumerate() {
+                rhs_indices.entry(name.as_ref()).or_default().push_back(idx);
+            }
+            lhs_names.iter().zip(lhs_fields).all(|(name, lhs_field)| {
+                let Some(rhs_idx) = rhs_indices
+                    .get_mut(name.as_ref())
+                    .and_then(VecDeque::pop_front)
+                else {
+                    return false;
+                };
+                rhs_struct
+                    .field_by_idx(rhs_idx)
+                    .is_some_and(|rhs_field| variant_scalars_equal(&lhs_field, &rhs_field))
+            })
+        }
+        (
+            DType::List(..) | DType::FixedSizeList(..),
+            DType::List(..) | DType::FixedSizeList(..),
+        ) => {
+            let lhs_list = lhs.as_list();
+            let rhs_list = rhs.as_list();
+            if lhs_list.len() != rhs_list.len() {
+                return false;
+            }
+            (0..lhs_list.len()).all(|idx| {
+                matches!(
+                    (lhs_list.element(idx), rhs_list.element(idx)),
+                    (Some(l), Some(r)) if variant_scalars_equal(&l, &r)
+                )
+            })
+        }
+        _ => lhs == rhs,
+    }
+}
 
 /// Checks whether two canonical variant arrays are element-wise non-distinct.
 ///
@@ -24,7 +101,9 @@ pub(super) fn check_variant_identical(
         return Ok(false);
     }
     for idx in 0..lhs.len() {
-        if lhs.execute_scalar(idx, ctx)? != rhs.execute_scalar(idx, ctx)? {
+        let lhs_scalar = lhs.execute_scalar(idx, ctx)?;
+        let rhs_scalar = rhs.execute_scalar(idx, ctx)?;
+        if !variant_scalars_equal(&lhs_scalar, &rhs_scalar) {
             return Ok(false);
         }
     }

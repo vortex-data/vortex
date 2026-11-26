@@ -651,8 +651,8 @@ impl VarBinViewBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if `lengths` and `validity` disagree in length, if the lengths do not describe
-    /// `bytes` exactly, or if this builder deduplicates buffers and already holds `bytes`.
+    /// Panics if `lengths` and `validity` disagree in length or if the lengths do not describe
+    /// `bytes` exactly.
     pub fn append_buffer_with_lengths<P: NativePType + AsPrimitive<usize>>(
         &mut self,
         bytes: ByteBuffer,
@@ -742,6 +742,7 @@ impl VarBinViewBuilder {
             }
         }
 
+        let start_view = self.views_builder.len();
         let start_index = self.completed.len();
         let segments = extend_views(
             &mut self.views_builder,
@@ -752,13 +753,33 @@ impl VarBinViewBuilder {
             len_at,
         );
 
-        let expected_completed_len = start_index as usize + segments.len();
-        self.completed.extend_from_slice_unchecked(&segments);
-        assert_eq!(
-            self.completed.len() as usize,
-            expected_completed_len,
-            "Some buffers already exist",
-        );
+        match &mut self.completed {
+            CompletedBuffers::Default(buffers) => {
+                assert!(
+                    buffers.len() + segments.len() <= u32::MAX as usize,
+                    "Too many blocks"
+                );
+                buffers.extend(segments);
+            }
+            CompletedBuffers::Deduplicated(buffers) => {
+                let actual_indices: Vec<u32> = segments
+                    .into_iter()
+                    .map(|segment| buffers.push(segment))
+                    .collect();
+                let needs_remap = actual_indices
+                    .iter()
+                    .zip(start_index..)
+                    .any(|(&actual, expected)| actual != expected);
+                if needs_remap {
+                    for view in &mut self.views_builder[start_view..] {
+                        if !view.is_inlined() {
+                            let seg_idx = (view.as_view().buffer_index - start_index) as usize;
+                            view.as_view_mut().buffer_index = actual_indices[seg_idx];
+                        }
+                    }
+                }
+            }
+        }
 
         self.nulls.append_validity_mask(validity);
         debug_assert_eq!(self.nulls.len(), self.views_builder.len());
@@ -817,7 +838,7 @@ impl VarBinViewBuilder {
     /// Finishes the builder directly into a [`VarBinViewArray`].
     pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
         self.flush_in_progress();
-        let buffers = std::mem::take(&mut self.completed);
+        let buffers = self.completed.take();
 
         assert_eq!(
             self.views_builder.len(),
@@ -1109,6 +1130,13 @@ impl CompletedBuffers {
                 let buffer_lookup = completed_buffers.extend_from_option_slice(&buffers);
                 ViewAdjustment::rewriting(buffer_lookup, offsets)
             }
+        }
+    }
+
+    fn take(&mut self) -> Self {
+        match self {
+            Self::Default(buffers) => Self::Default(std::mem::take(buffers)),
+            Self::Deduplicated(buffers) => Self::Deduplicated(std::mem::take(buffers)),
         }
     }
 
@@ -2215,5 +2243,64 @@ mod tests {
             .unwrap();
         assert_eq!(retrieved.len(), 8192);
         assert_eq!(retrieved.as_slice(), &large_value);
+    }
+
+    #[test]
+    fn test_buffer_deduplication_preserved_across_finish_reuse() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = {
+            let mut builder = VarBinViewBuilder::with_capacity_in(
+                DType::Utf8(Nullability::Nullable),
+                4,
+                BufferAllocatorRef::statically_allocated(),
+            );
+            builder.append_value(LONG);
+            builder.finish_into_varbinview()
+        };
+
+        let mut builder = VarBinViewBuilder::with_buffer_deduplication_in(
+            DType::Utf8(Nullability::Nullable),
+            4,
+            BufferAllocatorRef::statically_allocated(),
+        );
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        let first = builder.finish_into_varbinview();
+        assert_eq!(first.data_buffers().len(), 1);
+
+        // Reuse the finished builder; deduplication mode must still be active.
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        assert_eq!(builder.completed_block_count(), 1);
+
+        let second = builder.finish_into_varbinview();
+        assert_eq!(second.data_buffers().len(), 1);
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(LONG)]);
+        assert_arrays_eq!(second, expected, &mut ctx);
+
+        // Appending the same offset-based `VarBinArray` twice after reuse must deduplicate
+        // its byte buffer and remap views instead of panicking.
+        let varbin = crate::arrays::VarBinArray::from_iter(
+            [Some(LONG), Some("another long string > 12 bytes")],
+            DType::Utf8(Nullability::Nullable),
+        );
+        varbin
+            .clone()
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+        varbin
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+        assert_eq!(builder.completed_block_count(), 1);
+
+        let third = builder.finish_into_varbinview();
+        assert_eq!(third.data_buffers().len(), 1);
+        let expected_third = <VarBinViewArray as FromIterator<_>>::from_iter([
+            Some(LONG),
+            Some("another long string > 12 bytes"),
+            Some(LONG),
+            Some("another long string > 12 bytes"),
+        ]);
+        assert_arrays_eq!(third, expected_third, &mut ctx);
+        Ok(())
     }
 }
