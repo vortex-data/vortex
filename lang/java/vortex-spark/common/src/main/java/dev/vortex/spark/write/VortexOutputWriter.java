@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Each row is appended straight into a batch of Arrow vectors as it arrives, and a full batch is handed to the
  * Vortex writer. A batch is full at {@value #BATCH_SIZE_OPTION} rows or, when {@value #BATCH_BYTES_OPTION} is set, once
- * its Arrow buffers hold that many bytes, whichever comes first.
+ * its Arrow data reaches that many bytes, whichever comes first.
  *
  * <p>After a successful {@link #close()}, {@link #summary()} describes the file and the memory the writer used.
  */
@@ -51,9 +51,9 @@ public final class VortexOutputWriter extends OutputWriter {
     public static final String COMPACT_OPTION = "vortex.write.compact";
 
     /**
-     * Option capping the Arrow bytes of one batch. After each row, the batch is handed to Vortex once its buffers,
-     * nested ones included, hold at least this many bytes. Unset by default, which leaves only the row limit. A single
-     * row larger than the cap still makes a batch of its own.
+     * Option capping the Arrow bytes of one batch. After each row, the batch is handed to Vortex once its values,
+     * offsets and validity bitmaps, nested ones included, take at least this many bytes. Unset by default, which leaves
+     * only the row limit. A single row larger than the cap still makes a batch of its own.
      */
     public static final String BATCH_BYTES_OPTION = "vortex.write.batch.bytes";
 
@@ -65,7 +65,7 @@ public final class VortexOutputWriter extends OutputWriter {
     private final String filePath;
     private final VortexOptions options;
     private final int batchSize;
-    private final long batchBytes;
+    private final long batchBytesLimit;
     private NativeWritable writable;
 
     private Session session;
@@ -73,7 +73,6 @@ public final class VortexOutputWriter extends OutputWriter {
     private BufferAllocator allocator;
     private VectorSchemaRoot vectorSchemaRoot;
     private ArrowFieldWriter<?>[] fieldWriters;
-    private ArrowBatchBytes batchBytesProbe;
     private int batchRowCount = 0;
     private long batchCount = 0;
     private long peakBatchBytes = 0;
@@ -125,7 +124,7 @@ public final class VortexOutputWriter extends OutputWriter {
             }
         }
 
-        this.batchBytes = configuredBatchBytes(options);
+        this.batchBytesLimit = configuredBatchBytes(options);
 
         try {
             this.allocator = new RootAllocator();
@@ -148,7 +147,6 @@ public final class VortexOutputWriter extends OutputWriter {
             for (int i = 0; i < fields.length; i++) {
                 fieldWriters[i] = ArrowFieldWriter.create(vectorSchemaRoot.getVector(i), fields[i].dataType());
             }
-            this.batchBytesProbe = new ArrowBatchBytes(vectorSchemaRoot);
 
             logger.debug("Initialized VortexOutputWriter for {}", filePath);
 
@@ -211,7 +209,7 @@ public final class VortexOutputWriter extends OutputWriter {
                 fieldWriters[i].write(row, i);
             }
             batchRowCount++;
-            if (batchRowCount >= batchSize || (batchBytes > 0 && batchBytesProbe.measure() >= batchBytes)) {
+            if (batchRowCount >= batchSize || (batchBytesLimit > 0 && batchBytes() >= batchBytesLimit)) {
                 writeBatch();
             }
         } catch (IOException e) {
@@ -224,13 +222,22 @@ public final class VortexOutputWriter extends OutputWriter {
         }
     }
 
+    /** Arrow bytes of the rows appended since the last batch. */
+    private long batchBytes() {
+        long bytes = 0;
+        for (ArrowFieldWriter<?> writer : fieldWriters) {
+            bytes += writer.batchBytes();
+        }
+        return bytes;
+    }
+
     /** Hands the rows appended since the last batch to the Vortex writer. */
     private void writeBatch() throws IOException {
         if (batchRowCount == 0) {
             return;
         }
         vectorSchemaRoot.setRowCount(batchRowCount);
-        peakBatchBytes = Math.max(peakBatchBytes, batchBytesProbe.measure());
+        peakBatchBytes = Math.max(peakBatchBytes, batchBytes());
 
         vortexWriter.writeBatch(vectorSchemaRoot, allocator);
         batchCount++;

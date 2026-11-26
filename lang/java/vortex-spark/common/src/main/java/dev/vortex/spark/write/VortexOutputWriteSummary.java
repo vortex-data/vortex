@@ -36,7 +36,7 @@ public final class VortexOutputWriteSummary {
         return batchCount;
     }
 
-    /** Arrow bytes held by the largest batch: the capacity of its buffers, nested ones included, when handed over. */
+    /** Arrow bytes of the largest batch: its values, offsets and validity bitmaps, nested ones included. */
     public long peakBatchBytes() {
         return peakBatchBytes;
     }

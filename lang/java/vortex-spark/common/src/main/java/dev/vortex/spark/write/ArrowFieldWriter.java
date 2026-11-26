@@ -53,6 +53,10 @@ import org.apache.spark.unsafe.types.UTF8String;
  * <p>Each writer counts the values it has appended to its vector, so nested writers (list elements, map entries) know
  * their next slot without consulting the vector. The type dispatch happens once, in {@link #create}, instead of once
  * per value.
+ *
+ * <p>Each writer also reports the Arrow bytes that its values take in the open batch, from its own counts rather than
+ * from the vector: vectors keep the capacity of their largest batch across batches, so capacity says nothing about the
+ * open batch, and reading the vector's buffers mid-batch would need state that Arrow fills in only at export.
  */
 abstract class ArrowFieldWriter<V extends FieldVector> {
     final V vector;
@@ -129,6 +133,22 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
 
     abstract void setValue(SpecializedGetters row, int ordinal);
 
+    /** Arrow bytes the values appended since the last {@link #reset} take, nested values included. */
+    final long batchBytes() {
+        return bitmapBytes(count) + valueBytes();
+    }
+
+    /** Bytes beyond the validity bitmap: values, offsets and children. */
+    abstract long valueBytes();
+
+    static long bitmapBytes(int values) {
+        return (values + 7L) / 8;
+    }
+
+    static long offsetBytes(int values) {
+        return 4L * (values + 1);
+    }
+
     /** Forgets the values appended so far. Called once their buffers have been handed to the native writer. */
     void reset() {
         count = 0;
@@ -137,6 +157,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
     private static final class BooleanWriter extends ArrowFieldWriter<BitVector> {
         BooleanWriter(BitVector vector) {
             super(vector);
+        }
+
+        @Override
+        long valueBytes() {
+            return bitmapBytes(count);
         }
 
         @Override
@@ -151,6 +176,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return count;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             vector.setSafe(count, row.getByte(ordinal));
         }
@@ -159,6 +189,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
     private static final class ShortWriter extends ArrowFieldWriter<SmallIntVector> {
         ShortWriter(SmallIntVector vector) {
             super(vector);
+        }
+
+        @Override
+        long valueBytes() {
+            return 2L * count;
         }
 
         @Override
@@ -173,6 +208,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return 4L * count;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             vector.setSafe(count, row.getInt(ordinal));
         }
@@ -181,6 +221,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
     private static final class LongWriter extends ArrowFieldWriter<BigIntVector> {
         LongWriter(BigIntVector vector) {
             super(vector);
+        }
+
+        @Override
+        long valueBytes() {
+            return 8L * count;
         }
 
         @Override
@@ -195,6 +240,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return 4L * count;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             vector.setSafe(count, row.getFloat(ordinal));
         }
@@ -206,14 +256,32 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return 8L * count;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             vector.setSafe(count, row.getDouble(ordinal));
         }
     }
 
     private static final class StringWriter extends ArrowFieldWriter<VarCharVector> {
+        private long dataBytes;
+
         StringWriter(VarCharVector vector) {
             super(vector);
+        }
+
+        @Override
+        long valueBytes() {
+            return offsetBytes(count) + dataBytes;
+        }
+
+        @Override
+        void reset() {
+            super.reset();
+            dataBytes = 0;
         }
 
         @Override
@@ -225,23 +293,44 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
             vector.setValueLengthSafe(count, length);
             value.writeToMemory(null, vector.getDataBufferAddress() + vector.getStartOffset(count));
             vector.setIndexDefined(count);
+            dataBytes += length;
         }
     }
 
     private static final class BinaryWriter extends ArrowFieldWriter<VarBinaryVector> {
+        private long dataBytes;
+
         BinaryWriter(VarBinaryVector vector) {
             super(vector);
         }
 
         @Override
+        long valueBytes() {
+            return offsetBytes(count) + dataBytes;
+        }
+
+        @Override
+        void reset() {
+            super.reset();
+            dataBytes = 0;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
-            vector.setSafe(count, row.getBinary(ordinal));
+            byte[] value = row.getBinary(ordinal);
+            vector.setSafe(count, value);
+            dataBytes += value.length;
         }
     }
 
     private static final class DateWriter extends ArrowFieldWriter<DateDayVector> {
         DateWriter(DateDayVector vector) {
             super(vector);
+        }
+
+        @Override
+        long valueBytes() {
+            return 4L * count;
         }
 
         @Override
@@ -256,6 +345,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return 8L * count;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             vector.setSafe(count, row.getLong(ordinal));
         }
@@ -264,6 +358,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
     private static final class TimestampNTZWriter extends ArrowFieldWriter<TimeStampMicroVector> {
         TimestampNTZWriter(TimeStampMicroVector vector) {
             super(vector);
+        }
+
+        @Override
+        long valueBytes() {
+            return 8L * count;
         }
 
         @Override
@@ -283,6 +382,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return 16L * count;
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             Decimal value = row.getDecimal(ordinal, precision, scale);
             if (precision <= Decimal.MAX_LONG_DIGITS()) {
@@ -299,6 +403,15 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         StructWriter(StructVector vector, ArrowFieldWriter<?>[] children) {
             super(vector);
             this.children = children;
+        }
+
+        @Override
+        long valueBytes() {
+            long bytes = 0;
+            for (ArrowFieldWriter<?> child : children) {
+                bytes += child.batchBytes();
+            }
+            return bytes;
         }
 
         @Override
@@ -330,6 +443,11 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
         }
 
         @Override
+        long valueBytes() {
+            return offsetBytes(count) + elements.batchBytes();
+        }
+
+        @Override
         void setValue(SpecializedGetters row, int ordinal) {
             ArrayData value = row.getArray(ordinal);
             int length = value.numElements();
@@ -357,6 +475,12 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
             this.entries = entries;
             this.keys = keys;
             this.values = values;
+        }
+
+        @Override
+        long valueBytes() {
+            // The entries struct has a validity bitmap of its own, one bit per entry.
+            return offsetBytes(count) + bitmapBytes(keys.count) + keys.batchBytes() + values.batchBytes();
         }
 
         @Override

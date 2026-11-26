@@ -137,10 +137,11 @@ final class VortexOutputWriterTest {
         writer.close();
 
         VortexOutputWriteSummary summary = writer.summary().orElseThrow();
-        // About 16 KiB per row, so a batch holds a few dozen rows rather than all of them.
-        assertTrue(summary.batchCount() > 10, summary.toString());
-        // Buffers grow by doubling, so the batch that crosses the cap may hold up to twice it.
-        assertTrue(summary.peakBatchBytes() >= cap && summary.peakBatchBytes() <= 3 * cap, summary.toString());
+        // A row takes just over 16 KiB, so every batch, not only the first, ends after 16 rows: 63 batches. Vectors
+        // keep the capacity of earlier batches, so a cap measured on capacity would cut later batches after one row.
+        assertEquals((rows + 15) / 16, summary.batchCount(), summary.toString());
+        // The batch ends at the row that reaches the cap, so it overshoots by less than one row.
+        assertTrue(summary.peakBatchBytes() >= cap && summary.peakBatchBytes() < cap + (17 << 10), summary.toString());
         assertEquals(rows, readRows(writer.path()).size());
     }
 
