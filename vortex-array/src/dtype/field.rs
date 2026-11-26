@@ -120,20 +120,10 @@ impl FieldPath {
         &self.0
     }
 
-    /// Estimates field slots and visible name bytes, excluding allocator and Arc overhead.
+    /// Estimates allocated selector slots. Field names are shared with and counted by the root
+    /// DType.
     pub fn approx_resident_bytes(&self) -> usize {
-        self.0
-            .capacity()
-            .saturating_mul(size_of::<Field>())
-            .saturating_add(
-                self.0
-                    .iter()
-                    .filter_map(|part| match part {
-                        Field::Name(name) => Some(name.as_ref().len()),
-                        Field::ElementType => None,
-                    })
-                    .fold(0usize, usize::saturating_add),
-            )
+        self.0.capacity().saturating_mul(size_of::<Field>())
     }
 
     /// Returns whether this path is a root path.

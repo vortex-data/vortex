@@ -83,7 +83,7 @@ impl FileStatistics {
             .saturating_add(
                 self.paths
                     .iter()
-                    .map(Self::approx_field_path_storage_bytes)
+                    .map(FieldPath::approx_resident_bytes)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -94,7 +94,7 @@ impl FileStatistics {
             .saturating_add(
                 self.path_index
                     .keys()
-                    .map(Self::approx_field_path_storage_bytes)
+                    .map(FieldPath::approx_resident_bytes)
                     .fold(0usize, usize::saturating_add),
             )
             .saturating_add(
@@ -109,16 +109,6 @@ impl FileStatistics {
                     .fold(0usize, usize::saturating_add),
             );
         bytes
-    }
-
-    fn approx_field_path_storage_bytes(path: &FieldPath) -> usize {
-        let name_bytes = path
-            .parts()
-            .iter()
-            .filter_map(|part| part.as_name())
-            .map(str::len)
-            .fold(0usize, usize::saturating_add);
-        path.approx_resident_bytes().saturating_sub(name_bytes)
     }
 
     /// Builds `path_index` from `paths` and assembles the final struct. The single place that
@@ -657,14 +647,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_field_path_projection_includes_nested_name_bytes() {
-        let path = FieldPath::from_name("a_long_top_level_name").push("nested_field");
-        let expected_names = "a_long_top_level_name".len() + "nested_field".len();
+    fn test_field_path_projection_counts_nested_selector_storage() {
+        let short_names = FieldPath::from_name("a").push("b");
+        let long_names = FieldPath::from_name("a_long_top_level_name").push("long_nested_field");
+        let expected_selector_bytes =
+            short_names.parts().len() * size_of::<vortex_array::dtype::Field>();
 
-        assert!(
-            path.approx_resident_bytes()
-                >= path.parts().len() * size_of::<vortex_array::dtype::Field>() + expected_names
-        );
+        assert!(short_names.approx_resident_bytes() >= expected_selector_bytes);
+        assert_eq!(short_names.approx_resident_bytes(), long_names.approx_resident_bytes());
     }
 
     #[test]
