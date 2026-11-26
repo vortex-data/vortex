@@ -228,12 +228,19 @@ fn make_alternate_encoding(tc: &TestCase, canonical: &ArrayRef) -> VortexResult<
     }
 }
 
-fn draw_varlen_bytes(tc: &TestCase, is_utf8: bool) -> Vec<u8> {
-    const INTERESTING_LENS: &[usize] = &[0, 1, 11, 12, 13, 31, 32, 33, 63, 64, 65, 95, 96, 97, 128];
-    let len = if tc.draw(gs::booleans()) {
-        tc.draw(gs::sampled_from(INTERESTING_LENS))
+fn draw_varlen_bytes(tc: &TestCase, is_utf8: bool, depth: usize) -> Vec<u8> {
+    const TOP_LEVEL_LENS: &[usize] = &[0, 1, 11, 12, 13, 31, 32, 33, 63, 64, 65, 95, 96, 97, 128];
+    const NESTED_LENS: &[usize] = &[0, 1, 11, 12, 13, 16];
+    const UTF8_CHARS: &[char] = &['\0', 'a', 'b', 'c', 'x', 'y', 'z', 'é', '中', '🦀'];
+    let (interesting_lens, max_len) = if depth == 0 {
+        (TOP_LEVEL_LENS, 128)
     } else {
-        tc.draw(gs::integers::<usize>().max_value(128))
+        (NESTED_LENS, 16)
+    };
+    let len = if tc.draw(gs::booleans()) {
+        tc.draw(gs::sampled_from(interesting_lens))
+    } else {
+        tc.draw(gs::integers::<usize>().max_value(max_len))
     };
     if len == 0 {
         return Vec::new();
@@ -256,9 +263,15 @@ fn draw_varlen_bytes(tc: &TestCase, is_utf8: bool) -> Vec<u8> {
         }
         out
     } else if is_utf8 {
-        (0..len)
-            .map(|_| tc.draw(gs::sampled_from(b"\0abcxyz")))
-            .collect()
+        let char_len = len.min(if depth == 0 { 40 } else { 8 });
+        tc.draw(
+            gs::vecs(gs::sampled_from(UTF8_CHARS))
+                .min_size(char_len)
+                .max_size(char_len),
+        )
+        .into_iter()
+        .collect::<String>()
+        .into_bytes()
     } else {
         tc.draw(gs::vecs(gs::integers::<u8>()).min_size(len).max_size(len))
     }
@@ -479,9 +492,16 @@ fn draw_decimal_column(
     }
 }
 
-fn draw_varlen_column(tc: &TestCase, len: usize, is_utf8: bool) -> VortexResult<GeneratedColumn> {
+fn draw_varlen_column(
+    tc: &TestCase,
+    len: usize,
+    is_utf8: bool,
+    depth: usize,
+) -> VortexResult<GeneratedColumn> {
     let (validity, valid_bits) = draw_validity(tc, len);
-    let vals: Vec<Vec<u8>> = (0..len).map(|_| draw_varlen_bytes(tc, is_utf8)).collect();
+    let vals: Vec<Vec<u8>> = (0..len)
+        .map(|_| draw_varlen_bytes(tc, is_utf8, depth))
+        .collect();
     let logical = vals
         .iter()
         .zip(&valid_bits)
@@ -616,20 +636,92 @@ fn draw_column_inner(
             let arr = BoolArray::new(BitBuffer::from_iter(vals), validity).into_array();
             finish_column(tc, arr, logical)
         }
-        2 => draw_int(tc, len, |tc| tc.draw(gs::integers::<u8>())),
-        3 => draw_int(tc, len, |tc| tc.draw(gs::integers::<u16>())),
-        4 => draw_int(tc, len, |tc| tc.draw(gs::integers::<u32>())),
-        5 => draw_int(tc, len, |tc| tc.draw(gs::integers::<u64>())),
-        6 => draw_int(tc, len, |tc| tc.draw(gs::integers::<i8>())),
-        7 => draw_int(tc, len, |tc| tc.draw(gs::integers::<i16>())),
-        8 => draw_int(tc, len, |tc| tc.draw(gs::integers::<i32>())),
-        9 => draw_int(tc, len, |tc| tc.draw(gs::integers::<i64>())),
+        2 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<u8>().min_value(0).max_value(6))
+                } else {
+                    tc.draw(gs::integers::<u8>())
+                }
+            })
+        }
+        3 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<u16>().min_value(0).max_value(6))
+                } else {
+                    tc.draw(gs::integers::<u16>())
+                }
+            })
+        }
+        4 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<u32>().min_value(0).max_value(6))
+                } else {
+                    tc.draw(gs::integers::<u32>())
+                }
+            })
+        }
+        5 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<u64>().min_value(0).max_value(6))
+                } else {
+                    tc.draw(gs::integers::<u64>())
+                }
+            })
+        }
+        6 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<i8>().min_value(-3).max_value(3))
+                } else {
+                    tc.draw(gs::integers::<i8>())
+                }
+            })
+        }
+        7 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<i16>().min_value(-3).max_value(3))
+                } else {
+                    tc.draw(gs::integers::<i16>())
+                }
+            })
+        }
+        8 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<i32>().min_value(-3).max_value(3))
+                } else {
+                    tc.draw(gs::integers::<i32>())
+                }
+            })
+        }
+        9 => {
+            let small_pool = tc.draw(gs::booleans());
+            draw_int(tc, len, |tc| {
+                if small_pool {
+                    tc.draw(gs::integers::<i64>().min_value(-3).max_value(3))
+                } else {
+                    tc.draw(gs::integers::<i64>())
+                }
+            })
+        }
         10 => draw_primitive(tc, len, draw_f16, LogicalValue::F16),
         11 => draw_primitive(tc, len, draw_f32, LogicalValue::F32),
         12 => draw_primitive(tc, len, draw_f64, LogicalValue::F64),
         13 => draw_decimal_column(tc, len, ctx),
-        14 => draw_varlen_column(tc, len, true),
-        15 => draw_varlen_column(tc, len, false),
+        14 => draw_varlen_column(tc, len, true, depth),
+        15 => draw_varlen_column(tc, len, false, depth),
         16 => {
             // FixedSizeList (size 0..=4, nullable parent with differing garbage children)
             let list_size = tc.draw(gs::integers::<u32>().max_value(4));

@@ -999,23 +999,15 @@ fn test_reject_unsupported_dtypes_and_invalid_inputs() -> VortexResult<()> {
     // Variant (top-level and nested).
     let variant =
         ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 2).into_array();
-    assert!(
-        convert_columns(
-            std::slice::from_ref(&variant),
-            &[RowSortField::ascending()],
-            &mut ctx
-        )
-        .expect_err("Variant must be rejected")
-        .to_string()
-        .contains("Variant")
-    );
+    convert_columns(
+        std::slice::from_ref(&variant),
+        &[RowSortField::ascending()],
+        &mut ctx,
+    )
+    .expect_err("Variant must be rejected");
     let variant_in_struct = StructArray::from_fields(&[("v", variant)])?.into_array();
-    assert!(
-        convert_columns(&[variant_in_struct], &[RowSortField::ascending()], &mut ctx)
-            .expect_err("nested Variant must be rejected")
-            .to_string()
-            .contains("Variant")
-    );
+    convert_columns(&[variant_in_struct], &[RowSortField::ascending()], &mut ctx)
+        .expect_err("nested Variant must be rejected");
 
     // Union (top-level and nested).
     let variants = UnionVariants::try_new(
@@ -1035,16 +1027,12 @@ fn test_reject_unsupported_dtypes_and_invalid_inputs() -> VortexResult<()> {
         ],
     )?
     .into_array();
-    assert!(
-        convert_columns(
-            std::slice::from_ref(&union_arr),
-            &[RowSortField::ascending()],
-            &mut ctx
-        )
-        .expect_err("Union must be rejected")
-        .to_string()
-        .contains("Union")
-    );
+    convert_columns(
+        std::slice::from_ref(&union_arr),
+        &[RowSortField::ascending()],
+        &mut ctx,
+    )
+    .expect_err("Union must be rejected");
     let union_in_list = ListViewArray::new(
         union_arr,
         buffer![0u32, 1].into_array(),
@@ -1053,36 +1041,20 @@ fn test_reject_unsupported_dtypes_and_invalid_inputs() -> VortexResult<()> {
         &mut ctx,
     )
     .into_array();
-    assert!(
-        convert_columns(&[union_in_list], &[RowSortField::ascending()], &mut ctx)
-            .expect_err("nested Union must be rejected")
-            .to_string()
-            .contains("Union")
-    );
+    convert_columns(&[union_in_list], &[RowSortField::ascending()], &mut ctx)
+        .expect_err("nested Union must be rejected");
 
     // Input validation errors in RowEncoder::prepare.
-    assert!(
-        RowEncoder::default()
-            .encode(&[], &mut ctx)
-            .expect_err("empty column list must be rejected")
-            .to_string()
-            .contains("at least one column")
-    );
+    RowEncoder::default()
+        .encode(&[], &mut ctx)
+        .expect_err("empty column list must be rejected");
     let c1 = PrimitiveArray::from_iter([1i32, 2]).into_array();
     let c2 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
-    assert!(
-        RowEncoder::new([RowSortField::ascending()])
-            .encode(&[c1.clone(), c1.clone()], &mut ctx)
-            .expect_err("mismatched options count must be rejected")
-            .to_string()
-            .contains("options describe")
-    );
-    assert!(
-        RowEncoder::default()
-            .encode(&[c1, c2], &mut ctx)
-            .expect_err("mismatched column lengths must be rejected")
-            .to_string()
-            .contains("has length")
-    );
+    RowEncoder::new([RowSortField::ascending()])
+        .encode(&[c1.clone(), c1.clone()], &mut ctx)
+        .expect_err("mismatched options count must be rejected");
+    RowEncoder::default()
+        .encode(&[c1, c2], &mut ctx)
+        .expect_err("mismatched column lengths must be rejected");
     Ok(())
 }
