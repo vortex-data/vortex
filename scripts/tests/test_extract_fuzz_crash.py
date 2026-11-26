@@ -10,6 +10,7 @@ import io
 import sys
 import tarfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -137,3 +138,140 @@ def test_zip_extract_happy_path(tmp_path: Path):
     out = tmp_path / "out"
     efc._extract_from_zip(zpath, "file_corruption", "crash-0123456789abcdef", out)
     assert out.read_bytes() == b"payload"
+
+
+def _write_tar(path: Path, entries: dict[str, bytes]) -> None:
+    with tarfile.open(path, "w:gz") as tf:
+        for name, data in entries.items():
+            ti = tarfile.TarInfo(name)
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
+
+
+def test_tar_extract_happy_path_and_precedence(tmp_path: Path):
+    crash_file = "crash-0123456789abcdef"
+
+    # Prefer ./<target>/<crash_file> over root <crash_file>.
+    precedence_tar = tmp_path / "precedence.tgz"
+    _write_tar(
+        precedence_tar,
+        {
+            crash_file: b"root-payload",
+            f"./file_corruption/{crash_file}": b"target-payload",
+        },
+    )
+    out = tmp_path / "out-target"
+    efc._extract_from_tar(precedence_tar, "file_corruption", crash_file, out)
+    assert out.read_bytes() == b"target-payload"
+
+    # Fall back to a nested directory basename match when neither target nor root matches.
+    nested_tar = tmp_path / "nested.tgz"
+    _write_tar(
+        nested_tar,
+        {
+            f"artifacts/other_dir/{crash_file}": b"nested-payload",
+        },
+    )
+    out_nested = tmp_path / "out-nested"
+    efc._extract_from_tar(nested_tar, "file_corruption", crash_file, out_nested)
+    assert out_nested.read_bytes() == b"nested-payload"
+
+
+def test_select_user_attachment_fallback_archive_and_raw_extension():
+    crash_file = "crash-0123456789abcdef"
+
+    # Non-log archive beats log archive even when the log archive appears first.
+    body_archives = (
+        "https://github.com/user-attachments/files/1/fuzz_logs.tgz\n"
+        "https://github.com/user-attachments/files/2/repro.tgz\n"
+    )
+    assert (
+        efc.select_user_attachment(body_archives, crash_file) == "https://github.com/user-attachments/files/2/repro.tgz"
+    )
+
+    # Raw attachment with an extension is accepted (below an exact match), while .log is rejected.
+    body_txt = f"https://github.com/user-attachments/files/3/{crash_file}.txt"
+    assert efc.select_user_attachment(body_txt, crash_file) == body_txt
+
+    body_exact_and_txt = (
+        f"https://github.com/user-attachments/files/3/{crash_file}.txt\n"
+        f"https://github.com/user-attachments/files/4/{crash_file}\n"
+    )
+    assert (
+        efc.select_user_attachment(body_exact_and_txt, crash_file)
+        == f"https://github.com/user-attachments/files/4/{crash_file}"
+    )
+
+    body_log = f"https://github.com/user-attachments/files/5/{crash_file}.log"
+    assert efc.select_user_attachment(body_log, crash_file) == ""
+
+
+def test_download_crash_file_dispatch_and_raw_size_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    crash_file = "crash-0123456789abcdef"
+
+    def fake_curl_factory(payload_writer: Callable[[Path], object]) -> Callable[..., None]:
+        def fake_run(cmd: list[str], *, check: bool = False, **_kwargs: object) -> None:
+            assert check is True
+            assert cmd[0] == "curl"
+            out_path = Path(cmd[cmd.index("-o") + 1])
+            payload_writer(out_path)
+
+        return fake_run
+
+    # .tgz dispatch
+    monkeypatch.setattr(
+        efc.subprocess,
+        "run",
+        fake_curl_factory(lambda p: _write_tar(p, {f"file_corruption/{crash_file}": b"from-tgz"})),
+    )
+    tgz_out = efc.download_crash_file(
+        repo="vortex-data/vortex",
+        target="file_corruption",
+        crash_file=crash_file,
+        dest_dir=tmp_path / "tgz",
+        artifact_id="",
+        attachment_url="https://github.com/user-attachments/files/1/repro.tgz",
+    )
+    assert tgz_out.read_bytes() == b"from-tgz"
+
+    # .zip dispatch
+    def write_zip(p: Path) -> None:
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr(f"file_corruption/{crash_file}", b"from-zip")
+
+    monkeypatch.setattr(efc.subprocess, "run", fake_curl_factory(write_zip))
+    zip_out = efc.download_crash_file(
+        repo="vortex-data/vortex",
+        target="file_corruption",
+        crash_file=crash_file,
+        dest_dir=tmp_path / "zip",
+        artifact_id="",
+        attachment_url="https://github.com/user-attachments/files/2/repro.zip",
+    )
+    assert zip_out.read_bytes() == b"from-zip"
+
+    # raw dispatch (with .txt extension stripped to crash_file)
+    monkeypatch.setattr(efc.subprocess, "run", fake_curl_factory(lambda p: p.write_bytes(b"from-raw")))
+    raw_out = efc.download_crash_file(
+        repo="vortex-data/vortex",
+        target="file_corruption",
+        crash_file=crash_file,
+        dest_dir=tmp_path / "raw",
+        artifact_id="",
+        attachment_url=f"https://github.com/user-attachments/files/3/{crash_file}.txt",
+    )
+    assert raw_out.name == crash_file
+    assert raw_out.read_bytes() == b"from-raw"
+
+    # raw attachment exceeding MAX_ATTACHMENT_BYTES is rejected even if curl did not enforce it
+    monkeypatch.setattr(efc, "MAX_ATTACHMENT_BYTES", 4)
+    monkeypatch.setattr(efc.subprocess, "run", fake_curl_factory(lambda p: p.write_bytes(b"12345")))
+    with pytest.raises(ValueError, match="exceeds 4 bytes"):
+        efc.download_crash_file(
+            repo="vortex-data/vortex",
+            target="file_corruption",
+            crash_file=crash_file,
+            dest_dir=tmp_path / "oversized",
+            artifact_id="",
+            attachment_url=f"https://github.com/user-attachments/files/4/{crash_file}.bin",
+        )

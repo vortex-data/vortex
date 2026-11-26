@@ -14,7 +14,6 @@ import argparse
 import os
 import re
 import shlex
-import shutil
 import stat
 import subprocess
 import sys
@@ -23,6 +22,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024  # 100 MiB
 MAX_ARCHIVE_MEMBERS = 10_000
@@ -113,7 +113,7 @@ def parse_cargo_fuzz_run(body: str, fuzz_targets_dir: Path) -> tuple[str, str]:
 
 def select_user_attachment(body: str, crash_file: str) -> str:
     """Pick the most likely crash input attachment from GitHub user-attachments URLs."""
-    urls = list(dict.fromkeys(USER_ATTACHMENT_RE.findall(body)))
+    urls: list[str] = list(dict.fromkeys(USER_ATTACHMENT_RE.findall(body)))
     if not urls:
         return ""
 
@@ -126,15 +126,21 @@ def select_user_attachment(body: str, crash_file: str) -> str:
             return 0
         if lower.endswith(ARCHIVE_SUFFIXES):
             if crash_file.lower() in lower:
-                return 1
-            if crash_kind and crash_kind in lower and "log" not in lower:
                 return 2
-            return 3
-        return 4
+            if crash_kind and crash_kind in lower and "log" not in lower:
+                return 3
+            if "log" not in lower:
+                return 4
+            return 5
+        if name.startswith(f"{crash_file}.") and len(name) > len(crash_file) + 1:
+            ext = lower[len(crash_file) + 1 :]
+            if "." not in ext and ext != "log":
+                return 1
+        return 6
 
     ranked = sorted(enumerate(urls), key=lambda item: (score(item[1]), item[0]))
     best_url = ranked[0][1]
-    if score(best_url) >= 4:
+    if score(best_url) >= 6:
         return ""
     return best_url
 
@@ -188,11 +194,11 @@ def extract_crash_details(
     )
 
 
-def _write_limited(src_stream: object, dst_path: Path, max_bytes: int) -> None:
+def _write_limited(src_stream: IO[bytes], dst_path: Path, max_bytes: int) -> None:
     total = 0
     with dst_path.open("wb") as out:
         while True:
-            chunk = src_stream.read(65536)  # type: ignore[attr-defined]
+            chunk = src_stream.read(65536)
             if not chunk:
                 break
             total += len(chunk)
@@ -324,7 +330,10 @@ def download_crash_file(
             elif lower.endswith((".tgz", ".tar.gz", ".tar")):
                 _extract_from_tar(downloaded, target, crash_file, dst_path)
             else:
-                shutil.copyfile(downloaded, dst_path)
+                if downloaded.stat().st_size > MAX_ATTACHMENT_BYTES:
+                    raise ValueError(f"Downloaded crash file exceeds {MAX_ATTACHMENT_BYTES} bytes")
+                with downloaded.open("rb") as src:
+                    _write_limited(src, dst_path, MAX_ATTACHMENT_BYTES)
         else:
             raise ValueError("Either --artifact-id or --attachment-url must be provided")
 
