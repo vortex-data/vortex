@@ -9,11 +9,13 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -21,8 +23,11 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::BoundExpression;
 use vortex_expr::root;
@@ -48,6 +53,11 @@ type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// The threshold of mask density below which we push the input mask into projection evaluation,
 /// and above which we evaluate the expression over all rows and intersect afterward.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
+/// The density of selected elements, within the span a bounded read covers, below which the
+/// elements read is masked to them. At and above it, the span is read whole and the lists over
+/// it are filtered, which is cheaper than filtering every element chunk when few can be skipped.
+const MASKED_ELEMENTS_THRESHOLD: f64 = 0.2;
 
 /// Minimum size of the outer-row split grid, so lists in small files still fan out.
 const MIN_LIST_SPLIT_COUNT: u64 = 64;
@@ -189,9 +199,13 @@ impl ListReader {
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();
+        let session = self.session.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
-        let elements_fut = self.fetch_raw_elements(&(0..elements_row_count))?;
+        let elements_fut = self.fetch_elements(
+            &(0..elements_row_count),
+            MaskFuture::new_true(usize::try_from(elements_row_count)?),
+        )?;
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &(0..row_count),
@@ -200,13 +214,13 @@ impl ListReader {
 
         Ok(async move {
             let (offsets, elements, validity) = try_join!(offsets_fut, elements_fut, validity_fut)?;
-            // SAFETY: ListLayout is constructed from a valid ListArray and reading its children
-            // without transformation preserves the list invariants.
-            let list = unsafe {
-                ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
-            }
-            .into_array();
-            list.apply_bound(&expr)
+            let lists = build_list(
+                elements,
+                offsets,
+                create_validity(validity, nullability),
+                &mut session.create_execution_ctx(),
+            )?;
+            lists.apply_bound(&expr)
         }
         .boxed())
     }
@@ -214,8 +228,10 @@ impl ListReader {
     /// Bounded read for a sub-range or selective mask.
     ///
     /// Crops leading and trailing unselected lists, reads their offsets, and translates the first
-    /// and last offset into the element-row range to fetch. Any holes in the selection are filtered
-    /// after reconstructing the list array.
+    /// and last offset into the element-row range to fetch. When the selection has holes, the
+    /// elements they select decide the read. If those are sparse, the elements read is masked to
+    /// them, so it skips the rest, and the lists are rebuilt over only those. Otherwise the range
+    /// is read whole and the lists over it are filtered.
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
@@ -228,7 +244,7 @@ impl ListReader {
             return Ok(async move { Ok(empty) }.boxed());
         };
 
-        let selected_mask = mask.slice(selected_rows.clone());
+        let selection = mask.slice(selected_rows.clone());
         let selected_row_range = (row_range.start + u64::try_from(selected_rows.start)?)
             ..(row_range.start + u64::try_from(selected_rows.end)?);
 
@@ -236,33 +252,64 @@ impl ListReader {
         let expr = expr.clone();
         let reader = self.clone();
         let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
+        let validity_fut = fetch_validity(
+            self.validity.as_ref(),
+            &selected_row_range,
+            MaskFuture::new_true(selection.len()),
+        )?;
 
         Ok(async move {
             let offsets = offsets_fut.await?;
+            let mut ctx = reader.session.create_execution_ctx();
 
-            let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-            let elements_fut = reader.fetch_raw_elements(&elements_range)?;
-            let validity_fut = fetch_validity(
-                reader.validity.as_ref(),
-                &selected_row_range,
-                MaskFuture::new_true(selected_mask.len()),
-            )?;
-            let (elements, validity) = try_join!(elements_fut, validity_fut)?;
-
-            let offsets = rebase_offsets(offsets, elements_range.start)?;
-            // SAFETY: the selected offsets remain monotonically increasing, rebasing them against
-            // the selected element range preserves their lengths, and validity covers the same
-            // cropped list rows.
-            let list = unsafe {
-                ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
-            }
-            .into_array();
-            let list = if selected_mask.all_true() {
-                list
+            // The lists to rebuild over a masked elements read, when the selection has holes and
+            // is sparse enough for that to pay off.
+            let masked = if selection.all_true() {
+                None
             } else {
-                list.filter(selected_mask)?
+                select_lists(&offsets, &selection, &mut ctx)?
             };
-            list.apply_bound(&expr)
+
+            let lists = match masked {
+                Some(selected) => {
+                    let elements_fut = reader.fetch_elements(
+                        &selected.elements_range,
+                        MaskFuture::ready(selected.elements),
+                    )?;
+                    let (elements, validity) = try_join!(elements_fut, validity_fut)?;
+                    let validity = validity
+                        .map(|validity| validity.filter(selection.clone()))
+                        .transpose()?;
+                    build_list(
+                        elements,
+                        selected.offsets,
+                        create_validity(validity, nullability),
+                        &mut ctx,
+                    )?
+                }
+                None => {
+                    let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
+                    let elements_fut = reader.fetch_elements(
+                        &elements_range,
+                        MaskFuture::new_true(usize::try_from(
+                            elements_range.end - elements_range.start,
+                        )?),
+                    )?;
+                    let (elements, validity) = try_join!(elements_fut, validity_fut)?;
+                    let lists = build_list(
+                        elements,
+                        rebase_offsets(offsets, elements_range.start)?,
+                        create_validity(validity, nullability),
+                        &mut ctx,
+                    )?;
+                    if selection.all_true() {
+                        lists
+                    } else {
+                        lists.filter(selection)?
+                    }
+                }
+            };
+            lists.apply_bound(&expr)
         }
         .boxed())
     }
@@ -322,15 +369,112 @@ impl ListReader {
         )
     }
 
-    /// Fire the elements read for `row_range` in element space.
+    /// Fire the read of the elements of `row_range` that `mask` selects, in element space.
     ///
-    /// No mask or expression is applied.
-    fn fetch_raw_elements(&self, row_range: &Range<u64>) -> VortexResult<ArrayFuture> {
-        let row_count = usize::try_from(row_range.end - row_range.start)?;
+    /// No expression is applied.
+    fn fetch_elements(
+        &self,
+        row_range: &Range<u64>,
+        mask: MaskFuture,
+    ) -> VortexResult<ArrayFuture> {
         let root = root().bind(self.elements.dtype())?;
-        self.elements
-            .projection_evaluation(row_range, &root, MaskFuture::new_true(row_count))
+        self.elements.projection_evaluation(row_range, &root, mask)
     }
+}
+
+/// The lists a bounded read keeps, over only the elements it reads.
+struct SelectedLists {
+    /// The element rows the first and last list span.
+    elements_range: Range<u64>,
+    /// The elements to read, out of `elements_range`.
+    elements: Mask,
+    /// The kept lists' offsets into the elements read.
+    offsets: ArrayRef,
+}
+
+/// Keep the `selection` lists of a cropped read, given their offsets (one more than the lists).
+///
+/// The elements read are those of the kept lists, and the kept lists' offsets are prefix sums of
+/// their lengths. Returns `None` when the kept lists reference at least
+/// [`MASKED_ELEMENTS_THRESHOLD`] of the elements the offsets span.
+fn select_lists(
+    offsets: &ArrayRef,
+    selection: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<SelectedLists>> {
+    let offsets = offsets
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<PrimitiveArray>(ctx)?;
+    let offsets = offsets.as_slice::<u64>();
+    vortex_ensure!(offsets.is_sorted(), "list offsets must not decrease");
+    let lists = selection.len();
+    vortex_ensure_eq!(offsets.len(), lists + 1);
+    let first = offsets[0];
+    let len = usize::try_from(offsets[lists] - first)?;
+    let all = [(0, lists)];
+    let runs = selection.slices().unwrap_or_else(|| &all, || &[]);
+
+    let selected: u64 = runs
+        .iter()
+        .map(|&(start, end)| offsets[end] - offsets[start])
+        .sum();
+    if selected as f64 >= MASKED_ELEMENTS_THRESHOLD * len as f64 {
+        return Ok(None);
+    }
+
+    let mut kept_offsets = BufferMut::with_capacity(selection.true_count() + 1);
+    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
+    let mut kept = 0u64;
+    for &(start, end) in runs {
+        let base = offsets[start];
+        kept_offsets.extend(
+            offsets[start..end]
+                .iter()
+                .map(|&offset| kept + (offset - base)),
+        );
+        let range = (
+            usize::try_from(base - first)?,
+            usize::try_from(offsets[end] - first)?,
+        );
+        if range.0 < range.1 {
+            match ranges.last_mut() {
+                // Only empty lists were dropped since the last run, so the elements are adjacent.
+                Some(last) if last.1 == range.0 => last.1 = range.1,
+                _ => ranges.push(range),
+            }
+        }
+        kept += offsets[end] - base;
+    }
+    kept_offsets.push(kept);
+
+    Ok(Some(SelectedLists {
+        elements_range: first..offsets[lists],
+        elements: Mask::from_slices(len, ranges),
+        offsets: kept_offsets.freeze().into_array(),
+    }))
+}
+
+/// Build the lists over `elements` from `offsets` and `validity`.
+///
+/// The last offset must equal the number of elements, which is only checked in debug builds.
+fn build_list(
+    elements: ArrayRef,
+    offsets: ArrayRef,
+    validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if cfg!(debug_assertions) {
+        let end = offsets
+            .execute_scalar(offsets.len() - 1, ctx)?
+            .as_primitive()
+            .as_::<u64>()
+            .vortex_expect("offset value fits in u64");
+        assert_eq!(elements.len(), usize::try_from(end)?);
+    }
+    // SAFETY: the offsets are the file's, or `select_lists`'s prefix sums over them, so they are
+    // monotonic; the last one equals the number of elements read; and the validity covers the
+    // same lists.
+    Ok(unsafe { ListArray::new_unchecked(elements, offsets, validity) }.into_array())
 }
 
 fn selected_row_range(mask: &Mask) -> Option<Range<usize>> {
@@ -625,6 +769,9 @@ fn apply_lengths_validity(
 mod tests {
     use std::ops::Range;
 
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::VortexSessionExecute;
@@ -633,19 +780,24 @@ mod tests {
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
     use vortex_expr::Expression;
     use vortex_expr::cast;
+    use vortex_expr::col;
     use vortex_expr::gt;
     use vortex_expr::is_not_null;
     use vortex_expr::lit;
+    use vortex_expr::pack;
     use vortex_functions::expr::is_null;
     use vortex_functions::expr::list_length;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_utils::aliases::hash_map::HashMap;
 
     use super::*;
+    use crate::LayoutChildType;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -653,8 +805,10 @@ mod tests {
     use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
+    use crate::layouts::table::TableStrategy;
     use crate::scan::split_by::SplitBy;
-    use crate::segments::CountingSegmentSource;
+    use crate::segments::RecordingSegmentSource;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1170,7 +1324,7 @@ mod tests {
         let ctx = LayoutReaderContext::new();
         let (segments, layout, session) =
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let source = Arc::new(CountingSegmentSource::new(segments));
+        let source = Arc::new(RecordingSegmentSource::new(segments));
         let reader = layout.new_reader("".into(), Arc::clone(&source) as _, &session, &ctx)?;
 
         let mask = Mask::from_iter([true, false, false, false, false]);
@@ -1335,5 +1489,171 @@ mod tests {
 
         let strategy = chunked_list_strategy().with_elements(Arc::new(chunked_list_strategy()));
         assert_round_trips(&strategy, sliced_chunks(&outer, &[1, 2])?, outer).await
+    }
+
+    /// Map each segment to its column, a dotted path of field and auxiliary child names. Chunks
+    /// and transparent children add nothing to the path.
+    fn segment_columns(
+        layout: &LayoutRef,
+        path: &str,
+        columns: &mut HashMap<SegmentId, String>,
+    ) -> VortexResult<()> {
+        for id in layout.segment_ids() {
+            columns.insert(id, path.to_string());
+        }
+        for (child_type, child) in layout.child_types().zip(layout.children()?) {
+            let name: Option<&str> = match &child_type {
+                LayoutChildType::Field(name) => Some(name.as_ref()),
+                LayoutChildType::Auxiliary(name) => Some(name.as_ref()),
+                LayoutChildType::Chunk(_) | LayoutChildType::Transparent(_) => None,
+            };
+            let child_path = match name {
+                Some(name) if path.is_empty() => name.to_string(),
+                Some(name) => format!("{path}.{name}"),
+                None => path.to_string(),
+            };
+            segment_columns(&child, &child_path, columns)?;
+        }
+        Ok(())
+    }
+
+    /// Read `expr` through `reader` and over `array` in memory, and check they agree.
+    async fn assert_read_matches(
+        array: &ArrayRef,
+        reader: &LayoutReaderRef,
+        session: &VortexSession,
+        expr: &Expression,
+        row_range: Range<u64>,
+        mask: Mask,
+    ) -> VortexResult<()> {
+        let bound = expr.bind(reader.dtype())?;
+        let read = reader
+            .projection_evaluation(&row_range, &bound, MaskFuture::ready(mask.clone()))?
+            .await?;
+        let expected = array
+            .slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?
+            .filter(mask)?
+            .apply(expr)?;
+        let mut ctx = session.create_execution_ctx();
+        assert_arrays_eq!(read, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Masked element reads skip element chunks no selected list references.
+    #[tokio::test]
+    async fn sparse_mask_skips_element_chunks_between_selected_lists() -> VortexResult<()> {
+        // Twelve lists of two elements, so each list fills one element chunk.
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter(0i32..24).into_array(),
+            PrimitiveArray::from_iter((0u32..=12).map(|list| list * 2)).into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+        let (segments, layout, session) =
+            write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
+        let source = Arc::new(RecordingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &session,
+            &LayoutReaderContext::new(),
+        )?;
+
+        // The first and last list hold 4 of the 24 elements, which is sparse enough to mask the
+        // elements read.
+        let mask = Mask::from_iter((0..12).map(|list| list == 0 || list == 11));
+        let expr = root().bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&(0..12), &expr, MaskFuture::ready(mask.clone()))?
+            .await?;
+        let mut ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, list.filter(mask)?, &mut ctx);
+
+        let mut segment_column = HashMap::new();
+        segment_columns(&layout, "", &mut segment_column)?;
+        let element_reads = source
+            .requested()
+            .iter()
+            .filter(|id| segment_column[*id] == "elements")
+            .count();
+        assert_eq!(element_reads, 2);
+        Ok(())
+    }
+
+    /// Random lists of `{a, b}` structs, read whole, by length, and by validity over random
+    /// ranges and masks, match the same expressions in memory.
+    #[tokio::test]
+    async fn random_list_uses_match_memory() -> VortexResult<()> {
+        let mut rng = StdRng::seed_from_u64(0);
+        let exprs = [
+            col("l"),
+            list_length(col("l")),
+            pack(
+                [
+                    ("n", list_length(col("l"))),
+                    ("v", is_null(col("l"))),
+                    ("l", col("l")),
+                ],
+                Nullability::NonNullable,
+            ),
+        ];
+        let strategy = TableStrategy::new(chunked_elements_strategy(), chunked_elements_strategy())
+            .with_list_layout();
+        for _ in 0..40 {
+            let lists = rng.random_range(1..40usize);
+            let table = random_struct_lists(&mut rng, lists)?;
+            let (segments, layout, session) = write_layout(&strategy, table.clone()).await?;
+            let reader =
+                layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
+            let start = rng.random_range(0..lists);
+            let end = rng.random_range(start + 1..=lists);
+            let mask = match rng.random_range(0..3u8) {
+                0 => Mask::new_true(end - start),
+                1 => Mask::from_iter((start..end).map(|_| rng.random_bool(0.5))),
+                _ => Mask::from_iter((start..end).map(|_| rng.random_bool(0.1))),
+            };
+            for expr in &exprs {
+                let range = u64::try_from(start)?..u64::try_from(end)?;
+                assert_read_matches(&table, &reader, &session, expr, range, mask.clone()).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `{l: list<struct<a: i32, b: i32>>}` with up to four elements per list. Null lists hold
+    /// `MAX` and valid lists small values.
+    fn random_struct_lists(rng: &mut StdRng, lists: usize) -> VortexResult<ArrayRef> {
+        let mut offsets = vec![0u32];
+        let mut valid = Vec::with_capacity(lists);
+        let (mut field_a, mut field_b) = (Vec::new(), Vec::new());
+        for _ in 0..lists {
+            let is_valid = rng.random_bool(0.7);
+            let len = rng.random_range(0..5u32);
+            for _ in 0..len {
+                let value = if is_valid {
+                    rng.random_range(0..100)
+                } else {
+                    i32::MAX
+                };
+                field_a.push(value);
+                field_b.push(value);
+            }
+            valid.push(is_valid);
+            offsets.push(offsets[offsets.len() - 1] + len);
+        }
+        let elements = StructArray::from_fields(&[
+            ("a", PrimitiveArray::from_iter(field_a).into_array()),
+            ("b", PrimitiveArray::from_iter(field_b).into_array()),
+        ])?
+        .into_array();
+        let l = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter(offsets).into_array(),
+            Validity::Array(BoolArray::from_iter(valid).into_array()),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+        Ok(StructArray::from_fields(&[("l", l)])?.into_array())
     }
 }

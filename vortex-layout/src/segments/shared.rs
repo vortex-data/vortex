@@ -8,7 +8,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_io::segments::SharedSegmentSource;
 
-    use crate::segments::CountingSegmentSource;
+    use crate::segments::RecordingSegmentSource;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSink;
     use crate::segments::SegmentSource;
@@ -18,7 +18,7 @@ mod tests {
     #[tokio::test]
     async fn test_shared_source_deduplicates_concurrent_requests() {
         let segments = Arc::new(TestSegments::default());
-        let source = CountingSegmentSource::new(Arc::clone(&segments) as _);
+        let source = RecordingSegmentSource::new(Arc::clone(&segments) as _);
 
         // Add a segment to the test source
         let data = ByteBuffer::from(vec![1, 2, 3, 4]);
@@ -44,7 +44,7 @@ mod tests {
     #[tokio::test]
     async fn test_shared_source_handles_dropped_futures() {
         let segments = Arc::new(TestSegments::default());
-        let source = CountingSegmentSource::new(Arc::clone(&segments) as _);
+        let source = RecordingSegmentSource::new(Arc::clone(&segments) as _);
 
         // Add a segment
         let data = ByteBuffer::from(vec![5, 6, 7, 8]);

@@ -71,7 +71,7 @@ use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
-use crate::segments::CountingSegmentSource;
+use crate::segments::RecordingSegmentSource;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -554,8 +554,8 @@ async fn nullable_struct_projection_preserves_validity(
     let input = nullable_struct_with_list(&session)?;
     let (segments, layout) = write_chunks(&session, &strategy, vec![input.clone()]).await?;
 
-    let source = Arc::new(CountingSegmentSource::new(segments));
-    let scan_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+    let source = Arc::new(RecordingSegmentSource::new(segments));
+    let scan_source: Arc<dyn SegmentSource> = Arc::<RecordingSegmentSource>::clone(&source);
     let projection = projection.bind(layout.dtype())?;
     let scan = builder(&session, &scan_source, &layout)?.with_projection(projection.clone());
     let actual = collect_scan(scan.dtype().clone(), scan).await?;
