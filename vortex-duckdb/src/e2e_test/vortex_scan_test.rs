@@ -437,19 +437,20 @@ fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
 }
 
 /// Runs `f` with `SCAN_V2` set to `enabled`, serialized against other tests toggling the global
-/// switch and always restoring `false` on drop.
+/// switch and restoring the previous value on drop.
 fn with_scan_v2<T>(enabled: bool, f: impl FnOnce() -> T) -> T {
     static SCAN_V2_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-    struct ResetOnDrop;
+    struct ResetOnDrop(bool);
     impl Drop for ResetOnDrop {
         fn drop(&mut self) {
-            crate::set_scan_v2(false);
+            crate::set_scan_v2(self.0);
         }
     }
 
     let _lock = SCAN_V2_LOCK.lock();
+    let prev = crate::scan_v2();
     crate::set_scan_v2(enabled);
-    let _reset = ResetOnDrop;
+    let _reset = ResetOnDrop(prev);
     f()
 }
 

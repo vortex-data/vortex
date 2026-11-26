@@ -420,8 +420,12 @@ mod filter_conversion_tests {
 
     #[test]
     fn try_from_virtual_column_filter_legacy_variants() -> VortexResult<()> {
-        let in_f =
-            OwnedTableFilter::in_filter(&[Value::from(1u64), Value::from(4u64), Value::from(9u64)]);
+        let in_f = OwnedTableFilter::in_filter(&[
+            Value::from(9u64),
+            Value::from(1u64),
+            Value::from(4u64),
+            Value::from(1u64),
+        ]);
         let (sel, range) = try_from_virtual_column_filter(in_f.as_ref())?;
         assert!(range.is_none());
         match sel {
@@ -457,7 +461,7 @@ mod filter_conversion_tests {
             other => panic!("expected IncludeByIndex, got {other:?}"),
         }
 
-        // Contradictory bounds yield range = None.
+        // Contradictory bounds yield an empty range (0..0) rather than None (all rows).
         let empty_conj = OwnedTableFilter::conjunction_and(vec![
             OwnedTableFilter::constant(
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO,
@@ -470,7 +474,7 @@ mod filter_conversion_tests {
         ]);
         let (sel, range) = try_from_virtual_column_filter(empty_conj.as_ref())?;
         assert!(matches!(sel, Selection::All));
-        assert_eq!(range, None);
+        assert_eq!(range, Some(0..0));
 
         // Optional wrapping valid vs erroring filter (negative integer).
         let opt_ok = OwnedTableFilter::optional(OwnedTableFilter::constant(

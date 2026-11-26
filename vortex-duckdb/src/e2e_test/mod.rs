@@ -5,23 +5,16 @@
 //!
 //! These tests exercise the registered extension through scans, spatial pushdown, and S3 reads.
 
-#[cfg(test)]
 use std::ffi::CStr;
-#[cfg(test)]
 use std::fs;
-#[cfg(test)]
 use std::fs::OpenOptions;
-#[cfg(test)]
 use std::path::PathBuf;
 
-#[cfg(test)]
 use parking_lot::Mutex;
 
-#[cfg(test)]
 mod s3_test;
-#[cfg(all(test, duckdb_release))]
+#[cfg(duckdb_release)]
 mod spatial_pushdown_test;
-#[cfg(test)]
 mod vortex_scan_test;
 
 /// Stage DuckDB's `spatial` extension once into a synchronized cache directory and load it into
@@ -32,7 +25,6 @@ mod vortex_scan_test;
 /// install into `~/.duckdb/extensions`. First try `LOAD spatial` against DuckDB's default
 /// extension directory so pre-installed environments avoid redundant downloads; otherwise stage
 /// into a user-scoped versioned directory guarded by an in-process mutex and an OS file lock.
-#[cfg(test)]
 pub(crate) fn load_spatial(conn: &crate::duckdb::Connection) {
     static PROCESS_LOCK: Mutex<()> = Mutex::new(());
 
