@@ -29,6 +29,7 @@ use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::smallvec::smallvec;
+use vortex_array::test_harness::trace::trace_op;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -471,5 +472,29 @@ fn empty_for_leaves_constant_partial_empty() -> VortexResult<()> {
     acc.accumulate(&empty, &mut ctx)?;
 
     assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
+    Ok(())
+}
+
+/// FoR asks for its encoded child as its spine: the last slot it waits for, whose values it only
+/// shifts by its reference. A spine executes like any slot, so the values are unchanged.
+#[test]
+fn for_requests_its_encoded_child_as_its_spine() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner = FoR::try_new(buffer![1u32, 2, 3].into_array(), Scalar::from(10u32))?;
+    let outer = FoR::try_new(inner.into_array(), Scalar::from(100u32))?.into_array();
+    let traced = trace_op(|| outer.execute::<PrimitiveArray>(&mut ctx))?;
+    let trace = traced.trace.to_string();
+    assert!(
+        trace.contains(
+            "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3) \
+             child=fastlanes.for.v2(u32, len=3)"
+        ),
+        "{trace}"
+    );
+    assert_arrays_eq!(
+        traced.output,
+        buffer![111u32, 112, 113].into_array(),
+        &mut ctx
+    );
     Ok(())
 }

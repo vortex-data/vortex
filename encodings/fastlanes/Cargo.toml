@@ -102,6 +102,10 @@ name = "for_compute"
 harness = false
 
 [[bench]]
+name = "for_stack_decode"
+harness = false
+
+[[bench]]
 name = "for_decode"
 harness = false
 

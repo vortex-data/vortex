@@ -13,6 +13,10 @@
 //!    `oss://`, and `goosefs://`, and the Hugging Face Hub's `hf://` — are served by the crate's
 //!    `opendal` and `hf` modules under the matching service feature.
 
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+use std::env::VarError;
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use object_store::ObjectStore;
@@ -100,7 +104,9 @@ impl EnvSource {
     #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
-            EnvSource::Process => std::env::var(key).ok(),
+            EnvSource::Process => {
+                lookup_env_case_insensitive(key, std::env::var(key), std::env::vars_os)
+            }
             EnvSource::Fixed(vars) => vars
                 .iter()
                 .find(|(k, _)| k.eq_ignore_ascii_case(key))
@@ -119,6 +125,26 @@ impl EnvSource {
                 .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
                 .collect(),
         }
+    }
+}
+
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+fn lookup_env_case_insensitive<I>(
+    key: &str,
+    exact: Result<String, VarError>,
+    vars: impl FnOnce() -> I,
+) -> Option<String>
+where
+    I: IntoIterator<Item = (OsString, OsString)>,
+{
+    match exact {
+        Ok(v) => Some(v),
+        Err(VarError::NotUnicode(_)) => None,
+        Err(VarError::NotPresent) => vars().into_iter().find_map(|(k, v)| {
+            k.to_str()
+                .filter(|k| k.eq_ignore_ascii_case(key))
+                .and_then(|_| v.into_string().ok())
+        }),
     }
 }
 
@@ -270,13 +296,28 @@ fn num_segments(s: &str) -> usize {
 
 /// Returns the path of `url` skipping the first `depth` segments
 fn path_suffix(url: &Url, depth: usize) -> Result<Path, object_store::Error> {
-    // The segments come from a URL, so percent-decode them (one raw segment may decode to
-    // several path parts, e.g. `refs%2Fconvert%2Fparquet`).
-    let suffix = path_segments(url.path())
-        .skip(depth)
-        .collect::<Vec<_>>()
-        .join("/");
-    Path::from_url_path(suffix).map_err(|e| object_store::Error::Generic {
+    // Preserve empty path segments in the URL so warm cache hits reject `a//b` identically to
+    // cold lookups instead of collapsing them to a different object key.
+    let mut remainder = url.path();
+    if depth > 0 {
+        remainder = remainder.strip_prefix('/').unwrap_or(remainder);
+        for _ in 0..depth {
+            let (seg, rest) = match remainder.split_once('/') {
+                Some((seg, rest)) => (seg, rest),
+                None => (remainder, ""),
+            };
+            if seg.is_empty() {
+                return Err(object_store::Error::Generic {
+                    store: "ObjectStoreRegistry",
+                    source: Box::new(object_store::path::Error::EmptySegment {
+                        path: url.path().to_string(),
+                    }),
+                });
+            }
+            remainder = rest;
+        }
+    }
+    Path::from_url_path(remainder).map_err(|e| object_store::Error::Generic {
         store: "ObjectStoreRegistry",
         source: Box::new(e),
     })

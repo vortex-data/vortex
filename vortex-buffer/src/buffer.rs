@@ -639,10 +639,17 @@ impl<T> Buffer<T> {
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `alignment` is smaller than [`Alignment::of::<T>()`].
     pub fn aligned(mut self, alignment: Alignment) -> Self
     where
         T: Copy,
     {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
+        }
         if alignment.is_ptr_aligned(self.as_ptr()) {
             self.alignment = alignment;
             self
@@ -660,7 +667,15 @@ impl<T> Buffer<T> {
     }
 
     /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `alignment` is smaller than [`Alignment::of::<T>()`] or if the buffer is not
+    /// aligned to `alignment`.
     pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
+        }
         if alignment.is_ptr_aligned(self.as_ptr()) {
             self.alignment = alignment;
             self
@@ -985,6 +1000,7 @@ mod test {
 
     use bytes::Buf;
     use bytes::Bytes;
+    use rstest::rstest;
 
     use crate::Alignment;
     use crate::Buffer;
@@ -1286,5 +1302,23 @@ mod test {
         let b = Buffer::<u16>::empty();
 
         assert_eq!(a, b);
+    }
+
+    #[rstest]
+    #[case::none(Alignment::none())]
+    #[case::half(Alignment::new(4))]
+    #[should_panic(expected = "must align to the scalar type's alignment")]
+    fn test_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
+        let buffer = Buffer::<u64>::from_iter([1, 2, 3]);
+        drop(buffer.aligned(alignment));
+    }
+
+    #[rstest]
+    #[case::none(Alignment::none())]
+    #[case::half(Alignment::new(4))]
+    #[should_panic(expected = "must align to the scalar type's alignment")]
+    fn test_ensure_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
+        let buffer = Buffer::<u64>::from_iter([1, 2, 3]);
+        drop(buffer.ensure_aligned(alignment));
     }
 }

@@ -145,9 +145,29 @@ __device__ inline uint64_t wrap_to_ptype(uint64_t value, enum PTypeTag ptype) {
     }
 }
 
+/// Read the u16 at `pos` from FastLanes bit-packed data.
+__device__ inline uint32_t unpack_u16(const uint16_t *__restrict packed, uint64_t pos, uint32_t bit_width) {
+    if (bit_width == 0) {
+        return 0;
+    }
+    constexpr uint32_t LANES = FL_LANES<uint16_t>;
+    const uint32_t index = pos % FL_CHUNK;
+    const uint32_t lane = index % LANES;
+    // Inverts INDEX(row, lane) for 16-bit lanes, where FL_ORDER[row / 8] is 0 or 4.
+    const uint32_t row = ((index / LANES) % 2) * 8 + index / 128;
+    const uint32_t bit = row * bit_width;
+    const uint16_t *lane_words = packed + (pos / FL_CHUNK) * LANES * bit_width + lane;
+    uint32_t value = lane_words[(bit / 16) * LANES] >> (bit % 16);
+    if (bit % 16 + bit_width > 16) {
+        value |= static_cast<uint32_t>(lane_words[(bit / 16 + 1) * LANES]) << (16 - bit % 16);
+    }
+    return value & ((1u << bit_width) - 1);
+}
+
 /// Apply one scalar operation to N values in registers.
 template <typename T, uint32_t N>
-__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
+__device__ inline void
+scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t pos_base) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         // Fused lanes may be wider than this FoR type; wrap before a downstream Dict gather.
@@ -207,6 +227,25 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
     case ScalarOp::CAST:
         // Values are casted as part of LOAD as defined by the dispatch plan.
         break;
+    case ScalarOp::ALPRD: {
+        if constexpr (sizeof(T) >= 4) {
+            const auto &params = op.params.alprd;
+            const auto *codes = reinterpret_cast<const uint16_t *>(params.codes_ptr);
+            const auto *dictionary = reinterpret_cast<const uint16_t *>(
+                reinterpret_cast<const uint8_t *>(&op) + params.dictionary_byte_offset);
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                const uint64_t pos =
+                    (N == 1 ? pos_base : pos_base + i * blockDim.x + threadIdx.x) + params.codes_offset;
+                const uint32_t code = unpack_u16(codes, pos, params.code_bit_width);
+                const T left = dictionary[code % ALPRD_DICTIONARY_CAPACITY];
+                values[i] |= left << params.right_bit_width;
+            }
+        } else {
+            __builtin_unreachable();
+        }
+        break;
+    }
     case ScalarOp::EXTEND: {
         using Signed = std::make_signed_t<T>;
         const PTypeTag source = op.params.extend.source_ptype;
@@ -254,11 +293,12 @@ scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chu
 /// `patches`. Patch indices are stored in the coordinate space of the original array,
 /// so add `patches.offset` while locating chunks and subtract it when addressing `out`.
 /// Every thread cooperates on each overlapping FastLanes chunk.
-template <typename T>
+template <typename T, typename V, typename Apply>
 __device__ inline void scatter_patches_range(const GPUPatches &patches,
                                              T *__restrict out,
                                              uint64_t logical_start,
-                                             uint32_t range_len) {
+                                             uint32_t range_len,
+                                             Apply apply) {
     if (range_len == 0) {
         return;
     }
@@ -271,12 +311,12 @@ __device__ inline void scatter_patches_range(const GPUPatches &patches,
 
     for (uint32_t original_chunk = first_chunk; original_chunk <= last_chunk; ++original_chunk) {
         const uint32_t chunk = original_chunk - patch_chunk_start;
-        PatchesCursor<T> cursor(patches, chunk, threadIdx.x, blockDim.x);
+        PatchesCursor<V> cursor(patches, chunk, threadIdx.x, blockDim.x);
         auto patch = cursor.next();
         while (patch.index != FL_CHUNK) {
             const uint64_t original_pos = static_cast<uint64_t>(original_chunk) * FL_CHUNK + patch.index;
             if (original_pos >= original_start && original_pos < original_end) {
-                out[original_pos - patches.offset] = patch.value;
+                apply(out[original_pos - patches.offset], patch.value);
             }
             patch = cursor.next();
         }
@@ -293,8 +333,25 @@ scatter_scalar_patches(const Stage &stage, T *__restrict out, uint64_t logical_s
             const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
             // All ordinary writes must complete before exception values overwrite them.
             __syncthreads();
-            scatter_patches_range<T>(patches, out, logical_start, range_len);
+            scatter_patches_range<T, T>(patches, out, logical_start, range_len, [](T &row, T value) {
+                row = value;
+            });
             // A later stage may consume this patched shared-memory output.
+            __syncthreads();
+        } else if (sizeof(T) >= 4 && op.op_code == ScalarOp::ALPRD && op.params.alprd.patches_ptr != 0) {
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alprd.patches_ptr);
+            const uint32_t right_bit_width = op.params.alprd.right_bit_width;
+            const T right_mask = (T {1} << right_bit_width) - 1;
+            __syncthreads();
+            // A patch replaces the left part, so the row keeps its right bits.
+            scatter_patches_range<T, uint16_t>(patches,
+                                               out,
+                                               logical_start,
+                                               range_len,
+                                               [=](T &row, uint16_t left) {
+                                                   row = (static_cast<T>(left) << right_bit_width) |
+                                                         (row & right_mask);
+                                               });
             __syncthreads();
         }
     }
@@ -579,7 +636,7 @@ __device__ void execute_output_stage(T *__restrict output,
                                           smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem);
+                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem, tile_start);
             }
 
 #pragma unroll
@@ -601,7 +658,7 @@ __device__ void execute_output_stage(T *__restrict output,
             source_op<T, 1>(&val, src, raw_input, ptype, smem_src, i, gpos, smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, gpos);
             }
             __stcs(&output[gpos], val);
         }
@@ -649,7 +706,7 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
                 T val = smem_out[elem_idx];
                 for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
                 }
                 smem_out[elem_idx] = val;
             }
@@ -673,7 +730,7 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             T val;
             source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, elem_idx, smem);
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
             }
             smem_out[elem_idx] = val;
         }
