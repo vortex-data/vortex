@@ -319,10 +319,17 @@ impl LayoutReader for DictReader {
         } else {
             self.values_array()
         };
-        let all_values_referenced = self.layout.has_all_values_referenced();
+        let total_row_count = self.layout.row_count();
+        let is_full_range = row_range.start == 0 && row_range.end == total_row_count;
+        let layout_all_values_referenced = self.layout.has_all_values_referenced();
         let session = self.session.clone();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
+
+            // `codes.len() == total_row_count` also rules out a selective mask on a full-range read.
+            let all_values_referenced = layout_all_values_referenced
+                && is_full_range
+                && codes.len() as u64 == total_row_count;
 
             let mut dict = DictArray::try_new(codes, values)?;
             if all_values_referenced {
@@ -353,9 +360,13 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::dict::DictArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
@@ -384,6 +395,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
@@ -869,6 +881,52 @@ mod tests {
                 .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
                 .await;
             assert!(result.is_err());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn subset_projection_clears_all_values_referenced() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let values =
+                write_flat_layout(buffer![10i32, 20, 30].into_array(), &segments, &session).await?;
+            let codes =
+                write_flat_layout(buffer![0u32, 0, 1, 2].into_array(), &segments, &session).await?;
+            let layout =
+                DictLayout::new_with_all_values_referenced(values, codes, true).into_layout();
+            let reader =
+                layout.new_reader("dict".into(), segments, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let mut ctx = session.create_execution_ctx();
+
+            // Full-range, all-true read preserves `all_values_referenced = true`.
+            let full = reader
+                .projection_evaluation(&(0..4), &expr, MaskFuture::new_true(4))?
+                .await?;
+            assert!(full.as_::<Dict>().has_all_values_referenced());
+
+            // Sliced range read must not claim all values are referenced.
+            let sliced = reader
+                .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
+                .await?;
+            assert!(!sliced.as_::<Dict>().has_all_values_referenced());
+            let sliced_mm = min_max(&sliced, &mut ctx, NumericalAggregateOpts::default())?
+                .expect("non-empty min_max");
+            assert_eq!(i32::try_from(&sliced_mm.min)?, 10);
+            assert_eq!(i32::try_from(&sliced_mm.max)?, 10);
+
+            // Selective mask over full range must not claim all values are referenced.
+            let mask = Mask::from_iter([true, true, false, false]);
+            let masked = reader
+                .projection_evaluation(&(0..4), &expr, MaskFuture::ready(mask))?
+                .await?;
+            assert!(!masked.as_::<Dict>().has_all_values_referenced());
+            let masked_mm = min_max(&masked, &mut ctx, NumericalAggregateOpts::default())?
+                .expect("non-empty min_max");
+            assert_eq!(i32::try_from(&masked_mm.min)?, 10);
+            assert_eq!(i32::try_from(&masked_mm.max)?, 10);
             Ok(())
         })
     }

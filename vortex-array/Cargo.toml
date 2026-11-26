@@ -100,6 +100,10 @@ vortex-bench-support = { workspace = true }
 vortex-functions = { path = "../vortex-functions" }
 
 [[bench]]
+name = "block_program"
+harness = false
+
+[[bench]]
 name = "aggregate_max"
 harness = false
 
