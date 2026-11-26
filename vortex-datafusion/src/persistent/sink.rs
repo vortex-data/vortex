@@ -27,7 +27,8 @@ use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::metrics::MetricsSet;
 use futures::StreamExt;
-use futures::future::try_join_all;
+use futures::TryStreamExt;
+use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
@@ -134,7 +135,7 @@ impl FileSink for VortexSink {
 
     async fn spawn_writer_tasks_and_join(
         &self,
-        _context: &Arc<TaskContext>,
+        context: &Arc<TaskContext>,
         demux_task: SpawnedTask<DFResult<()>>,
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
@@ -224,7 +225,8 @@ impl FileSink for VortexSink {
 
         // Multi-file publication is not atomic: if one `shutdown()` fails after a sibling
         // completes, already-published files remain because object stores lack a commit protocol.
-        let published = try_join_all(written_files.into_iter().map(
+        let shutdown_concurrency = context.session_config().target_partitions().max(1);
+        let published: Vec<_> = stream::iter(written_files.into_iter().map(
             |WrittenFile {
                  path,
                  summary,
@@ -237,6 +239,8 @@ impl FileSink for VortexSink {
                 Ok::<_, DataFusionError>((path, summary))
             },
         ))
+        .buffer_unordered(shutdown_concurrency)
+        .try_collect()
         .await?;
 
         let mut row_count = 0;
