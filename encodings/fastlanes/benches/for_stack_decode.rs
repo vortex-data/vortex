@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Executing stacks of FoR over BitPacked, which decode level by level: each FoR writes a
+//! Executing a stack of FoR levels over BitPacked, which decodes level by level: each FoR writes a
 //! full-length buffer.
 //!
-//! Run with `cargo bench -p vortex-fastlanes --bench decode_chains`.
+//! Run with `cargo bench -p vortex-fastlanes --bench for_stack_decode`.
 
 #![expect(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
@@ -41,7 +41,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 const LEN: usize = 64 * 1024;
 
 /// FoR levels over the BitPacked leaf.
-const DEPTHS: [usize; 3] = [2, 4, 8];
+const DEPTH: usize = 4;
 
 /// `depth` FoR levels over values bit-packed at width 10.
 fn for_stack(depth: usize) -> ArrayRef {
@@ -58,9 +58,9 @@ fn for_stack(depth: usize) -> ArrayRef {
     array
 }
 
-#[divan::bench(args = DEPTHS)]
-fn for_stack_execute(bencher: Bencher, depth: usize) {
-    let array = for_stack(depth);
+#[divan::bench]
+fn for_stack_execute(bencher: Bencher) {
+    let array = for_stack(DEPTH);
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());

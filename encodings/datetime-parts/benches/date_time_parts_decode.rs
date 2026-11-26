@@ -4,7 +4,7 @@
 //! Executing DateTimeParts whose days are FoR over BitPacked, which decodes level by level: FoR
 //! writes a full-length buffer of days, then DateTimeParts combines it with the time parts.
 //!
-//! Run with `cargo bench -p vortex-datetime-parts --bench decode_chains`.
+//! Run with `cargo bench -p vortex-datetime-parts --bench date_time_parts_decode`.
 
 #![expect(clippy::unwrap_used)]
 

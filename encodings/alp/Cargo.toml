@@ -39,7 +39,7 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]
-name = "decode_chains"
+name = "alp_chain_decode"
 harness = false
 
 [[bench]]

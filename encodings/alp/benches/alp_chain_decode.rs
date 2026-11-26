@@ -4,7 +4,7 @@
 //! Executing ALP over FoR over BitPacked, the layout the compressor writes for decimal floats, which
 //! decodes level by level: FoR writes a full-length buffer of integers, then ALP decodes it.
 //!
-//! Run with `cargo bench -p vortex-alp --bench decode_chains`.
+//! Run with `cargo bench -p vortex-alp --bench alp_chain_decode`.
 
 #![expect(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
@@ -46,13 +46,11 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// A scan split's rows, whose intermediates fit in L2.
 const LEN: usize = 64 * 1024;
 
-/// Whether every 997th value is not representable, so ALP patches it.
-const PATCHED: [bool; 2] = [false, true];
-
-fn alp_for_bp(patched: bool) -> ArrayRef {
+/// Values of which every 997th is not representable, so ALP patches it.
+fn alp_for_bp() -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let values = PrimitiveArray::from_iter((0..LEN).map(|i| {
-        if patched && i % 997 == 0 {
+        if i % 997 == 0 {
             PI * i as f64
         } else {
             100.0 + (i % 1000) as f64 * 0.25
@@ -76,9 +74,9 @@ fn alp_for_bp(patched: bool) -> ArrayRef {
         .into_array()
 }
 
-#[divan::bench(args = PATCHED)]
-fn alp_for_bp_execute(bencher: Bencher, patched: bool) {
-    let array = alp_for_bp(patched);
+#[divan::bench]
+fn alp_for_bp_execute(bencher: Bencher) {
+    let array = alp_for_bp();
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
