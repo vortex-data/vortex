@@ -47,9 +47,11 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
+use crate::dtype::half::f16;
 use crate::dtype::i256;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
+use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::numeric::numeric_op_result_decimal_dtype;
@@ -82,24 +84,28 @@ fn to_vec_of_scalar(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vec<Scalar> {
 /// 2. Tests all binary numeric operators against a constant value of 1
 /// 3. Verifies results match the expected primitive array computation
 /// 4. Tests both array-operator-scalar and scalar-operator-array forms
-/// 5. Gracefully skips operations that would cause overflow/underflow
+/// 5. Verifies that operations that would overflow or divide an integer by zero return an error
 ///
 /// # Panics
 ///
 /// Panics if:
 /// - The array cannot be converted to primitive form
 /// - Results don't match expected values (for operations that don't overflow)
-fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(
+/// - An overflowing operation does not fail
+fn test_binary_numeric_conformance<T: NativePType + Into<PValue> + Num + Copy>(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) where
-    Scalar: From<T>,
-{
+) {
     // First test with the standard scalar value of 1
-    test_binary_numeric_with_scalar(array, T::one(), &[true, false], ctx);
+    test_binary_numeric_with_scalar(array, T::one(), false, &[true, false], ctx);
 
     // Then test edge cases
     test_binary_numeric_edge_cases(array, ctx);
+}
+
+fn test_binary_numeric_conformance_f16(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    test_binary_numeric_with_scalar(array, f16::ONE, false, &[true, false], ctx);
+    test_binary_numeric_edge_cases_f16(array, ctx);
 }
 
 /// Entry point for binary numeric conformance testing for any array type.
@@ -129,10 +135,7 @@ pub fn test_binary_numeric_array(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             PType::U16 => test_binary_numeric_conformance::<u16>(array, ctx),
             PType::U32 => test_binary_numeric_conformance::<u32>(array, ctx),
             PType::U64 => test_binary_numeric_conformance::<u64>(array, ctx),
-            PType::F16 => {
-                // F16 not supported in num-traits, skip
-                eprintln!("Skipping f16 binary numeric tests (not supported)");
-            }
+            PType::F16 => test_binary_numeric_conformance_f16(array, ctx),
             PType::F32 => test_binary_numeric_conformance::<f32>(array, ctx),
             PType::F64 => test_binary_numeric_conformance::<f64>(array, ctx),
         },
@@ -370,9 +373,7 @@ fn test_binary_numeric_edge_cases(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array, ctx),
             PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array, ctx),
             PType::U64 => test_binary_numeric_edge_cases_unsigned::<u64>(array, ctx),
-            PType::F16 => {
-                eprintln!("Skipping f16 edge case tests (not supported)");
-            }
+            PType::F16 => test_binary_numeric_edge_cases_f16(array, ctx),
             PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array, ctx),
             PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array, ctx),
         },
@@ -384,71 +385,80 @@ fn test_binary_numeric_edge_cases(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
 fn test_binary_numeric_edge_cases_signed<T>(array: &ArrayRef, ctx: &mut ExecutionCtx)
 where
-    T: NativePType + Num + Copy + Debug + Bounded + Signed,
-    Scalar: From<T>,
+    T: NativePType + Into<PValue> + Num + Copy + Debug + Bounded + Signed,
 {
     // Test with zero
-    test_binary_numeric_with_scalar(array, T::zero(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::zero(), true, &[true], ctx);
 
     // Test with -1
-    test_binary_numeric_with_scalar(array, -T::one(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, -T::one(), false, &[true], ctx);
 
     // Test with max value
-    test_binary_numeric_with_scalar(array, T::max_value(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::max_value(), false, &[true], ctx);
 
     // Test with min value
-    test_binary_numeric_with_scalar(array, T::min_value(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::min_value(), false, &[true], ctx);
 }
 
 fn test_binary_numeric_edge_cases_unsigned<T>(array: &ArrayRef, ctx: &mut ExecutionCtx)
 where
-    T: NativePType + Num + Copy + Debug + Bounded,
-    Scalar: From<T>,
+    T: NativePType + Into<PValue> + Num + Copy + Debug + Bounded,
 {
     // Test with zero
-    test_binary_numeric_with_scalar(array, T::zero(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::zero(), true, &[true], ctx);
 
     // Test with max value
-    test_binary_numeric_with_scalar(array, T::max_value(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::max_value(), false, &[true], ctx);
 }
 
 fn test_binary_numeric_edge_cases_float<T>(array: &ArrayRef, ctx: &mut ExecutionCtx)
 where
-    T: NativePType + Num + Copy + Debug + Float,
-    Scalar: From<T>,
+    T: NativePType + Into<PValue> + Num + Copy + Debug + Float,
 {
     // Test with zero
-    test_binary_numeric_with_scalar(array, T::zero(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::zero(), true, &[true], ctx);
 
     // Test with -1
-    test_binary_numeric_with_scalar(array, -T::one(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, -T::one(), false, &[true], ctx);
 
     // Test with max value
-    test_binary_numeric_with_scalar(array, T::max_value(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::max_value(), false, &[true], ctx);
 
     // Test with min value
-    test_binary_numeric_with_scalar(array, T::min_value(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::min_value(), false, &[true], ctx);
 
     // Test with small positive value
-    test_binary_numeric_with_scalar(array, T::epsilon(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::epsilon(), false, &[true], ctx);
 
     // Test with min positive value (subnormal)
-    test_binary_numeric_with_scalar(array, T::min_positive_value(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::min_positive_value(), false, &[true], ctx);
 
     // Test with special float values (NaN, Infinity)
-    test_binary_numeric_with_scalar(array, T::nan(), &[true], ctx);
-    test_binary_numeric_with_scalar(array, T::infinity(), &[true], ctx);
-    test_binary_numeric_with_scalar(array, T::neg_infinity(), &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::nan(), false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::infinity(), false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, T::neg_infinity(), false, &[true], ctx);
+}
+
+fn test_binary_numeric_edge_cases_f16(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    test_binary_numeric_with_scalar(array, f16::ZERO, true, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::NEG_ONE, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::MAX, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::MIN, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::EPSILON, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::MIN_POSITIVE, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::NAN, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::INFINITY, false, &[true], ctx);
+    test_binary_numeric_with_scalar(array, f16::NEG_INFINITY, false, &[true], ctx);
 }
 
 fn test_binary_numeric_with_scalar<T>(
     array: &ArrayRef,
     scalar_value: T,
+    skip_div: bool,
     directions: &[bool],
     ctx: &mut ExecutionCtx,
 ) where
-    T: NativePType + Num + Copy + Debug,
-    Scalar: From<T>,
+    T: NativePType + Into<PValue> + Copy + Debug,
 {
     let canonicalized_array = array
         .clone()
@@ -456,9 +466,7 @@ fn test_binary_numeric_with_scalar<T>(
         .vortex_expect("Must be able to canonicalise")
         .into_array();
     let original_values = to_vec_of_scalar(&canonicalized_array, ctx);
-    let scalar = Scalar::from(scalar_value)
-        .cast(array.dtype())
-        .vortex_expect("constant must fit the array dtype");
+    let scalar = Scalar::primitive(scalar_value, array.dtype().nullability());
 
     for operator in [
         NumericOperator::Add,
@@ -466,7 +474,7 @@ fn test_binary_numeric_with_scalar<T>(
         NumericOperator::Mul,
         NumericOperator::Div,
     ] {
-        if operator == NumericOperator::Div && scalar_value == T::zero() {
+        if operator == NumericOperator::Div && skip_div {
             continue;
         }
         for &lhs_is_array in directions {
@@ -492,32 +500,41 @@ fn test_binary_numeric_with_scalar<T>(
                 .numeric(rhs, operator)
                 .vortex_expect("binary numeric construction must succeed")
                 .execute::<RecursiveCanonical>(ctx);
-            let result = match result {
-                Ok(result) => result.0.into_array(),
-                Err(err) => {
-                    assert!(
-                        expected_results.iter().any(Option::is_none),
+            if expected_results.iter().any(Option::is_none) {
+                assert!(
+                    result.is_err(),
+                    "Binary numeric operation should fail for encoding {}: \
+                     {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
+                    array.encoding_id(),
+                );
+                continue;
+            }
+            let result = result
+                .unwrap_or_else(|err| {
+                    vortex_panic!(
+                        err,
                         "Binary numeric operation unexpectedly failed for encoding {}: \
-                         {operator:?} {scalar} (lhs_is_array: {lhs_is_array}): {err}",
+                         {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
                         array.encoding_id(),
-                    );
-                    continue;
-                }
-            };
+                    )
+                })
+                .0
+                .into_array();
             assert_eq!(result.len(), expected_results.len());
             assert_eq!(result.dtype(), array.dtype());
             let actual_values = to_vec_of_scalar(&result, ctx);
             for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate()
             {
-                if let Some(expected) = expected {
-                    assert_eq!(
-                        actual,
-                        expected,
-                        "Binary numeric operation failed for encoding {} at index {idx}: \
-                         {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
-                        array.encoding_id(),
-                    );
-                }
+                let expected = expected
+                    .as_ref()
+                    .vortex_expect("non-overflowing lane must have an expected value");
+                assert_eq!(
+                    actual,
+                    expected,
+                    "Binary numeric operation failed for encoding {} at index {idx}: \
+                     {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
+                    array.encoding_id(),
+                );
             }
         }
     }
