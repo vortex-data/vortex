@@ -25,6 +25,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::require_child;
+use vortex_array::require_spine;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -134,7 +135,6 @@ impl VTable for DateTimeParts {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Seconds and subseconds are often constant, so they stay constant to keep the decode
         // fast path.
-        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
         let array =
             require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyColumnar);
         let array = require_child!(
@@ -142,6 +142,8 @@ impl VTable for DateTimeParts {
             array.subseconds(),
             DateTimePartsSlots::SUBSECONDS => AnyColumnar
         );
+        // Days last, as the spine: DateTimeParts then only combines each day with its time parts.
+        let array = require_spine!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
 
         let dtype = array.dtype().clone();
         let parts = array.into_parts();
