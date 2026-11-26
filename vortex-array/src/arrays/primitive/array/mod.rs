@@ -526,12 +526,8 @@ impl PrimitiveData {
             handle.len(),
         );
         let required = Alignment::new(byte_width);
-        let is_aligned = match handle.as_host_opt() {
-            Some(byte_buffer) => byte_buffer.is_aligned(required),
-            None => handle.is_aligned_to(required),
-        };
         vortex_ensure!(
-            is_aligned,
+            handle.is_ptr_aligned(required),
             "PrimitiveArray buffer is not aligned to {required} for {ptype}",
         );
         Ok(())
