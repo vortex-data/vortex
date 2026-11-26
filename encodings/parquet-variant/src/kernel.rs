@@ -317,6 +317,7 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
     use parquet_variant::VariantMetadata;
@@ -989,7 +990,11 @@ mod tests {
     }
 
     fn make_shredded_typed_array() -> VortexResult<ArrayRef> {
-        let metadata = binary_view_array(&[b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
+        let metadata = binary_view_array(&[
+            EMPTY_VARIANT_METADATA_BYTES,
+            EMPTY_VARIANT_METADATA_BYTES,
+            EMPTY_VARIANT_METADATA_BYTES,
+        ]);
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![Some(10), None, Some(30)]));
 
         let struct_array = StructArray::try_new(
