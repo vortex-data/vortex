@@ -8,9 +8,11 @@ pub mod fixture;
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use fixture::DistributionVortex;
+use fixture::VortexColumns;
 use mimalloc::MiMalloc;
+use populate_builtins::constant;
 use populate_builtins::derive;
+use populate_builtins::list;
 use populate_builtins::range;
 use populate_builtins::sample;
 use populate_builtins::sample_range;
@@ -22,7 +24,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
@@ -50,18 +51,19 @@ fn random_indices() -> impl Distribution<Item = u64> {
     derive(sample_range(0..ARRAY_SIZE), |&index| index as u64)
 }
 
-fn take_inputs(names: &[&str], mut indices: impl Distribution<Item = u64>) -> (ArrayRef, ArrayRef) {
+fn take_inputs(names: &[&str], indices: impl Distribution<Item = u64>) -> (ArrayRef, ArrayRef) {
     let mut rng = StdRng::seed_from_u64(0);
-    let mut values = sample(Uniform::new(0i64, 100_000_000).unwrap());
-    let fields = names.iter().map(|name| {
-        (
-            *name,
-            values.collect_as::<PrimitiveArray>(&mut rng, ARRAY_SIZE),
-        )
-    });
+    let value = sample(Uniform::new(0i64, 100_000_000).unwrap());
+    let (fields, indices) = (
+        list(constant(ARRAY_SIZE), vec![value; names.len()]),
+        list(constant(TAKE_SIZE), indices),
+    )
+        .collect(&mut rng, 1);
+    let fields = names
+        .iter()
+        .zip(fields.values.0.into_iter().map(VortexColumns::into_vortex));
     let array = StructArray::try_from_iter(fields).unwrap().into_array();
-    let indices = indices.collect_vortex(&mut rng, TAKE_SIZE);
-    (array, indices)
+    (array, indices.values.into_vortex())
 }
 
 fn bench_take(bencher: Bencher, (struct_array, indices_array): (ArrayRef, ArrayRef)) {

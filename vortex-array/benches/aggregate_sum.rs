@@ -64,64 +64,60 @@ fn inputs(cols: impl Clone + VortexColumns + Sync) -> impl Fn() -> (ArrayRef, Ex
     }
 }
 
-fn measure<O>(
-    bencher: Bencher,
-    cols: impl Clone + VortexColumns + Sync,
-    operation: impl Fn(&ArrayRef, &mut ExecutionCtx) -> O + Sync,
-) {
-    bencher
-        .with_inputs(inputs(cols))
-        .bench_refs(|(a, ctx)| operation(a, ctx));
-}
-
 #[divan::bench]
 fn sum_i32(bencher: Bencher) {
-    measure(bencher, batch(1, sample_range(-1000i32..1000)), |a, ctx| {
-        a.statistics().compute_as::<i64>(Stat::Sum, ctx)
-    });
+    bencher
+        .with_inputs(inputs(batch(1, sample_range(-1000i32..1000))))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_i32(bencher: Bencher) {
-    measure(bencher, batch(1, sample_range(-1000i32..1000)), sum_v2);
+    bencher
+        .with_inputs(inputs(batch(1, sample_range(-1000i32..1000))))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
 
 #[divan::bench]
 fn sum_u32(bencher: Bencher) {
-    measure(bencher, batch(2, sample_range(0u32..2000)), |a, ctx| {
-        a.statistics().compute_as::<u64>(Stat::Sum, ctx)
-    });
+    bencher
+        .with_inputs(inputs(batch(2, sample_range(0u32..2000))))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_u32(bencher: Bencher) {
-    measure(bencher, batch(2, sample_range(0u32..2000)), sum_v2);
+    bencher
+        .with_inputs(inputs(batch(2, sample_range(0u32..2000))))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
 
 #[divan::bench]
 fn sum_i64(bencher: Bencher) {
-    measure(bencher, batch(3, sample_range(-1000i64..1000)), |a, ctx| {
-        a.statistics().compute_as::<i64>(Stat::Sum, ctx)
-    });
+    bencher
+        .with_inputs(inputs(batch(3, sample_range(-1000i64..1000))))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_i64(bencher: Bencher) {
-    measure(bencher, batch(3, sample_range(-1000i64..1000)), sum_v2);
+    bencher
+        .with_inputs(inputs(batch(3, sample_range(-1000i64..1000))))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
 
 #[divan::bench]
 fn sum_f64(bencher: Bencher) {
-    measure(
-        bencher,
-        batch(6, sample_range(-1000.0f64..1000.0)),
-        |a, ctx| a.statistics().compute_as::<f64>(Stat::Sum, ctx),
-    );
+    bencher
+        .with_inputs(inputs(batch(6, sample_range(-1000.0f64..1000.0))))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_f64(bencher: Bencher) {
-    measure(bencher, batch(6, sample_range(-1000.0f64..1000.0)), sum_v2);
+    bencher
+        .with_inputs(inputs(batch(6, sample_range(-1000.0f64..1000.0))))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
 
 fn f64_nulls_clustered() -> Nullable<Vec<f64>> {
@@ -133,14 +129,16 @@ fn f64_nulls_clustered() -> Nullable<Vec<f64>> {
 
 #[divan::bench]
 fn sum_f64_nulls_clustered(bencher: Bencher) {
-    measure(bencher, f64_nulls_clustered(), |a, ctx| {
-        a.statistics().compute_as::<f64>(Stat::Sum, ctx)
-    });
+    bencher
+        .with_inputs(inputs(f64_nulls_clustered()))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_f64_nulls_clustered(bencher: Bencher) {
-    measure(bencher, f64_nulls_clustered(), sum_v2);
+    bencher
+        .with_inputs(inputs(f64_nulls_clustered()))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
 
 fn i32_nulls_clustered() -> Nullable<Vec<i32>> {
@@ -149,14 +147,16 @@ fn i32_nulls_clustered() -> Nullable<Vec<i32>> {
 
 #[divan::bench]
 fn sum_i32_nulls_clustered(bencher: Bencher) {
-    measure(bencher, i32_nulls_clustered(), |a, ctx| {
-        a.statistics().compute_as::<i64>(Stat::Sum, ctx)
-    });
+    bencher
+        .with_inputs(inputs(i32_nulls_clustered()))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_i32_nulls_clustered(bencher: Bencher) {
-    measure(bencher, i32_nulls_clustered(), sum_v2);
+    bencher
+        .with_inputs(inputs(i32_nulls_clustered()))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
 
 fn i32_nulls_scattered() -> Nullable<Vec<i32>> {
@@ -165,12 +165,14 @@ fn i32_nulls_scattered() -> Nullable<Vec<i32>> {
 
 #[divan::bench]
 fn sum_i32_nulls_scattered(bencher: Bencher) {
-    measure(bencher, i32_nulls_scattered(), |a, ctx| {
-        a.statistics().compute_as::<i64>(Stat::Sum, ctx)
-    });
+    bencher
+        .with_inputs(inputs(i32_nulls_scattered()))
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
 
 #[divan::bench]
 fn sum_v2_i32_nulls_scattered(bencher: Bencher) {
-    measure(bencher, i32_nulls_scattered(), sum_v2);
+    bencher
+        .with_inputs(inputs(i32_nulls_scattered()))
+        .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
