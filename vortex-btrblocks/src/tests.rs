@@ -66,6 +66,7 @@ use crate::BtrBlocksCompressorBuilder;
 use crate::ChildDecision;
 use crate::ChildRequest;
 use crate::CompressionPolicy;
+use crate::MAX_CASCADE;
 use crate::Plan;
 use crate::SESSION;
 use crate::Scheme;
@@ -754,6 +755,19 @@ fn wide_runs_of_two() -> ArrayRef {
         })
         .collect();
     PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+#[test]
+fn test_plan_rejects_nesting_deeper_than_the_cascade() -> VortexResult<()> {
+    let schemes: [&'static dyn Scheme; 1] = [&RunEndScheme];
+    let nested = |depth: usize| {
+        let id = RunEndScheme.id();
+        format!("{}{}", format!("{id}(").repeat(depth), ")".repeat(depth)).replace("()", "(_)")
+    };
+    Plan::parse(&nested(MAX_CASCADE), &schemes)?;
+    assert!(Plan::parse(&nested(MAX_CASCADE + 1), &schemes).is_err());
+    assert!(Plan::parse(&nested(100_000), &schemes).is_err());
+    Ok(())
 }
 
 #[test]
