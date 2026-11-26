@@ -49,6 +49,7 @@ use crate::FoR;
 use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::for_decompress::for_each_decoded_patch;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::for_each_packed_chunk;
 
@@ -378,21 +379,15 @@ where
     let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len);
 
     if let Some(patches) = bp.patches() {
-        let p_idx = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let p_val = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        let p_off = patches.offset();
-        match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-            apply_compare_patches::<T, U, I>(
-                &mut bits,
-                p_idx.as_slice::<I>(),
-                p_val.as_slice::<U>(),
-                p_off,
-                offset,
-                refs,
-                rhs,
-                operator,
-            )
-        });
+        let bit_len = bits.len();
+        for_each_decoded_patch::<T, U>(
+            &patches,
+            bit_len,
+            offset,
+            |chunk| refs[chunk],
+            |pos, decoded| bits.set_to(pos, eval_cmp(decoded, rhs, operator)),
+            ctx,
+        )?;
     }
 
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
@@ -456,38 +451,6 @@ fn unpack_cmp_block<P>(
     transpose_bits::<P>(lane_major, out);
     if negate {
         out.iter_mut().for_each(|w| *w = !*w);
-    }
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "typed blocked compare patch fixup parameters"
-)]
-fn apply_compare_patches<T, U, I>(
-    bits: &mut BitBufferMut,
-    indices: &[I],
-    values: &[U],
-    patch_offset: usize,
-    for_offset: usize,
-    refs: &[T],
-    rhs: T,
-    operator: CompareOperator,
-) where
-    T: NativePType + WrappingAdd + Ord,
-    U: Copy + AsPrimitive<T>,
-    I: AsPrimitive<usize>,
-{
-    let bit_len = bits.len();
-    for (&idx, &patch_val) in indices.iter().zip(values) {
-        let Some(pos) = idx.as_().checked_sub(patch_offset) else {
-            continue;
-        };
-        if pos >= bit_len {
-            continue;
-        }
-        let ref_b = refs[(for_offset + pos) / FL_CHUNK_SIZE];
-        let decoded = ref_b.wrapping_add(&patch_val.as_());
-        bits.set_to(pos, eval_cmp(decoded, rhs, operator));
     }
 }
 

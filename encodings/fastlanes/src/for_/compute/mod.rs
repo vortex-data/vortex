@@ -478,27 +478,26 @@ fn apply_filtered_patches_typed<T, U, O, I>(
     }
 
     if p_idx.len() > true_count.saturating_mul(16) {
-        let mut cursor = 0usize;
         if let Some(indices) = mask_values.cached_indices() {
-            for (out_rank, &orig_pos) in indices.iter().enumerate() {
-                let target = orig_pos + p_off;
-                cursor = gallop_ge(p_idx, cursor, target);
-                if cursor < p_idx.len() && p_idx[cursor].as_() == target {
-                    let ref_b = references[(for_offset + orig_pos) / FL_CHUNK_SIZE];
-                    out[out_rank] = ref_b.wrapping_add(&p_val[cursor].as_()).as_();
-                    cursor += 1;
-                }
-            }
+            gallop_apply_filtered_patches(
+                out,
+                p_idx,
+                p_val,
+                p_off,
+                for_offset,
+                references,
+                indices.iter().copied(),
+            );
         } else {
-            for (out_rank, orig_pos) in mask_values.bit_buffer().set_indices().enumerate() {
-                let target = orig_pos + p_off;
-                cursor = gallop_ge(p_idx, cursor, target);
-                if cursor < p_idx.len() && p_idx[cursor].as_() == target {
-                    let ref_b = references[(for_offset + orig_pos) / FL_CHUNK_SIZE];
-                    out[out_rank] = ref_b.wrapping_add(&p_val[cursor].as_()).as_();
-                    cursor += 1;
-                }
-            }
+            gallop_apply_filtered_patches(
+                out,
+                p_idx,
+                p_val,
+                p_off,
+                for_offset,
+                references,
+                mask_values.bit_buffer().set_indices(),
+            );
         }
         return;
     }
@@ -521,7 +520,33 @@ fn apply_filtered_patches_typed<T, U, O, I>(
     }
 }
 
-fn filter_blocked_same_width<T: NativePType + WrappingAdd>(
+fn gallop_apply_filtered_patches<T, U, O, I>(
+    out: &mut [O],
+    p_idx: &[I],
+    p_val: &[U],
+    p_off: usize,
+    for_offset: usize,
+    references: &[T],
+    positions: impl Iterator<Item = usize>,
+) where
+    T: NativePType + WrappingAdd + AsPrimitive<O>,
+    U: Copy + AsPrimitive<T>,
+    O: Copy + 'static,
+    I: AsPrimitive<usize>,
+{
+    let mut cursor = 0usize;
+    for (out_rank, orig_pos) in positions.enumerate() {
+        let target = orig_pos + p_off;
+        cursor = gallop_ge(p_idx, cursor, target);
+        if cursor < p_idx.len() && p_idx[cursor].as_() == target {
+            let ref_b = references[(for_offset + orig_pos) / FL_CHUNK_SIZE];
+            out[out_rank] = ref_b.wrapping_add(&p_val[cursor].as_()).as_();
+            cursor += 1;
+        }
+    }
+}
+
+fn filter_blocked_same_width<T: NativePType + WrappingAdd + AsPrimitive<T>>(
     encoded: PrimitiveArray,
     references: &[T],
     offset: usize,
@@ -561,42 +586,7 @@ fn filter_blocked_same_width<T: NativePType + WrappingAdd>(
             values.freeze()
         }
         Err(values) => {
-            let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-            let dst = &mut out.spare_capacity_mut()[..len];
-            let src = values.as_slice();
-            if let Some(slices) = mask_values.cached_slices() {
-                let mut out_idx = 0usize;
-                for &(start, end) in slices {
-                    let mut pos = start;
-                    while pos < end {
-                        let abs_pos = offset + pos;
-                        let chunk = abs_pos / FL_CHUNK_SIZE;
-                        let run_len = (end - pos).min(FL_CHUNK_SIZE - (abs_pos % FL_CHUNK_SIZE));
-                        let reference = references[chunk];
-                        for (slot, &val) in dst[out_idx..out_idx + run_len]
-                            .iter_mut()
-                            .zip(&src[out_idx..out_idx + run_len])
-                        {
-                            slot.write(val.wrapping_add(&reference));
-                        }
-                        pos += run_len;
-                        out_idx += run_len;
-                    }
-                }
-                debug_assert_eq!(out_idx, len);
-            } else {
-                for ((slot, &val), orig_pos) in dst
-                    .iter_mut()
-                    .zip(src)
-                    .zip(mask_values.bit_buffer().set_indices())
-                {
-                    let reference = references[(offset + orig_pos) / FL_CHUNK_SIZE];
-                    slot.write(val.wrapping_add(&reference));
-                }
-            }
-            // SAFETY: every slot in `0..len` was initialized above.
-            unsafe { out.set_len(len) };
-            out.freeze()
+            filter_blocked_alloc(values.as_slice(), references, offset, mask_values, ctx)
         }
     };
     Ok(PrimitiveArray::new(buffer, validity))
@@ -633,8 +623,28 @@ where
     U: NativePType + AsPrimitive<T>,
 {
     let validity = encoded.validity()?;
-    let len = encoded.len();
-    let src = encoded.as_slice::<U>();
+    let buffer = filter_blocked_alloc(
+        encoded.as_slice::<U>(),
+        references,
+        offset,
+        mask_values,
+        ctx,
+    );
+    Ok(PrimitiveArray::new(buffer, validity))
+}
+
+fn filter_blocked_alloc<T, U>(
+    src: &[U],
+    references: &[T],
+    offset: usize,
+    mask_values: &MaskValues,
+    ctx: &mut ExecutionCtx,
+) -> Buffer<T>
+where
+    T: NativePType + WrappingAdd,
+    U: Copy + AsPrimitive<T>,
+{
+    let len = src.len();
     let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
     let dst = &mut out.spare_capacity_mut()[..len];
     if let Some(slices) = mask_values.cached_slices() {
@@ -669,7 +679,7 @@ where
     }
     // SAFETY: every slot in `0..len` was initialized above.
     unsafe { out.set_len(len) };
-    Ok(PrimitiveArray::new(out.freeze(), validity))
+    out.freeze()
 }
 
 fn take_blocked(
@@ -714,7 +724,7 @@ fn take_blocked(
     }
 }
 
-fn take_blocked_same_width_t<T: NativePType + WrappingAdd>(
+fn take_blocked_same_width_t<T: NativePType + WrappingAdd + AsPrimitive<T>>(
     taken_encoded: PrimitiveArray,
     references: &[T],
     indices: &PrimitiveArray,
@@ -743,7 +753,7 @@ fn take_blocked_same_width<T, I>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray>
 where
-    T: NativePType + WrappingAdd,
+    T: NativePType + WrappingAdd + AsPrimitive<T>,
     I: NativePType + AsPrimitive<usize>,
 {
     let validity = taken_encoded.validity()?;
@@ -776,36 +786,14 @@ where
             }
             values.freeze()
         }
-        Err(values) => {
-            let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-            let dst = &mut out.spare_capacity_mut()[..len];
-            let src = values.as_slice();
-            match idx_mask {
-                Mask::AllTrue(_) => {
-                    for ((slot, &val), &idx) in dst.iter_mut().zip(src).zip(indices) {
-                        let chunk = (offset + idx.as_()) / FL_CHUNK_SIZE;
-                        slot.write(val.wrapping_add(&references[chunk]));
-                    }
-                }
-                Mask::Values(mask_values) => {
-                    let bits = mask_values.bit_buffer();
-                    for (i, ((slot, &val), &idx)) in
-                        dst.iter_mut().zip(src).zip(indices).enumerate()
-                    {
-                        if bits.value(i) {
-                            let chunk = (offset + idx.as_()) / FL_CHUNK_SIZE;
-                            slot.write(val.wrapping_add(&references[chunk]));
-                        } else {
-                            slot.write(T::zero());
-                        }
-                    }
-                }
-                Mask::AllFalse(_) => unreachable!(),
-            }
-            // SAFETY: every slot in `0..len` was initialized above.
-            unsafe { out.set_len(len) };
-            out.freeze()
-        }
+        Err(values) => take_blocked_alloc(
+            values.as_slice(),
+            references,
+            indices,
+            idx_mask,
+            offset,
+            ctx,
+        ),
     };
     Ok(PrimitiveArray::new(buffer, validity))
 }
@@ -872,8 +860,31 @@ where
     if len == 0 || matches!(idx_mask, Mask::AllFalse(_)) {
         return Ok(PrimitiveArray::new(Buffer::<T>::zeroed(len), validity));
     }
+    let buffer = take_blocked_alloc(
+        taken_encoded.as_slice::<U>(),
+        references,
+        indices,
+        idx_mask,
+        offset,
+        ctx,
+    );
+    Ok(PrimitiveArray::new(buffer, validity))
+}
 
-    let src = taken_encoded.as_slice::<U>();
+fn take_blocked_alloc<T, U, I>(
+    src: &[U],
+    references: &[T],
+    indices: &[I],
+    idx_mask: &Mask,
+    offset: usize,
+    ctx: &mut ExecutionCtx,
+) -> Buffer<T>
+where
+    T: NativePType + WrappingAdd,
+    U: Copy + AsPrimitive<T>,
+    I: NativePType + AsPrimitive<usize>,
+{
+    let len = src.len();
     let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
     let dst = &mut out.spare_capacity_mut()[..len];
     match idx_mask {
@@ -898,7 +909,7 @@ where
     }
     // SAFETY: every slot in `0..len` was initialized above.
     unsafe { out.set_len(len) };
-    Ok(PrimitiveArray::new(out.freeze(), validity))
+    out.freeze()
 }
 
 #[cfg(test)]
