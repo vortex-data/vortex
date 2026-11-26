@@ -12,12 +12,11 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::Any;
 use std::any::TypeId;
-use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::OnceLock;
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicUsize;
@@ -28,7 +27,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_panic;
+use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
@@ -53,21 +53,33 @@ use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
 
-/// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
-/// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
-pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
-        match std::env::var("VORTEX_MAX_ITERATIONS") {
-            Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
-                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
-            }),
-            Err(VarError::NotPresent) => 2 << 21, // 2 ^ 22
-            Err(VarError::NotUnicode(_)) => {
-                vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
-            }
+/// Configuration for array and aggregate execution, stored in a [`VortexSession`].
+///
+/// Set this with [`VortexSession::with_some`]. Execution reads the current configuration at the
+/// start of each iterative loop.
+#[derive(Clone, Debug)]
+pub struct ExecutionConfig {
+    /// Maximum iterations in each iterative execution loop before falling back or returning an
+    /// error. Defaults to `2^22` to guard against execution that does not converge.
+    pub max_iterations: usize,
+}
+
+impl Default for ExecutionConfig {
+    fn default() -> Self {
+        Self {
+            max_iterations: 1 << 22,
         }
-    });
-    *MAX_ITERATIONS
+    }
+}
+
+impl SessionVar for ExecutionConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 /// Marker trait for types that an [`ArrayRef`] can be executed into.
@@ -107,7 +119,7 @@ impl ArrayRef {
     /// progress is possible.
     ///
     /// For safety, this errors once execution reaches a configurable maximum number of
-    /// iterations (default `2^22`, override with `VORTEX_MAX_ITERATIONS`).
+    /// iterations (default `2^22`, configured through [`ExecutionConfig`]).
     ///
     /// # Loop state
     ///
@@ -207,7 +219,7 @@ impl ArrayRef {
         // parent-reduce rules have not yet seen it under that parent.
         let mut child_rewritten = false;
         let kernels = ctx_kernels.execute_parent.as_ref();
-        let max_iterations = max_iterations();
+        let max_iterations = ctx.max_iterations();
 
         trace_op!(record_execute_until_start::<M>(&current_array));
 
@@ -506,6 +518,10 @@ impl ExecutionCtx {
             #[cfg(debug_assertions)]
             ops: Vec::new(),
         }
+    }
+
+    pub(crate) fn max_iterations(&self) -> usize {
+        self.session.get::<ExecutionConfig>().max_iterations
     }
 
     /// Get the session associated with this execution context.
@@ -1142,7 +1158,6 @@ impl VortexSessionExecute for VortexSession {
 #[cfg(test)]
 mod tests {
     use static_assertions::assert_impl_all;
-    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -1230,6 +1245,48 @@ mod tests {
     }
 
     #[test]
+    fn execution_ctx_uses_default_iteration_limit() {
+        let ctx = VortexSession::empty().create_execution_ctx();
+        assert_eq!(ctx.max_iterations(), 1 << 22);
+    }
+
+    #[test]
+    fn execution_ctx_uses_session_iteration_limit() -> VortexResult<()> {
+        let session = VortexSession::empty().with_some(ExecutionConfig { max_iterations: 0 });
+        let array = BoolArray::from_iter([true, false]).into_array();
+        let error = array
+            .clone()
+            .execute_until::<AnyCanonical>(&mut session.create_execution_ctx())
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Exceeded maximum execution iterations (0)")
+        );
+
+        let other = VortexSession::empty().with_some(ExecutionConfig { max_iterations: 1 });
+        array.execute_until::<AnyCanonical>(&mut other.create_execution_ctx())?;
+        Ok(())
+    }
+
+    #[test]
+    fn execution_ctx_observes_session_iteration_limit_changes() -> VortexResult<()> {
+        let session = VortexSession::empty().with_some(ExecutionConfig { max_iterations: 0 });
+        let mut ctx = session.create_execution_ctx();
+        let array = BoolArray::from_iter([true, false]).into_array();
+        assert!(
+            array
+                .clone()
+                .execute_until::<AnyCanonical>(&mut ctx)
+                .is_err()
+        );
+
+        session.register(ExecutionConfig { max_iterations: 1 });
+        array.execute_until::<AnyCanonical>(&mut ctx)?;
+        Ok(())
+    }
+
+    #[test]
     fn execution_ctx_allocator_override() {
         let first = BufferAllocatorRef::new(vortex_buffer::StaticBufferAllocator);
         let second = BufferAllocatorRef::new(vortex_buffer::StaticBufferAllocator);
@@ -1239,15 +1296,13 @@ mod tests {
             .with_allocator(first.clone());
         let ctx = session.create_execution_ctx();
 
-        session
-            .get_mut::<MemorySession>()
-            .set_allocator(third.clone());
+        let session = session.with_allocator(third.clone());
 
         assert!(session.allocator().ptr_eq(&third));
         assert!(ctx.allocator().ptr_eq(&third));
 
         let ctx = ctx.with_allocator(second.clone());
-        session.get_mut::<MemorySession>().set_allocator(first);
+        let _session = session.with_allocator(first);
 
         assert!(ctx.allocator().ptr_eq(&second));
     }

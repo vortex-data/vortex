@@ -24,6 +24,23 @@ on:
         required: false
         type: string
         default: c8gd.metal-24xl
+      nvme_regions:
+        required: false
+        type: string
+        default: ""
+        description: >-
+          JSON list of the AWS regions to spread the NVMe benchmarks over; empty uses the
+          BENCH_NVME_REGIONS repository variable, or us-east-1 without it
+      max_parallel:
+        required: false
+        type: number
+        default: 256
+        description: "Most bench jobs to run at once; each one launches its own host"
+      commit_sha:
+        required: false
+        type: string
+        default: ""
+        description: "Commit to benchmark outside pr mode; empty uses the run's commit"
 
 jobs:
   resolve-matrix:
@@ -37,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
-          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
           persist-credentials: false
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -49,10 +66,27 @@ jobs:
         env:
           MATRIX_PRESET: ${{ inputs.matrix_preset }}
           BENCHMARKS: ${{ inputs.benchmarks }}
+          NVME_REGIONS: ${{ inputs.nvme_regions || vars.BENCH_NVME_REGIONS || '["us-east-1"]' }}
         run: |
           set -Eeuo pipefail
 
           matrix="$(uv run --project benchmarks/bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
+          if ! jq -e 'type == "array" and length > 0 and all(type == "string")' <<<"$NVME_REGIONS" >/dev/null; then
+            echo "::error::NVMe regions must be a JSON list of region names, got: $NVME_REGIONS"
+            exit 1
+          fi
+          # Each entry launches its own metal host, and one region's spot pool for that instance
+          # type is only a few hosts deep, so the NVMe entries spread over several regions. The S3
+          # entries stay in us-east-1, next to their bucket. The hash key puts every entry of one
+          # benchmark and scale in one region, so that their results compare on equal hardware
+          # and a PR run uses the region of its develop baseline. The seed 226 spreads the develop
+          # matrix evenly over two or three regions.
+          matrix="$(jq -c --argjson regions "$NVME_REGIONS" 'map(. + {region: (
+            if .remote_key != null then "us-east-1"
+            else $regions[
+              ("\(.subcommand)-\(.scale_factor // "")" | reduce explode[] as $c (226; (. * 31 + $c) % 1000003))
+              % ($regions | length)]
+            end)})' <<<"$matrix")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
           # A case runs as one entry per scan when it covers every scan; its PR comment collects
           # the entries of its `group` into one table. A run of some queries comments separately.
@@ -75,7 +109,7 @@ jobs:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
       - parallel:
           - uses: ./.github/actions/assert-cpu
             if: github.repository == 'vortex-data/vortex'
@@ -140,7 +174,7 @@ jobs:
           - uses: runs-on/action@v2
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
       - name: Download binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
@@ -172,12 +206,19 @@ jobs:
       COLUMNS: 120
     strategy:
       fail-fast: false
+      # Requests beyond the depth of a spot pool fall back to on-demand, at about 3.4 times the
+      # spot price.
+      max-parallel: ${{ inputs.max_parallel }}
       matrix:
         include: ${{ fromJSON(needs.resolve-matrix.outputs.benchmark_matrix) }}
 
+    # Artifacts cross regions. GitHub holds the files: since RunsOn v3.4.0 the runner agent forwards
+    # artifact requests to GitHub, so this job can download what the us-east-1 build uploaded, and
+    # the us-east-1 jobs can read its results. Only the `s3-cache` cache belongs to one region's
+    # stack.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region={4}/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', matrix.region)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -187,7 +228,7 @@ jobs:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
-              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+              ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }}
               fetch-depth: ${{ inputs.mode == 'pr' && '0' || '1' }}
       # Everything data generation needs is independent, so install it all at once.
       - parallel:
@@ -257,7 +298,7 @@ jobs:
             continue-on-error: true
             with:
               polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
+              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }};benchmark=${{ matrix.id }}"
               project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
               job_name: "${{ matrix.id }}"
               profiling_frequency: 199
@@ -334,7 +375,7 @@ jobs:
                 vortex-bench/data \
                 --benchmark ${{ matrix.subcommand }} \
                 --dataset-dir ${{ matrix.dataset_dir }} \
-                --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+                --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }} \
                 -o sizes.json \
                 --ingest-jsonl sizes.ingest.jsonl
               cat sizes.json >> results.json
@@ -351,7 +392,7 @@ jobs:
               uv run --no-project scripts/sample-file-trees.py \
                 vortex-bench/data/${{ matrix.dataset_dir }} \
                 --vx target/release_debug/vx \
-                --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
+                --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || inputs.commit_sha || github.sha }} \
                 -o file-trees
 
       - name: Upload sampled file trees
@@ -416,7 +457,7 @@ jobs:
           uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
             scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
-            --commit-sha "${{ github.sha }}" \
+            --commit-sha "${{ inputs.commit_sha || github.sha }}" \
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 

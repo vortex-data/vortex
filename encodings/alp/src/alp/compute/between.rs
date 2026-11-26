@@ -1,36 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-
-use num_traits::Bounded;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::dtype::NativeDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::PValue;
-use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_functions::between::BetweenKernel;
 use vortex_functions::between::BetweenOptions;
 use vortex_functions::between::BetweenReduce;
-use vortex_functions::between::StrictComparison;
-use vortex_functions::builtins::ArrayFunctions;
 
 use crate::ALP;
 use crate::ALPFloat;
-use crate::Exponents;
 use crate::alp::array::ALPArrayExt;
-use crate::alp::array::ALPArraySlotsExt;
 use crate::alp::compute::predicate::apply_patch_predicate;
-use crate::alp::compute::predicate::constant_predicate;
-use crate::alp::compute::predicate::encode_strictly_above;
-use crate::alp::compute::predicate::encode_strictly_below;
+use crate::alp::compute::predicate::encoded_bound;
+use crate::alp::compute::predicate::encoded_range;
 use crate::match_each_alp_float_ptype;
 
 /// Rewrites a between over a patch-free array into a between over its encoded integers.
@@ -110,8 +98,7 @@ fn between_patched_impl<T: NativePType + ALPFloat>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
-    Scalar: From<T::ALPInt>,
-    <T as ALPFloat>::ALPInt: NativeDType + NativePType + Into<PValue> + Debug,
+    T::ALPInt: NativePType + Into<PValue>,
 {
     let encoded = between_impl::<T>(array, lower, upper, nullability, options)?;
     let lower_fn = options.lower_strict.to_predicate::<T>();
@@ -132,83 +119,13 @@ fn between_impl<T: NativePType + ALPFloat>(
     options: &BetweenOptions,
 ) -> VortexResult<ArrayRef>
 where
-    Scalar: From<T::ALPInt>,
-    <T as ALPFloat>::ALPInt: NativeDType + NativePType + Into<PValue> + Debug,
+    T::ALPInt: NativePType + Into<PValue>,
 {
     let exponents = array.exponents();
 
-    // The lower bound is `value {< | <=} x`. Either `value` encodes into the ALPInt domain, in
-    // which case the comparison is unchanged as `enc(value) {< | <=} x`, or it does not and
-    // `enc_below(value) < value < x`, in which case the comparison becomes `enc(value) < x`. See
-    // `alp_scalar_compare` for more details. Note that if `value` does not encode then
-    // `value != x`, so the comparison must be strict.
-    let Some((lower_enc, lower_strict)) =
-        encode_lower_bound::<T>(lower, exponents, options.lower_strict)
-    else {
-        return constant_predicate(array, false, nullability);
-    };
-
-    // The upper bound `x {< | <=} value` similarly encodes, or `x < value < enc_above(value)`.
-    let Some((upper_enc, upper_strict)) =
-        encode_upper_bound::<T>(upper, exponents, options.upper_strict)
-    else {
-        return constant_predicate(array, false, nullability);
-    };
-
-    let options = BetweenOptions {
-        lower_strict,
-        upper_strict,
-    };
-
-    array.encoded().clone().between(
-        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).into_array(),
-        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).into_array(),
-        options,
-    )
-}
-
-fn encode_lower_bound<T: ALPFloat + NativePType>(
-    lower: T,
-    exponents: Exponents,
-    strict: StrictComparison,
-) -> Option<(T::ALPInt, StrictComparison)> {
-    if NativePType::is_nan(lower) || NativePType::is_infinite(lower) {
-        return NativePType::is_lt(lower, T::zero())
-            .then_some((T::ALPInt::min_value(), StrictComparison::NonStrict));
-    }
-
-    Some(
-        T::encode_single(lower, exponents)
-            .map(|x| (x, strict))
-            .unwrap_or_else(|| {
-                (
-                    encode_strictly_below(lower, exponents),
-                    StrictComparison::Strict,
-                )
-            }),
-    )
-}
-
-fn encode_upper_bound<T: ALPFloat + NativePType>(
-    upper: T,
-    exponents: Exponents,
-    strict: StrictComparison,
-) -> Option<(T::ALPInt, StrictComparison)> {
-    if NativePType::is_nan(upper) || NativePType::is_infinite(upper) {
-        return NativePType::is_gt(upper, T::zero())
-            .then_some((T::ALPInt::max_value(), StrictComparison::NonStrict));
-    }
-
-    Some(
-        T::encode_single(upper, exponents)
-            .map(|x| (x, strict))
-            .unwrap_or_else(|| {
-                (
-                    encode_strictly_above(upper, exponents),
-                    StrictComparison::Strict,
-                )
-            }),
-    )
+    let start = encoded_bound(lower, exponents, options.lower_strict.is_strict());
+    let end = encoded_bound(upper, exponents, !options.upper_strict.is_strict());
+    encoded_range(array, start, end, false, nullability)
 }
 
 #[cfg(test)]
@@ -231,7 +148,9 @@ mod tests {
     use vortex_functions::builtins::ArrayFunctions;
     use vortex_session::VortexSession;
 
+    use crate::ALP;
     use crate::ALPArray;
+    use crate::Exponents;
     use crate::alp::array::ALPArrayExt;
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
@@ -257,6 +176,18 @@ mod tests {
                 .into_array(),
             &mut SESSION.create_execution_ctx()
         );
+    }
+
+    #[test]
+    fn between_outside_encoded_range() -> VortexResult<()> {
+        let ints = PrimitiveArray::from_iter([i32::MIN, 0, i32::MAX]);
+        let array = ALP::try_new(ints.into_array(), Exponents { e: 0, f: 0 }, None)?;
+        let strict = BetweenOptions {
+            lower_strict: StrictComparison::Strict,
+            upper_strict: StrictComparison::Strict,
+        };
+        assert_between(&array, -1e10, 1e10, &strict, true);
+        Ok(())
     }
 
     #[test]

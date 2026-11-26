@@ -80,6 +80,27 @@ def test_chunked_array_from_chunks_mixed_nullability() -> None:
         vortex.ChunkedArray.from_chunks([nullable], dtype=non_nullable.dtype)
 
 
+def test_chunked_array_from_chunks_preserves_empty_chunked_dtype() -> None:
+    one = vortex.array(pa.array([41, 42], type=pa.int64()))
+    nullable_one = vortex.array(pa.array([41, None], type=pa.int64()))
+    empty = vortex.ChunkedArray.from_chunks([], dtype=one.dtype)
+    nullable_empty = vortex.ChunkedArray.from_chunks([], dtype=nullable_one.dtype)
+    empty_utf8 = vortex.ChunkedArray.from_chunks([], dtype=vortex.array(pa.array(["x"])).dtype)
+
+    inferred = vortex.ChunkedArray.from_chunks([empty])
+    assert inferred.dtype == one.dtype
+    assert inferred.chunks() == []
+    assert len(inferred) == 0
+
+    combined = vortex.ChunkedArray.from_chunks([nullable_empty, one])
+    assert combined.dtype == nullable_one.dtype
+    assert len(combined.chunks()) == 1
+    assert combined.to_arrow_array(combine_chunks=True).equals(pa.array([41, 42], type=pa.int64()))
+
+    with pytest.raises(RuntimeError, match="expected type"):
+        vortex.ChunkedArray.from_chunks([empty_utf8, one])
+
+
 def test_decimal_array() -> None:
     a = pa.array([decimal.Decimal("1.23"), None], type=pa.decimal128(10, 2))
     arr = vortex.array(a)
@@ -135,7 +156,6 @@ def test_scalar_at_out_of_bounds() -> None:
 @pytest.mark.parametrize(
     "arrow_type",
     [
-        pa.duration("us"),
         pa.month_day_nano_interval(),
         pa.binary(3),
     ],

@@ -9,7 +9,20 @@
 /// The kernels in this crate require this trait instead of `Iterator` so that lane
 /// reads carry no inter-iteration data dependency — the autovectorizer treats each
 /// lane independently.
-pub trait IndexedSource {
+///
+/// # Safety
+///
+/// - [`len`](Self::len) **must** return the same value on every call for as long as the source
+///   exists. Interior mutability and a write through [`IndexedSink`] **must not** change it.
+/// - [`get_unchecked`](Self::get_unchecked) **must** be sound to call with every index below that
+///   length.
+///
+/// The safe kernels read the length once and then read every lane below it, and an adapter such as
+/// [`LaneZip`] compares the lengths of its operands only at construction. Violating these
+/// requirements can therefore cause undefined behavior, such as an out-of-bounds read.
+///
+/// [`IndexedSink`]: crate::lane_kernels::sink::IndexedSink
+pub unsafe trait IndexedSource {
     /// The per-lane item type passed through the kernel by value.
     type Item;
     /// Logical lane count.
@@ -26,7 +39,8 @@ pub trait IndexedSource {
     unsafe fn get_unchecked(&self, i: usize) -> Self::Item;
 }
 
-impl<T: Copy> IndexedSource for &[T] {
+// SAFETY: a slice reference has a fixed length, and every index below it is in bounds.
+unsafe impl<T: Copy> IndexedSource for &[T] {
     type Item = T;
     #[inline]
     fn len(&self) -> usize {
@@ -39,7 +53,9 @@ impl<T: Copy> IndexedSource for &[T] {
     }
 }
 
-impl<T: Copy> IndexedSource for &mut [T] {
+// SAFETY: a slice reference has a fixed length, and every index below it is in bounds. A write
+// through `IndexedSink` replaces one element and leaves the length unchanged.
+unsafe impl<T: Copy> IndexedSource for &mut [T] {
     type Item = T;
     #[inline]
     fn len(&self) -> usize {
@@ -75,7 +91,10 @@ impl<A: IndexedSource, B: IndexedSource> LaneZip<A, B> {
     }
 }
 
-impl<A: IndexedSource, B: IndexedSource> IndexedSource for LaneZip<A, B> {
+// SAFETY: `len` forwards to the first operand, whose own contract keeps it fixed. `new` checked
+// that the second operand has the same fixed length, so every index below it is valid for both
+// reads.
+unsafe impl<A: IndexedSource, B: IndexedSource> IndexedSource for LaneZip<A, B> {
     type Item = (A::Item, B::Item);
     #[inline]
     fn len(&self) -> usize {
@@ -105,7 +124,8 @@ impl<T: Copy> Repeat<T> {
     }
 }
 
-impl<T: Copy> IndexedSource for Repeat<T> {
+// SAFETY: no method changes the stored length, and a read ignores its index.
+unsafe impl<T: Copy> IndexedSource for Repeat<T> {
     type Item = T;
     #[inline]
     fn len(&self) -> usize {

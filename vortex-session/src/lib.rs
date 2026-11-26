@@ -11,7 +11,6 @@ use std::hash::Hasher;
 
 pub use arc_swap_map::ArcSwapMap;
 pub use session::SessionGuard;
-pub use session::SessionMut;
 pub use session::VortexSession;
 pub use session::VortexSessionVar;
 
@@ -56,14 +55,6 @@ pub trait SessionExt: Sized + private::Sealed {
 
     /// Returns the session variable of type `V` if it exists.
     fn get_opt<V: VortexSessionVar>(&self) -> Option<SessionGuard<'_, V>>;
-
-    /// Returns a copy-on-write [`SessionMut`] handle for the variable of type `V`, inserting a
-    /// default one first if it does not exist.
-    ///
-    /// The handle starts as a clone of the current value; mutating it through `DerefMut` and
-    /// dropping it publishes the result back into the session copy-on-write — the ergonomic
-    /// equivalent of reading the variable, modifying a clone, and re-inserting it into the session.
-    fn get_mut<V: VortexSessionVar + Default + Clone>(&self) -> SessionMut<'_, V>;
 }
 
 mod private {

@@ -3,7 +3,6 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeWritable;
 import dev.vortex.jni.NativeBuffers;
@@ -47,7 +46,9 @@ public final class VortexWriter implements AutoCloseable {
     private double finalCompressionRatio = 1.0;
 
     private VortexWriter(long pointer, Schema arrowSchema) {
-        Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid writer pointer");
+        }
         this.pointer = pointer;
         this.arrowSchema = arrowSchema;
         AtomicBoolean closedRef = this.closed;
@@ -201,7 +202,9 @@ public final class VortexWriter implements AutoCloseable {
         }
 
         private void checkOptionsApply() {
-            Preconditions.checkState(uri != null, "options apply to uri destinations only");
+            if (uri == null) {
+                throw new IllegalStateException("options apply to uri destinations only");
+            }
         }
     }
 
@@ -214,7 +217,9 @@ public final class VortexWriter implements AutoCloseable {
      * @param allocator allocator for temporary C Data Interface metadata
      */
     public synchronized void writeBatch(VectorSchemaRoot root, BufferAllocator allocator) throws IOException {
-        Preconditions.checkState(!closed.get(), "writer already closed");
+        if (closed.get()) {
+            throw new IllegalStateException("writer already closed");
+        }
         if (!arrowSchema.equals(root.getSchema())) {
             throw new IOException("batch schema does not match writer schema");
         }
@@ -238,7 +243,9 @@ public final class VortexWriter implements AutoCloseable {
      * {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for independently retained Java allocations.
      */
     public synchronized void writeBatch(long arrowArrayAddr, long arrowSchemaAddr) throws IOException {
-        Preconditions.checkState(!closed.get(), "writer already closed");
+        if (closed.get()) {
+            throw new IllegalStateException("writer already closed");
+        }
         final boolean ok;
         try {
             ok = NativeWriter.writeBatch(pointer, arrowArrayAddr, arrowSchemaAddr);
@@ -262,8 +269,12 @@ public final class VortexWriter implements AutoCloseable {
      * @param arrowArrayAddr address of an exported {@code ArrowArray} struct
      */
     public synchronized void writeBatch(long arrowArrayAddr) throws IOException {
-        Preconditions.checkState(!closed.get(), "writer already closed");
-        Preconditions.checkArgument(arrowArrayAddr != 0, "null arrow array address");
+        if (closed.get()) {
+            throw new IllegalStateException("writer already closed");
+        }
+        if (arrowArrayAddr == 0) {
+            throw new IllegalArgumentException("null arrow array address");
+        }
 
         final boolean ok;
         try {
@@ -288,9 +299,13 @@ public final class VortexWriter implements AutoCloseable {
         if (summary != null) {
             return summary.fileSize();
         }
-        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        if (closed.get()) {
+            throw new IllegalStateException("writer closed without a write summary");
+        }
         long bytesWritten = NativeWriter.bytesWritten(pointer);
-        Preconditions.checkState(bytesWritten >= 0, "native writer returned an invalid byte count");
+        if (bytesWritten < 0) {
+            throw new IllegalStateException("native writer returned an invalid byte count");
+        }
         return bytesWritten;
     }
 
@@ -306,9 +321,13 @@ public final class VortexWriter implements AutoCloseable {
         if (summary != null) {
             return 0;
         }
-        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        if (closed.get()) {
+            throw new IllegalStateException("writer closed without a write summary");
+        }
         long bufferedBytes = NativeWriter.bufferedBytes(pointer);
-        Preconditions.checkState(bufferedBytes >= 0, "native writer returned an invalid buffered byte count");
+        if (bufferedBytes < 0) {
+            throw new IllegalStateException("native writer returned an invalid buffered byte count");
+        }
         return bufferedBytes;
     }
 
@@ -328,9 +347,13 @@ public final class VortexWriter implements AutoCloseable {
         if (summary != null) {
             return summary.fileSize();
         }
-        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        if (closed.get()) {
+            throw new IllegalStateException("writer closed without a write summary");
+        }
         long estimatedSize = NativeWriter.estimatedSize(pointer);
-        Preconditions.checkState(estimatedSize >= 0, "native writer returned an invalid estimated size");
+        if (estimatedSize < 0) {
+            throw new IllegalStateException("native writer returned an invalid estimated size");
+        }
         return estimatedSize;
     }
 
@@ -346,9 +369,13 @@ public final class VortexWriter implements AutoCloseable {
         if (summary != null) {
             return finalCompressionRatio;
         }
-        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        if (closed.get()) {
+            throw new IllegalStateException("writer closed without a write summary");
+        }
         double ratio = NativeWriter.compressionRatio(pointer);
-        Preconditions.checkState(ratio >= 0, "native writer returned an invalid compression ratio");
+        if (ratio < 0) {
+            throw new IllegalStateException("native writer returned an invalid compression ratio");
+        }
         return ratio;
     }
 
@@ -377,7 +404,9 @@ public final class VortexWriter implements AutoCloseable {
      */
     public synchronized VortexWriteSummary finish(Map<String, byte[]> metadata) throws IOException {
         Objects.requireNonNull(metadata, "metadata");
-        Preconditions.checkState(!closed.get(), "writer already finished; metadata must be given to the first finish");
+        if (closed.get()) {
+            throw new IllegalStateException("writer already finished; metadata must be given to the first finish");
+        }
 
         // Check and copy the entries before the native call consumes the writer.
         Map<String, byte[]> segments = new HashMap<>();

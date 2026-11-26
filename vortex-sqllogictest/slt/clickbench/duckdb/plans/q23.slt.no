@@ -281,7 +281,7 @@ logical_opt [
                                 "name": "READ_VORTEX",
                                 "children": [],
                                 "extra_info": {
-                                    "Filters": "",
+                                    "Filters": "$.URL like \"%google%\"",
                                     "Function": "Vortex Scan"
                                 }
                             },
@@ -470,6 +470,7 @@ physical_plan [
                         "children": [],
                         "extra_info": {
                             "Function": "Vortex Scan",
+                            "Filters": "$.URL like \"%google%\"",
                             "Projections": [
                                 "WatchID",
                                 "JavaEnable",

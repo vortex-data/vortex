@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use anyhow::anyhow;
 use arrow_array::ArrayRef;
@@ -9,6 +11,7 @@ use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
+use arrow_array::record_batch as arrow_record_batch;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -18,6 +21,7 @@ use arrow_schema::extension::Json as ArrowJson;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
+use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
@@ -35,6 +39,7 @@ use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::lit as df_lit;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use futures::TryStreamExt;
@@ -48,6 +53,8 @@ use vortex::editions::Edition;
 use vortex::editions::EditionId;
 use vortex::editions::EditionInclusion;
 use vortex::editions::EditionSessionExt;
+use vortex::expr::Expression;
+use vortex::expr::lit as vortex_lit;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::scan::DataSourceRef;
@@ -57,6 +64,7 @@ use vortex_arrow::ext_metadata::encode_arrow_ext_metadata;
 
 use super::VortexDataSource;
 use crate::common_tests::AnyStorage;
+use crate::convert::ExpressionConverter;
 
 async fn vortex_source() -> anyhow::Result<VortexDataSource> {
     let batch =
@@ -736,5 +744,49 @@ async fn test_get_field_through_extension_storage_is_pushed_down() -> anyhow::Re
         [1, 2, 3, 4]
     );
 
+    Ok(())
+}
+
+struct AdvisoryConverter(Arc<AtomicUsize>);
+
+impl ExpressionConverter for AdvisoryConverter {
+    fn try_convert(
+        &self,
+        _expr: &Arc<dyn PhysicalExpr>,
+        _schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(None)
+    }
+
+    fn try_convert_dynamic(
+        &self,
+        _expr: &Arc<dyn PhysicalExpr>,
+        _schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(Some(vortex_lit(true)))
+    }
+}
+
+#[tokio::test]
+async fn dynamic_filter_uses_advisory_conversion_and_keeps_residual() -> anyhow::Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let session = VortexSession::default();
+    let batch = arrow_record_batch!(("a", Int32, vec![1, 2, 3]))?;
+    let schema = batch.schema();
+    let source = VortexDataSource::builder(data_source_from_batch(batch, &session).await?, session)
+        .with_arrow_schema(schema)
+        .with_expression_converter(Arc::new(AdvisoryConverter(Arc::clone(&calls))))
+        .build()
+        .await?;
+    let filter = Arc::new(DynamicFilterPhysicalExpr::new(vec![], df_lit(true)));
+    let pushed = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+    assert!(pushed.updated_node.is_some());
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+    let exact = source.try_pushdown_filters(vec![df_lit(true)], &ConfigOptions::new())?;
+    assert!(exact.updated_node.is_none());
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
     Ok(())
 }

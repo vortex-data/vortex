@@ -1,4 +1,4 @@
-"""The few Slack Web API calls the triage publisher needs."""
+"""The few Slack Web API calls that the triage bot needs."""
 
 from __future__ import annotations
 
@@ -9,13 +9,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from .publish import Thread
-
-# Marks the messages this tool posts, in Slack message metadata.
-EVENT_TYPE = "vortex_triage"
+from dataclasses import dataclass
+from typing import Any
 
 # Slack documents these `ok: false` errors as cases where part of the operation may have succeeded.
 _AMBIGUOUS_ERRORS = frozenset(
@@ -24,7 +19,7 @@ _AMBIGUOUS_ERRORS = frozenset(
 
 
 class SlackError(Exception):
-    """Slack rejected a call, so nothing was posted."""
+    """Slack rejected a call, so nothing changed."""
 
     def __init__(self, message: str, code: str | None = None) -> None:
         super().__init__(message)
@@ -32,16 +27,51 @@ class SlackError(Exception):
 
 
 class SlackUnknown(Exception):
-    """A call failed without an answer from Slack, so a message may or may not have been posted."""
+    """A call failed without an answer from Slack, so it may or may not have taken effect."""
+
+
+@dataclass(frozen=True)
+class Identity:
+    """Who the bot is, and the workspace URL that thread links start with."""
+
+    user_id: str
+    bot_id: str
+    url: str
+
+
+@dataclass(frozen=True)
+class Message:
+    """What the bot posts: fallback text for notifications, plus Block Kit content."""
+
+    text: str
+    blocks: tuple[dict[str, Any], ...] = ()
+    attachments: tuple[dict[str, Any], ...] = ()
+
+    def params(self) -> dict[str, Any]:
+        params: dict[str, Any] = {"text": self.text}
+        if self.blocks:
+            params["blocks"] = list(self.blocks)
+        # An empty list clears attachments on `chat.update`, which matters when content shrinks.
+        params["attachments"] = list(self.attachments)
+        return params
 
 
 class Slack:
-    def __init__(self, token: str, channel: str, attempts: int = 3) -> None:
+    def __init__(self, token: str, channel: str, attempts: int = 5) -> None:
         self.token = token
         self.channel = channel
         self.attempts = attempts
+        self._last_post_at: float | None = None
 
-    def _call(self, method: str, params: dict[str, object], post: bool) -> dict[str, Any]:
+    def _pace_post(self) -> None:
+        now = time.monotonic()
+        if self._last_post_at is not None:
+            delay = self._last_post_at + 1 - now
+            if delay > 0:
+                time.sleep(delay)
+        self._last_post_at = time.monotonic()
+
+    def _call(self, method: str, params: dict[str, Any], post: bool) -> dict[str, Any]:
         url = f"https://slack.com/api/{method}"
         headers = {"Authorization": f"Bearer {self.token}"}
         data = None
@@ -54,6 +84,8 @@ class Slack:
         for attempt in range(attempts):
             request = urllib.request.Request(url, data=data, headers=headers)
             try:
+                if method == "chat.postMessage":
+                    self._pace_post()
                 with urllib.request.urlopen(request, timeout=30) as response:
                     body = json.load(response)
             except urllib.error.HTTPError as error:
@@ -76,42 +108,12 @@ class Slack:
             return body
         raise AssertionError("unreachable")
 
-    def post(self, text: str, key: str, payload: dict[str, str], thread_ts: str | None) -> str:
-        """Post a message tagged with `key` and return its timestamp."""
-        params: dict[str, object] = {
-            "channel": self.channel,
-            "text": text,
-            "unfurl_links": False,
-            "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
-        }
-        if thread_ts:
-            params["thread_ts"] = thread_ts
-        return self._call("chat.postMessage", params, post=True)["ts"]
+    def identity(self) -> Identity:
+        body = self._call("auth.test", {}, post=True)
+        return Identity(user_id=body["user_id"], bot_id=body.get("bot_id", ""), url=body["url"])
 
-    def update(self, ts: str, text: str, key: str, payload: dict[str, str]) -> None:
-        """Update a message's metadata (and text) in place."""
-        params: dict[str, object] = {
-            "channel": self.channel,
-            "ts": ts,
-            "text": text,
-            "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
-        }
-        self._call("chat.update", params, post=True)
-
-    def messages(
-        self, thread_ts: str | None = None, oldest: float = 0.0
-    ) -> Iterator[dict[str, Any]]:
-        """Iterate messages in the channel or in one thread, including Slack metadata."""
-        method = "conversations.replies" if thread_ts else "conversations.history"
-        params: dict[str, object] = {
-            "channel": self.channel,
-            "include_all_metadata": "true",
-            "limit": 200,
-        }
-        if thread_ts:
-            params["ts"] = thread_ts
-        elif oldest > 0:
-            params["oldest"] = f"{oldest:.6f}"
+    def _paged(self, method: str, params: dict[str, Any]) -> Iterator[dict[str, Any]]:
+        params = {"channel": self.channel, "include_all_metadata": "true", "limit": 200, **params}
         while True:
             body = self._call(method, params, post=False)
             yield from body["messages"]
@@ -120,142 +122,26 @@ class Slack:
                 return
             params["cursor"] = cursor
 
-    def find(self, key: str, thread_ts: str | None, oldest: float) -> dict[str, Any] | None:
-        """Find a message posted with `key`, in a thread or in the channel since `oldest`.
+    def history(self) -> Iterator[dict[str, Any]]:
+        """Iterate every top-level message in the channel, newest first, with metadata."""
+        return self._paged("conversations.history", {})
 
-        Returns the message's `ts` and the payload it was posted with, or None.
-        """
-        for message in self.messages(thread_ts, oldest):
-            metadata = message.get("metadata") or {}
-            payload = metadata.get("event_payload") or {}
-            if metadata.get("event_type") == EVENT_TYPE and payload.get("key") == key:
-                return {"ts": message["ts"], **payload}
-        return None
+    def replies(self, thread_ts: str) -> Iterator[dict[str, Any]]:
+        """Iterate a thread's root and replies, oldest first, with metadata."""
+        return self._paged("conversations.replies", {"ts": thread_ts})
 
+    def post(self, message: Message, metadata: dict[str, Any], thread_ts: str | None = None) -> str:
+        """Post a message and return its timestamp."""
+        params = {"channel": self.channel, **message.params(), "metadata": metadata}
+        # `chat.update` does not take these, so only a new post sets them.
+        params |= {"unfurl_links": False, "unfurl_media": False}
+        if thread_ts:
+            params["thread_ts"] = thread_ts
+        return str(self._call("chat.postMessage", params, post=True)["ts"])
 
-def _triage_payload(message: dict[str, Any]) -> dict[str, str] | None:
-    metadata = message.get("metadata") or {}
-    if metadata.get("event_type") != EVENT_TYPE:
-        return None
-    payload = metadata.get("event_payload")
-    return payload if isinstance(payload, dict) else None
+    def update(self, ts: str, message: Message, metadata: dict[str, Any]) -> None:
+        params = {"channel": self.channel, "ts": ts, **message.params(), "metadata": metadata}
+        self._call("chat.update", params, post=True)
 
-
-def _parse_key(key: str) -> tuple[int, str, int] | None:
-    parts = key.split(":")
-    if len(parts) < 2 or not parts[0].isdigit():
-        return None
-    number = int(parts[0])
-    kind = parts[1]
-    if kind == "root" and len(parts) == 2:
-        return number, "root", 0
-    if kind in {"update", "ping"} and len(parts) == 3 and parts[2].isdigit():
-        return number, kind, int(parts[2])
-    return None
-
-
-def _parse_float(value: object) -> float:
-    if not isinstance(value, (int, float, str)):
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-class SlackStore:
-    """Reconstruct thread state from Slack channel history and thread metadata.
-
-    Requires no external database: every root message and bot reply carries `vortex_triage`
-    metadata with the item number, status, latest external activity timestamp, and last ping time.
-    """
-
-    def __init__(self, slack: Slack, oldest: float = 0.0) -> None:
-        self.slack = slack
-        self.oldest = oldest
-        self._threads: dict[int, Thread] | None = None
-
-    def load(self) -> dict[int, Thread]:
-        if self._threads is not None:
-            return dict(self._threads)
-        from .publish import Thread
-
-        roots: dict[int, tuple[dict[str, Any], dict[str, str]]] = {}
-        for message in self.slack.messages(thread_ts=None, oldest=self.oldest):
-            payload = _triage_payload(message)
-            if not payload:
-                continue
-            parsed = _parse_key(str(payload.get("key", "")))
-            if not parsed or parsed[1] != "root":
-                continue
-            number = parsed[0]
-            existing = roots.get(number)
-            if existing is None or _parse_float(message.get("ts")) < _parse_float(
-                existing[0].get("ts")
-            ):
-                roots[number] = (message, payload)
-
-        threads: dict[int, Thread] = {}
-        for number, (root_msg, root_payload) in roots.items():
-            root_ts = str(root_msg["ts"])
-            status = str(root_payload.get("status", ""))
-            external_at = str(root_payload.get("external_at", ""))
-            last_ping_at = _parse_float(root_payload.get("last_ping_at"))
-            last_checked_at = _parse_float(root_payload.get("last_checked_at"))
-            updates = 0
-            pings = 0
-
-            if int(root_msg.get("reply_count") or 0) > 0:
-                replies = sorted(
-                    self.slack.messages(thread_ts=root_ts),
-                    key=lambda msg: _parse_float(msg.get("ts")),
-                )
-                for reply in replies:
-                    if str(reply.get("ts")) == root_ts:
-                        continue
-                    payload = _triage_payload(reply)
-                    if not payload:
-                        continue
-                    parsed = _parse_key(str(payload.get("key", "")))
-                    if not parsed or parsed[0] != number:
-                        continue
-                    _, kind, seq = parsed
-                    if kind == "update":
-                        updates = max(updates, seq)
-                    elif kind == "ping":
-                        pings = max(pings, seq)
-                        ping_ts = _parse_float(payload.get("last_ping_at")) or _parse_float(
-                            reply.get("ts")
-                        )
-                        last_ping_at = max(last_ping_at, ping_ts)
-                    if payload.get("status"):
-                        status = str(payload["status"])
-                    if payload.get("external_at"):
-                        external_at = max(external_at, str(payload["external_at"]))
-
-            threads[number] = Thread(
-                created_at=_parse_float(root_ts),
-                root_ts=root_ts,
-                status=status,
-                external_at=external_at,
-                updates=updates,
-                last_ping_at=last_ping_at,
-                last_checked_at=last_checked_at,
-                pings=pings,
-            )
-
-        self._threads = threads
-        return dict(threads)
-
-    def create(self, number: int, thread: Thread) -> bool:
-        threads = self.load()
-        if number in threads:
-            return False
-        assert self._threads is not None
-        self._threads[number] = thread
-        return True
-
-    def save(self, number: int, thread: Thread) -> None:
-        self.load()
-        assert self._threads is not None
-        self._threads[number] = thread
+    def delete(self, ts: str) -> None:
+        self._call("chat.delete", {"channel": self.channel, "ts": ts}, post=True)

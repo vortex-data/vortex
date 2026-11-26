@@ -13,6 +13,8 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::decimal::DecimalArrayExt;
 use vortex::array::assert_arrays_eq;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -24,6 +26,7 @@ use vortex::encodings::fastlanes::FoR;
 use vortex::error::VortexResult;
 
 use crate::CanonicalCudaExt;
+use crate::CudaDeviceBuffer;
 use crate::CudaDispatchMode;
 use crate::CudaExecutionCtx;
 use crate::CudaSession;
@@ -177,6 +180,38 @@ async fn test_decimal_pairs<T: NativeDecimalType + Bounded>(
     let device_child = upload(child.clone(), &mut ctx).await?;
 
     check_widen(child, device_child, dtype, &mut ctx).await
+}
+
+#[crate::test]
+async fn test_empty_device_decimal_child() -> VortexResult<()> {
+    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+    let parts = DecimalArray::from_iter([1i8, 2], DecimalDType::new(2, 0)).into_data_parts();
+    // ArrayRef::slice(0..0) returns a host empty array, so build a device-backed empty buffer.
+    let empty_device_values = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?.slice(0..0);
+    let device_child = DecimalArray::try_new_handle(
+        BufferHandle::new_device(empty_device_values),
+        parts.values_type,
+        parts.decimal_dtype,
+        parts.validity,
+        ctx.execution_ctx(),
+    )?
+    .into_array();
+    assert!(!device_child.is_host());
+
+    let dtype = DType::Decimal(DecimalDType::new(3, 0), device_child.dtype().nullability());
+    let result = WidenArray::try_new(device_child, dtype.clone())?
+        .into_array()
+        .execute_cuda(&mut ctx)
+        .await?;
+    assert_eq!(result.dtype(), &dtype);
+    assert_eq!(result.len(), 0);
+
+    let actual = result.into_host(ctx.execution_ctx()).await?.into_array();
+    let expected =
+        DecimalArray::from_iter(Buffer::<i16>::empty(), DecimalDType::new(3, 0)).into_array();
+    assert_arrays_eq!(actual, expected, ctx.execution_ctx());
+
+    Ok(())
 }
 
 #[rstest]
