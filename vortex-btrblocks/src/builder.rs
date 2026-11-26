@@ -82,6 +82,10 @@ impl CompressionMode {
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
                     float::FloatRLEScheme.id(),
+                    // Float `Widen` has no GPU decode kernel: CUDA scans stage float `Widen` on
+                    // host, so CUDA writers skip `FloatWidenScheme` while keeping `vortex.widen`
+                    // allowed for integer `Widen` (used by `DecimalByteParts` MSP on CUDA).
+                    float::FloatWidenScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
                     fixed_size_list::FixedSizeListSparseScheme.id(),
@@ -120,7 +124,7 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
+            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references, and
             // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
             Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
         }
@@ -352,6 +356,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBin;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::Widen;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
@@ -432,6 +437,16 @@ mod tests {
     #[case::alprd_with_dependencies(
         &float::ALPRDScheme,
         vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()],
+        true
+    )]
+    #[case::float_widen_without_widen(
+        &float::FloatWidenScheme,
+        vec![],
+        false
+    )]
+    #[case::float_widen_with_widen(
+        &float::FloatWidenScheme,
+        vec![Widen.id()],
         true
     )]
     fn test_allowed_schemes(
@@ -771,5 +786,19 @@ mod tests {
         assert!(!compressed_nullable.is::<Masked>());
         assert_arrays_eq!(compressed_nullable, nullable, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    fn float_widen_is_excluded_by_cuda() {
+        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
+        let has_float_widen = |builder: BtrBlocksCompressorBuilder| {
+            builder
+                .allowed_schemes()
+                .iter()
+                .any(|s| s.id() == float::FloatWidenScheme.id())
+        };
+        assert!(has_float_widen(builder.clone()));
+        assert!(has_float_widen(builder.clone().with_compact()));
+        assert!(!has_float_widen(builder.only_cuda_compatible()));
     }
 }

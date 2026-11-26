@@ -25,13 +25,16 @@ impl WidenArray {
     /// Creates a `Widen` that presents `values` with the wider logical `dtype`, without reading
     /// any values.
     ///
-    /// `values` and `dtype` **must** both be integers with the same signedness, or decimals with
-    /// the same scale. They **must** have the same nullability, and the canonical width of `values`
-    /// **must** be strictly narrower. When `values` is itself a `Widen`, the new array stores its
-    /// values instead, so that `Widen` arrays do not nest.
+    /// `values` and `dtype` **must** both be integers with the same signedness, both be
+    /// floating-point types, or both be decimals with the same scale. They **must** have the same
+    /// nullability, and the canonical width of `values` **must** be strictly narrower. When
+    /// `values` is itself a `Widen`, the new array stores its values instead, so that `Widen`
+    /// arrays do not nest.
     ///
-    /// A decimal child **must** be a valid decimal array for its declared dtype. Comparisons,
-    /// bounds checks and fills rely on this requirement. A violation gives incorrect results,
+    /// A decimal child **must** be a valid decimal array for its declared dtype, and a
+    /// floating-point child **must not** contain signaling NaNs (whose widening quiets them and
+    /// does not preserve IEEE-754 total order relative to quiet NaNs). Comparisons, aggregates,
+    /// bounds checks, and fills rely on these requirements. A violation gives incorrect results,
     /// but no undefined behavior.
     pub fn try_new(mut values: ArrayRef, dtype: DType) -> VortexResult<Self> {
         // NB: Check `values` before the flatten. The values of a `Widen` child are narrower than
@@ -70,6 +73,14 @@ pub(super) fn validate_dtypes(values: &DType, logical: &DType) -> VortexResult<(
                 "Widen requires values narrower than {logical}, got {values}"
             );
         }
+        (DType::Primitive(values_ptype, _), DType::Primitive(logical_ptype, _))
+            if values_ptype.is_float() && logical_ptype.is_float() =>
+        {
+            vortex_ensure!(
+                values_ptype.byte_width() < logical_ptype.byte_width(),
+                "Widen requires values narrower than {logical}, got {values}"
+            );
+        }
         (DType::Decimal(values_decimal, _), DType::Decimal(logical_decimal, _)) => {
             vortex_ensure!(
                 values_decimal.scale() == logical_decimal.scale(),
@@ -81,7 +92,7 @@ pub(super) fn validate_dtypes(values: &DType, logical: &DType) -> VortexResult<(
             );
         }
         _ => vortex_bail!(
-            "Widen requires integer dtypes or decimal dtypes for {logical}, got {values}"
+            "Widen requires integer, float, or decimal dtypes for {logical}, got {values}"
         ),
     }
 

@@ -53,6 +53,10 @@ impl DynAggregateKernel for WidenArrayAggregate {
             return aggregate_decimal(aggregate_fn, values, logical_dtype, ctx);
         }
 
+        if logical_dtype.is_float() {
+            return aggregate_order(aggregate_fn, values, logical_dtype, ctx);
+        }
+
         if !logical_dtype.is_int() {
             return Ok(None);
         }
@@ -86,9 +90,21 @@ fn aggregate_decimal(
         return Ok(Some(partial));
     }
 
-    // Kernel registrations apply to the whole encoding. Keep this decimal allowlist so adding an
-    // integer aggregate cannot enable it here without checking its partials against canonical decimal
-    // execution. Every other decimal aggregate uses the default path.
+    aggregate_order(aggregate_fn, values, logical_dtype, ctx)
+}
+
+/// Computes order and equality aggregates (`MinMax`, `Min`, `Max`, `IsConstant`, `IsSorted`)
+/// directly on the narrow child.
+///
+/// Kernel registrations apply to the whole encoding. Keeping this explicit allowlist ensures
+/// adding a new aggregate cannot enable it for decimal or float `Widen` without checking its
+/// partials against canonical execution.
+fn aggregate_order(
+    aggregate_fn: &AggregateFnRef,
+    values: &ArrayRef,
+    logical_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Scalar>> {
     if !(aggregate_fn.is::<MinMax>()
         || aggregate_fn.is::<Min>()
         || aggregate_fn.is::<Max>()

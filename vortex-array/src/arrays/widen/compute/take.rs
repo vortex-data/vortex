@@ -19,6 +19,13 @@ impl TakeExecute for Widen {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // When gathering more rows than the values array holds (for example `Dict(codes, Widen)`),
+        // let `Dict` widen the small values table once instead of gathering narrow values and
+        // widening every output row.
+        if indices.len() > array.len() {
+            return Ok(None);
+        }
+
         // Execute the gather, so that no lazy `Dict` sits under the `Widen` (see the `widen`
         // module docs). `Columnar` keeps a constant gather constant.
         let values = array

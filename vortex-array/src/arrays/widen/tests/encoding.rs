@@ -133,8 +133,8 @@ fn test_smallest_integer_ptype(
 
 /// Both `try_new` and `VTable::validate`, which `try_from_parts` runs, reject the dtypes.
 #[rstest]
-#[case::bool_values(  DType::Bool(Nullability::NonNullable), PType::I64.into(), "integer dtypes")]
-#[case::float_values( PType::F32.into(),                     PType::I64.into(), "integer dtypes")]
+#[case::bool_values(  DType::Bool(Nullability::NonNullable), PType::I64.into(), "integer, float, or decimal dtypes")]
+#[case::float_values( PType::F32.into(),                     PType::I64.into(), "integer, float, or decimal dtypes")]
 #[case::signedness(   PType::I8.into(),                      PType::U64.into(), "signedness")]
 #[case::equal_width(  PType::I8.into(),                      PType::I8.into(),  "narrower")]
 #[case::nullability(

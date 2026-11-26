@@ -43,12 +43,12 @@ fn dtype(precision: u8, scale: i8, nullability: Nullability) -> DType {
 #[case::integer_child(
     PType::I32.into(),
     dtype(18, 2, NonNullable),
-    "integer dtypes or decimal dtypes",
+    "integer, float, or decimal dtypes",
 )]
 #[case::integer_parent(
     dtype(9, 2, NonNullable),
     PType::I64.into(),
-    "integer dtypes or decimal dtypes",
+    "integer, float, or decimal dtypes",
 )]
 fn test_rejects_invalid_decimal_dtypes(
     #[case] child: DType,

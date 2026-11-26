@@ -65,6 +65,17 @@ fn cast_primitive(
         return Ok(None);
     };
 
+    if values_ptype.is_float() {
+        // Widening a float child to the logical float dtype is exact, so casting the child
+        // directly matches casting the widened values. Retain a `Widen` only for strictly wider
+        // float targets.
+        if target_ptype.is_float() && target_ptype.byte_width() > values_ptype.byte_width() {
+            let values = values.cast(DType::Primitive(values_ptype, *nullability))?;
+            return wrap_values(values, dtype.clone()).map(Some);
+        }
+        return values.cast(dtype.clone()).map(Some);
+    }
+
     let cast_ptype = match values_ptype_for_cast(values_ptype, *target_ptype) {
         Some(cast_ptype) if target_ptype.byte_width() > cast_ptype.byte_width() => cast_ptype,
         // A float needs value conversion, and an integer target no wider than the converted child

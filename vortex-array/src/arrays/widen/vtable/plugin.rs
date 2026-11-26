@@ -12,9 +12,9 @@
 //! same values, such as a statistic or an index. A child, buffer or metadata field that changes the
 //! decoded values needs a new ID.
 //!
-//! A protobuf `oneof` supplies the rest of the child dtype. Tag 1 holds the integer [`PType`].
-//! Tag 2 holds the decimal precision as a `uint32`. The child dtype must meet the requirements
-//! of [`WidenArray::try_new`].
+//! A protobuf `oneof` supplies the rest of the child dtype. Tag 1 holds the primitive (integer or
+//! floating-point) [`PType`]. Tag 2 holds the decimal precision as a `uint32`. The child dtype
+//! must meet the requirements of [`WidenArray::try_new`].
 
 use prost::Message as _;
 use vortex_error::VortexResult;
@@ -50,7 +50,7 @@ struct WidenMetadata {
 #[derive(Clone, prost::Oneof)]
 enum ChildType {
     #[prost(enumeration = "PType", tag = "1")]
-    Integer(i32),
+    Primitive(i32),
     #[prost(uint32, tag = "2")]
     DecimalPrecision(u32),
 }
@@ -58,8 +58,8 @@ enum ChildType {
 /// Reads and writes serialized [`Widen`] arrays.
 ///
 /// Writing reuses the child without executing its values or validity. When the child is a
-/// [`Decimal`] array, this plugin writes `vortex.decimal` so older readers can read it. The decimal
-/// reader handles those nodes.
+/// [`Decimal`] array, this plugin writes `vortex.decimal` so older readers can read it. Integer,
+/// floating-point, and encoded decimal children use `vortex.widen`.
 #[derive(Clone, Debug)]
 pub struct WidenPlugin;
 
@@ -93,11 +93,13 @@ impl ArrayPlugin for WidenPlugin {
         }
 
         let child_type = match values.dtype() {
-            DType::Primitive(ptype, _) if ptype.is_int() => ChildType::Integer(*ptype as i32),
+            DType::Primitive(ptype, _) if ptype.is_int() || ptype.is_float() => {
+                ChildType::Primitive(*ptype as i32)
+            }
             DType::Decimal(dtype, _) => ChildType::DecimalPrecision(u32::from(dtype.precision())),
             dtype => {
                 vortex_bail!(
-                    "Widen serialization requires an integer or decimal child, got {dtype}"
+                    "Widen serialization requires an integer, float, or decimal child, got {dtype}"
                 )
             }
         };
@@ -131,8 +133,15 @@ impl ArrayPlugin for WidenPlugin {
             .ok_or_else(|| vortex_err!("Widen metadata must name the child type"))?;
         let nullability = parts.dtype.nullability();
         let child_dtype = match (child_type, parts.dtype) {
-            (ChildType::Integer(ptype), DType::Primitive(parent, _)) if parent.is_int() => {
-                DType::Primitive(PType::try_from(ptype)?, nullability)
+            (ChildType::Primitive(ptype), DType::Primitive(parent, _)) => {
+                let child_ptype = PType::try_from(ptype)?;
+                vortex_ensure!(
+                    (child_ptype.is_int() && parent.is_int())
+                        || (child_ptype.is_float() && parent.is_float()),
+                    "Widen child metadata {child_ptype} does not match the parent dtype {}",
+                    parts.dtype
+                );
+                DType::Primitive(child_ptype, nullability)
             }
             (ChildType::DecimalPrecision(precision), DType::Decimal(parent, _)) => {
                 let precision = u8::try_from(precision).map_err(|_| {
