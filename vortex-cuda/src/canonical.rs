@@ -245,6 +245,8 @@ mod tests {
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::DictArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::stats::Precision;
+    use vortex::array::stats::Stat;
     use vortex::dtype::PType;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::sparse::Sparse;
@@ -258,6 +260,21 @@ mod tests {
     use crate::kernel::DictExecutor;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[crate::test]
+    fn device_stats_are_cache_only() -> VortexResult<()> {
+        let cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let values = cuda_ctx.stream().copy_to_device(&[3i64, -4])?;
+        let array = PrimitiveArray::from_buffer_handle(values, PType::I64, Validity::NonNullable);
+        let stats = array.statistics();
+        let mut ctx = SESSION.create_execution_ctx();
+        for stat in Stat::all() {
+            assert!(stats.compute_stat(stat, &mut ctx)?.is_none(), "{stat}");
+        }
+        stats.set(Stat::Min, Precision::exact(-4i64));
+        assert_eq!(stats.compute_min::<i64>(&mut ctx), Some(-4));
+        Ok(())
+    }
 
     #[crate::test]
     async fn test_into_host_rejects_out_of_bounds_device_list_view() -> VortexResult<()> {

@@ -5,14 +5,19 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::assert_arrays_eq;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -198,39 +203,31 @@ fn test_fsl_size_0_length_1_nullable_null() {
 }
 
 #[test]
-fn test_fsl_size_0_length_10_nullable_mixed() {
+fn test_fsl_size_0_length_10_nullable_mixed() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let len = 10;
     let list_size = 0;
 
     // FSL of size 0 with length 10, with mixed null/valid empty lists.
-    let elements = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
-    let validity = Validity::from_iter([
+    let pattern = [
         true, false, true, true, false, false, true, false, true, true,
-    ]);
+    ];
+    let elements = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
+    let validity = Validity::from_iter(pattern);
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, validity, len);
 
     assert_eq!(fsl.len(), 10);
     assert_eq!(fsl.list_size(), 0);
     assert_eq!(fsl.elements().len(), 0);
 
-    // Check validity pattern.
-    let expected_valid = [
-        true, false, true, true, false, false, true, false, true, true,
-    ];
-    for i in 0..len {
-        let scalar = fsl
-            .execute_scalar(i, &mut SESSION.create_execution_ctx())
-            .unwrap();
-        if expected_valid[i] {
-            assert!(!scalar.is_null());
-            assert_eq!(
-                scalar,
-                Scalar::fixed_size_list(Arc::new(PType::F32.into()), vec![], Nullability::Nullable,)
-            );
-        } else {
-            assert!(scalar.is_null());
-        }
-    }
+    // Compare against a masked constant array of empty lists to verify batch execution & nulls.
+    let empty_list_scalar =
+        Scalar::fixed_size_list(Arc::new(PType::F32.into()), vec![], Nullability::Nullable);
+    let expected = ConstantArray::new(empty_list_scalar, len)
+        .into_array()
+        .mask(BoolArray::from_iter(pattern).into_array())?;
+    assert_arrays_eq!(fsl, expected, &mut ctx);
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -238,7 +235,8 @@ fn test_fsl_size_0_length_10_nullable_mixed() {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn test_fsl_size_0_nullable_elements() {
+fn test_fsl_size_0_nullable_elements() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let len = 5;
     let list_size = 0;
 
@@ -257,13 +255,16 @@ fn test_fsl_size_0_nullable_elements() {
             if matches!(elem_dtype.as_ref(), DType::Primitive(PType::I32, Nullability::Nullable))
     ));
 
-    // All lists should be empty but valid.
-    for i in 0..len {
-        let scalar = fsl
-            .execute_scalar(i, &mut SESSION.create_execution_ctx())
-            .unwrap();
-        assert!(!scalar.is_null());
-    }
+    let expected = ConstantArray::new(
+        Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+            vec![],
+            Nullability::NonNullable,
+        ),
+        len,
+    );
+    assert_arrays_eq!(fsl, expected, &mut ctx);
+    Ok(())
 }
 
 #[test]
