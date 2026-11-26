@@ -491,8 +491,16 @@ mod tests {
             .saturating_add(2 * METADATA_BYTES)
             .saturating_add(2 * std::mem::size_of::<u32>())
             .saturating_add(2 * std::mem::size_of::<u64>());
+        let without_chunk_offsets =
+            super::approx_layout_cache_bytes(&flatbuffer, &ReadContext::new([]));
+        let with_chunk_offsets =
+            super::approx_layout_cache_bytes(&flatbuffer, &layout_context);
 
-        assert!(super::approx_layout_cache_bytes(&flatbuffer, &layout_context) >= minimum);
+        assert!(with_chunk_offsets >= minimum);
+        assert_eq!(
+            with_chunk_offsets,
+            without_chunk_offsets + 2 * std::mem::size_of::<u64>()
+        );
         Ok(())
     }
 
