@@ -776,10 +776,10 @@ jobs:
             esac
             state="❌ failed"
             detail="No pull request was opened for the proposed fix (verdict: \`${VERDICT:-missing}\`). $reason The patch and any review are in the [run artifacts](${UNAPPROVED_URL:-$RUN_URL})."
-          elif [ "$CLAUDE_OUTCOME" = failure ]; then
+          elif [ "$CLAUDE_OUTCOME" = failure ] && [ "$HAS_CHANGES" != true ]; then
             state="❌ failed"
             detail="The fix session failed before it changed any code. The run has the cause; its summary lists the session's turns and any denied tool calls."
-          elif [ "$CRASH_REPRODUCED" = true ] && [ "$HAS_CHANGES" = false ]; then
+          elif [ "$CLAUDE_OUTCOME" = success ] && [ "$CRASH_REPRODUCED" = true ] && [ "$HAS_CHANGES" = false ]; then
             state="❌ no fix"
             detail="The session changed no code. Its comments on this issue explain why a person needs to fix the crash."
           else
