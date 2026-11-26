@@ -77,8 +77,8 @@ message ShreddingSpecField {
 // The mode holds one order for each type with more than one useful order. Only the float order is
 // required. A reader fails when the float order is absent, and when it finds an order that it does
 // not know. So a reader that knows this field never compares in another order than the writer
-// asked for. Readers at 0.94.0 and earlier do not know this field. They drop the mode and compare
-// floats in total order.
+// asked for. Readers that predate this field, which include 0.95.0 and earlier, drop the mode and
+// compare floats in total order.
 //
 // To add the order of another type, add a variant to `TypeOrder.order`. The new entry is optional:
 // when it is absent, the comparison orders that type as it did before the entry existed. A writer
