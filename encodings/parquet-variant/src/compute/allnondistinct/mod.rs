@@ -255,6 +255,8 @@ fn pq_variants_equal(lhs: &PqVariant<'_, '_>, rhs: &PqVariant<'_, '_>) -> bool {
                     .all(|(la, rb)| pq_variants_equal(&la, &rb))
         }
         (PqVariant::Object(a), PqVariant::Object(b)) => {
+            // The Parquet Variant spec requires object fields to be sorted lexicographically by
+            // name, so zipping both iterators compares fields by name.
             a.len() == b.len()
                 && a.iter()
                     .zip(b.iter())
@@ -264,6 +266,11 @@ fn pq_variants_equal(lhs: &PqVariant<'_, '_>, rhs: &PqVariant<'_, '_>) -> bool {
     }
 }
 
+/// Fallback comparison for shredded or mixed-layout `ParquetVariant` rows via decoded scalars.
+///
+/// Note: `ParquetVariant::execute_scalar` currently decodes `PqVariant::Uuid` to `Scalar::utf8`
+/// (`operations.rs`), so this path treats UUIDs as UTF-8 strings until `ParquetVariant` maps UUIDs
+/// to the UUID extension type.
 fn compare_active_scalars(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
