@@ -24,6 +24,8 @@
 - Every public API definition MUST have a doc comment
 - Module-level documentation using `//!` comments for context and purpose
 - Function-level documentation using `///` comments
+- Document the contract, not the implementation steps, callers, or previous behavior; keep comments concise (most function doc comments fit in 1–2 lines)
+- Skip doc comments on small private helpers and test functions unless non-obvious context needs explanation
 - Examples in documentation are encouraged but not strictly required
 - Use `#![deny(missing_docs)]` in crates to enforce documentation standards
 
@@ -39,6 +41,7 @@
 ## Type System
 
 - Prefer strongly typed APIs when possible
+- Prefer explicit function signatures taking the narrowest type callers need (for example, `PrimitiveArray` instead of `ArrayRef`, or a primitive instead of `Scalar`) unless widening avoids clear caller bloat
 - Use Rust's type system to prevent bugs at compile time
 - Implement appropriate traits for custom types
 - Prefer `impl AsRef<T>` to `&T` for public APIs (e.g. `impl AsRef<Path>`)
@@ -138,6 +141,44 @@ Back changes to these loops with an appropriate benchmark:
 - `vortex-array/benches/validity_is_valid.rs` for validity access.
 - `vortex-mask/benches/valid_counts.rs` for popcount.
 - `vortex-mask/benches/mask_iteration.rs` for set-bit iteration.
+
+## Dispatch Macros
+
+The `match_each_*!` macros turn a runtime type tag into a type parameter (`match_each_native_ptype!`,
+`match_each_integer_ptype!`, `match_each_unsigned_integer_ptype!`, decimal dispatch macros,
+`match_each_pvalue!`, `match_each_canonical!`, and the builder dispatch macros in `vortex-array`).
+
+`cargo-mutants` cannot mutate code inside a macro invocation or a `macro_rules!` body, so logic
+written there is never mutation tested. Keep each call a thin dispatch: resolve the type, then call
+a generic function that holds the logic:
+
+```rust
+// Logic inside the macro body is invisible to cargo-mutants.
+match_each_integer_ptype!(array.ptype(), |T| {
+    let mut total = 0u64;
+    for &value in array.as_slice::<T>() {
+        total += value.as_();
+    }
+    total
+})
+
+// The macro only dispatches; `sum_values` can be mutated.
+match_each_integer_ptype!(array.ptype(), |T| sum_values(array.as_slice::<T>()))
+
+/// Sums `values` as `u64`.
+fn sum_values<T: AsPrimitive<u64>>(values: &[T]) -> u64 {
+    let mut total = 0u64;
+    for &value in values {
+        total += value.as_();
+    }
+    total
+}
+```
+
+- Use a plain generic function with static dispatch (`dyn`, boxing, allocations, or copies are not needed: it must monomorphize to the same code as the inline body).
+- Pass the slices and values that the body used, and keep the function private unless other modules need it.
+- A call that only forwards to one function, or a `match` whose arms only forward, is already thin dispatch.
+- Keep new `macro_rules!` macros to dispatch or boilerplate as well, putting logic in the functions they call.
 
 ## Linting
 
