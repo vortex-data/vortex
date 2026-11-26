@@ -141,12 +141,6 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// formats declares the wire IDs the scheme writes, which may differ from its in-memory ID.
     fn produced_encodings(&self) -> Vec<ArrayId>;
 
-    /// The in-memory encoding IDs of every array that [`compress`](Scheme::compress) can return.
-    /// An empty list, the default, means the scheme does not declare them.
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        Vec::new()
-    }
-
     /// Returns the variant of this scheme to use given which serialized IDs are `allowed`.
     ///
     /// The default returns `self`. A variant must share this scheme's [`SchemeId`]. Every ID the

@@ -14,7 +14,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
@@ -26,9 +25,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Map;
-use vortex_array::arrays::Null;
 use vortex_array::arrays::NullArray;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
@@ -337,10 +334,6 @@ impl Scheme for ZeroBytesSamplingScheme {
         Vec::new()
     }
 
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        vec![Null.id()]
-    }
-
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -604,280 +597,6 @@ fn test_no_exclusion_without_history() {
     assert!(!c.is_excluded(&IntDictScheme, &ctx));
 }
 
-/// A scheme that always wins and declares a constant array. Its `compress` panics.
-#[derive(Debug)]
-struct TopLevelEncodingScheme;
-
-impl Scheme for TopLevelEncodingScheme {
-    fn scheme_name(&self) -> &'static str {
-        "test.top_level_encoding"
-    }
-
-    fn matches(&self, canonical: &Canonical) -> bool {
-        matches_integer_primitive(canonical)
-    }
-
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        Vec::new()
-    }
-
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        vec![Constant.id()]
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("`may_compress_to` must not compress")
-    }
-}
-
-/// `may_compress_to` does not run a winner that does not declare the target.
-#[test]
-fn may_compress_to_does_not_compress() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&TopLevelEncodingScheme]);
-    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    assert!(!compressor.may_compress_to(&array, &Dict.id(), &mut exec_ctx)?);
-
-    Ok(())
-}
-
-/// A deferred scheme that relies on the default (empty) `top_level_encodings` and returns a
-/// constant array when compressed.
-#[derive(Debug)]
-struct UndeclaredTopLevelScheme;
-
-impl Scheme for UndeclaredTopLevelScheme {
-    fn scheme_name(&self) -> &'static str {
-        "test.undeclared_top_level"
-    }
-
-    fn matches(&self, canonical: &Canonical) -> bool {
-        matches_integer_primitive(canonical)
-    }
-
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        Vec::new()
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, _data, _best_so_far, _ctx, _exec_ctx| Ok(EstimateVerdict::Ratio(10.0)),
-        )))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(
-            Scalar::primitive(0i32, Nullability::NonNullable),
-            data.array().len(),
-        )
-        .into_array())
-    }
-}
-
-/// A scheme using the default `top_level_encodings` is not skipped by target-guided selection,
-/// and `may_compress_to` falls back to compressing with it when it wins.
-#[test]
-fn may_compress_to_compresses_undeclared_winner() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&UndeclaredTopLevelScheme]);
-    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    assert!(compressor.may_compress_to(&array, &Constant.id(), &mut exec_ctx)?);
-    assert!(!compressor.may_compress_to(&array, &Primitive.id(), &mut exec_ctx)?);
-    assert!(!compressor.may_compress_to(&array, &Dict.id(), &mut exec_ctx)?);
-
-    Ok(())
-}
-
-/// A test scheme that counts its estimates. Its `compress` returns a dictionary.
-#[derive(Debug)]
-struct CountingScheme {
-    name: &'static str,
-    /// If `true`, the scheme declares `Dict` as its top-level encoding.
-    returns_dict: bool,
-    /// If `true`, the estimate is a deferred callback. If `false`, it is an immediate verdict.
-    deferred: bool,
-    /// The estimated ratio, or `None` to skip the scheme.
-    ratio: Option<f64>,
-    calls: &'static AtomicUsize,
-}
-
-impl CountingScheme {
-    fn verdict(ratio: Option<f64>) -> EstimateVerdict {
-        ratio.map_or(EstimateVerdict::Skip, EstimateVerdict::Ratio)
-    }
-}
-
-impl Scheme for CountingScheme {
-    fn scheme_name(&self) -> &'static str {
-        self.name
-    }
-
-    fn matches(&self, canonical: &Canonical) -> bool {
-        matches_integer_primitive(canonical)
-    }
-
-    fn produced_encodings(&self) -> Vec<ArrayId> {
-        Vec::new()
-    }
-
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        if self.returns_dict {
-            vec![Dict.id()]
-        } else {
-            vec![Primitive.id()]
-        }
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        if !self.deferred {
-            self.calls.fetch_add(1, Ordering::Relaxed);
-            return CompressionEstimate::Verdict(Self::verdict(self.ratio));
-        }
-
-        let calls = self.calls;
-        let ratio = self.ratio;
-
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            move |_compressor, _data, _best_so_far, _ctx, _exec_ctx| {
-                calls.fetch_add(1, Ordering::Relaxed);
-                Ok(Self::verdict(ratio))
-            },
-        )))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        assert!(self.returns_dict, "`may_compress_to` must not compress");
-        Ok(dict_encode(data.array(), exec_ctx)?.into_array())
-    }
-}
-
-/// When the dictionary scheme skips, no scheme can return `Dict`. Thus `may_compress_to` stops
-/// before the deferred estimates that only rank the other schemes. The full selection still runs
-/// them.
-#[test]
-fn may_compress_to_stops_when_target_cannot_win() -> VortexResult<()> {
-    static DICT_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static OTHER_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static DICT: CountingScheme = CountingScheme {
-        name: "test.counting.dict_skip",
-        returns_dict: true,
-        deferred: false,
-        ratio: None,
-        calls: &DICT_CALLS,
-    };
-    static OTHER: CountingScheme = CountingScheme {
-        name: "test.counting.other",
-        returns_dict: false,
-        deferred: true,
-        ratio: Some(2.0),
-        calls: &OTHER_CALLS,
-    };
-
-    let compressor = CascadingCompressor::new(vec![&DICT, &OTHER]);
-    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    assert!(!compressor.may_compress_to(&array, &Dict.id(), &mut exec_ctx)?);
-    assert_eq!(DICT_CALLS.load(Ordering::Relaxed), 1);
-    assert_eq!(OTHER_CALLS.load(Ordering::Relaxed), 0);
-
-    let schemes: [&'static dyn Scheme; 2] = [&DICT, &OTHER];
-    let data = ArrayAndStats::new(array, GenerateStatsOptions::default());
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
-
-    assert!(winner.is_some_and(|(scheme, _)| scheme.id() == OTHER.id()));
-    assert_eq!(OTHER_CALLS.load(Ordering::Relaxed), 1);
-
-    Ok(())
-}
-
-/// When the dictionary scheme can win, `may_compress_to` runs each estimate once. A dictionary
-/// that is not smaller than its input does not count.
-#[rstest]
-#[case::dict_wins(4.0, 2, true)]
-#[case::dict_not_smaller(4.0, 64, false)]
-#[case::dict_loses(1.5, 2, false)]
-fn may_compress_to_evaluates_each_scheme_once(
-    #[case] dict_ratio: f64,
-    #[case] distinct: i32,
-    #[case] expected: bool,
-) -> VortexResult<()> {
-    let dict_calls: &'static AtomicUsize = Box::leak(Box::new(AtomicUsize::new(0)));
-    let other_calls: &'static AtomicUsize = Box::leak(Box::new(AtomicUsize::new(0)));
-    let dict: &'static CountingScheme = Box::leak(Box::new(CountingScheme {
-        name: "test.counting.dict",
-        returns_dict: true,
-        deferred: true,
-        ratio: Some(dict_ratio),
-        calls: dict_calls,
-    }));
-    let other: &'static CountingScheme = Box::leak(Box::new(CountingScheme {
-        name: "test.counting.other",
-        returns_dict: false,
-        deferred: true,
-        ratio: Some(2.0),
-        calls: other_calls,
-    }));
-
-    let compressor = CascadingCompressor::new(vec![dict, other]);
-    let array = PrimitiveArray::from_iter((0..64i32).map(|i| i % distinct)).into_array();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    assert_eq!(
-        compressor.may_compress_to(&array, &Dict.id(), &mut exec_ctx)?,
-        expected
-    );
-    assert_eq!(dict_calls.load(Ordering::Relaxed), 1);
-    assert_eq!(other_calls.load(Ordering::Relaxed), 1);
-
-    Ok(())
-}
-
 /// Without other candidates, the default wins without being sampled: its `compress` panics.
 #[test]
 fn always_use_wins_immediately_without_competitors() -> VortexResult<()> {
@@ -886,13 +605,8 @@ fn always_use_wins_immediately_without_competitors() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -915,13 +629,8 @@ fn always_use_default_competes_with_candidates(
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -940,13 +649,8 @@ fn always_use_default_is_chosen_without_valid_estimates() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -963,13 +667,8 @@ fn callback_skip_is_ignored() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -986,13 +685,8 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -1009,13 +703,8 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -1032,13 +721,8 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -1055,13 +739,8 @@ fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(winner.is_none());
     Ok(())
@@ -1162,13 +841,8 @@ fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,
@@ -1188,13 +862,7 @@ fn threshold_reflects_pass_one_best() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -1215,13 +883,7 @@ fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
     // `None`) because the zero-byte sample is never stored as the best.
@@ -1240,13 +902,7 @@ fn threshold_is_none_when_no_prior_scheme() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert_eq!(observed, Some(None));
@@ -1266,13 +922,7 @@ fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -1293,13 +943,7 @@ fn callbacks_observe_samples_registered_after_them() -> VortexResult<()> {
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     let observed = *OBSERVED_THRESHOLD.lock();
     assert!(matches!(
@@ -1354,13 +998,8 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
-    let winner = compressor.choose_best_scheme(
-        &schemes,
-        &data,
-        None,
-        CompressorContext::new(),
-        &mut exec_ctx,
-    )?;
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(matches!(
         winner,

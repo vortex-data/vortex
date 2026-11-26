@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
@@ -34,19 +35,15 @@ use crate::sequence::SequentialStreamExt;
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Returns `true` if the array that [`compress_chunk`](Self::compress_chunk) returns for
-    /// `chunk` can have the encoding `encoding`.
-    ///
-    /// A writer can use this to choose a layout from the encoding the plugin can produce. The
-    /// default compresses `chunk` and compares the encoding of the result. A plugin can override
-    /// it to give the answer without a full compression.
-    fn may_compress_to(
+    /// Returns if a scheme of this plugin can write `encoding` for `chunk`, without compressing
+    /// it, or `None` if the plugin cannot tell.
+    fn has_scheme_for(
         &self,
-        chunk: &ArrayRef,
-        encoding: &ArrayId,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        Ok(self.compress_chunk(chunk, ctx)?.encoding_id() == *encoding)
+        _chunk: &ArrayRef,
+        _encoding: &ArrayId,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<bool>> {
+        Ok(None)
     }
 }
 
@@ -55,13 +52,13 @@ impl CompressorPlugin for Arc<dyn CompressorPlugin> {
         self.as_ref().compress_chunk(chunk, ctx)
     }
 
-    fn may_compress_to(
+    fn has_scheme_for(
         &self,
         chunk: &ArrayRef,
         encoding: &ArrayId,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        self.as_ref().may_compress_to(chunk, encoding, ctx)
+    ) -> VortexResult<Option<bool>> {
+        self.as_ref().has_scheme_for(chunk, encoding, ctx)
     }
 }
 
@@ -79,13 +76,14 @@ impl CompressorPlugin for BtrBlocksCompressor {
         self.compress(chunk, ctx)
     }
 
-    fn may_compress_to(
+    fn has_scheme_for(
         &self,
         chunk: &ArrayRef,
         encoding: &ArrayId,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        self.0.may_compress_to(chunk, encoding, ctx)
+    ) -> VortexResult<Option<bool>> {
+        let canonical = chunk.clone().execute::<Canonical>(ctx)?;
+        Ok(Some(self.0.has_scheme_producing(&canonical, encoding)))
     }
 }
 

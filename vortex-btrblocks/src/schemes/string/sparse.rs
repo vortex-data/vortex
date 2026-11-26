@@ -11,7 +11,6 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
@@ -59,10 +58,6 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Sparse.id()]
-    }
-
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id(), Constant.id()]
     }
 
     /// Children: values=0, indices=1.

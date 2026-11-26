@@ -45,7 +45,6 @@ vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-functions = { workspace = true }
@@ -63,6 +62,7 @@ arrow-array = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 goldenfile = { workspace = true }
+hegeltest = { workspace = true }
 insta = { workspace = true }
 mimalloc = { workspace = true }
 object_store = { workspace = true }

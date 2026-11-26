@@ -3,7 +3,6 @@
 
 //! Core cascading compression flow.
 
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -36,7 +35,6 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
-use super::select::WinnerEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -81,28 +79,6 @@ impl Selection {
             Selection::Compressed(array) | Selection::Unchanged(array, _) => array,
         }
     }
-}
-
-/// The outcome of [`CascadingCompressor::choose`].
-enum Choice {
-    /// The compressor decided the result without a scheme.
-    Decided(Selection),
-    /// A scheme won the selection, but it did not compress the array yet.
-    Scheme(Winner),
-}
-
-/// A scheme that won the selection, with the state it needs to compress the array.
-struct Winner {
-    /// The scheme that won.
-    scheme: &'static dyn Scheme,
-    /// The estimate with which the scheme won.
-    estimate: WinnerEstimate,
-    /// The array to compress, with its statistics.
-    data: ArrayAndStats,
-    /// The context with the merged statistics options of the eligible schemes.
-    compress_ctx: CompressorContext,
-    /// The bytes the array's rows use, which the compressed output must beat.
-    before_nbytes: u64,
 }
 
 impl CascadingCompressor {
@@ -382,80 +358,6 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Selection> {
-        match self.choose(canonical, compress_ctx, None, exec_ctx)? {
-            Choice::Decided(selection) => Ok(selection),
-            Choice::Scheme(winner) => self.compress_with_winner(winner, exec_ctx),
-        }
-    }
-
-    /// Returns `true` if the array that [`compress`](Self::compress) returns for `array` has the
-    /// encoding `encoding`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if canonicalization or compression fails.
-    pub fn may_compress_to(
-        &self,
-        array: &ArrayRef,
-        encoding: &ArrayId,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
-
-        let is_leaf = matches!(
-            compact,
-            Canonical::Bool(_)
-                | Canonical::Primitive(_)
-                | Canonical::Decimal(_)
-                | Canonical::VarBinView(_)
-        );
-
-        if !is_leaf {
-            let compressed =
-                self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
-            return Ok(compressed.encoding_id() == *encoding);
-        }
-
-        match self.choose(compact, CompressorContext::new(), Some(encoding), exec_ctx)? {
-            Choice::Decided(selection) => Ok(selection.into_array().encoding_id() == *encoding),
-            Choice::Scheme(winner) => {
-                // `compress` keeps the output of the winner, a smaller trial output, or the input.
-                let declared = winner.scheme.top_level_encodings();
-                let trial_has_target = winner
-                    .data
-                    .get::<TrialOutput>()
-                    .is_some_and(|trial| trial.array.encoding_id() == *encoding);
-
-                if !declared.is_empty()
-                    && !declared.contains(encoding)
-                    && !trial_has_target
-                    && winner.data.array().encoding_id() != *encoding
-                {
-                    return Ok(false);
-                }
-
-                let compressed = self.compress_with_winner(winner, exec_ctx)?.into_array();
-                Ok(compressed.encoding_id() == *encoding)
-            }
-        }
-    }
-
-    /// Chooses how to compress a single leaf array, but does not run the winning scheme.
-    ///
-    /// The compressor decides empty, all-null and constant arrays itself, and arrays for which no
-    /// scheme beats the canonical encoding.
-    ///
-    /// If `target` is set and it is not the canonical encoding, the selection stops when no scheme
-    /// that can return `target` can win, and the result is [`Selection::Unchanged`]. Thus, with a
-    /// `target`, the result tells only if `compress` can return an array of `target`.
-    fn choose(
-        &self,
-        canonical: Canonical,
-        compress_ctx: CompressorContext,
-        target: Option<&ArrayId>,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Choice> {
         let eligible_schemes: Vec<&'static dyn Scheme> = self
             .schemes
             .iter()
@@ -466,13 +368,13 @@ impl CascadingCompressor {
         let array: ArrayRef = canonical.into();
 
         if array.is_empty() {
-            return Ok(Choice::Decided(Selection::Unchanged(array, None)));
+            return Ok(Selection::Unchanged(array, None));
         }
 
         if array.all_invalid(exec_ctx)? {
-            return Ok(Choice::Decided(Selection::Compressed(
+            return Ok(Selection::Compressed(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
-            )));
+            ));
         }
 
         // Constant detection is built into the compressor: a constant leaf always short-circuits
@@ -487,11 +389,11 @@ impl CascadingCompressor {
                 exec_ctx,
             )?;
             // The constant encoding hands the array back when it is not smaller.
-            return Ok(Choice::Decided(if ArrayRef::ptr_eq(&compressed, &array) {
+            return Ok(if ArrayRef::ptr_eq(&compressed, &array) {
                 Selection::Unchanged(array, None)
             } else {
                 Selection::Compressed(compressed)
-            }));
+            });
         }
 
         // A scheme competes against the bytes the rows reference, not dead bytes in the buffers.
@@ -507,70 +409,28 @@ impl CascadingCompressor {
         let data = ArrayAndStats::new(array, merged_opts);
 
         if eligible_schemes.is_empty() {
-            return Ok(Choice::Decided(Selection::unchanged(data)));
+            return Ok(Selection::unchanged(data));
         }
 
-        // The compressor returns the canonical array if no scheme wins. Thus, an early stop is
-        // correct only if `target` is not the canonical encoding.
-        let target = target.filter(|target| **target != data.array().encoding_id());
-
-        let Some((scheme, estimate)) = self.choose_best_scheme(
-            &eligible_schemes,
-            &data,
-            target,
-            compress_ctx.clone(),
-            exec_ctx,
-        )?
+        let Some((winner, winner_estimate)) =
+            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
-            return Ok(Choice::Decided(Selection::unchanged(data)));
+            return Ok(Selection::unchanged(data));
         };
-
-        Ok(Choice::Scheme(Winner {
-            scheme,
-            estimate,
-            data,
-            compress_ctx,
-            before_nbytes,
-        }))
-    }
-
-    /// Runs the winning scheme and keeps its output only if it is smaller than the input.
-    fn compress_with_winner(
-        &self,
-        winner: Winner,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Selection> {
-        let Winner {
-            scheme,
-            estimate,
-            data,
-            compress_ctx,
-            before_nbytes,
-        } = winner;
 
         // Run the winning scheme's `encode` and compress the children it registers, unless an
         // estimate already produced its complete output. On failure, emit an ERROR event carrying
         // the scheme name and cascade history before propagating.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
-        let _winner_span = trace::winner_compress_span(scheme.id(), before_nbytes).entered();
+        let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
         let compressed = self
-            .compress_with_scheme(scheme, &data, &compress_ctx, exec_ctx)
+            .compress_with_scheme(winner, &data, &compress_ctx, exec_ctx)
             .inspect_err(|err| {
                 // NB: this is the only way we can tell which scheme panicked / bailed on their
                 // data, especially for third-party schemes where the error site may not carry any
                 // compressor context.
-                trace::scheme_compress_failed(scheme.id(), before_nbytes, error_ctx.as_ref(), err);
+                trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), err);
             })?;
-
-        debug_assert!(
-            {
-                let declared = scheme.top_level_encodings();
-                declared.is_empty() || declared.contains(&compressed.encoding_id())
-            },
-            "scheme {} returned encoding {}, which is not in its top_level_encodings",
-            scheme.id(),
-            compressed.encoding_id(),
-        );
 
         // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
         let compressed = match data.get::<TrialOutput>() {
@@ -585,7 +445,7 @@ impl CascadingCompressor {
 
         trace::record_winner_compress_result(
             after_nbytes,
-            estimate.trace_ratio(),
+            winner_estimate.trace_ratio(),
             actual_ratio,
             accepted,
         );

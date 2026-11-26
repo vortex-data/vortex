@@ -54,10 +54,6 @@ impl Scheme for RunEndScheme {
         vec![RunEnd.id()]
     }
 
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        vec![RunEnd.id()]
-    }
-
     /// RunEnd ends (child 1) are monotonically increasing positions with all unique values.
     /// Dict, RunEnd, RLE, and Sparse are all pointless on such data.
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
