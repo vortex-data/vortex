@@ -148,6 +148,8 @@ public final class DataSource implements AutoCloseable {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
+        } finally {
+            Reference.reachabilityFence(this);
         }
     }
 
