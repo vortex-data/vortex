@@ -129,9 +129,8 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             current_len,
             self.values.capacity()
         );
-        debug_assert_eq!(
-            self.nulls.len(),
-            current_len,
+        debug_assert!(
+            !self.dtype.is_nullable() || self.nulls.len() == current_len,
             "validity length must match values length before creating an uninit range"
         );
 
@@ -140,18 +139,17 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 
     /// Finishes the builder directly into a [`PrimitiveArray`].
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
-        assert_eq!(
-            self.nulls.len(),
-            self.values.len(),
-            "validity of length {} does not cover the {} values appended",
-            self.nulls.len(),
-            self.values.len()
-        );
-
         let values = self.values.take().freeze();
         let validity = self
             .nulls
             .finish_with_nullability(self.dtype().nullability());
+
+        assert!(
+            validity.maybe_len().is_none_or(|len| len == values.len()),
+            "validity of length {:?} does not cover the {} values appended",
+            validity.maybe_len(),
+            values.len()
+        );
 
         // SAFETY: the assert above establishes the only invariant, that an array-backed validity
         // covers exactly the values appended. The other validities carry no length at all.
@@ -379,14 +377,10 @@ impl<T> UninitRange<'_, T> {
     /// [`set_value()`]: UninitRange::set_value
     /// [`set_validity_bit()`]: UninitRange::set_validity_bit
     /// [`append_mask()`]: UninitRange::append_mask
-    #[inline]
     pub unsafe fn finish(self) {
-        let base_len = self.builder.values.len();
-        if self.builder.nulls.len() == base_len {
-            self.builder.nulls.append_n_non_nulls(self.len);
-        }
         // SAFETY: constructor enforces that current length + len does not exceed the capacity of the array.
-        unsafe { self.builder.values.set_len(base_len + self.len) };
+        let new_len = self.builder.values.len() + self.len;
+        unsafe { self.builder.values.set_len(new_len) };
     }
 }
 
