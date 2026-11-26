@@ -794,6 +794,47 @@ mod test {
         Ok(())
     }
 
+    #[test]
+    fn equal_subtrees_are_shared_across_depths() -> VortexResult<()> {
+        let common = DType::struct_(
+            [
+                ("x", DType::Utf8(Nullability::Nullable)),
+                ("y", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ],
+            Nullability::Nullable,
+        );
+        let depth = 20;
+        let mut dtype = DType::struct_([("b", common.clone())], Nullability::NonNullable);
+        for _ in 0..depth {
+            dtype = DType::struct_(
+                [("a", dtype), ("b", common.clone())],
+                Nullability::NonNullable,
+            );
+        }
+
+        let bytes = dtype.write_flatbuffer_bytes()?;
+        let mut node = root::<fb::DType>(&bytes)?;
+        let mut common_locs = HashSet::new();
+        loop {
+            let fields = node
+                .type__as_struct_()
+                .and_then(|st| st.dtypes())
+                .ok_or_else(|| vortex_err!("expected struct"))?;
+            common_locs.insert(fields.get(fields.len() - 1)._tab.loc());
+            if fields.len() == 1 {
+                break;
+            }
+            node = fields.get(0);
+        }
+        assert_eq!(common_locs.len(), 1);
+
+        assert_eq!(
+            DType::from_flatbuffer(FlatBuffer::from(bytes), &SESSION)?,
+            dtype
+        );
+        Ok(())
+    }
+
     fn make_basic_union() -> DType {
         DType::Union(
             UnionVariants::new(
