@@ -174,16 +174,22 @@ mod tests {
         PrimitiveArray::from_option_iter([Some(9u32), None, Some(14), None]),
         PrimitiveArray::from_option_iter([Some(-5i32), None, Some(7), None]),
     )]
-    fn test_decode_shared(
+    fn test_zigzag_decode(
         #[case] encoded: PrimitiveArray,
         #[case] expected: PrimitiveArray,
+        #[values(false, true)] shared: bool,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let shared = encoded.clone();
-        let before = shared.buffer_handle().to_host_sync().to_vec();
+        let kept = shared.then(|| {
+            let clone = encoded.clone();
+            let before = clone.buffer_handle().to_host_sync().to_vec();
+            (clone, before)
+        });
 
         let decoded = zigzag_decode(encoded);
-        assert_eq!(shared.buffer_handle().to_host_sync().as_slice(), before);
+        if let Some((clone, before)) = kept {
+            assert_eq!(clone.buffer_handle().to_host_sync().as_slice(), before);
+        }
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
