@@ -262,7 +262,7 @@ impl OperationsVTable<ByteBool> for ByteBool {
             return Ok(Scalar::null(array.dtype().clone()));
         }
         Ok(Scalar::bool(
-            array.buffer.as_host()[index] == 1,
+            array.truthy_bytes()[index] != 0,
             array.dtype().nullability(),
         ))
     }
@@ -357,5 +357,27 @@ mod tests {
             .unwrap();
 
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+    }
+
+    #[test]
+    fn test_truthy_non_one_bytes_scalar_matches_execute() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bytes = ByteBuffer::from(vec![0u8, 1, 2, 42, 255]);
+
+        for validity in [
+            Validity::NonNullable,
+            Validity::from_iter([true, true, false, true, true]),
+        ] {
+            let array = ByteBool::new(BufferHandle::new_host(bytes.clone()), validity).into_array();
+            let canonical = array.clone().execute::<BoolArray>(&mut ctx)?.into_array();
+
+            let mut probe = array.repeated_probe();
+            for idx in 0..array.len() {
+                let expected = canonical.execute_scalar(idx, &mut ctx)?;
+                assert_eq!(array.execute_scalar(idx, &mut ctx)?, expected);
+                assert_eq!(probe.execute_scalar(idx, &mut ctx)?, expected);
+            }
+        }
+        Ok(())
     }
 }
