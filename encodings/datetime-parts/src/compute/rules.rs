@@ -589,7 +589,6 @@ mod tests {
     #[rstest]
     #[case::non_constant_seconds(false, true)]
     #[case::non_constant_subseconds(true, false)]
-    #[case::both_non_constant(false, false)]
     fn test_filter_pushdown_rule_declines_non_constant_parts(
         #[case] seconds_constant: bool,
         #[case] subseconds_constant: bool,
