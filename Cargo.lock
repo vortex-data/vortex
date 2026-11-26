@@ -11846,6 +11846,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
+ "simdutf8",
  "test-with",
  "vortex-array",
  "vortex-buffer",
