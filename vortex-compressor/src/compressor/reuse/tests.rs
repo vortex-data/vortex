@@ -221,11 +221,12 @@ fn unchanged_chunk_preserves_cached_plan_baseline() -> VortexResult<()> {
     let (_, estimates) = compress_counting(&compressor, &low_cardinality(0), &reuse)?;
     assert!(estimates > 0);
 
-    // An incompressible chunk still triggers fallback selection, but leaving it unchanged must not
-    // overwrite the cached plan's baseline ratio with 1.0.
+    // An incompressible chunk still runs fallback selection once (without repeating full selection
+    // a second time), and leaving it unchanged must not overwrite the cached plan's baseline ratio
+    // with 1.0.
     let unique_input = unique();
     let (unchanged, estimates) = compress_counting(&compressor, &unique_input, &reuse)?;
-    assert!(estimates > 0);
+    assert_eq!(estimates, 1);
     assert!(!unchanged.is::<Dict>());
     assert_arrays_eq!(unchanged, unique_input, &mut SESSION.create_execution_ctx());
 
@@ -701,28 +702,28 @@ fn child_replay_ineligible_falls_back_and_records_replacement() -> VortexResult<
     let mut ctx = SESSION.create_execution_ctx();
 
     // Chunk 0 plans CascadeRootScheme -> ChildAScheme.
-    let (first, plan0, _) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
+    let (first, recorded0) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
     assert_arrays_eq!(first, input, &mut ctx);
     assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 0);
 
     // Make ChildAScheme ineligible on chunk 1: child replay falls back to ChildBScheme and
     // records ChildBScheme in the plan.
     CHILD_A_ELIGIBLE.store(false, Ordering::SeqCst);
-    let (second, plan1, replanned) = compressor.compress_with_plan(
+    let (second, recorded1) = compressor.compress_with_plan(
         &input,
-        Some(std::sync::Arc::new(plan0)),
+        Some(std::sync::Arc::new(recorded0.plan)),
         &reuse,
         &mut ctx,
     )?;
-    assert!(replanned);
+    assert!(recorded1.child_replanned);
     assert_arrays_eq!(second, input, &mut ctx);
     assert_eq!(CHILD_B_CALLS.load(Ordering::SeqCst), 1);
 
-    // Replaying `plan1` with ChildAScheme eligible again replays ChildBScheme directly.
+    // Replaying `recorded1.plan` with ChildAScheme eligible again replays ChildBScheme directly.
     CHILD_A_ELIGIBLE.store(true, Ordering::SeqCst);
     let (third, ..) = compressor.compress_with_plan(
         &input,
-        Some(std::sync::Arc::new(plan1)),
+        Some(std::sync::Arc::new(recorded1.plan)),
         &reuse,
         &mut ctx,
     )?;
@@ -804,7 +805,7 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     let mut ctx = SESSION.create_execution_ctx();
 
     // Chunk 0 establishes: CascadeRootScheme -> ChildAScheme -> GrandchildAScheme.
-    let (first, plan0, _) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
+    let (first, recorded0) = compressor.compress_with_plan(&input, None, &reuse, &mut ctx)?;
     assert_arrays_eq!(first, input, &mut ctx);
     assert_eq!(GRANDCHILD_REPLAY_CALLS.load(Ordering::SeqCst), 1);
 
@@ -817,9 +818,9 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
 
-    let (second, plan1, _) = compressor.compress_with_plan(
+    let (second, recorded1) = compressor.compress_with_plan(
         &input,
-        Some(std::sync::Arc::new(plan0)),
+        Some(std::sync::Arc::new(recorded0.plan)),
         &reuse,
         &mut ctx,
     )?;
@@ -827,16 +828,18 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     assert!(GRANDCHILD_REPLAY_CALLS.load(Ordering::SeqCst) >= 1);
     assert_eq!(GRANDCHILD_FALLBACK_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(
-        plan1.decision(&[(CascadeRootScheme.id(), 0), (ChildBScheme.id(), 0)]),
+        recorded1
+            .plan
+            .decision(&[(CascadeRootScheme.id(), 0), (ChildBScheme.id(), 0)]),
         None,
         "losing fallback subtree must not remain in recorded plan"
     );
     let second_bytes = second.nbytes();
 
-    // Chunk 2: replaying `plan1` uses ChildAScheme -> GrandchildAScheme directly.
+    // Chunk 2: replaying `recorded1.plan` uses ChildAScheme -> GrandchildAScheme directly.
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
-    let plan1 = std::sync::Arc::new(plan1);
+    let plan1 = std::sync::Arc::new(recorded1.plan);
     let (third, ..) = compressor.compress_with_plan(
         &input,
         Some(std::sync::Arc::clone(&plan1)),
@@ -855,13 +858,15 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     GRANDCHILD_REPLAY_CALLS.store(0, Ordering::SeqCst);
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
 
-    let (fourth, plan3, _) =
+    let (fourth, recorded3) =
         compressor.compress_with_plan(&input, Some(plan1), &reuse, &mut ctx)?;
     assert_arrays_eq!(fourth, input, &mut ctx);
     assert!(fourth.nbytes() < second_bytes);
     assert_eq!(GRANDCHILD_FALLBACK_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(
-        plan3.decision(&[(CascadeRootScheme.id(), 0), (ChildAScheme.id(), 0)]),
+        recorded3
+            .plan
+            .decision(&[(CascadeRootScheme.id(), 0), (ChildAScheme.id(), 0)]),
         None,
         "losing replayed subtree must not remain in recorded plan"
     );
@@ -870,7 +875,7 @@ fn child_deviation_keeps_smaller_and_preserves_winning_subtree() -> VortexResult
     GRANDCHILD_FALLBACK_CALLS.store(0, Ordering::SeqCst);
     let (fifth, ..) = compressor.compress_with_plan(
         &input,
-        Some(std::sync::Arc::new(plan3)),
+        Some(std::sync::Arc::new(recorded3.plan)),
         &reuse,
         &mut ctx,
     )?;

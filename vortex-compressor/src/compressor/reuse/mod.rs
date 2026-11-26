@@ -14,6 +14,7 @@ use super::cascade::exact_uncompressed_size;
 use super::plan::CompressionPlan;
 use super::plan::Decision;
 use super::plan::PlanState;
+use super::plan::RecordedPlan;
 use super::plan::ratio_within;
 use crate::CascadingCompressor;
 
@@ -315,73 +316,83 @@ impl CascadingCompressor {
 
         let (cached, always_challenge) = match reuse.next_step() {
             Step::Select => {
-                let (selected, plan, _) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
-                reuse.replace(plan, ratio_of(&selected));
+                let (selected, recorded) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
+                reuse.replace(recorded.plan, ratio_of(&selected));
                 return Ok(selected);
             }
             Step::Replay(cached) => (cached, false),
             Step::Challenge(cached) => (cached, true),
         };
 
-        let (replayed, replayed_plan, replanned) =
+        let (replayed, recorded) =
             self.compress_with_plan(array, Some(Arc::clone(&cached.plan)), reuse, exec_ctx)?;
         let replayed_ratio = ratio_of(&replayed);
 
-        let root_decision = replayed_plan.root_decision();
+        let root_decision = recorded.plan.root_decision();
         if root_decision.is_none() {
             // Chunks short-circuited before scheme selection (e.g. constant or all-null) do not
             // exercise the cached plan and must not trigger re-selection or overwrite its baseline.
             return Ok(replayed);
         }
 
-        if matches!(root_decision, Some(Decision::Scheme(_)))
-            && root_decision != cached.plan.root_decision()
-        {
-            reuse.replace(replayed_plan, replayed_ratio);
-            return Ok(replayed);
-        }
-
-        if !always_challenge && reuse.accepts(replayed_ratio, &cached) {
-            if replanned && matches!(root_decision, Some(Decision::Scheme(_))) {
-                reuse.update_plan(&cached.plan, replayed_plan);
+        if recorded.root_selected {
+            // Replay already fell through to full root selection (e.g. the cached root scheme
+            // rejected the chunk), so avoid repeating the same selection.
+            if matches!(root_decision, Some(Decision::Scheme(_))) {
+                reuse.replace(recorded.plan, replayed_ratio);
             }
             return Ok(replayed);
         }
 
-        let (selected, plan, _) = self.compress_with_plan(array, None, reuse, exec_ctx)?;
+        if matches!(root_decision, Some(Decision::Scheme(_)))
+            && root_decision != cached.plan.root_decision()
+        {
+            reuse.replace(recorded.plan, replayed_ratio);
+            return Ok(replayed);
+        }
+
+        if !always_challenge && reuse.accepts(replayed_ratio, &cached) {
+            if recorded.child_replanned && matches!(root_decision, Some(Decision::Scheme(_))) {
+                reuse.update_plan(&cached.plan, recorded.plan);
+            }
+            return Ok(replayed);
+        }
+
+        let (selected, selected_recorded) =
+            self.compress_with_plan(array, None, reuse, exec_ctx)?;
         if selected.nbytes() < replayed.nbytes() {
-            reuse.replace(plan, ratio_of(&selected));
+            reuse.replace(selected_recorded.plan, ratio_of(&selected));
             return Ok(selected);
         }
 
         if matches!(root_decision, Some(Decision::Scheme(_))) {
             reuse.keep(
                 &cached.plan,
-                replanned.then_some(replayed_plan),
+                recorded.child_replanned.then_some(recorded.plan),
                 replayed_ratio,
             );
         }
         Ok(replayed)
     }
 
-    /// Compresses an array, replaying `replay` if given, and returns the recorded decisions along
-    /// with whether any child position fell back from `replay`.
+    /// Compresses an array, replaying `replay` if given, and returns the recorded decisions and
+    /// fallback flags.
     fn compress_with_plan(
         &self,
         array: &ArrayRef,
         replay: Option<Arc<CompressionPlan>>,
         reuse: &PlanReuse,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(ArrayRef, CompressionPlan, bool)> {
+    ) -> VortexResult<(ArrayRef, RecordedPlan)> {
         let state = Arc::new(PlanState::new(replay, reuse.options.max_ratio_deviation));
         let compressed = self.compress_in_plan(array, Arc::clone(&state), exec_ctx)?;
 
         // All contexts that held the state are gone after the compression returns.
-        let (plan, replanned) = Arc::into_inner(state)
+        let recorded = Arc::into_inner(state)
             .map(PlanState::into_recorded)
             .unwrap_or_default();
 
-        Ok((compressed, plan, replanned))
+        Ok((compressed, recorded))
     }
 }
 

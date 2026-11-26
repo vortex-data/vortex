@@ -65,6 +65,17 @@ pub(crate) fn ratio_within(ratio: f64, baseline: f64, max_deviation: f64) -> boo
     ratio >= baseline * keep && ratio * keep <= baseline
 }
 
+/// Outcome of recording a compression pass through [`PlanState`].
+#[derive(Debug, Default)]
+pub(crate) struct RecordedPlan {
+    /// Recorded scheme decisions.
+    pub(crate) plan: CompressionPlan,
+    /// `true` if any non-root child fell back from the replayed plan.
+    pub(crate) child_replanned: bool,
+    /// `true` if the root fell through from replay to full selection.
+    pub(crate) root_selected: bool,
+}
+
 /// The plan to replay and the recorder for the current call, carried by a
 /// [`CompressorContext`](crate::scheme::CompressorContext).
 #[derive(Debug)]
@@ -76,7 +87,9 @@ pub(crate) struct PlanState {
     /// The decisions of the current call.
     recorded: Mutex<CompressionPlan>,
     /// Set when any child fell back from `replay` to full selection.
-    replanned: AtomicBool,
+    child_replanned: AtomicBool,
+    /// Set when the root fell through from `replay` to full selection.
+    root_selected: AtomicBool,
 }
 
 impl PlanState {
@@ -86,7 +99,8 @@ impl PlanState {
             replay,
             max_ratio_deviation,
             recorded: Mutex::new(CompressionPlan::default()),
-            replanned: AtomicBool::new(false),
+            child_replanned: AtomicBool::new(false),
+            root_selected: AtomicBool::new(false),
         }
     }
 
@@ -96,8 +110,13 @@ impl PlanState {
     }
 
     /// Marks that a child position fell back from the replayed plan.
-    pub(crate) fn mark_replanned(&self) {
-        self.replanned.store(true, Ordering::Relaxed);
+    pub(crate) fn mark_child_replanned(&self) {
+        self.child_replanned.store(true, Ordering::Relaxed);
+    }
+
+    /// Marks that the root position fell through from replay to full selection.
+    pub(crate) fn mark_root_selected(&self) {
+        self.root_selected.store(true, Ordering::Relaxed);
     }
 
     /// Returns the replayed decision at `position`, if any.
@@ -149,9 +168,13 @@ impl PlanState {
         recorded.decisions.extend(snapshot);
     }
 
-    /// Consumes the state and returns the recorded plan and whether any child was replanned.
-    pub(crate) fn into_recorded(self) -> (CompressionPlan, bool) {
-        (self.recorded.into_inner(), self.replanned.into_inner())
+    /// Consumes the state and returns the recorded plan and fallback flags.
+    pub(crate) fn into_recorded(self) -> RecordedPlan {
+        RecordedPlan {
+            plan: self.recorded.into_inner(),
+            child_replanned: self.child_replanned.into_inner(),
+            root_selected: self.root_selected.into_inner(),
+        }
     }
 }
 

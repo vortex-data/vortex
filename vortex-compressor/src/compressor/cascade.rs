@@ -482,7 +482,7 @@ impl CascadingCompressor {
                     }
 
                     // The child data changed: select again and keep the smaller result.
-                    plan.mark_replanned();
+                    plan.mark_child_replanned();
                     let replayed_decision = replayed.decision(id);
                     let replayed_subtree = plan.take_subtree(compress_ctx.cascade_history());
                     let selected = self.select_and_compress(
@@ -504,8 +504,12 @@ impl CascadingCompressor {
             None => {}
         }
 
-        if plan.has_replay() && !compress_ctx.cascade_history().is_empty() {
-            plan.mark_replanned();
+        if plan.has_replay() {
+            if compress_ctx.cascade_history().is_empty() {
+                plan.mark_root_selected();
+            } else {
+                plan.mark_child_replanned();
+            }
         }
 
         self.select_and_compress(
