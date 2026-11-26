@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+/// The key metadata of a key managed by `vortex_file::encryption::envelope`, stored in the
+/// `key_metadata` of an `EncryptionSpec`. Exactly one of the fields is set.
+table EnvelopeKeyMetadata {
+    /// Key material stored in the file.
+    material: KeyMaterial;
+    /// Identifies key material kept in an external key material store, so that it can be
+    /// rewrapped when master keys are rotated.
+    external_id: string;
+}
+
+/// A data encryption key, wrapped with a master key held by a key management service.
+table KeyMaterial {
+    /// Identifies the master key to the key management service.
+    master_key_id: string (required);
+    /// Without double wrapping, the data key wrapped by the key management service. With double
+    /// wrapping, the data key encrypted locally with AES-GCM under the key encryption key, with
+    /// `kek_id` as additional authenticated data, stored as
+    /// `ciphertext || nonce (12 bytes) || tag (16 bytes)`.
+    wrapped_dek: [ubyte] (required);
+    /// With double wrapping, identifies the key encryption key, so that readers can cache it.
+    kek_id: [ubyte];
+    /// With double wrapping, the key encryption key wrapped by the key management service.
+    wrapped_kek: [ubyte];
+}
+
+root_type EnvelopeKeyMetadata;
