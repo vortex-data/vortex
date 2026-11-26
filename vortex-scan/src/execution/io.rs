@@ -321,7 +321,6 @@ mod tests {
     use super::segment_ranges;
     use crate::execution::PreparedScan;
     use crate::execution::SegmentLocation;
-    use crate::execution::planning::tests::scripted::source_id;
     use crate::execution::SelectedRows;
     use crate::execution::cache::ScanCache;
     use crate::execution::operator::Cx;
@@ -333,6 +332,7 @@ mod tests {
     use crate::execution::operator::Step;
     use crate::execution::pipeline::Chain;
     use crate::execution::pipeline::synthetic::SyntheticPlan;
+    use crate::execution::planning::tests::scripted::source_id;
     use crate::execution::projection::ProjectionPlanner;
     use crate::planning::driver::Progress;
     use crate::planning::driver::Run;

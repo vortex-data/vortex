@@ -156,7 +156,10 @@ impl ScanBuilder {
         })
     }
 
-    fn prepare_as(self, source: SourceId) -> VortexResult<PreparedScan> {
+    /// Prepares the scan with every request naming `source`, a source the plan has registered
+    /// already, such as a file a planner opened mid-plan, whose service serves the scan's byte
+    /// ranges.
+    pub fn prepare_as(self, source: SourceId) -> VortexResult<PreparedScan> {
         let file = self.file;
         let cache = file.cache.unwrap_or_default();
         let root = match cache.root() {

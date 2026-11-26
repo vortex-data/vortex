@@ -10,6 +10,8 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
+use vortex_io::request::SourceId;
+use vortex_io::request::SourcesIoService;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
@@ -168,6 +170,17 @@ impl ScanBuilder {
     /// Lowers the native layout and prepares the scan without reading payloads.
     pub fn prepare(self) -> VortexResult<PreparedScan> {
         self.into_scan_builder().prepare()
+    }
+
+    /// Prepares the scan as one source of `sources`; see [`EngineScanBuilder::prepare_in`].
+    pub fn prepare_in(self, sources: &SourcesIoService) -> VortexResult<Arc<PreparedScan>> {
+        self.into_scan_builder().prepare_in(sources)
+    }
+
+    /// Prepares the scan with every request naming `source`; see
+    /// [`EngineScanBuilder::prepare_as`].
+    pub fn prepare_as(self, source: SourceId) -> VortexResult<PreparedScan> {
+        self.into_scan_builder().prepare_as(source)
     }
 
     fn into_scan_builder(self) -> EngineScanBuilder {
