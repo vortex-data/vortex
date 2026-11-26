@@ -113,6 +113,28 @@ impl Alignment {
         self.is_offset_aligned(ptr.addr())
     }
 
+    /// The largest alignment that `offset` is a multiple of. Zero is a multiple of every
+    /// alignment, so it reports [`Alignment::MAX`].
+    ///
+    /// ```
+    /// use vortex_buffer::Alignment;
+    ///
+    /// assert_eq!(Alignment::of_offset(24), Alignment::new(8));
+    /// assert_eq!(Alignment::of_offset(1), Alignment::none());
+    /// assert_eq!(Alignment::of_offset(0), Alignment::MAX);
+    /// ```
+    #[inline]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "trailing_zeros of a non-zero usize is below usize::BITS"
+    )]
+    pub const fn of_offset(offset: usize) -> Self {
+        if offset == 0 {
+            return Self::MAX;
+        }
+        Self(offset.trailing_zeros() as u8)
+    }
+
     /// Returns the log2 of the alignment.
     pub fn exponent(&self) -> u8 {
         self.0

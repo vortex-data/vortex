@@ -69,7 +69,7 @@ pub struct Buffer<T> {
     pub(crate) ptr: NonNull<T>,
     /// The number of initialized `T` values visible from `ptr`.
     pub(crate) length: usize,
-    /// The minimum alignment promised for `ptr` and preserved by aligned slices.
+    /// The alignment declared for `ptr`. Slicing lowers it to what the new start satisfies.
     pub(crate) alignment: Alignment,
     /// Shared ownership of the storage containing `ptr`, if any; `Buffer::empty` has no backing.
     pub(crate) backing: Option<Arc<BufferBacking>>,
@@ -452,26 +452,32 @@ impl<T> Buffer<T> {
 
     /// Returns a slice of self for the provided range.
     ///
+    /// The slice reports the largest alignment that both this buffer's alignment and its own start
+    /// satisfy, which is never less than `T`'s. Cutting at an offset that does not preserve the
+    /// buffer's alignment lowers it rather than failing; use
+    /// [`slice_with_alignment`](Self::slice_with_alignment) to require one.
+    ///
     /// # Panics
     ///
     /// Requires that `begin <= end` and `end <= self.len()`.
-    /// Also requires that both `begin` and `end` are aligned to the buffer's required alignment.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
-        self.slice_with_alignment(range, self.alignment)
-    }
-
-    /// Returns a slice of self for the provided range, with no guarantees about the resulting
-    /// alignment.
-    ///
-    /// # Panics
-    ///
-    /// Requires that `begin <= end` and `end <= self.len()`.
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    pub fn slice_unaligned(&self, range: impl RangeBounds<usize>) -> Self {
-        self.slice_with_alignment(range, Alignment::of::<u8>())
+        let (begin, end) = self.resolve_range(range);
+        if end == begin {
+            // We prefer to return a new empty buffer instead of sharing this one and creating a
+            // strong reference just to hold an empty slice.
+            return Self::empty_aligned(self.alignment);
+        }
+        Self {
+            // SAFETY: begin is in bounds.
+            ptr: unsafe { self.ptr.add(begin) },
+            length: end - begin,
+            alignment: self
+                .alignment
+                .min(Alignment::of_offset(begin * size_of::<T>())),
+            backing: self.backing.clone(),
+        }
     }
 
     /// Returns a slice of self for the provided range, ensuring the resulting slice has the
@@ -479,13 +485,37 @@ impl<T> Buffer<T> {
     ///
     /// # Panics
     ///
-    /// Requires that `begin <= end` and `end <= self.len()`.
-    /// Also requires that both `begin` and `end` are aligned to the given alignment.
+    /// Requires that `begin <= end` and `end <= self.len()`, that `alignment` is at least `T`'s,
+    /// and that the slice starts at an address aligned to `alignment`.
     pub fn slice_with_alignment(
         &self,
         range: impl RangeBounds<usize>,
         alignment: Alignment,
     ) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!("Slice alignment must at least align to type T")
+        }
+        let (begin, end) = self.resolve_range(range);
+        if end == begin {
+            return Self::empty_aligned(alignment);
+        }
+        // SAFETY: begin is in bounds.
+        let ptr = unsafe { self.ptr.add(begin) };
+        if !alignment.is_ptr_aligned(ptr.as_ptr()) {
+            slice_start_misaligned(alignment, begin * size_of::<T>());
+        }
+        Self {
+            ptr,
+            length: end - begin,
+            alignment,
+            backing: self.backing.clone(),
+        }
+    }
+
+    /// Resolve `range` to element indices `begin..end`, checked against the length.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn resolve_range(&self, range: impl RangeBounds<usize>) -> (usize, usize) {
         let len = self.len();
         let begin = match range.start_bound() {
             Bound::Included(&n) => n,
@@ -504,28 +534,7 @@ impl<T> Buffer<T> {
         if end > len {
             slice_range_out_of_bounds(end, len);
         }
-
-        if end == begin {
-            // We prefer to return a new empty buffer instead of sharing this one and creating a
-            // strong reference just to hold an empty slice.
-            return Self::empty_aligned(alignment);
-        }
-
-        let begin_byte = begin * size_of::<T>();
-        if !alignment.is_offset_aligned(begin_byte) {
-            slice_start_misaligned(alignment, begin_byte);
-        }
-        if !alignment.is_aligned_to(Alignment::of::<T>()) {
-            vortex_panic!("Slice alignment must at least align to type T")
-        }
-
-        Self {
-            // SAFETY: begin is in bounds and the alignment check applies to the new pointer.
-            ptr: unsafe { self.ptr.add(begin) },
-            length: end - begin,
-            alignment,
-            backing: self.backing.clone(),
-        }
+        (begin, end)
     }
 
     /// Returns a slice of self that is equivalent to the given subset.
@@ -536,10 +545,16 @@ impl<T> Buffer<T> {
     ///
     /// # Panics:
     /// Requires that the given sub slice is in fact contained within the Bytes buffer; otherwise this function will panic.
+    ///
+    /// Like [`slice`](Self::slice), the result reports the largest alignment that both this
+    /// buffer's alignment and the subset's start satisfy.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub fn slice_ref(&self, subset: &[T]) -> Self {
-        self.slice_ref_with_alignment(subset, Alignment::of::<T>())
+        // A subset outside the buffer wraps to a meaningless offset, which only lowers the
+        // alignment asked for; `slice_ref_with_alignment` rejects the subset itself.
+        let offset = subset.as_ptr().addr().wrapping_sub(self.as_ptr().addr());
+        self.slice_ref_with_alignment(subset, self.alignment.min(Alignment::of_offset(offset)))
     }
 
     /// Returns a slice of self that is equivalent to the given subset.
@@ -884,17 +899,11 @@ impl Buf for ByteBuffer {
 
     #[inline]
     fn advance(&mut self, cnt: usize) {
-        if !self.alignment.is_offset_aligned(cnt) {
-            vortex_panic!(
-                "Cannot advance buffer by {} items, resulting alignment is not {}",
-                cnt,
-                self.alignment
-            );
-        }
         assert!(cnt <= self.length, "cannot advance past the buffer length");
         // SAFETY: cnt is within the initialized byte range.
         self.ptr = unsafe { self.ptr.add(cnt) };
         self.length -= cnt;
+        self.alignment = self.alignment.min(Alignment::of_offset(cnt));
     }
 }
 
@@ -1084,23 +1093,57 @@ mod test {
     }
 
     #[test]
-    fn slice_unaligned() {
-        let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
-        // With a regular slice, this would panic. See [`slice_bad_alignment`].
-        let sliced = buf.slice_unaligned(1..2);
-        // Verify the slice has the expected length (1 byte from index 1 to 2).
-        assert_eq!(sliced.len(), 1);
-        // The original buffer has i32 values [0, 1, 2, 3, 4].
-        // In little-endian bytes, 0i32 = [0, 0, 0, 0], so byte at index 1 is 0.
-        assert_eq!(sliced.as_slice(), &[0]);
+    fn slicing_off_the_alignment_lowers_it() {
+        let buf = Buffer::<u8>::copy_from_aligned([0u8; 128], Alignment::new(64));
+        assert_eq!(buf.alignment(), Alignment::new(64));
+
+        // A cut on a multiple of the alignment keeps it, and one elsewhere lowers it to what the
+        // offset still satisfies, never above the buffer's own.
+        assert_eq!(buf.slice(64..).alignment(), Alignment::new(64));
+        assert_eq!(buf.slice(0..8).alignment(), Alignment::new(64));
+        assert_eq!(buf.slice(16..32).alignment(), Alignment::new(16));
+        assert_eq!(buf.slice(1..2).alignment(), Alignment::none());
+
+        // Whatever it reports, the address satisfies.
+        for begin in 0..64 {
+            let slice = buf.slice(begin..);
+            assert!(slice.alignment().is_ptr_aligned(slice.as_ptr()));
+        }
     }
 
     #[test]
-    #[should_panic]
-    fn slice_bad_alignment() {
+    fn typed_slices_never_drop_below_the_element_alignment() {
+        let buf = Buffer::<u32>::copy_from_aligned([0u32; 32], Alignment::new(64));
+        assert_eq!(buf.slice(1..).alignment(), Alignment::of::<u32>());
+        assert_eq!(buf.slice(2..).alignment(), Alignment::new(8));
+    }
+
+    #[test]
+    fn slice_ref_and_advance_lower_the_alignment_too() {
+        let mut buf = Buffer::<u8>::copy_from_aligned([0u8; 128], Alignment::new(64));
+        assert_eq!(buf.slice_ref(&buf[32..40]).alignment(), Alignment::new(32));
+
+        buf.advance(64);
+        assert_eq!(buf.alignment(), Alignment::new(64));
+        buf.advance(4);
+        assert_eq!(buf.alignment(), Alignment::new(4));
+        assert!(buf.alignment().is_ptr_aligned(buf.as_ptr()));
+    }
+
+    #[test]
+    #[should_panic(expected = "range start must be aligned")]
+    fn slice_with_alignment_still_asserts() {
         let buf = buffer![0i32, 1, 2, 3, 4].into_byte_buffer();
-        // We should only be able to slice this buffer on 4-byte (i32) boundaries.
-        buf.slice(1..2);
+        buf.slice_with_alignment(1..2, Alignment::of::<i32>());
+    }
+
+    #[test]
+    #[should_panic(expected = "range start must be aligned")]
+    fn slice_with_alignment_checks_the_address_when_raising() {
+        let buf = Buffer::<u8>::copy_from_aligned([0u8; 128], Alignment::new(64));
+        let promised_less = buf.slice_with_alignment(8.., Alignment::new(8));
+        // The offset 64 is a multiple of 64, but it lands 72 bytes into a 64-aligned buffer.
+        promised_less.slice_with_alignment(64.., Alignment::new(64));
     }
 
     #[test]
@@ -1334,7 +1377,7 @@ mod test {
     }
 
     #[test]
-    fn test_slice_unaligned_end_pos() {
+    fn slice_end_need_not_be_aligned() {
         let data = vec![0u8; 2];
         // Overalign the u8 vector.
         let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));

@@ -661,10 +661,6 @@ impl SerializedArray {
         segment: BufferHandle,
         buffer_overrides: &HashMap<u32, ByteBuffer>,
     ) -> VortexResult<Self> {
-        // We align each buffer individually, so we remove alignment requirements on the segment
-        // for host-resident buffers. Device buffers are sliced directly.
-        let segment = segment.ensure_aligned(Alignment::none())?;
-
         // this can't return the validated array because there is no lifetime to give it, so we
         // need to cast it below, which is safe.
         let (fb_buffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;

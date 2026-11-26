@@ -81,7 +81,7 @@ fn read_plain(array: &ArrowArray, dtype: &DType) -> VortexResult<ArrayRef> {
             let offsets = Buffer::<i32>::from_byte_buffer(buffer(array, 1)?).into_array();
             Ok(VarBinArray::try_new(
                 offsets,
-                buffer(array, 2)?.slice_unaligned(..),
+                buffer(array, 2)?.slice(..),
                 dtype.clone(),
                 validity,
                 &mut SESSION.create_execution_ctx(),

@@ -408,11 +408,7 @@ impl BitBuffer {
 
         // Trim whole bytes off the front directly rather than going through `new_with_offset`,
         // which would slice (and re-clone) the clone we'd have to pass it.
-        let buffer = if byte_offset != 0 {
-            self.buffer.slice_unaligned(byte_offset..)
-        } else {
-            self.buffer.clone().aligned(Alignment::none())
-        };
+        let buffer = self.buffer.slice(byte_offset..);
 
         Self {
             buffer,

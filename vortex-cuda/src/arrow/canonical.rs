@@ -1782,7 +1782,7 @@ mod tests {
                 .iter()
                 .all(|byte| *byte == 0)
         );
-        Ok(bytes.slice_unaligned(start..start + logical_bytes))
+        Ok(bytes.slice(start..start + logical_bytes))
     }
 
     // Assert Arrow Binary export uses the standard null bitmap, i32 offsets, and values layout.

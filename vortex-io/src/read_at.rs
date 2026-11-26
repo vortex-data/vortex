@@ -231,7 +231,7 @@ impl VortexReadAt for ByteBuffer {
                 );
             }
             Ok(BufferHandle::new_host(
-                buffer.slice_unaligned(start..end).aligned(alignment),
+                buffer.slice(start..end).aligned(alignment),
             ))
         }
         .boxed()

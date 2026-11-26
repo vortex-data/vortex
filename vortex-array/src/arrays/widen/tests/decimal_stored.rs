@@ -359,7 +359,7 @@ fn test_from_stored_decimal_records_extrema(
     "not divisible",
 )]
 #[case::misaligned(
-    BufferHandle::new_host(ByteBuffer::copy_from([0u8; 9]).slice_unaligned(1..9)),
+    BufferHandle::new_host(ByteBuffer::copy_from([0u8; 9]).slice(1..9)),
     Validity::NonNullable,
     DecimalDType::new(9, 0),
     "alignment",

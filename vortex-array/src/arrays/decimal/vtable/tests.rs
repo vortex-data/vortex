@@ -128,7 +128,7 @@ fn parts_require_matching_decimal_dtype(#[case] precision: u8, #[case] scale: i8
 #[test]
 fn parts_reject_a_partial_integer_after_the_last_row() {
     let mut parts = decimal_parts();
-    let bytes = buffer![1i32, 2].into_byte_buffer().slice_unaligned(..5);
+    let bytes = buffer![1i32, 2].into_byte_buffer().slice(..5);
     parts.data.values = BufferHandle::new_host(bytes);
 
     let error = DecimalArray::try_from_parts(parts).unwrap_err().to_string();
@@ -138,7 +138,7 @@ fn parts_reject_a_partial_integer_after_the_last_row() {
 #[test]
 fn buffer_replacement_requires_alignment() {
     let array = DecimalArray::from_iter([0i32], DecimalDType::new(5, 2));
-    let unaligned = buffer![0i32, 0].into_byte_buffer().slice_unaligned(1..5);
+    let unaligned = buffer![0i32, 0].into_byte_buffer().slice(1..5);
     let buffers = [BufferHandle::new_host(unaligned)];
 
     // SAFETY: The replacement contains the same four zero bytes as the original buffer.

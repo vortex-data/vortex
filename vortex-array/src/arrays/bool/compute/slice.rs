@@ -19,7 +19,7 @@ impl SliceReduce for Bool {
         let byte_end = byte_start + meta.byte_len();
 
         let bits = if let Some(host) = array.bits.as_host_opt() {
-            BufferHandle::new_host(host.slice_unaligned(byte_start..byte_end))
+            BufferHandle::new_host(host.slice(byte_start..byte_end))
         } else {
             array.bits.slice(byte_start..byte_end)
         };

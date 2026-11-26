@@ -17,7 +17,7 @@ impl BoolArray {
         let byte_len = BitBufferMeta::new(self.meta.offset(), self.len()).byte_len();
 
         let bits = match self.bits.as_host_opt() {
-            Some(host) => BufferHandle::new_host(host.slice_unaligned(..byte_len)),
+            Some(host) => BufferHandle::new_host(host.slice(..byte_len)),
             None => self.bits.slice(0..byte_len),
         };
 
