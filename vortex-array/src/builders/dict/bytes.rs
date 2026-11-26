@@ -22,7 +22,10 @@ use vortex_utils::aliases::hash_map::HashTable;
 
 use super::CountingDictEncoder;
 use super::DictConstraints;
+use super::DictCounter;
 use super::DictEncoder;
+use super::FreqCounter;
+use super::NoCounter;
 use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ArrayView;
@@ -90,18 +93,6 @@ pub struct BytesDictBuilder<Code> {
     max_dict_bytes: usize,
     max_dict_len: usize,
     allocator: BufferAllocatorRef,
-}
-
-#[inline]
-fn record_count<Code: UnsignedPType>(counts: &mut Vec<u64>, code: Code, n: u64) {
-    let idx = code.as_();
-    if idx == counts.len() {
-        counts.push(n);
-    } else {
-        // SAFETY: `BytesDictBuilder` assigns codes sequentially starting at 0, so any existing
-        // code is strictly less than `counts.len()`.
-        unsafe { *counts.get_unchecked_mut(idx) += n };
-    }
 }
 
 pub fn bytes_dict_builder(
@@ -336,7 +327,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         &mut self,
         len: usize,
         validity_mask: Mask,
-        mut encode_at: F,
+        encode_at: F,
     ) -> VortexResult<PrimitiveArray>
     where
         F: FnMut(&mut Self, &mut HashTable<Code>, usize) -> Option<Code>,
@@ -345,70 +336,23 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         let mut counts = self.counts.take();
         let mut codes = BufferMut::<Code>::with_capacity_in(len, self.allocator.clone());
 
-        match validity_mask.bit_buffer() {
-            AllOr::All => match &mut counts {
-                None => {
-                    for idx in 0..len {
-                        let Some(code) = encode_at(self, &mut local_lookup, idx) else {
-                            break;
-                        };
-                        // SAFETY: we reserved capacity in the buffer for `len` elements
-                        unsafe { codes.push_unchecked(code) }
-                    }
-                }
-                Some(counts) => {
-                    for idx in 0..len {
-                        let Some(code) = encode_at(self, &mut local_lookup, idx) else {
-                            break;
-                        };
-                        record_count(counts, code, 1);
-                        // SAFETY: we reserved capacity in the buffer for `len` elements
-                        unsafe { codes.push_unchecked(code) }
-                    }
-                }
-            },
-            AllOr::None => {
-                if let Some(code) = self.encode_null() {
-                    if let Some(counts) = &mut counts {
-                        record_count(counts, code, len as u64);
-                    }
-                    unsafe { codes.push_n_unchecked(code, len) }
-                }
-            }
-            AllOr::Some(b) => match &mut counts {
-                None => {
-                    for (idx, valid) in b.iter().enumerate() {
-                        if !valid {
-                            let Some(code) = self.encode_null() else {
-                                break;
-                            };
-                            // SAFETY: we reserved capacity in the buffer for `len` elements
-                            unsafe { codes.push_unchecked(code) }
-                        } else {
-                            let Some(code) = encode_at(self, &mut local_lookup, idx) else {
-                                break;
-                            };
-                            // SAFETY: we reserved capacity in the buffer for `len` elements
-                            unsafe { codes.push_unchecked(code) }
-                        }
-                    }
-                }
-                Some(counts) => {
-                    for (idx, valid) in b.iter().enumerate() {
-                        let code = if !valid {
-                            self.encode_null()
-                        } else {
-                            encode_at(self, &mut local_lookup, idx)
-                        };
-                        let Some(code) = code else {
-                            break;
-                        };
-                        record_count(counts, code, 1);
-                        // SAFETY: we reserved capacity in the buffer for `len` elements
-                        unsafe { codes.push_unchecked(code) }
-                    }
-                }
-            },
+        match &mut counts {
+            None => self.encode_validity_with_counter(
+                len,
+                validity_mask,
+                &mut local_lookup,
+                &mut codes,
+                &mut NoCounter,
+                encode_at,
+            ),
+            Some(counts) => self.encode_validity_with_counter(
+                len,
+                validity_mask,
+                &mut local_lookup,
+                &mut codes,
+                &mut FreqCounter(counts),
+                encode_at,
+            ),
         }
 
         // Restore lookup dictionary and counts back into the struct
@@ -417,6 +361,53 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
 
         // SAFETY: a non-nullable validity carries no length to match against the codes.
         Ok(unsafe { PrimitiveArray::new_unchecked(codes.freeze(), Validity::NonNullable) })
+    }
+
+    fn encode_validity_with_counter<C, F>(
+        &mut self,
+        len: usize,
+        validity_mask: Mask,
+        local_lookup: &mut HashTable<Code>,
+        codes: &mut BufferMut<Code>,
+        counter: &mut C,
+        mut encode_at: F,
+    ) where
+        C: DictCounter,
+        F: FnMut(&mut Self, &mut HashTable<Code>, usize) -> Option<Code>,
+    {
+        match validity_mask.bit_buffer() {
+            AllOr::All => {
+                for idx in 0..len {
+                    let Some(code) = encode_at(self, local_lookup, idx) else {
+                        break;
+                    };
+                    counter.record(code, 1);
+                    // SAFETY: we reserved capacity in the buffer for `len` elements
+                    unsafe { codes.push_unchecked(code) }
+                }
+            }
+            AllOr::None => {
+                if let Some(code) = self.encode_null() {
+                    counter.record(code, len as u64);
+                    unsafe { codes.push_n_unchecked(code, len) }
+                }
+            }
+            AllOr::Some(b) => {
+                for (idx, valid) in b.iter().enumerate() {
+                    let code = if !valid {
+                        self.encode_null()
+                    } else {
+                        encode_at(self, local_lookup, idx)
+                    };
+                    let Some(code) = code else {
+                        break;
+                    };
+                    counter.record(code, 1);
+                    // SAFETY: we reserved capacity in the buffer for `len` elements
+                    unsafe { codes.push_unchecked(code) }
+                }
+            }
+        }
     }
 
     fn encode_varbin(

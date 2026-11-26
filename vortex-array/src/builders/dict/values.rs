@@ -20,6 +20,9 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use super::DictCounter;
+use super::FreqCounter;
+use super::NoCounter;
 use crate::dtype::UnsignedPType;
 
 /// The dictionary of an encoder of fixed-width values `V`, looked up by a key `K` of each value.
@@ -33,18 +36,6 @@ pub(super) struct ValuesDict<K, V, Code> {
     counts: Option<Vec<u64>>,
     max_dict_len: usize,
     allocator: BufferAllocatorRef,
-}
-
-#[inline]
-fn record_count<Code: UnsignedPType>(counts: &mut Vec<u64>, code: Code, n: u64) {
-    let idx = code.as_();
-    if idx == counts.len() {
-        counts.push(n);
-    } else {
-        // SAFETY: `ValuesDict` assigns codes sequentially starting at 0, so any existing code
-        // is strictly less than `counts.len()`.
-        unsafe { *counts.get_unchecked_mut(idx) += n };
-    }
 }
 
 impl<K, V, Code> ValuesDict<K, V, Code>
@@ -90,71 +81,58 @@ where
         }
 
         let mut counts = self.counts.take();
+        match &mut counts {
+            None => self.encode_with_counter(values, mask, key, &mut codes, &mut NoCounter),
+            Some(counts) => {
+                self.encode_with_counter(values, mask, key, &mut codes, &mut FreqCounter(counts))
+            }
+        }
+        self.counts = counts;
+        codes
+    }
+
+    fn encode_with_counter<C: DictCounter>(
+        &mut self,
+        values: &[V],
+        mask: &Mask,
+        key: impl Fn(V) -> K,
+        codes: &mut BufferMut<Code>,
+        counter: &mut C,
+    ) {
         match mask {
-            Mask::AllTrue(_) => match &mut counts {
-                None => {
-                    for &value in values {
-                        let Some(code) = self.encode_value(key(value), value) else {
-                            break;
-                        };
-                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
-                        unsafe { codes.push_unchecked(code) }
-                    }
+            Mask::AllTrue(_) => {
+                for &value in values {
+                    let Some(code) = self.encode_value(key(value), value) else {
+                        break;
+                    };
+                    counter.record(code, 1);
+                    // SAFETY: `codes` holds `values.len()` codes, at most one per value.
+                    unsafe { codes.push_unchecked(code) }
                 }
-                Some(counts) => {
-                    for &value in values {
-                        let Some(code) = self.encode_value(key(value), value) else {
-                            break;
-                        };
-                        record_count(counts, code, 1);
-                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
-                        unsafe { codes.push_unchecked(code) }
-                    }
-                }
-            },
+            }
             Mask::AllFalse(_) => {
                 if let Some(code) = self.encode_null() {
-                    if let Some(counts) = &mut counts {
-                        record_count(counts, code, values.len() as u64);
-                    }
+                    counter.record(code, values.len() as u64);
                     // SAFETY: `codes` holds `values.len()` codes.
                     unsafe { codes.push_n_unchecked(code, values.len()) }
                 }
             }
-            Mask::Values(v) => match &mut counts {
-                None => {
-                    for (&value, valid) in values.iter().zip(v.bit_buffer()) {
-                        let code = if valid {
-                            self.encode_value(key(value), value)
-                        } else {
-                            self.encode_null()
-                        };
-                        let Some(code) = code else {
-                            break;
-                        };
-                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
-                        unsafe { codes.push_unchecked(code) }
-                    }
+            Mask::Values(v) => {
+                for (&value, valid) in values.iter().zip(v.bit_buffer()) {
+                    let code = if valid {
+                        self.encode_value(key(value), value)
+                    } else {
+                        self.encode_null()
+                    };
+                    let Some(code) = code else {
+                        break;
+                    };
+                    counter.record(code, 1);
+                    // SAFETY: `codes` holds `values.len()` codes, at most one per value.
+                    unsafe { codes.push_unchecked(code) }
                 }
-                Some(counts) => {
-                    for (&value, valid) in values.iter().zip(v.bit_buffer()) {
-                        let code = if valid {
-                            self.encode_value(key(value), value)
-                        } else {
-                            self.encode_null()
-                        };
-                        let Some(code) = code else {
-                            break;
-                        };
-                        record_count(counts, code, 1);
-                        // SAFETY: `codes` holds `values.len()` codes, at most one per value.
-                        unsafe { codes.push_unchecked(code) }
-                    }
-                }
-            },
+            }
         }
-        self.counts = counts;
-        codes
     }
 
     /// Takes the accumulated per-entry occurrence counts, leaving an empty vector in place.

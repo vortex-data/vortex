@@ -81,6 +81,34 @@ pub(super) trait CountingDictEncoder: DictEncoder {
     fn reset_with_counts(&mut self) -> (ArrayRef, Vec<u64>);
 }
 
+/// Tracks per-code occurrence counts during dictionary encoding.
+pub(super) trait DictCounter {
+    fn record<Code: UnsignedPType>(&mut self, code: Code, n: u64);
+}
+
+pub(super) struct NoCounter;
+
+impl DictCounter for NoCounter {
+    #[inline(always)]
+    fn record<Code: UnsignedPType>(&mut self, _code: Code, _n: u64) {}
+}
+
+pub(super) struct FreqCounter<'a>(pub(super) &'a mut Vec<u64>);
+
+impl DictCounter for FreqCounter<'_> {
+    #[inline]
+    fn record<Code: UnsignedPType>(&mut self, code: Code, n: u64) {
+        let idx = code.as_();
+        if idx == self.0.len() {
+            self.0.push(n);
+        } else {
+            // SAFETY: dictionary builders assign codes sequentially starting at 0, so any
+            // existing code is strictly less than `self.0.len()`.
+            unsafe { *self.0.get_unchecked_mut(idx) += n };
+        }
+    }
+}
+
 fn dict_encoder_with_counts_in(
     array: &ArrayRef,
     constraints: &DictConstraints,
@@ -213,12 +241,9 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
 }
 
 /// Encode an array as a [`DictArray`] subject to `constraints`, ordering dictionary values by
-/// descending occurrence count so the hottest entries receive codes `0, 1, ...`.
+/// descending occurrence count with ties broken by first-seen order.
 ///
-/// Returns `Ok(None)` without sorting or remapping if `array` exceeds `constraints`.
-/// Counts are tracked during dictionary construction, and code remapping is fused with code
-/// narrowing (or performed in place when the code width does not change). Ties are broken stably
-/// by first-seen order.
+/// Returns `Ok(None)` if `array` exceeds `constraints`.
 pub fn dict_encode_by_frequency_with_constraints(
     array: &ArrayRef,
     constraints: &DictConstraints,
@@ -275,7 +300,8 @@ pub fn dict_encode_by_frequency_with_constraints(
     }))
 }
 
-/// Encode an entire array as a frequency-ordered [`DictArray`].
+/// Encode an entire array as a [`DictArray`] ordered by descending occurrence count, breaking
+/// ties by first-seen order.
 pub fn dict_encode_by_frequency(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,

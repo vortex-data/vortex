@@ -171,7 +171,8 @@ pub fn dictionary_encode(
     }
 }
 
-/// Encodes a typed integer array into a [`DictArray`] with frequency-ordered values and codes.
+/// Encodes a typed integer array into a [`DictArray`] ordered by descending frequency, breaking
+/// ties by ascending value order.
 fn dictionary_encode_typed<T: IntegerPType + Hash>(
     source_array: ArrayView<'_, Primitive>,
     typed: &IntegerTypedStats<T>,
