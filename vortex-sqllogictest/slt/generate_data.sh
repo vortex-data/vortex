@@ -47,11 +47,7 @@ if [ "${#datasets[@]}" -eq 0 ]; then
   datasets=("${ALL_DATASETS[@]}")
 fi
 
-# The datasets are generated concurrently. Their cargo builds still run one at a
-# time, because cargo locks the target directory, but each dataset's download,
-# generation, conversion and parity check overlaps with the other datasets'
-# builds. Each dataset's output is buffered and printed once it finishes, so
-# the logs do not interleave.
+# Generate datasets concurrently, buffering each one's output so logs don't interleave.
 LOG_DIR="$(mktemp -d)"
 trap 'rm -rf "${LOG_DIR}"' EXIT
 
