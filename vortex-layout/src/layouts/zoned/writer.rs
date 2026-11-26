@@ -224,9 +224,16 @@ impl LayoutStrategy for ZonedStrategy {
             .into_array()
             .to_array_stream()
             .sequenced(eof.split_off());
+        // The zone map compresses at its own ratio, which must not change the ratio of the column.
         let zones_layout = self
             .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
+            .write_stream(
+                ctx.with_child_size_scope(),
+                Arc::clone(&segment_sink),
+                stats_stream,
+                eof,
+                session,
+            )
             .await?;
 
         Ok(
@@ -301,9 +308,16 @@ impl ZonedStrategy {
             .into_array()
             .to_array_stream()
             .sequenced(eof.split_off());
+        // The zone map compresses at its own ratio, which must not change the ratio of the column.
         let zones_layout = self
             .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
+            .write_stream(
+                ctx.with_child_size_scope(),
+                Arc::clone(&segment_sink),
+                stats_stream,
+                eof,
+                session,
+            )
             .await?;
 
         Ok(
@@ -416,9 +430,21 @@ mod tests {
 
     /// Write three zones of primitives through `ctx`, returning the resulting layout.
     fn write_layout(ctx: LayoutWriterContext) -> VortexResult<LayoutRef> {
-        let strategy = ZonedStrategy::new(
+        write_layout_with(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
+            ctx,
+        )
+    }
+
+    fn write_layout_with(
+        data: impl LayoutStrategy,
+        stats: impl LayoutStrategy,
+        ctx: LayoutWriterContext,
+    ) -> VortexResult<LayoutRef> {
+        let strategy = ZonedStrategy::new(
+            data,
+            stats,
             ZonedLayoutOptions {
                 block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
                 ..Default::default()
@@ -460,6 +486,52 @@ mod tests {
             !written.contains(&Sum.id().to_string()),
             "wrote {written:?}"
         );
+        Ok(())
+    }
+
+    /// Records a fixed compression result on its size scope, then writes a flat layout.
+    struct RecordingStrategy {
+        uncompressed: u64,
+        compressed: u64,
+    }
+
+    #[async_trait]
+    impl LayoutStrategy for RecordingStrategy {
+        async fn write_stream(
+            &self,
+            ctx: LayoutWriterContext,
+            segment_sink: SegmentSinkRef,
+            stream: SendableSequentialStream,
+            eof: SequencePointer,
+            session: &VortexSession,
+        ) -> VortexResult<LayoutRef> {
+            ctx.size_scope().record(self.uncompressed, self.compressed);
+
+            FlatLayoutStrategy::default()
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await
+        }
+    }
+
+    #[test]
+    fn zone_map_does_not_change_the_ratio_of_the_column() -> VortexResult<()> {
+        let ctx = LayoutWriterContext::new(ArrayContext::empty());
+        let size_scope = ctx.size_scope().clone();
+
+        write_layout_with(
+            ChunkedLayoutStrategy::new(RecordingStrategy {
+                uncompressed: 100,
+                compressed: 50,
+            }),
+            RecordingStrategy {
+                uncompressed: 100,
+                compressed: 1,
+            },
+            ctx,
+        )?;
+
+        let _reservation = size_scope.reserve(1000);
+        assert_eq!(size_scope.estimated_compressed_bytes(), 500);
         Ok(())
     }
 
