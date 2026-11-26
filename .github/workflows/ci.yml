@@ -489,10 +489,28 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - name: Run sqllogictest tests
+      # Build each binary that data generation runs, with the same arguments as the scripts so that
+      # features match. The generators below then find them fresh and can run at the same time.
+      - name: Build data generators and tests
         run: |
-          VORTEX_SLT_PROFILE=ci ./vortex-sqllogictest/slt/generate_data.sh
-          cargo nextest run --cargo-profile ci -p vortex-sqllogictest
+          cargo build --profile ci --locked -p vortex-bench --bin data-gen
+          cargo build --profile ci --locked -p vortex-tui --bin vx
+          cargo nextest run --cargo-profile ci --locked -p vortex-sqllogictest --no-run
+      - parallel:
+          - name: Generate TPC-H data
+            run: ./vortex-sqllogictest/slt/tpch/generate_data.sh
+            env:
+              VORTEX_SLT_PROFILE: ci
+          - name: Generate TPC-DS data
+            run: ./vortex-sqllogictest/slt/tpcds/generate_data.sh
+            env:
+              VORTEX_SLT_PROFILE: ci
+          - name: Generate ClickBench data
+            run: ./vortex-sqllogictest/slt/clickbench/generate_data.sh
+            env:
+              VORTEX_SLT_PROFILE: ci
+      - name: Run sqllogictest tests
+        run: cargo nextest run --cargo-profile ci --locked -p vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
