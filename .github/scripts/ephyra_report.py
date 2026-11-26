@@ -51,25 +51,52 @@ def counterexample(failure: Report) -> str:
     return example.get("debug", "")
 
 
-def summary(args: argparse.Namespace) -> None:
-    for report in load(args.report):
-        print(f"### `{report['name']}`: {report['status']}")
-        print(
-            f"{report['tests']} tests, {report['discarded']} discarded, "
-            f"{report['duration']['secs']} s, seed `{report['seed']}`"
-        )
+def merged_failures(reports: list[Report]) -> list[tuple[Report, Report]]:
+    """Each distinct signature across all workers' reports, with its total count.
+
+    Pairs the first failure seen for a signature with the report it came from.
+    """
+    merged: dict[str, tuple[Report, Report]] = {}
+    for report in reports:
         for found in failures(report):
-            failure = found.get("failure") or {}
-            print(f"- {found.get('count', 1)}x `{found.get('signature', '')}`")
-            if replay := replay_line(failure):
-                print(f"  - replay: `{replay}`")
-            if example := counterexample(failure):
-                print(f"  - counterexample: `{example[:2000]}`")
-        labels = report.get("labels") or {}
-        if labels:
-            print("\n| label | count |\n|---|---|")
-            for name, count in sorted(labels.items()):
-                print(f"| {name} | {count} |")
+            signature = found.get("signature", "unknown failure")
+            if signature in merged:
+                merged[signature][0]["count"] += found.get("count", 1)
+            else:
+                merged[signature] = ({**found, "count": found.get("count", 1)}, report)
+    return list(merged.values())
+
+
+def summary(args: argparse.Namespace) -> None:
+    reports = load(args.report)
+    tests = sum(r["tests"] for r in reports)
+    statuses = sorted({r["status"] for r in reports})
+    print(f"### `array_ops` (ephyra): {', '.join(statuses)}")
+    print(f"{tests} tests over {len(reports)} worker(s)\n")
+    print("| worker | status | tests | discarded | seconds | seed |\n|---|---|---|---|---|---|")
+    for i, r in enumerate(reports):
+        print(
+            f"| {i} | {r['status']} | {r['tests']} | {r['discarded']} "
+            f"| {r['duration']['secs']} | `{r['seed']}` |"
+        )
+    found_failures = merged_failures(reports)
+    if found_failures:
+        print("\n#### Failures\n")
+    for found, _ in found_failures:
+        failure = found.get("failure") or {}
+        print(f"- {found['count']}x `{found.get('signature', '')}`")
+        if replay := replay_line(failure):
+            print(f"  - replay: `{replay}`")
+        if example := counterexample(failure):
+            print(f"  - counterexample: `{example[:2000]}`")
+    labels: dict[str, int] = {}
+    for r in reports:
+        for name, count in (r.get("labels") or {}).items():
+            labels[name] = labels.get(name, 0) + count
+    if labels:
+        print("\n| label | count |\n|---|---|")
+        for name, count in sorted(labels.items()):
+            print(f"| {name} | {count} |")
 
 
 def gh(*args: str) -> str:
@@ -108,35 +135,34 @@ def issue_body(found: Report, report: Report, args: argparse.Namespace) -> str:
 
 
 def issues(args: argparse.Namespace) -> None:
-    for report in load(args.report):
-        for found in failures(report):
-            title = (TITLE_PREFIX + found.get("signature", "unknown failure"))[:MAX_TITLE]
-            body = issue_body(found, report, args)
-            existing = json.loads(
-                gh(
-                    "issue",
-                    "list",
-                    "--repo",
-                    args.repo,
-                    "--state",
-                    "open",
-                    "--search",
-                    f'in:title "{TITLE_PREFIX.strip()}"',
-                    "--json",
-                    "number,title",
-                    "--limit",
-                    "100",
-                )
+    for found, report in merged_failures(load(args.report)):
+        title = (TITLE_PREFIX + found.get("signature", "unknown failure"))[:MAX_TITLE]
+        body = issue_body(found, report, args)
+        existing = json.loads(
+            gh(
+                "issue",
+                "list",
+                "--repo",
+                args.repo,
+                "--state",
+                "open",
+                "--search",
+                f'in:title "{TITLE_PREFIX.strip()}"',
+                "--json",
+                "number,title",
+                "--limit",
+                "100",
             )
-            match = next((i for i in existing if i["title"] == title), None)
-            if match:
-                gh("issue", "comment", str(match["number"]), "--repo", args.repo, "--body", body)
-                print(f"Commented on #{match['number']}: {title}")
-            else:
-                url = gh(
-                    "issue", "create", "--repo", args.repo, "--title", title, "--body", body
-                ).strip()
-                print(f"Opened {url}: {title}")
+        )
+        match = next((i for i in existing if i["title"] == title), None)
+        if match:
+            gh("issue", "comment", str(match["number"]), "--repo", args.repo, "--body", body)
+            print(f"Commented on #{match['number']}: {title}")
+        else:
+            url = gh(
+                "issue", "create", "--repo", args.repo, "--title", title, "--body", body
+            ).strip()
+            print(f"Opened {url}: {title}")
 
 
 def main() -> int:

@@ -1,32 +1,35 @@
 name: Fuzz array_ops (ephyra)
 
 # Runs the `array_ops` fuzz target as an ephyra property (`fuzz/tests/array_ops_ephyra.rs`).
-# Pull requests that touch the array fuzzer run a fixed-seed check, so a result depends only on the
-# change. The daily run searches with a fresh seed, replays earlier failures first, and files
-# each distinct failure as an issue. Failures shrink to a small plan and print an
-# `EPHYRA_REPLAY=seed:iteration` line that reproduces them.
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+#
+# - After every Fuzz Build (every 3 hours), like the libFuzzer targets, one worker per core searches
+#   for most of the interval with its own seed. Runs queue instead of overlapping, so the search
+#   is nearly continuous. Worker 0 replays earlier failures first, and each distinct failure is
+#   filed as an issue.
+# - Pull requests that touch the array fuzzer run a fixed seed and test count, so a result depends
+#   only on the change.
+#
+# Failures shrink to a small plan and print an `EPHYRA_REPLAY=seed:iteration` line to rerun them.
 
 on:
-  pull_request:
-    paths:
-      - "fuzz/src/array/**"
-      - "fuzz/tests/array_ops_ephyra.rs"
-      - "fuzz/Cargo.toml"
-      - ".github/scripts/ephyra_report.py"
-      - ".github/workflows/fuzz-array-ops-ephyra.yml"
-  schedule:
-    - cron: "17 3 * * *"
+  workflow_run:
+    workflows: ["Fuzz Build"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       budget_minutes:
         description: "Search budget in minutes"
         required: false
         type: number
-        default: 45
+        default: 165
+  pull_request:
+    paths:
+      - "fuzz/src/array/**"
+      - "fuzz/tests/array_ops_ephyra.rs"
+      - "fuzz/Cargo.toml"
+      - ".github/scripts/ephyra_report.py"
+      - ".github/scripts/run-ephyra-fuzz.sh"
+      - ".github/workflows/fuzz-array-ops-ephyra.yml"
 
 permissions:
   contents: read
@@ -37,20 +40,21 @@ env:
   # Optimized code with the assertions and overflow checks that a debug build has.
   CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
   CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
+  EPHYRA_FAILURES: "5"
 
 jobs:
-  ephyra:
-    name: "Array Operations (ephyra)"
-    if: github.event.pull_request.draft != true
-    timeout-minutes: 90
+  pr-check:
+    name: "Array Operations (ephyra, fixed seed)"
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=fuzz-array-ops-ephyra', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     env:
-      IS_PR: ${{ github.event_name == 'pull_request' }}
-      BUDGET_MINUTES: ${{ inputs.budget_minutes || 45 }}
-      EPHYRA_FAILURES: "5"
       EPHYRA_REPORT_JSON: ${{ github.workspace }}/ephyra-report.jsonl
     steps:
       - parallel:
@@ -64,28 +68,18 @@ jobs:
         with:
           enable-sccache: "true"
 
-      # Failures from earlier searches are replayed first. Pull requests skip them, so a known
-      # failure does not fail an unrelated change; the daily run and its issues track those.
-      - name: Restore regressions
-        if: github.event_name != 'pull_request'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: fuzz/.ephyra/regressions
-          key: ephyra-array-ops-${{ github.run_id }}
-          restore-keys: ephyra-array-ops-
-
       - name: Build
         run: cargo test --locked --release -p vortex-fuzz --features ephyra --test array_ops_ephyra --no-run
 
+      # The same inputs on every run, without replaying saved failures: a known failure does not
+      # fail an unrelated change. The budget only guards against a hang.
       - name: Run property
-        id: run
+        env:
+          EPHYRA_SEED: "1"
+          EPHYRA_TESTS: "200000"
+          EPHYRA_BUDGET_MS: "900000"
+          EPHYRA_REGRESSIONS: "0"
         run: |
-          if [ "$IS_PR" = "true" ]; then
-            # The same inputs on every run; the budget only guards against a hang.
-            export EPHYRA_SEED=1 EPHYRA_TESTS=20000 EPHYRA_BUDGET_MS=600000 EPHYRA_REGRESSIONS=0
-          else
-            export EPHYRA_TESTS=100000000 EPHYRA_BUDGET_MS=$((BUDGET_MINUTES * 60 * 1000))
-          fi
           cargo test --locked --release -p vortex-fuzz --features ephyra --test array_ops_ephyra \
             -- --nocapture 2>&1 | tee ephyra-output.log
           exit "${PIPESTATUS[0]}"
@@ -94,12 +88,83 @@ jobs:
         if: always() && hashFiles('ephyra-report.jsonl') != ''
         run: python3 .github/scripts/ephyra_report.py summary ephyra-report.jsonl >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Save regressions
-        if: always() && github.event_name != 'pull_request'
+  fuzz:
+    name: "Array Operations (ephyra)"
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    concurrency:
+      # Queue behind a run still in progress instead of fuzzing twice at once.
+      group: fuzz-ephyra-array-ops
+      cancel-in-progress: false
+    timeout-minutes: 200
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-fuzz/tag=array_ops_ephyra-fuzz', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
+          || 'ubuntu-latest' }}
+    env:
+      BUDGET_MINUTES: ${{ inputs.budget_minutes || 165 }}
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      # Runs after each Fuzz Build often test the same commit, so the binary is cached by commit.
+      - name: Restore property binary
+        id: binary
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ephyra-bin
+          key: ephyra-array-ops-bin-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+
+      - uses: ./.github/actions/setup-prebuild
+        if: steps.binary.outputs.cache-hit != 'true'
+        with:
+          enable-sccache: "false"
+
+      - name: Build property binary
+        if: steps.binary.outputs.cache-hit != 'true'
+        run: |
+          exe=$(cargo test --locked --release -p vortex-fuzz --features ephyra --test array_ops_ephyra \
+            --no-run --message-format=json \
+            | python3 -c 'import json, sys
+          for line in sys.stdin:
+              m = json.loads(line)
+              if m.get("target", {}).get("name") == "array_ops_ephyra" and m.get("executable"):
+                  print(m["executable"])')
+          mkdir -p ephyra-bin
+          cp "$exe" ephyra-bin/array_ops_ephyra
+
+      - name: Save property binary
+        if: steps.binary.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: fuzz/.ephyra/regressions
-          key: ephyra-array-ops-${{ github.run_id }}
+          path: ephyra-bin
+          key: ephyra-array-ops-bin-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+
+      - name: Restore regressions
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ephyra-work/0/.ephyra/regressions
+          key: ephyra-array-ops-regressions-${{ github.run_id }}
+          restore-keys: ephyra-array-ops-regressions-
+
+      - name: Fuzz
+        id: run
+        run: >-
+          .github/scripts/run-ephyra-fuzz.sh "$PWD/ephyra-bin/array_ops_ephyra"
+          "$((BUDGET_MINUTES * 60 * 1000))" "$(nproc)"
+
+      - name: Summarize
+        if: always() && hashFiles('ephyra-report.jsonl') != ''
+        run: python3 .github/scripts/ephyra_report.py summary ephyra-report.jsonl >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save regressions
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ephyra-work/0/.ephyra/regressions
+          key: ephyra-array-ops-regressions-${{ github.run_id }}
 
       - name: Upload report
         if: always()
@@ -107,17 +172,16 @@ jobs:
         with:
           name: ephyra-array-ops
           path: |
-            ephyra-output.log
             ephyra-report.jsonl
-            fuzz/.ephyra/
+            ephyra-work/
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: ${{ steps.run.outcome == 'failure' && 90 || 7 }}
 
   report:
     name: "Report ephyra failures"
-    needs: ephyra
-    if: always() && needs.ephyra.result == 'failure' && github.event_name != 'pull_request'
+    needs: fuzz
+    if: always() && needs.fuzz.result == 'failure'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
