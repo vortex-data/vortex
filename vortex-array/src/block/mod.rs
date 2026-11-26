@@ -9,9 +9,9 @@
 //! owns it outright.
 //!
 //! A [`Block`] holds its rows' values and their validity. Values move between two scratch blocks
-//! when an op changes their width. Validity is read from the mask the program was given; an op
-//! that changes a row's validity writes it into the output's bitmap, which exists only once a
-//! row changes, so ops that leave validity alone pass the mask through untouched.
+//! when an op changes their width. Validity starts as the source's, and an op that changes it
+//! edits the block's words; the output's validity is the source's mask unless an op edits a block,
+//! so ops that leave validity alone pass the mask through untouched.
 //!
 //! Blocks are borrowed bytes and a [`PType`]. Viewing them as values is the job of `cast`, which
 //! holds the runtime's reinterpretations of memory.
@@ -20,7 +20,6 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use num_traits::AsPrimitive;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
@@ -42,8 +41,10 @@ mod cast;
 mod program;
 #[cfg(test)]
 mod tests;
+mod validity;
 
 pub use program::BlockProgram;
+pub use validity::BlockValidity;
 
 /// The most rows a block holds.
 pub const BLOCK_LEN: usize = 1024;
@@ -250,67 +251,22 @@ impl<'a> Values<'a> {
     }
 }
 
-/// The validity of one block's rows, as the program's input mask gives it and as ops change it.
-pub struct BlockValidity<'a> {
-    /// The block's first row in the program.
-    start: usize,
-    len: usize,
-    input: &'a Mask,
-    /// The program's output validity, once a row's has changed.
-    changed: &'a mut Option<BitBufferMut>,
-}
-
-impl<'a> BlockValidity<'a> {
-    fn new(
-        start: usize,
-        len: usize,
-        input: &'a Mask,
-        changed: &'a mut Option<BitBufferMut>,
-    ) -> Self {
-        Self {
-            start,
-            len,
-            input,
-            changed,
-        }
-    }
-
-    /// Whether `row`, counted from the block's first row, is valid.
-    #[inline]
-    pub fn is_valid(&self, row: usize) -> bool {
-        assert!(row < self.len, "row {row} outside a block of {}", self.len);
-        match &*self.changed {
-            Some(bits) => bits.value(self.start + row),
-            None => self.input.value(self.start + row),
-        }
-    }
-
-    /// Make `row`, counted from the block's first row, valid or null.
-    #[inline]
-    pub fn set(&mut self, row: usize, valid: bool) {
-        if self.is_valid(row) == valid {
-            return;
-        }
-        let input = self.input;
-        self.changed
-            .get_or_insert_with(|| match input {
-                Mask::AllTrue(len) => BitBufferMut::new_set(*len),
-                Mask::AllFalse(len) => BitBufferMut::new_unset(*len),
-                Mask::Values(values) => BitBufferMut::copy_from(values.bit_buffer()),
-            })
-            .set_to(self.start + row, valid);
-    }
-}
-
 /// One block for a [`BlockOp`]: its rows' values, and their validity.
 pub struct Block<'a> {
     /// The block's values.
     pub values: Values<'a>,
     /// The validity of the block's rows. An op that does not change validity leaves it as it is.
     pub validity: BlockValidity<'a>,
+    start: usize,
 }
 
 impl<'a> Block<'a> {
+    /// The row of the block's first value.
+    #[inline]
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
     /// Write `f(value)` for every value, leaving validity as it is. See [`Values::map`].
     #[inline]
     pub fn map<S: NativePType, T: NativePType>(self, f: impl Fn(S) -> T) -> Written<'a> {
@@ -354,11 +310,12 @@ pub enum SourceBlock<'s> {
 
 /// The start of a program: emits an array's own values, block by block, in row order.
 pub trait BlockSource: Send {
+    /// The validity of the source's rows, which each block's starts from.
+    fn validity(&self) -> &Mask;
+
     /// Emit exactly the values of `rows`, at most [`BLOCK_LEN`] of them, written into `scratch`
-    /// or lent from memory the source owns.
-    ///
-    /// `validity` holds the rows' validity as the program was given it. A source that changes it,
-    /// such as one applying patches, updates it here.
+    /// or lent from memory the source owns. A source that changes validity, such as one applying
+    /// patches, edits `validity`.
     ///
     /// The program asks for consecutive ranges in row order, starting at 0, and stops once they
     /// cover the array. Values written into `scratch` belong to the program once returned: it
@@ -389,14 +346,14 @@ pub trait BlockSource: Send {
 /// A transform of one block of values into another: of their rows' values, and of their
 /// validity where it changes it.
 pub trait BlockOp: Send {
-    /// Write the op's values for rows `start..start + block.len()`, and update their validity in
-    /// `block.validity` if the op changes it.
+    /// Write the op's values for the block's rows, and edit their validity in `block.validity`
+    /// if the op changes it.
     ///
     /// Most ops only call [`Block::map`], which handles both shapes of [`Values`].
-    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>>;
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>>;
 
-    /// Whether the program may hand this op [`Values::InPlace`] blocks. An op that reads values
-    /// other than the one it is writing must return `false`.
+    /// Whether the program may hand this op [`Values::InPlace`] blocks. An op that reads other
+    /// rows of its block than the one it is writing must return `false`.
     fn supports_in_place(&self) -> bool {
         true
     }
@@ -406,27 +363,41 @@ pub trait BlockOp: Send {
 /// buffer itself to a program that decodes it in place when nothing else references it.
 pub struct PrimitiveSource<T> {
     values: Buffer<T>,
+    validity: Mask,
 }
 
 impl<T: NativePType> PrimitiveSource<T> {
-    /// A source over `values`.
-    pub fn new(values: Buffer<T>) -> Self {
-        Self { values }
+    /// A source over `values`, whose rows have `validity`.
+    pub fn new(values: Buffer<T>, validity: Mask) -> Self {
+        Self { values, validity }
     }
 }
 
 impl PrimitiveSource<()> {
-    /// A source over the values of `array`, in its own type.
-    pub fn boxed(array: &PrimitiveArray) -> Box<dyn BlockSource> {
-        match_each_native_ptype!(array.ptype(), |T| { primitive_source::<T>(array) })
+    /// A source over the values and validity of `array`, in its own type.
+    pub fn boxed(
+        array: &PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Box<dyn BlockSource>> {
+        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+        Ok(match_each_native_ptype!(array.ptype(), |T| {
+            primitive_source::<T>(array, validity)
+        }))
     }
 }
 
-fn primitive_source<T: NativePType>(array: &PrimitiveArray) -> Box<dyn BlockSource> {
-    Box::new(PrimitiveSource::new(array.to_buffer::<T>()))
+fn primitive_source<T: NativePType>(
+    array: &PrimitiveArray,
+    validity: Mask,
+) -> Box<dyn BlockSource> {
+    Box::new(PrimitiveSource::new(array.to_buffer::<T>(), validity))
 }
 
 impl<T: NativePType> BlockSource for PrimitiveSource<T> {
+    fn validity(&self) -> &Mask {
+        &self.validity
+    }
+
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,

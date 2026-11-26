@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The block runtime, with test sources and ops: each program's values and validity, and how
-//! each op ran over its first block, from the trace.
+//! The block runtime, with test sources and ops, checked against level-wise reference values and
+//! against the trace of how each op ran over its first block.
 
 use std::marker::PhantomData;
+use std::ops::Add;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -48,27 +52,31 @@ fn ctx() -> ExecutionCtx {
     SESSION.create_execution_ctx()
 }
 
-/// Emits `start + row` as i32 into its scratch, and records the rows it was asked for.
-struct Counter {
-    start: i32,
-    block_offset: usize,
-    fills: Fills,
-}
-
 /// The row ranges a source was asked to fill.
 type Fills = Arc<Mutex<Vec<Range<usize>>>>;
 
-fn counter(start: i32, block_offset: usize) -> (Box<dyn BlockSource>, Fills) {
-    let fills = Arc::new(Mutex::new(Vec::new()));
+/// Emits row `r` as `r as i32` into its scratch, and records the rows it was asked for.
+struct Counter {
+    block_offset: usize,
+    validity: Mask,
+    fills: Fills,
+}
+
+fn counter(validity: Mask, block_offset: usize) -> (Box<dyn BlockSource>, Fills) {
+    let fills = Fills::default();
     let source = Counter {
-        start,
         block_offset,
+        validity,
         fills: Arc::clone(&fills),
     };
     (Box::new(source), fills)
 }
 
 impl BlockSource for Counter {
+    fn validity(&self) -> &Mask {
+        &self.validity
+    }
+
     fn fill<'s>(
         &'s mut self,
         rows: Range<usize>,
@@ -76,9 +84,12 @@ impl BlockSource for Counter {
         _validity: &mut BlockValidity<'_>,
     ) -> VortexResult<SourceBlock<'s>> {
         self.fills.lock().push(rows.clone());
-        let out = scratch.values_mut::<i32>(rows.len());
-        for (out, row) in out.iter_mut().zip(rows.clone()) {
-            *out = self.start + i32::try_from(row).unwrap_or(i32::MAX);
+        for (out, row) in scratch
+            .values_mut::<i32>(rows.len())
+            .iter_mut()
+            .zip(rows.clone())
+        {
+            *out = i32::try_from(row)?;
         }
         Ok(SourceBlock::Scratch {
             offset: 0,
@@ -91,23 +102,21 @@ impl BlockSource for Counter {
     }
 }
 
-/// Adds one to each value of `T`.
+/// Adds one to each value of `T`, in place when `in_place`.
 struct AddOne<T> {
     in_place: bool,
     _type: PhantomData<fn(T)>,
 }
 
-fn add_one<T: NativePType + std::ops::Add<Output = T> + From<u8>>(
-    in_place: bool,
-) -> Box<dyn BlockOp> {
+fn add<T: NativePType + Add<Output = T> + From<u8>>(in_place: bool) -> Box<dyn BlockOp> {
     Box::new(AddOne::<T> {
         in_place,
         _type: PhantomData,
     })
 }
 
-impl<T: NativePType + std::ops::Add<Output = T> + From<u8>> BlockOp for AddOne<T> {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+impl<T: NativePType + Add<Output = T> + From<u8>> BlockOp for AddOne<T> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         Ok(block.map(|v: T| v + <T as From<u8>>::from(1)))
     }
 
@@ -116,11 +125,10 @@ impl<T: NativePType + std::ops::Add<Output = T> + From<u8>> BlockOp for AddOne<T
     }
 }
 
-/// Widens i32 to i64.
 struct Widen;
 
 impl BlockOp for Widen {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         Ok(block.map(|v: i32| i64::from(v)))
     }
 }
@@ -129,20 +137,22 @@ impl BlockOp for Widen {
 struct ToFloat;
 
 impl BlockOp for ToFloat {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         #[expect(clippy::cast_precision_loss, reason = "the test values are small")]
         Ok(block.map(|v: i32| v as f32))
     }
 }
 
-/// Nulls every row whose index is a multiple of `every`, keeping values.
+/// Nulls every row whose index is a multiple of its count, keeping values, one row at a time.
 struct NullEvery(usize);
 
 impl BlockOp for NullEvery {
-    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let start = block.start();
         let Block {
             values,
             mut validity,
+            ..
         } = block;
         for row in 0..validity.len {
             if (start + row).is_multiple_of(self.0) {
@@ -153,14 +163,40 @@ impl BlockOp for NullEvery {
     }
 }
 
+/// Intersects the block's validity with the same rows of a mask, a word at a time, as an op
+/// over a materialized side input does.
+struct AndWith(Mask);
+
+impl BlockOp for AndWith {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let start = block.start();
+        let Block {
+            values,
+            mut validity,
+            ..
+        } = block;
+        let len = validity.len;
+        for (i, word) in validity.words_mut().iter_mut().enumerate() {
+            let rows = start + i * 64..start + (i * 64 + 64).min(len);
+            let side = rows.enumerate().fold(0u64, |side, (bit, row)| {
+                side | (u64::from(self.0.value(row)) << bit)
+            });
+            *word &= side;
+        }
+        Ok(values.map(|v: i32| v))
+    }
+}
+
 /// Applies patches to i32 values.
 struct Patch(BlockPatches<i32>);
 
 impl BlockOp for Patch {
-    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let start = block.start();
         let Block {
             values,
             mut validity,
+            ..
         } = block;
         let mut written = values.map(|v: i32| v);
         self.0.apply(start, written.as_mut_slice(), &mut validity);
@@ -168,15 +204,11 @@ impl BlockOp for Patch {
     }
 }
 
-/// Run `program` over rows with `validity` into an array of `nullability`, and return it with
-/// the program's lines of the trace.
-fn run(
-    program: BlockProgram,
-    validity: &Mask,
-    nullability: Nullability,
-) -> VortexResult<(PrimitiveArray, String)> {
+/// Run `program` into an array of `nullability`, and return it with the program's lines of the
+/// trace.
+fn run(program: BlockProgram, nullability: Nullability) -> VortexResult<(PrimitiveArray, String)> {
     let mut ctx = ctx();
-    let traced = trace_op(|| program.run(validity, nullability, &mut ctx))?;
+    let traced = trace_op(|| program.run(nullability, &mut ctx))?;
     let lines = traced
         .trace
         .to_string()
@@ -188,8 +220,11 @@ fn run(
     Ok((traced.output, lines))
 }
 
-fn counter_program(start: i32, len: usize, ops: Vec<(Box<dyn BlockOp>, PType)>) -> BlockProgram {
-    let (source, _) = counter(start, 0);
+fn program(
+    source: Box<dyn BlockSource>,
+    len: usize,
+    ops: Vec<(Box<dyn BlockOp>, PType)>,
+) -> BlockProgram {
     let mut program = BlockProgram::new(source, PType::I32, len);
     for (op, ptype) in ops {
         program.push(op, ptype);
@@ -197,145 +232,157 @@ fn counter_program(start: i32, len: usize, ops: Vec<(Box<dyn BlockOp>, PType)>) 
     program
 }
 
-/// The first op overwrites the source's scratch block, and the last writes the output.
-#[test]
-fn ops_run_in_scratch_and_the_last_writes_the_output() -> VortexResult<()> {
-    let program = counter_program(
-        10,
-        3000,
-        vec![
-            (add_one::<i32>(true), PType::I32),
-            (add_one::<i32>(true), PType::I32),
-        ],
-    );
-    let (output, trace) = run(program, &Mask::new_true(3000), Nullability::NonNullable)?;
-    assert_arrays_eq!(output, PrimitiveArray::from_iter(12..3012i32), &mut ctx());
-    assert_eq!(
-        trace,
-        "drive ops=2 len=3000
-block_op 0 in_place i32->i32 scratch0 -> scratch0
-block_op 1 copy i32->i32 scratch0 -> output"
-    );
-    Ok(())
+/// A mask of `len` rows: all valid, all null, or a drawn pattern repeated from a drawn bit offset
+/// into its buffer.
+fn draw_mask(tc: &TestCase, len: usize) -> Mask {
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => Mask::new_true(len),
+        1 => Mask::new_false(len),
+        _ => {
+            let pattern: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(1).max_size(70));
+            let offset = tc.draw(gs::integers::<usize>().max_value(9));
+            let bits = BitBuffer::collect_bool(offset + len, |i| pattern[i % pattern.len()]);
+            Mask::from_buffer(bits.slice(offset..offset + len))
+        }
+    }
 }
 
-/// An op that changes the width copies into the other scratch block, and the ops after it work
-/// there.
-#[test]
-fn width_change_copies_between_scratch_blocks() -> VortexResult<()> {
-    let program = counter_program(
-        -5,
-        2500,
-        vec![
-            (add_one::<i32>(true), PType::I32),
-            (Box::new(Widen), PType::I64),
-            (add_one::<i64>(true), PType::I64),
-        ],
-    );
-    let (output, trace) = run(program, &Mask::new_true(2500), Nullability::NonNullable)?;
-    assert_arrays_eq!(output, PrimitiveArray::from_iter(-3..2497i64), &mut ctx());
-    assert_eq!(
-        trace,
-        "drive ops=3 len=2500
-block_op 0 in_place i32->i32 scratch0 -> scratch0
+/// Any chain of adds, in place or not, then optionally a widening or a same-width type change,
+/// over any length, block grid and validity, gives the values and validity of applying it row by
+/// row, and the source is asked for the program's blocks: consecutive, at most `BLOCK_LEN` rows,
+/// and cut on the source's grid.
+#[hegel::test]
+fn programs_match_row_by_row(tc: TestCase) {
+    let len = tc.draw(gs::integers::<usize>().max_value(3 * BLOCK_LEN + 100));
+    let block_offset = tc.draw(gs::integers::<usize>().max_value(BLOCK_LEN - 1));
+    let mask = draw_mask(&tc, len);
+    let adds: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).max_size(4));
+    let last = tc.draw(gs::integers::<u8>().max_value(2));
+
+    let (source, fills) = counter(mask.clone(), block_offset);
+    let mut ops: Vec<(Box<dyn BlockOp>, PType)> = adds
+        .iter()
+        .map(|&in_place| (add::<i32>(in_place), PType::I32))
+        .collect();
+    match last {
+        0 => ops.push((Box::new(Widen), PType::I64)),
+        1 => ops.push((Box::new(ToFloat), PType::F32)),
+        _ => {}
+    }
+    let (output, _) = run(program(source, len, ops), Nullability::Nullable).vortex_expect("run");
+
+    let value = |row: usize| i32::try_from(row + adds.len()).vortex_expect("small");
+    let valid = |row: usize| mask.value(row);
+    #[expect(clippy::cast_precision_loss, reason = "the test values are small")]
+    let expected = match last {
+        0 => PrimitiveArray::from_option_iter(
+            (0..len).map(|r| valid(r).then(|| i64::from(value(r)))),
+        ),
+        1 => PrimitiveArray::from_option_iter((0..len).map(|r| valid(r).then(|| value(r) as f32))),
+        _ => PrimitiveArray::from_option_iter((0..len).map(|r| valid(r).then(|| value(r)))),
+    };
+    assert_arrays_eq!(output, expected, &mut ctx());
+
+    let fills = fills.lock();
+    assert_eq!(fills.iter().map(Range::len).sum::<usize>(), len);
+    for (i, rows) in fills.iter().enumerate() {
+        assert!(rows.len() <= BLOCK_LEN && !rows.is_empty(), "{rows:?}");
+        if i > 0 {
+            assert_eq!(rows.start, fills[i - 1].end);
+            assert_eq!(
+                (block_offset + rows.start) % BLOCK_LEN,
+                0,
+                "{rows:?} off the grid"
+            );
+        }
+    }
+}
+
+/// Ops that null rows one at a time, or intersect a block's validity a word at a time, give the
+/// source's validity with every op's nulls, whatever the grid and source validity.
+#[hegel::test]
+fn validity_edits_match_row_by_row(tc: TestCase) {
+    let len = tc.draw(gs::integers::<usize>().max_value(3 * BLOCK_LEN + 100));
+    let block_offset = tc.draw(gs::integers::<usize>().max_value(BLOCK_LEN - 1));
+    let source_mask = draw_mask(&tc, len);
+    let side = draw_mask(&tc, len);
+    let every = tc.draw(gs::integers::<usize>().min_value(1).max_value(200));
+
+    let (source, _) = counter(source_mask.clone(), block_offset);
+    let ops: Vec<(Box<dyn BlockOp>, PType)> = vec![
+        (Box::new(NullEvery(every)), PType::I32),
+        (add::<i32>(true), PType::I32),
+        (Box::new(AndWith(side.clone())), PType::I32),
+    ];
+    let (output, _) = run(program(source, len, ops), Nullability::Nullable).vortex_expect("run");
+
+    let expected = PrimitiveArray::from_option_iter((0..len).map(|r| {
+        (source_mask.value(r) && !r.is_multiple_of(every) && side.value(r))
+            .then(|| i32::try_from(r + 1).vortex_expect("small"))
+    }));
+    assert_arrays_eq!(output, expected, &mut ctx());
+}
+
+/// How ops share the two scratch blocks: an op overwrites its block when it keeps the width and
+/// allows it, otherwise it copies into the other block, and the last op writes the output.
+#[rstest]
+#[case::in_place_then_output(
+    vec![(add::<i32>(true), PType::I32),
+         (add::<i32>(true), PType::I32)],
+    "block_op 0 in_place i32->i32 scratch0 -> scratch0
+block_op 1 copy i32->i32 scratch0 -> output"
+)]
+#[case::width_change(
+    vec![(add::<i32>(true), PType::I32),
+         (Box::new(Widen), PType::I64),
+         (add::<i64>(true), PType::I64)],
+    "block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i64 scratch0 -> scratch1
 block_op 2 copy i64->i64 scratch1 -> output"
-    );
-    Ok(())
-}
-
-/// An op that changes the type but not the width overwrites its block in place with its output's
-/// bits, and the ops after it read them as the new type.
-#[test]
-fn type_change_of_one_width_runs_in_place() -> VortexResult<()> {
-    let program = counter_program(
-        -5,
-        2500,
-        vec![
-            (add_one::<i32>(true), PType::I32),
-            (Box::new(ToFloat), PType::F32),
-            (add_one::<f32>(true), PType::F32),
-        ],
-    );
-    let (output, trace) = run(program, &Mask::new_true(2500), Nullability::NonNullable)?;
-    #[expect(clippy::cast_precision_loss, reason = "the test values are small")]
-    let expected = PrimitiveArray::from_iter((-3..2497i32).map(|v| v as f32));
-    assert_arrays_eq!(output, expected, &mut ctx());
-    assert_eq!(
-        trace,
-        "drive ops=3 len=2500
-block_op 0 in_place i32->i32 scratch0 -> scratch0
+)]
+#[case::type_change_of_one_width(
+    vec![(add::<i32>(true), PType::I32),
+         (Box::new(ToFloat), PType::F32),
+         (add::<f32>(true), PType::F32)],
+    "block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 in_place i32->f32 scratch0 -> scratch0
 block_op 2 copy f32->f32 scratch0 -> output"
-    );
-    Ok(())
-}
-
-/// An op that does not support in-place blocks always copies, alternating scratch blocks.
-#[test]
-fn op_without_in_place_support_copies() -> VortexResult<()> {
-    let program = counter_program(
-        0,
-        2000,
-        vec![
-            (add_one::<i32>(false), PType::I32),
-            (add_one::<i32>(false), PType::I32),
-            (add_one::<i32>(false), PType::I32),
-        ],
-    );
-    let (output, trace) = run(program, &Mask::new_true(2000), Nullability::NonNullable)?;
-    assert_arrays_eq!(output, PrimitiveArray::from_iter(3..2003i32), &mut ctx());
-    assert_eq!(
-        trace,
-        "drive ops=3 len=2000
-block_op 0 copy i32->i32 scratch0 -> scratch1
+)]
+#[case::no_in_place_support(
+    vec![(add::<i32>(false), PType::I32),
+         (add::<i32>(false), PType::I32),
+         (add::<i32>(false), PType::I32)],
+    "block_op 0 copy i32->i32 scratch0 -> scratch1
 block_op 1 copy i32->i32 scratch1 -> scratch0
 block_op 2 copy i32->i32 scratch0 -> output"
-    );
-    Ok(())
-}
-
-/// Blocks are cut on the source's grid, so a source whose first chunk starts part way is asked
-/// for a short first block and then whole blocks.
-#[rstest]
-#[case::aligned(0, 3000, vec![0..1024, 1024..2048, 2048..3000])]
-#[case::offset(300, 3000, vec![0..724, 724..1748, 1748..2772, 2772..3000])]
-#[case::shorter_than_first_block(1000, 20, vec![0..20])]
-#[case::exact_blocks(0, 2048, vec![0..1024, 1024..2048])]
-#[case::one_row(0, 1, vec![0..1])]
-fn blocks_follow_the_source_grid(
-    #[case] block_offset: usize,
-    #[case] len: usize,
-    #[case] expected: Vec<Range<usize>>,
+)]
+fn ops_share_scratch(
+    #[case] ops: Vec<(Box<dyn BlockOp>, PType)>,
+    #[case] expected: &str,
 ) -> VortexResult<()> {
-    let (source, fills) = counter(7, block_offset);
-    let mut program = BlockProgram::new(source, PType::I32, len);
-    program.push(add_one::<i32>(true), PType::I32);
-    let (output, _) = run(program, &Mask::new_true(len), Nullability::NonNullable)?;
-    let end = 8 + i32::try_from(len)?;
-    assert_arrays_eq!(output, PrimitiveArray::from_iter(8..end), &mut ctx());
-    assert_eq!(*fills.lock(), expected);
-    assert!(expected.iter().all(|rows| rows.len() <= BLOCK_LEN));
+    let n = ops.len();
+    let (source, _) = counter(Mask::new_true(2500), 0);
+    let (_, trace) = run(program(source, 2500, ops), Nullability::NonNullable)?;
+    assert_eq!(trace, format!("drive ops={n} len=2500\n{expected}"));
     Ok(())
 }
 
-/// A source over a canonical array lends its blocks. When nothing else references the buffer,
-/// every op runs in it and it becomes the result; when another owner shares it, the first op
-/// copies out of it, and the shared values are unchanged.
+/// A canonical leaf decodes in its own buffer when the program holds the only reference to it,
+/// and copies out of it, leaving it unchanged, when another owner shares it.
 #[test]
 fn canonical_leaf_decodes_in_place_only_when_owned() -> VortexResult<()> {
     let two_adds = |source| {
-        let mut program = BlockProgram::new(source, PType::I32, 3000);
-        program.push(add_one::<i32>(true), PType::I32);
-        program.push(add_one::<i32>(true), PType::I32);
-        program
+        program(
+            source,
+            3000,
+            vec![
+                (add::<i32>(true), PType::I32),
+                (add::<i32>(true), PType::I32),
+            ],
+        )
     };
-    let owned = PrimitiveSource::boxed(&PrimitiveArray::from_iter(0..3000i32));
-    let (output, trace) = run(
-        two_adds(owned),
-        &Mask::new_true(3000),
-        Nullability::NonNullable,
-    )?;
+    let owned = PrimitiveSource::boxed(&PrimitiveArray::from_iter(0..3000i32), &mut ctx())?;
+    let (output, trace) = run(two_adds(owned), Nullability::NonNullable)?;
     assert_arrays_eq!(output, PrimitiveArray::from_iter(2..3002i32), &mut ctx());
     assert_eq!(
         trace,
@@ -345,8 +392,10 @@ block_op 1 in_place i32->i32 leaf -> leaf"
     );
 
     let shared = PrimitiveArray::from_iter(0..3000i32);
-    let program = two_adds(PrimitiveSource::boxed(&shared));
-    let (output, trace) = run(program, &Mask::new_true(3000), Nullability::NonNullable)?;
+    let (output, trace) = run(
+        two_adds(PrimitiveSource::boxed(&shared, &mut ctx())?),
+        Nullability::NonNullable,
+    )?;
     assert_arrays_eq!(output, PrimitiveArray::from_iter(2..3002i32), &mut ctx());
     assert_eq!(
         trace,
@@ -358,31 +407,7 @@ block_op 1 copy i32->i32 scratch0 -> output"
     Ok(())
 }
 
-/// Validity is read from the input mask at any bit offset, and flows through ops that leave it
-/// alone into the output.
-#[rstest]
-#[case::aligned(0)]
-#[case::bit_offset(3)]
-#[case::byte_offset(16)]
-fn validity_streams_through_the_ops(#[case] mask_offset: usize) -> VortexResult<()> {
-    let len = 3000;
-    let valid = |row: usize| !row.is_multiple_of(7) && row % 1000 != 5;
-    let bits = BitBuffer::collect_bool(mask_offset + len, |i| {
-        i >= mask_offset && valid(i - mask_offset)
-    });
-    let mask = Mask::from_buffer(bits.slice(mask_offset..mask_offset + len));
-    let (source, _) = counter(0, 300);
-    let mut program = BlockProgram::new(source, PType::I32, len);
-    program.push(add_one::<i32>(true), PType::I32);
-    let (output, _) = run(program, &mask, Nullability::Nullable)?;
-    let expected = PrimitiveArray::from_option_iter(
-        (0..len).map(|row| valid(row).then(|| i32::try_from(row + 1).unwrap_or(i32::MAX))),
-    );
-    assert_arrays_eq!(output, expected, &mut ctx());
-    Ok(())
-}
-
-/// Validity that is uniform needs no bitmap: the output is non-nullable, all valid or all null.
+/// Uniform validity needs no bitmap: the output is non-nullable, all valid or all null.
 #[rstest]
 #[case::non_nullable(Mask::new_true(2000), Nullability::NonNullable, Validity::NonNullable)]
 #[case::all_valid(Mask::new_true(2000), Nullability::Nullable, Validity::AllValid)]
@@ -392,8 +417,9 @@ fn uniform_validity_needs_no_bitmap(
     #[case] nullability: Nullability,
     #[case] expected: Validity,
 ) -> VortexResult<()> {
-    let program = counter_program(0, 2000, vec![(add_one::<i32>(true), PType::I32)]);
-    let (output, _) = run(program, &mask, nullability)?;
+    let (source, _) = counter(mask, 0);
+    let ops: Vec<(Box<dyn BlockOp>, PType)> = vec![(add::<i32>(true), PType::I32)];
+    let (output, _) = run(program(source, 2000, ops), nullability)?;
     assert_eq!(
         std::mem::discriminant(&output.validity()?),
         std::mem::discriminant(&expected)
@@ -401,33 +427,12 @@ fn uniform_validity_needs_no_bitmap(
     Ok(())
 }
 
-/// An op that nulls rows changes the output's validity, combined with the input's.
-#[test]
-fn ops_can_null_rows() -> VortexResult<()> {
-    let len = 2500;
-    let mask = Mask::from_buffer(BitBuffer::collect_bool(len, |row| !row.is_multiple_of(7)));
-    let program = counter_program(
-        0,
-        len,
-        vec![
-            (Box::new(NullEvery(5)), PType::I32),
-            (add_one::<i32>(true), PType::I32),
-        ],
-    );
-    let (output, _) = run(program, &mask, Nullability::Nullable)?;
-    let expected = PrimitiveArray::from_option_iter((0..len).map(|row| {
-        (!row.is_multiple_of(7) && !row.is_multiple_of(5))
-            .then(|| i32::try_from(row + 1).unwrap_or(i32::MAX))
-    }));
-    assert_arrays_eq!(output, expected, &mut ctx());
-    Ok(())
-}
-
 /// A non-nullable output cannot hold the nulls an op produced.
 #[test]
 fn non_nullable_output_rejects_nulls() {
-    let program = counter_program(0, 100, vec![(Box::new(NullEvery(5)), PType::I32)]);
-    assert!(run(program, &Mask::new_true(100), Nullability::NonNullable).is_err());
+    let (source, _) = counter(Mask::new_true(100), 0);
+    let ops: Vec<(Box<dyn BlockOp>, PType)> = vec![(Box::new(NullEvery(5)), PType::I32)];
+    assert!(run(program(source, 100, ops), Nullability::NonNullable).is_err());
 }
 
 /// Patches overwrite their rows' values and validity, block by block, null patch values
@@ -445,8 +450,9 @@ fn patches_set_values_and_validity() -> VortexResult<()> {
         &mut ctx,
     )?;
     let patches = BlockPatches::try_new(&patches, &mut ctx, |_, value: i32| value)?;
-    let program = counter_program(0, len, vec![(Box::new(Patch(patches)), PType::I32)]);
-    let (output, _) = run(program, &Mask::new_true(len), Nullability::Nullable)?;
+    let (source, _) = counter(Mask::new_true(len), 0);
+    let ops: Vec<(Box<dyn BlockOp>, PType)> = vec![(Box::new(Patch(patches)), PType::I32)];
+    let (output, _) = run(program(source, len, ops), Nullability::Nullable)?;
     let expected = PrimitiveArray::from_option_iter((0..len).map(|row| match row {
         0 => Some(100),
         1023 => None,
@@ -455,26 +461,5 @@ fn patches_set_values_and_validity() -> VortexResult<()> {
         _ => Some(i32::try_from(row).unwrap_or(i32::MAX)),
     }));
     assert_arrays_eq!(output, expected, &mut ctx);
-    Ok(())
-}
-
-/// With no ops, a program emits its source's values.
-#[test]
-fn no_ops_emit_the_source() -> VortexResult<()> {
-    let program = counter_program(4, 1500, vec![]);
-    let (output, _) = run(program, &Mask::new_true(1500), Nullability::NonNullable)?;
-    assert_arrays_eq!(output, PrimitiveArray::from_iter(4..1504i32), &mut ctx());
-    Ok(())
-}
-
-/// An empty program emits an empty array and asks its source for nothing.
-#[test]
-fn empty_programs_fill_nothing() -> VortexResult<()> {
-    let (source, fills) = counter(0, 0);
-    let mut program = BlockProgram::new(source, PType::I32, 0);
-    program.push(add_one::<i32>(true), PType::I32);
-    let (output, _) = run(program, &Mask::new_true(0), Nullability::NonNullable)?;
-    assert!(output.is_empty());
-    assert!(fills.lock().is_empty());
     Ok(())
 }

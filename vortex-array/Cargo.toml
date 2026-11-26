@@ -83,6 +83,7 @@ unstable_row_fns = []
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
+hegeltest = { workspace = true }
 insta = { workspace = true }
 mimalloc = { workspace = true }
 rand_distr = { workspace = true }

@@ -68,7 +68,7 @@ fn constant(level: usize) -> u32 {
 struct AddConstant(u32);
 
 impl BlockOp for AddConstant {
-    fn process<'a>(&mut self, _start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
         let constant = self.0;
         Ok(block.map::<u32, u32>(move |v| v.wrapping_add(constant)))
     }
@@ -102,11 +102,12 @@ fn program(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> PrimitiveArray {
-    let mut program = BlockProgram::new(Box::new(PrimitiveSource::new(input)), PType::U32, LEN);
+    let source = PrimitiveSource::new(input, validity.clone());
+    let mut program = BlockProgram::new(Box::new(source), PType::U32, LEN);
     for level in 0..DEPTH {
         program.push(Box::new(AddConstant(constant(level))), PType::U32);
     }
-    program.run(validity, nullability, ctx).unwrap()
+    program.run(nullability, ctx).unwrap()
 }
 
 #[divan::bench]
