@@ -353,12 +353,29 @@ fn draw_primitive<T: NativePType>(
     finish_column(tc, arr, logical)
 }
 
-fn draw_int<T: NativePType + Into<i128>>(
+fn draw_int<T: NativePType + Into<i128> + gs::Integer>(
     tc: &TestCase,
     len: usize,
-    draw_val: impl FnMut(&TestCase) -> T,
+    small_min: T,
+    small_max: T,
 ) -> VortexResult<GeneratedColumn> {
-    draw_primitive(tc, len, draw_val, |v| LogicalValue::Int(v.into()))
+    let small_pool = tc.draw(gs::booleans());
+    draw_primitive(
+        tc,
+        len,
+        |tc| {
+            if small_pool {
+                tc.draw(
+                    gs::integers::<T>()
+                        .min_value(small_min)
+                        .max_value(small_max),
+                )
+            } else {
+                tc.draw(gs::integers::<T>())
+            }
+        },
+        |v| LogicalValue::Int(v.into()),
+    )
 }
 
 fn draw_decimal_typed<T: NativeDecimalType>(
@@ -636,86 +653,14 @@ fn draw_column_inner(
             let arr = BoolArray::new(BitBuffer::from_iter(vals), validity).into_array();
             finish_column(tc, arr, logical)
         }
-        2 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<u8>().min_value(0).max_value(6))
-                } else {
-                    tc.draw(gs::integers::<u8>())
-                }
-            })
-        }
-        3 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<u16>().min_value(0).max_value(6))
-                } else {
-                    tc.draw(gs::integers::<u16>())
-                }
-            })
-        }
-        4 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<u32>().min_value(0).max_value(6))
-                } else {
-                    tc.draw(gs::integers::<u32>())
-                }
-            })
-        }
-        5 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<u64>().min_value(0).max_value(6))
-                } else {
-                    tc.draw(gs::integers::<u64>())
-                }
-            })
-        }
-        6 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<i8>().min_value(-3).max_value(3))
-                } else {
-                    tc.draw(gs::integers::<i8>())
-                }
-            })
-        }
-        7 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<i16>().min_value(-3).max_value(3))
-                } else {
-                    tc.draw(gs::integers::<i16>())
-                }
-            })
-        }
-        8 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<i32>().min_value(-3).max_value(3))
-                } else {
-                    tc.draw(gs::integers::<i32>())
-                }
-            })
-        }
-        9 => {
-            let small_pool = tc.draw(gs::booleans());
-            draw_int(tc, len, |tc| {
-                if small_pool {
-                    tc.draw(gs::integers::<i64>().min_value(-3).max_value(3))
-                } else {
-                    tc.draw(gs::integers::<i64>())
-                }
-            })
-        }
+        2 => draw_int::<u8>(tc, len, 0, 6),
+        3 => draw_int::<u16>(tc, len, 0, 6),
+        4 => draw_int::<u32>(tc, len, 0, 6),
+        5 => draw_int::<u64>(tc, len, 0, 6),
+        6 => draw_int::<i8>(tc, len, -3, 3),
+        7 => draw_int::<i16>(tc, len, -3, 3),
+        8 => draw_int::<i32>(tc, len, -3, 3),
+        9 => draw_int::<i64>(tc, len, -3, 3),
         10 => draw_primitive(tc, len, draw_f16, LogicalValue::F16),
         11 => draw_primitive(tc, len, draw_f32, LogicalValue::F32),
         12 => draw_primitive(tc, len, draw_f64, LogicalValue::F64),
