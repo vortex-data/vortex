@@ -81,6 +81,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    file_ordinal: u64,
     skip_unselective_dynamic: bool,
 }
 
@@ -95,6 +96,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            file_ordinal: 0,
             skip_unselective_dynamic: false,
         }
     }
@@ -156,6 +158,13 @@ impl ScanBuilder {
         self
     }
 
+    /// Sets the ordinal of the file within a scan of several; see
+    /// [`EngineScanBuilder::with_file_ordinal`].
+    pub fn with_file_ordinal(mut self, file_ordinal: u64) -> Self {
+        self.file_ordinal = file_ordinal;
+        self
+    }
+
     /// Lowers the native layout and prepares the scan without reading payloads.
     pub fn prepare(self) -> VortexResult<PreparedScan> {
         self.into_scan_builder().prepare()
@@ -167,6 +176,7 @@ impl ScanBuilder {
             .with_some_filter(self.filter)
             .with_selection(self.selection)
             .with_row_offset(self.row_offset)
+            .with_file_ordinal(self.file_ordinal)
             .with_skip_unselective_dynamic(self.skip_unselective_dynamic);
         if let Some(rows) = self.row_range {
             builder = builder.with_row_range(rows);

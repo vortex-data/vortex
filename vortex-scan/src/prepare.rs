@@ -43,6 +43,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    file_ordinal: u64,
     skip_unselective_dynamic: bool,
 }
 
@@ -58,6 +59,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            file_ordinal: 0,
             skip_unselective_dynamic: false,
         }
     }
@@ -117,6 +119,13 @@ impl ScanBuilder {
     /// Sets the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
+        self
+    }
+
+    /// Sets the ordinal of the file within a scan of several, which every work scope of the scan
+    /// carries, so a driver of several files knows which file each piece of work reads.
+    pub fn with_file_ordinal(mut self, file_ordinal: u64) -> Self {
+        self.file_ordinal = file_ordinal;
         self
     }
 
@@ -197,6 +206,7 @@ impl ScanBuilder {
             projection,
             filter,
             row_offset: self.row_offset,
+            file_ordinal: self.file_ordinal,
             values,
             chunk_rows,
         })

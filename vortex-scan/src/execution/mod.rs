@@ -95,6 +95,8 @@ pub struct PreparedScan {
     pub(crate) filter: Option<Arc<FilterPlans>>,
     /// The global row index of the root row domain's first row.
     pub(crate) row_offset: u64,
+    /// The ordinal of the file within a scan of several, carried by every work scope.
+    pub(crate) file_ordinal: u64,
     /// Whole values, such as dictionary values, shared by the chunks of this scan. Their plans
     /// always read the same complete row domain, independently of a chunk's selection.
     pub(crate) values: ValueCache,
@@ -111,6 +113,11 @@ impl PreparedScan {
     /// The rows of [`rows`](Self::rows) the scan selects.
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// The ordinal of the file within a scan of several.
+    pub fn file_ordinal(&self) -> u64 {
+        self.file_ordinal
     }
 
     /// The filter's plans, when the scan has a filter.

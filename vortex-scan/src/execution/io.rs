@@ -614,6 +614,7 @@ mod tests {
             projection,
             filter: None,
             row_offset: 0,
+            file_ordinal: 0,
             values,
             chunk_rows: 1,
         });
