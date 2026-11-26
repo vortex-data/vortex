@@ -4,8 +4,8 @@
 //! Comparisons with the float semantics of DuckDB.
 //!
 //! DuckDB makes `-0.0` equal to `+0.0`, makes all `NaN` values equal, and orders `NaN` above all
-//! other values. By default, Vortex orders `NaN` values by sign and payload, so each comparison
-//! that DuckDB pushes down uses [`compare_mode`]. DuckDB does not apply a pushed table filter again, so
+//! other values. By default, Vortex compares the bits of floats, so each comparison that DuckDB
+//! pushes down uses [`compare_mode`]. DuckDB does not apply a pushed table filter again, so
 //! a comparison with other semantics would add or drop rows.
 
 use vortex::dtype::DType;
@@ -19,8 +19,8 @@ use vortex::scalar_fn::builtin::operators::FloatOrder;
 /// The comparison semantics of DuckDB.
 const DUCKDB_MODE: CompareMode = CompareMode::new(FloatOrder::Canonical);
 
-/// Returns the compare mode of DuckDB for operands of `dtype`. It is the `ZerosEqual` mode when
-/// `dtype` holds no floats.
+/// Returns the compare mode of DuckDB for operands of `dtype`. It is the total order when `dtype`
+/// holds no floats.
 pub(super) fn compare_mode(dtype: &DType) -> CompareMode {
     DUCKDB_MODE.for_dtype(dtype)
 }
@@ -38,8 +38,8 @@ pub(super) fn compare(
 /// Returns `lower <(=) input <(=) upper` for operands of `dtype`, as a conjunction of comparisons
 /// in `mode`.
 ///
-/// The `Between` scalar function compares in the `ZerosEqual` mode. Use this function when the compare
-/// mode of `dtype` is a different mode.
+/// The `Between` scalar function compares in total order. Use this function when the compare mode
+/// of `dtype` is a different mode.
 pub(super) fn between_with_mode(
     mode: CompareMode,
     input: Expression,

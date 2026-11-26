@@ -76,7 +76,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::ArrayExprExt;
 use vortex::expr::between;
-use vortex::expr::lt;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::extension::datetime::TimeUnit;
 use vortex::functions::between::BetweenOptions;
@@ -1140,10 +1139,10 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     Ok(())
 }
 
-/// DataFusion compares floats in total order after it replaces `-0.0` with `+0.0`. This is the
-/// default Vortex comparison.
+/// DataFusion compares floats in total order after it replaces `-0.0` with `+0.0`, so a pushed
+/// float comparison makes the zeros equal.
 #[test]
-fn test_float_comparison_uses_default_compare_mode() -> DFResult<()> {
+fn test_float_comparison_uses_datafusion_compare_mode() -> DFResult<()> {
     let schema = Schema::new(vec![Field::new("value", DataType::Float64, false)]);
     let expr = Arc::new(df_expr::BinaryExpr::new(
         Arc::new(df_expr::Column::new("value", 0)),
@@ -1153,7 +1152,12 @@ fn test_float_comparison_uses_default_compare_mode() -> DFResult<()> {
 
     assert_eq!(
         convert(expr, &schema)?,
-        lt(get_item("value", root()), lit(0.0f64)),
+        compare_with_mode(
+            CompareOperator::Lt,
+            CompareMode::new(FloatOrder::ZerosEqual),
+            get_item("value", root()),
+            lit(0.0f64)
+        ),
     );
     Ok(())
 }
