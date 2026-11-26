@@ -985,8 +985,8 @@ public final class JNIWriterTest {
                 writer.abort();
                 writer.abort();
                 assertThrows(IllegalStateException.class, writer::finish);
-                IllegalStateException finishWithMeta = assertThrows(
-                        IllegalStateException.class, () -> writer.finish(Map.of("k", new byte[] {1})));
+                IllegalStateException finishWithMeta =
+                        assertThrows(IllegalStateException.class, () -> writer.finish(Map.of("k", new byte[] {1})));
                 assertTrue(finishWithMeta.getMessage().contains("aborted"));
                 assertThrows(IllegalStateException.class, () -> writer.writeBatch(0L, 0L));
             }
