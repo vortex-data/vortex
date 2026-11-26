@@ -91,24 +91,6 @@ impl<'a> BlockIn<'a> {
         }
     }
 
-    /// The number of rows in the block.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether the block is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// The type of the block's values.
-    #[inline]
-    pub fn ptype(&self) -> PType {
-        self.ptype
-    }
-
     /// The block's values.
     ///
     /// # Panics
@@ -131,18 +113,6 @@ pub struct BlockOut<'a> {
 }
 
 impl<'a> BlockOut<'a> {
-    /// The number of rows the block must receive.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether the block is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     /// Write `f(value)` for each of `input` into the block's next `input.len()` rows.
     ///
     /// # Panics
@@ -203,18 +173,6 @@ pub struct BlockInOut<'a> {
 }
 
 impl<'a> BlockInOut<'a> {
-    /// The number of rows in the block.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether the block is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     /// The block's values, for an op whose input and output types are both `T`.
     ///
     /// # Panics
@@ -259,21 +217,6 @@ pub enum Values<'a> {
 }
 
 impl<'a> Values<'a> {
-    /// The number of rows in the block.
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            Values::Copy { input, .. } => input.len(),
-            Values::InPlace(block) => block.len(),
-        }
-    }
-
-    /// Whether the block is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Write `f(value)` for every value, with the lane kernels level-wise execution uses:
     /// `map_into` from the input, or `map_into_in_place` over the block itself, writing each
     /// output's bits over its input when the type changes but the width does not.
@@ -332,18 +275,6 @@ impl<'a> BlockValidity<'a> {
         }
     }
 
-    /// The number of rows in the block.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether the block is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     /// Whether `row`, counted from the block's first row, is valid.
     #[inline]
     pub fn is_valid(&self, row: usize) -> bool {
@@ -380,18 +311,6 @@ pub struct Block<'a> {
 }
 
 impl<'a> Block<'a> {
-    /// The number of rows in the block.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    /// Whether the block is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Write `f(value)` for every value, leaving validity as it is. See [`Values::map`].
     #[inline]
     pub fn map<S: NativePType, T: NativePType>(self, f: impl Fn(S) -> T) -> Written<'a> {
