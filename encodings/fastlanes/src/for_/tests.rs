@@ -11,6 +11,7 @@ use rstest::rstest;
 use vortex_array::Array;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::Accumulator;
@@ -18,15 +19,19 @@ use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
+use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::smallvec::smallvec;
 use vortex_array::test_harness::trace::trace_op;
@@ -35,6 +40,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
@@ -357,9 +363,10 @@ fn fused_decode_sliced(
     Ok(())
 }
 
-/// Fused decode over a BitPacked child equals `encoded.wrapping_add(reference)` per element, for
-/// every integer type, with references anywhere in the type's range, with or without patches,
-/// nulls, and per-chunk references.
+/// Fused decode and every blocked compute kernel (`filter`, `take`, `compare`, `is_constant`,
+/// `is_sorted`, `is_strict_sorted`) over a BitPacked child match `encoded.wrapping_add(reference)`
+/// for every integer type, with references anywhere in the type's range, with or without patches,
+/// nulls, zero bit-width, slices, and per-chunk references.
 #[hegel::test]
 fn fused_decode_is_wrapping_add(tc: TestCase) {
     match tc.draw(gs::integers::<u8>().max_value(7)) {
@@ -384,7 +391,7 @@ where
     // Keep one bit free so an outlier up to `2 << bit_width` stays non-negative.
     let bit_width: u8 = tc.draw(
         gs::integers()
-            .min_value(1)
+            .min_value(0)
             .max_value(T::PTYPE.bit_width() as u8 - 2),
     );
     let fits = T::one() << usize::from(bit_width);
@@ -444,17 +451,87 @@ where
             0,
         )?
     };
+    let array = array.into_array();
+    let expected = expected.into_array();
     assert_arrays_eq!(array, expected, &mut ctx);
+    check_blocked_kernels::<T>(tc, &array, &expected, &mut ctx)?;
 
     // A slice keeps the fused path with a global width and no patches, and takes the unfused one
     // otherwise.
     let start = tc.draw(gs::integers().min_value(0).max_value(len));
     let end = tc.draw(gs::integers().min_value(start).max_value(len));
-    assert_arrays_eq!(
-        array.into_array().slice(start..end)?,
-        expected.into_array().slice(start..end)?,
-        &mut ctx
+    let sliced = array.slice(start..end)?.optimize_ctx(&SESSION)?;
+    let expected_sliced = expected.slice(start..end)?;
+    assert_arrays_eq!(sliced, expected_sliced, &mut ctx);
+    check_blocked_kernels::<T>(tc, &sliced, &expected_sliced, &mut ctx)?;
+    Ok(())
+}
+
+fn check_blocked_kernels<T>(
+    tc: &TestCase,
+    array: &ArrayRef,
+    expected: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    T: NativePType + gs::Integer + 'static,
+    Scalar: From<T>,
+{
+    let len = array.len();
+
+    // is_constant, is_sorted, is_strict_sorted
+    assert_eq!(is_constant(array, ctx)?, is_constant(expected, ctx)?);
+    assert_eq!(is_sorted(array, ctx)?, is_sorted(expected, ctx)?);
+    assert_eq!(
+        is_strict_sorted(array, ctx)?,
+        is_strict_sorted(expected, ctx)?
     );
+
+    // compare against a constant (every operator), drawing either an arbitrary value or an
+    // existing element so both pruned and matching/boundary chunks are exercised.
+    let rhs_val: T = if len > 0 && tc.draw(gs::booleans()) {
+        let pick = tc.draw(gs::integers::<usize>().min_value(0).max_value(len - 1));
+        expected
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?
+            .as_slice::<T>()[pick]
+    } else {
+        tc.draw(gs::integers::<T>())
+    };
+    let rhs = ConstantArray::new(Scalar::from(rhs_val), len).into_array();
+    for op in [
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte,
+    ] {
+        assert_arrays_eq!(
+            array.compare(rhs.clone(), op)?,
+            expected.compare(rhs.clone(), op)?,
+            ctx
+        );
+    }
+
+    // filter with a repeated boolean pattern
+    let mask_pattern: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(1).max_size(16));
+    let mask = Mask::from_iter(mask_pattern.into_iter().cycle().take(len));
+    assert_arrays_eq!(array.filter(mask.clone())?, expected.filter(mask)?, ctx);
+
+    // take with nullable u32 indices
+    if len > 0 {
+        let max_idx = u32::try_from(len - 1)?;
+        let indices: Vec<Option<u32>> = tc.draw(
+            gs::vecs(gs::optional(
+                gs::integers::<u32>().min_value(0).max_value(max_idx),
+            ))
+            .max_size(32),
+        );
+        let idx = PrimitiveArray::from_option_iter(indices).into_array();
+        assert_arrays_eq!(array.take(idx.clone())?, expected.take(idx)?, ctx);
+    }
+
     Ok(())
 }
 

@@ -14,6 +14,9 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::runend::compress::runend_encode;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_signed_integer_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -25,6 +28,7 @@ use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
@@ -365,17 +369,14 @@ fn has_negative_residuals(residuals: &PrimitiveArray, exec_ctx: &mut ExecutionCt
     if !residuals.ptype().is_signed_int() {
         return false;
     }
-    vortex_array::match_each_signed_integer_ptype!(residuals.ptype(), |T| {
+    match_each_signed_integer_ptype!(residuals.ptype(), |T| {
         has_negative_typed::<T>(residuals, exec_ctx)
     })
 }
 
 fn has_negative_typed<T>(residuals: &PrimitiveArray, exec_ctx: &mut ExecutionCtx) -> bool
 where
-    T: vortex_array::dtype::NativePType
-        + PartialOrd
-        + Default
-        + for<'a> TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>,
+    T: NativePType + PartialOrd + Default + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
 {
     residuals
         .as_ref()
