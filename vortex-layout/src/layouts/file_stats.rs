@@ -276,7 +276,8 @@ impl AggregateStat {
     }
 
     fn approx_resident_bytes(&self) -> usize {
-        self.aggregate_fn.approx_resident_bytes()
+        self.aggregate_fn
+            .approx_resident_bytes()
             .saturating_add(self.partial.as_ref().map_or(0, scalar_approx_bytes))
             .saturating_add(match &self.value {
                 Precision::Exact(value) | Precision::Inexact(value) => scalar_approx_bytes(value),

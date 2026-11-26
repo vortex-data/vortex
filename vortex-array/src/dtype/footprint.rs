@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Estimates retained heap storage for DType graphs.
+//! Estimates retained heap storage for [`DType`] graphs.
 //!
 //! Lazy fields are projected from their wire representation without resolving them. Sharing is
-//! deduplicated within one graph, but not across separate estimates; allocator bookkeeping, Arc
+//! deduplicated within one graph, but not across separate estimates. Allocator bookkeeping, Arc
 //! control blocks, and hidden extension allocations are omitted.
 
 use std::mem::size_of;
@@ -19,7 +19,6 @@ use crate::dtype::FieldName;
 use crate::dtype::MapDType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
-use crate::dtype::serde::flatbuffers::ViewedDType;
 use crate::flatbuffers::dtype as fbd;
 
 impl DType {
@@ -153,7 +152,7 @@ impl DTypeFootprint {
                 let mut bytes = StructFields::projected_footprint_bytes(count);
                 if let Some(names) = names {
                     for name in names.iter().take(count) {
-                        bytes = bytes.saturating_add(self.serialized_name(name));
+                        bytes = bytes.saturating_add(Self::serialized_name(name));
                     }
                 }
                 if let Some(dtypes) = dtypes {
@@ -178,7 +177,7 @@ impl DTypeFootprint {
                 let mut bytes = UnionVariants::projected_footprint_bytes(count);
                 if let Some(names) = names {
                     for name in names.iter().take(count) {
-                        bytes = bytes.saturating_add(self.serialized_name(name));
+                        bytes = bytes.saturating_add(Self::serialized_name(name));
                     }
                 }
                 if let Some(dtypes) = dtypes {
@@ -205,10 +204,7 @@ impl DTypeFootprint {
             fbd::Type::Map => dtype.type__as_map().map_or(0, |map| {
                 MapDType::projected_footprint_bytes()
                     .saturating_add(size_of::<OnceLock<DType>>().saturating_mul(2))
-                    .saturating_add(
-                        map.key_type()
-                            .map_or(0, |key| self.serialized_dtype(key)),
-                    )
+                    .saturating_add(map.key_type().map_or(0, |key| self.serialized_dtype(key)))
                     .saturating_add(
                         map.value_type()
                             .map_or(0, |value| self.serialized_dtype(value)),
@@ -230,19 +226,23 @@ impl DTypeFootprint {
 
     fn name(&mut self, name: &FieldName) -> usize {
         let identity = Arc::as_ptr(name.inner()) as *const ();
-        self.names
-            .insert(identity)
-            .then_some(name.as_ref().len())
-            .unwrap_or_default()
+        if self.names.insert(identity) {
+            name.as_ref().len()
+        } else {
+            0
+        }
     }
 
-    fn serialized_name(&mut self, name: &str) -> usize {
+    fn serialized_name(name: &str) -> usize {
         name.len()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex_session::VortexSession;
+
+    use super::DTypeFootprint;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -250,7 +250,6 @@ mod tests {
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ForeignExtDType;
     use crate::flatbuffers::WriteFlatBufferExt;
-    use vortex_session::VortexSession;
 
     #[test]
     fn test_shared_dtype_dag_scales_with_owners() {
@@ -268,15 +267,15 @@ mod tests {
             )
         });
 
-        assert!(
-            shared.approx_resident_bytes()
-                <= linear.approx_resident_bytes().saturating_mul(3)
-        );
+        assert!(shared.approx_resident_bytes() <= linear.approx_resident_bytes().saturating_mul(3));
     }
 
     #[test]
     fn test_sizing_does_not_resolve_unknown_lazy_extension() -> vortex_error::VortexResult<()> {
-        #[expect(clippy::disallowed_methods, reason = "constructing a test extension ID")]
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "constructing a test extension ID"
+        )]
         let id = ExtId::new("test.unknown-footprint");
         let extension = ForeignExtDType::from_parts(id, vec![1; 4096], DType::Null)?;
         let dtype = DType::Struct(
@@ -304,9 +303,7 @@ mod tests {
 
     #[test]
     fn test_serialized_names_are_counted_per_occurrence() {
-        let mut footprint = DTypeFootprint::default();
-
-        assert_eq!(footprint.serialized_name("shared"), "shared".len());
-        assert_eq!(footprint.serialized_name("shared"), "shared".len());
+        assert_eq!(DTypeFootprint::serialized_name("shared"), "shared".len());
+        assert_eq!(DTypeFootprint::serialized_name("shared"), "shared".len());
     }
 }

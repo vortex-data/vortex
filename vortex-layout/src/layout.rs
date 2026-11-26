@@ -24,6 +24,14 @@ use crate::LayoutReaderRef;
 use crate::children::LayoutChildren;
 use crate::display::DisplayLayoutTree;
 use crate::display::display_tree_with_segment_sizes;
+use crate::layouts::chunked::Chunked;
+use crate::layouts::dict::Dict;
+use crate::layouts::flat::Flat;
+use crate::layouts::indexed::Indexed;
+use crate::layouts::list::List;
+use crate::layouts::struct_::Struct;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 use crate::plan::physical::PlanRef;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -90,22 +98,14 @@ struct LayoutInner<V: VTable> {
 
 pub(crate) fn max_core_layout_allocation_size() -> usize {
     [
-        size_of::<Layout<crate::layouts::chunked::Chunked>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::chunked::Chunked>>()),
-        size_of::<Layout<crate::layouts::dict::Dict>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::dict::Dict>>()),
-        size_of::<Layout<crate::layouts::flat::Flat>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::flat::Flat>>()),
-        size_of::<Layout<crate::layouts::indexed::Indexed>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::indexed::Indexed>>()),
-        size_of::<Layout<crate::layouts::list::List>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::list::List>>()),
-        size_of::<Layout<crate::layouts::struct_::Struct>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::struct_::Struct>>()),
-        size_of::<Layout<crate::layouts::zoned::LegacyStats>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::zoned::LegacyStats>>()),
-        size_of::<Layout<crate::layouts::zoned::Zoned>>()
-            .saturating_add(size_of::<LayoutInner<crate::layouts::zoned::Zoned>>()),
+        size_of::<Layout<Chunked>>().saturating_add(size_of::<LayoutInner<Chunked>>()),
+        size_of::<Layout<Dict>>().saturating_add(size_of::<LayoutInner<Dict>>()),
+        size_of::<Layout<Flat>>().saturating_add(size_of::<LayoutInner<Flat>>()),
+        size_of::<Layout<Indexed>>().saturating_add(size_of::<LayoutInner<Indexed>>()),
+        size_of::<Layout<List>>().saturating_add(size_of::<LayoutInner<List>>()),
+        size_of::<Layout<Struct>>().saturating_add(size_of::<LayoutInner<Struct>>()),
+        size_of::<Layout<LegacyStats>>().saturating_add(size_of::<LayoutInner<LegacyStats>>()),
+        size_of::<Layout<Zoned>>().saturating_add(size_of::<LayoutInner<Zoned>>()),
     ]
     .into_iter()
     .max()

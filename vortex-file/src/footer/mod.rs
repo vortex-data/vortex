@@ -54,6 +54,9 @@ pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
 /// file. With [`MAX_METADATA_SEGMENTS`] keys this bounds the postscript key budget at 1 KiB.
 pub(crate) const MAX_METADATA_KEY_BYTES: usize = 64;
 
+/// Fallback cache weight in bytes for footers constructed or mutated outside the file parser.
+const DEFAULT_CACHE_WEIGHT_BYTES: usize = 64 * 1024;
+
 /// User-defined metadata segment locators stored as `(key, locator)` pairs.
 pub(crate) type MetadataSegments = Arc<[(String, SegmentSpec)]>;
 
@@ -173,15 +176,13 @@ impl Footer {
                     .map_or(0, FileStatistics::approx_resident_bytes),
             )
             .saturating_add(segments.len().saturating_mul(size_of::<SegmentSpec>()))
-            .saturating_add(
-                if Arc::ptr_eq(&segments, &segments_with_metadata) {
-                    0
-                } else {
-                    segments_with_metadata
-                        .len()
-                        .saturating_mul(size_of::<SegmentSpec>())
-                },
-            )
+            .saturating_add(if Arc::ptr_eq(&segments, &segments_with_metadata) {
+                0
+            } else {
+                segments_with_metadata
+                    .len()
+                    .saturating_mul(size_of::<SegmentSpec>())
+            })
             .saturating_add(
                 metadata
                     .iter()
@@ -299,7 +300,8 @@ impl Footer {
     /// measured exactly. Visible buffer and scalar byte lengths are proxies for backing capacity
     /// and can under- or overestimate it.
     pub fn cache_weight_bytes(&self) -> usize {
-        self.approx_cache_byte_size.unwrap_or(64 * 1024)
+        self.approx_cache_byte_size
+            .unwrap_or(DEFAULT_CACHE_WEIGHT_BYTES)
     }
 
     /// Returns the number of rows in the file.
@@ -429,8 +431,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parsed_wide_footer_has_a_cache_weight_separate_from_serialized_size()
-    -> VortexResult<()> {
+    fn test_parsed_wide_footer_has_a_cache_weight_separate_from_serialized_size() -> VortexResult<()>
+    {
         let dtype = DType::Struct(
             StructFields::from_iter((0..1024).map(|index| {
                 (
@@ -440,13 +442,8 @@ mod tests {
             })),
             Nullability::NonNullable,
         );
-        let layout = FlatLayout::new(
-            1,
-            dtype,
-            SegmentId::from(0),
-            ReadContext::new([]),
-        )
-        .into_layout();
+        let layout =
+            FlatLayout::new(1, dtype, SegmentId::from(0), ReadContext::new([])).into_layout();
         let session = VortexSession::empty().with::<LayoutSession>();
         let parts = Footer::new(
             layout,
@@ -494,14 +491,12 @@ mod tests {
             .with_approx_byte_size(17);
         footer.approx_cache_byte_size = Some(123);
 
-        let footer = footer.with_metadata_segments(Arc::from([(
-            "metadata.key".to_string(),
-            segment(0, 1),
-        )]));
+        let footer =
+            footer.with_metadata_segments(Arc::from([("metadata.key".to_string(), segment(0, 1))]));
 
         assert_eq!(footer.approx_byte_size(), Some(17));
         assert_eq!(footer.approx_cache_byte_size, None);
-        assert_eq!(footer.cache_weight_bytes(), 64 * 1024);
+        assert_eq!(footer.cache_weight_bytes(), DEFAULT_CACHE_WEIGHT_BYTES);
     }
 
     #[test]

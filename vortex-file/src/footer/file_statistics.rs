@@ -68,9 +68,13 @@ pub struct FileStatistics {
 }
 
 impl FileStatistics {
-    /// Estimates statistics storage; Footer accounts for the root dtype and inline wrapper.
+    /// Estimates statistics storage, while [`Footer`](super::Footer) accounts for the root dtype
+    /// and inline wrapper.
     pub(crate) fn approx_resident_bytes(&self) -> usize {
-        let mut bytes = self.aggregates.len().saturating_mul(size_of::<AggregateStats>());
+        let mut bytes = self
+            .aggregates
+            .len()
+            .saturating_mul(size_of::<AggregateStats>());
         bytes = bytes
             .saturating_add(
                 self.aggregates
@@ -650,11 +654,13 @@ mod tests {
     fn test_field_path_projection_counts_nested_selector_storage() {
         let short_names = FieldPath::from_name("a").push("b");
         let long_names = FieldPath::from_name("a_long_top_level_name").push("long_nested_field");
-        let expected_selector_bytes =
-            short_names.parts().len() * size_of::<vortex_array::dtype::Field>();
+        let expected_selector_bytes = size_of_val(short_names.parts());
 
         assert!(short_names.approx_resident_bytes() >= expected_selector_bytes);
-        assert_eq!(short_names.approx_resident_bytes(), long_names.approx_resident_bytes());
+        assert_eq!(
+            short_names.approx_resident_bytes(),
+            long_names.approx_resident_bytes()
+        );
     }
 
     #[test]

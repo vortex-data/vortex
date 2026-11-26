@@ -197,23 +197,20 @@ async fn test_eof_values() {
 
 #[test]
 fn test_opens_file_with_unregistered_extension_in_unread_field() -> VortexResult<()> {
-    #[expect(clippy::disallowed_methods, reason = "constructing a test extension ID")]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "constructing a test extension ID"
+    )]
     let id = ExtId::new("test.unregistered-unread-field");
     let extension = ForeignExtDType::from_parts(id, vec![1; 4096], DType::Null)?;
     let dtype = DType::Struct(
         StructFields::from_iter([
-            ("projected", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ("projected", DType::Primitive(I32, Nullability::NonNullable)),
             ("unread", DType::Extension(extension)),
         ]),
         Nullability::NonNullable,
     );
-    let layout = FlatLayout::new(
-        1,
-        dtype,
-        SegmentId::from(0),
-        ReadContext::new([]),
-    )
-    .into_layout();
+    let layout = FlatLayout::new(1, dtype, SegmentId::from(0), ReadContext::new([])).into_layout();
     let footer = Footer::new(
         layout,
         Arc::from([SegmentSpec {
@@ -245,7 +242,7 @@ fn test_opens_file_with_unregistered_extension_in_unread_field() -> VortexResult
     assert_eq!(projected.nfields(), 1);
     assert_eq!(
         projected.field("projected"),
-        Some(DType::Primitive(PType::I32, Nullability::NonNullable))
+        Some(DType::Primitive(I32, Nullability::NonNullable))
     );
     Ok(())
 }
@@ -3055,8 +3052,8 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
         StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
     let small = ByteBuffer::copy_from(b"{\"source\":\"test\"}");
     let large = ByteBuffer::copy_from(vec![7u8; usize::from(MAX_POSTSCRIPT_SIZE) + 1024]);
-    let empty = ByteBuffer::empty_aligned(vortex_buffer::Alignment::new(16));
-    let aligned = ByteBuffer::copy_from_aligned(b"aligned", vortex_buffer::Alignment::new(64));
+    let empty = ByteBuffer::empty_aligned(Alignment::new(16));
+    let aligned = ByteBuffer::copy_from_aligned(b"aligned", Alignment::new(64));
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -3091,7 +3088,7 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
         segments_end,
         summary.footer().metadata_segment("large").unwrap().offset + large.len() as u64
     );
-    let mut deserializer = crate::Footer::deserializer(
+    let mut deserializer = Footer::deserializer(
         ByteBuffer::copy_from(&bytes[segments_end as usize..]),
         SESSION.clone(),
     )
@@ -3122,7 +3119,7 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     );
     let resolved_aligned = file.metadata_segment("aligned").vortex_expect("aligned");
     assert_eq!(resolved_aligned.as_slice(), aligned.as_slice());
-    assert!(resolved_aligned.is_aligned(vortex_buffer::Alignment::new(64)));
+    assert!(resolved_aligned.is_aligned(Alignment::new(64)));
     assert!(file.metadata_segment("missing").is_none());
 
     // Resolved values are copied out, not sliced from the file buffer.
@@ -3840,7 +3837,7 @@ async fn test_segment_ordering_zonemaps_after_data(
             .all(|offset| *offset < segments_end)
     );
     assert_eq!(buf.len() as u64, summary.size());
-    let mut deserializer = crate::Footer::deserializer(
+    let mut deserializer = Footer::deserializer(
         ByteBuffer::copy_from(&buf[segments_end as usize..]),
         SESSION.clone(),
     )

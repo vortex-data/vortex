@@ -24,8 +24,8 @@ use crate::LayoutContext;
 use crate::LayoutDeserialization;
 use crate::LayoutRef;
 use crate::VTable;
-use crate::children::approx_viewed_children_bytes;
 use crate::children::ViewedLayoutChildren;
+use crate::children::approx_viewed_children_bytes;
 use crate::flatbuffers::layout;
 use crate::layouts::chunked::Chunked;
 use crate::layouts::foreign::new_foreign_layout;
@@ -66,8 +66,8 @@ pub fn layout_from_flatbuffer(
 /// their own metadata and child state. This deliberately estimates common built-in storage rather
 /// than introspecting plugin-owned allocations. Metadata payload lengths provide a copy allowance
 /// for built-in state. Allocator bookkeeping, Arc control blocks, and hidden plugin heap are
-/// omitted; sharing between cached footers may be overcounted. This standalone estimate verifies
-/// the FlatBuffer independently; normal layout deserialization verifies it again.
+/// omitted, and sharing between cached footers may be overcounted. This standalone estimate
+/// verifies the FlatBuffer independently, so normal layout deserialization verifies it again.
 pub fn approx_layout_cache_bytes(flatbuffer: &FlatBuffer, layout_ctx: &ReadContext) -> usize {
     let Ok(root) = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, flatbuffer.as_ref()) else {
         return flatbuffer.len();
@@ -85,13 +85,15 @@ pub fn approx_layout_cache_bytes(flatbuffer: &FlatBuffer, layout_ctx: &ReadConte
         nodes = nodes.saturating_add(1);
         let node_children = node.children();
         let child_count = node_children.as_ref().map_or(0, |children| children.len());
-        child_storage_bytes = child_storage_bytes
-            .saturating_add(approx_viewed_children_bytes(child_count));
-        segments = segments
-            .saturating_add(node.segments().map_or(0, |segments| segments.len()));
-        metadata_bytes = metadata_bytes
-            .saturating_add(node.metadata().map_or(0, |metadata| metadata.len()));
-        if layout_ctx.resolve(node.encoding()).is_some_and(|id| id == chunked_id) {
+        child_storage_bytes =
+            child_storage_bytes.saturating_add(approx_viewed_children_bytes(child_count));
+        segments = segments.saturating_add(node.segments().map_or(0, |segments| segments.len()));
+        metadata_bytes =
+            metadata_bytes.saturating_add(node.metadata().map_or(0, |metadata| metadata.len()));
+        if layout_ctx
+            .resolve(node.encoding())
+            .is_some_and(|id| id == chunked_id)
+        {
             chunk_offsets = chunk_offsets.saturating_add(child_count.saturating_add(1));
         }
         if let Some(node_children) = node_children {
@@ -489,17 +491,16 @@ mod tests {
         let minimum = flatbuffer
             .len()
             .saturating_add(2 * METADATA_BYTES)
-            .saturating_add(2 * std::mem::size_of::<u32>())
-            .saturating_add(2 * std::mem::size_of::<u64>());
+            .saturating_add(2 * size_of::<u32>())
+            .saturating_add(2 * size_of::<u64>());
         let without_chunk_offsets =
             super::approx_layout_cache_bytes(&flatbuffer, &ReadContext::new([]));
-        let with_chunk_offsets =
-            super::approx_layout_cache_bytes(&flatbuffer, &layout_context);
+        let with_chunk_offsets = super::approx_layout_cache_bytes(&flatbuffer, &layout_context);
 
         assert!(with_chunk_offsets >= minimum);
         assert_eq!(
             with_chunk_offsets,
-            without_chunk_offsets + 2 * std::mem::size_of::<u64>()
+            without_chunk_offsets + 2 * size_of::<u64>()
         );
         Ok(())
     }

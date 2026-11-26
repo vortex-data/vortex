@@ -106,19 +106,13 @@ mod tests {
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
+    use super::*;
     use crate::footer::DeserializeStep;
     use crate::footer::SegmentSpec;
 
-    use super::*;
-
     fn footer() -> Footer {
-        let layout = FlatLayout::new(
-            0,
-            DType::Null,
-            SegmentId::from(0),
-            ReadContext::new([]),
-        )
-        .into_layout();
+        let layout =
+            FlatLayout::new(0, DType::Null, SegmentId::from(0), ReadContext::new([])).into_layout();
         Footer::new(layout, Arc::from([]), None, ReadContext::new([]))
     }
 
@@ -132,13 +126,8 @@ mod tests {
             })),
             Nullability::NonNullable,
         );
-        let layout = FlatLayout::new(
-            1,
-            dtype,
-            SegmentId::from(0),
-            ReadContext::new([]),
-        )
-        .into_layout();
+        let layout =
+            FlatLayout::new(1, dtype, SegmentId::from(0), ReadContext::new([])).into_layout();
         let session = VortexSession::empty().with::<LayoutSession>();
         let parts = Footer::new(
             layout,
@@ -194,8 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn test_footer_cache_evicts_wide_footers_at_its_byte_limit()
-    -> vortex_error::VortexResult<()> {
+    fn test_footer_cache_evicts_wide_footers_at_its_byte_limit() -> vortex_error::VortexResult<()> {
         let session = MultiFileSession::default();
         let footer = parsed_wide_footer()?;
         let entry_weight = u64::try_from(footer.cache_weight_bytes())?;
