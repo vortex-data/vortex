@@ -30,6 +30,8 @@ ignore:
   - "**/conformance/**"
   - "**/test_harness/**"
   - "**/test_harness.rs"
+  - "**/test_utils.rs"
+  - "**/testing.rs"
   - "**/arbitrary/**"
   - "**/arbitrary.rs"
   - "**/generated/**"

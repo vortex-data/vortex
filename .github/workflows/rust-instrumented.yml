@@ -116,6 +116,7 @@ jobs:
             --ignore '*/tests/*' --ignore '*/tests.rs' --ignore '*/test.rs' \
             --ignore '*/e2e_test/*' --ignore '*_tests.rs' --ignore '*_test.rs' \
             --ignore '*/conformance/*' --ignore '*/test_harness/*' --ignore '*/test_harness.rs' \
+            --ignore '*/test_utils.rs' --ignore '*/testing.rs' \
             --ignore '*/generated/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
           test -s ${{ env.GRCOV_OUTPUT_FILE }}
