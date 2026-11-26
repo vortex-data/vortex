@@ -197,6 +197,10 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
             Some(list_array) => list_array.into_owned(),
             None => list_from_list_view(typed_value.execute::<ListViewArray>(ctx)?, ctx)?,
         };
+
+        // A sliced list keeps elements that no row uses. Remove them, so that each element
+        // has the metadata of a row and no work is done for unused elements.
+        let list_array = list_array.reset_offsets(false, ctx)?;
         let elements = list_array.elements().clone();
         let element_metadata =
             element_metadata(metadata, list_array.offsets(), elements.len(), ctx)?;
@@ -376,9 +380,9 @@ fn inferred_shredded_field_validity(
 /// Arrow, where [`parquet_variant_compute::unshred_variant`] merges it back with the residual
 /// `value`.
 ///
-/// `forward` then `inverse` is structure-preserving for the shapes canonicalization produces;
-/// fields the forward transform omitted (Parquet wrapper shells with no `typed_value`) are served
-/// from the residual `value` and are intentionally not reconstructed here.
+/// `forward` then `inverse` is structure-preserving for the shapes canonicalization produces.
+/// A Parquet wrapper shell with only a `value` column becomes a nested unshredded Variant in the
+/// forward transform, and this changes it back to a `value`-only shell.
 pub(crate) fn parquet_typed_value_from_logical_shredded(
     shredded: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -425,8 +429,10 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
     .into_array())
 }
 
-/// Reconstructs one Parquet shredded field shell (`{value?, typed_value}`) from its canonical
+/// Reconstructs one Parquet shredded field shell (`{value?, typed_value?}`) from its canonical
 /// representation, the inverse of [`logical_shredded_from_parquet_field`].
+///
+/// A nested Variant with no shredded tree gives a shell with only a `value` column.
 fn parquet_shredded_field_from_logical(
     logical_field: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -537,6 +543,7 @@ impl<T: TypedArrayRef<ParquetVariant>> ParquetVariantArrayExt for T {}
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -849,12 +856,15 @@ mod tests {
     /// Each list element reads the metadata of the row that holds it. The lists differ in length
     /// and hold objects whose field names differ, so every row has its own metadata dictionary and
     /// field `p` has another ID in the first row than in the last. Filtering makes the shredded
-    /// list lazy, so canonicalizing must execute it first.
+    /// list lazy, so canonicalizing must execute it first. Slicing keeps elements that no row
+    /// uses, and an empty slice has no metadata for them.
     #[rstest]
-    #[case::list(false)]
-    #[case::filtered(true)]
+    #[case::list(Rows::All)]
+    #[case::filtered(Rows::Filtered)]
+    #[case::sliced(Rows::Slice(1..3))]
+    #[case::empty_slice(Rows::Slice(1..1))]
     fn canonical_reads_list_elements_with_their_row_metadata(
-        #[case] filtered: bool,
+        #[case] rows: Rows,
     ) -> VortexResult<()> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
             r#"{"tags":[{"p":1},{"p":2},"x"]}"#,
@@ -866,23 +876,26 @@ mod tests {
             .with_path("tags", &list_type)?
             .build();
         let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
-        let mut array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
-        if filtered {
-            array = array.filter(Mask::from_iter([true, false, true]))?;
-        }
+        let array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let array = match rows {
+            Rows::All => array,
+            Rows::Filtered => array.filter(Mask::from_iter([true, false, true]))?,
+            Rows::Slice(range) => array.slice(range)?,
+        };
 
         let mut ctx = SESSION.create_execution_ctx();
         let canonical = array.clone().execute::<Canonical>(&mut ctx)?.into_array();
 
-        assert_eq!(canonical.len(), array.len());
-        for row in 0..array.len() {
-            assert_eq!(
-                canonical.execute_scalar(row, &mut ctx)?,
-                array.execute_scalar(row, &mut ctx)?,
-                "row {row}"
-            );
-        }
+        assert_arrays_eq!(canonical, array, &mut ctx);
         Ok(())
+    }
+
+    /// The rows of the input that a test case keeps.
+    #[derive(Debug)]
+    enum Rows {
+        All,
+        Filtered,
+        Slice(Range<usize>),
     }
 
     #[test]
