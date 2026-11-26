@@ -48,3 +48,7 @@ harness = false
 name = "expr_optimize"
 path = "benches/optimize.rs"
 harness = false
+
+[[bench]]
+name = "stats_rewrite"
+harness = false
