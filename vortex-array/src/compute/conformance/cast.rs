@@ -13,7 +13,6 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
-use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
@@ -113,9 +112,16 @@ fn test_cast_from_null(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
 /// Build the expected result of casting `array` to `target_dtype` via `Scalar::cast`.
 fn expected_cast_array(array: &ArrayRef, target_dtype: &DType, ctx: &mut ExecutionCtx) -> ArrayRef {
-    let mut expected_builder = builder_with_capacity_in(target_dtype, array.len(), ctx.allocator());
-    for i in 0..array.len() {
-        let casted_scalar = array
+    let canonical = array
+        .clone()
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("canonical execution should succeed in conformance test")
+        .0
+        .into_array();
+    let mut expected_builder =
+        builder_with_capacity_in(target_dtype, canonical.len(), ctx.allocator());
+    for i in 0..canonical.len() {
+        let casted_scalar = canonical
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
             .cast(target_dtype)
@@ -270,12 +276,7 @@ fn test_cast_to_primitive(
             .vortex_expect("Failed to compute validity mask")
     );
 
-    let canonical_source = array
-        .clone()
-        .execute::<PrimitiveArray>(ctx)
-        .vortex_expect("primitive array should canonicalize in conformance test")
-        .into_array();
-    let expected = expected_cast_array(&canonical_source, &target_dtype, ctx);
+    let expected = expected_cast_array(array, &target_dtype, ctx);
     assert_arrays_eq!(casted, expected, ctx);
 
     if test_round_trip {
