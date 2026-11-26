@@ -39,6 +39,10 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]
+name = "alp_chain_decode"
+harness = false
+
+[[bench]]
 name = "alp_compress"
 harness = false
 
