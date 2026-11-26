@@ -29,6 +29,7 @@ datafusion = { workspace = true, features = ["parquet"] }
 datafusion-functions-nested.workspace = true
 futures = { workspace = true }
 indicatif = { workspace = true }
+tempfile = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 vortex-datafusion = { workspace = true }
 

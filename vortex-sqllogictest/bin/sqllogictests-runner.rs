@@ -12,19 +12,23 @@ use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
+use datafusion_sqllogictest::DFColumnType;
 use datafusion_sqllogictest::DataFusion;
 use datafusion_sqllogictest::df_value_validator;
 use datafusion_sqllogictest::value_normalizer;
+use futures::StreamExt;
 use indicatif::ProgressBar;
 use sqllogictest::Runner;
 use sqllogictest::harness::Arguments;
 use sqllogictest::harness::Failed;
 use sqllogictest::harness::Trial;
+use sqllogictest::parse_file;
 use sqllogictest::strict_column_validator;
 use vortex::VortexSessionDefault;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
 use vortex::session::VortexSession;
+use vortex::utils::parallelism::get_available_parallelism;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 use vortex_sqllogictest::duckdb::DuckDB;
@@ -34,6 +38,8 @@ use vortex_sqllogictest::normalize::WORK_DIR_VAR;
 use vortex_sqllogictest::scratch::WorkDirGuard;
 use vortex_sqllogictest::scratch::reset_dir;
 use vortex_sqllogictest::scratch::work_dir_for;
+use vortex_sqllogictest::split::Fragment;
+use vortex_sqllogictest::split::split_glob_includes;
 use vortex_sqllogictest::utils::list_files;
 
 static SLT_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
@@ -91,20 +97,110 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
         datafusion_functions_nested::register_all(&mut session_state)?;
         let session = SessionContext::new_with_state(session_state).enable_url_table();
 
-        let mut runner = Runner::new(|| async {
-            Ok(PathNormalizing::new(
-                DataFusion::new(session.clone(), path.to_path_buf(), ProgressBar::hidden()),
-                work_dir.clone(),
-            ))
-        });
-        runner.set_var(WORK_DIR_VAR.to_string(), work_dir.clone());
-        runner.add_label("datafusion");
-        runner.with_column_validator(strict_column_validator);
-        runner.with_normalizer(value_normalizer);
-        runner.with_validator(df_value_validator);
+        // Every runner connects to the same session, so the tables one runner
+        // creates are visible to the others.
+        let new_runner = || {
+            let session = session.clone();
+            let path = path.to_path_buf();
+            let conn_work_dir = work_dir.clone();
+            let mut runner = Runner::new(move || {
+                let conn = PathNormalizing::new(
+                    DataFusion::new(session.clone(), path.clone(), ProgressBar::hidden()),
+                    conn_work_dir.clone(),
+                );
+                async move { Ok(conn) }
+            });
+            runner.set_var(WORK_DIR_VAR.to_string(), work_dir.clone());
+            runner.add_label("datafusion");
+            runner.with_column_validator(strict_column_validator);
+            runner.with_normalizer(value_normalizer);
+            runner.with_validator(df_value_validator);
+            runner
+        };
 
-        run_or_complete(&mut runner, path, mode, df_value_validator).await
+        match mode {
+            Mode::Run => run_queries_concurrently(new_runner, path).await,
+            Mode::Complete => {
+                run_or_complete(&mut new_runner(), path, mode, df_value_validator).await
+            }
+        }
     })
+}
+
+/// Runs `path`, running the queries a file glob-includes concurrently.
+///
+/// One runner runs the file's setup, then each read-only fragment runs on its
+/// own runner, up to one per core at a time. Each of those runners first replays
+/// the setup's runner-local state, such as `let` variables. Fragments that change
+/// state then run one at a time, followed by the teardown. Unlike a serial run,
+/// every fragment runs even when an earlier one fails, and all failures are
+/// reported. Files without such fragments run serially.
+async fn run_queries_concurrently<D, M>(
+    new_runner: impl Fn() -> Runner<D, M>,
+    path: &Path,
+) -> anyhow::Result<()>
+where
+    D: sqllogictest::runner::AsyncDB<ColumnType = DFColumnType> + Send + 'static,
+    M: sqllogictest::connection::MakeConnection<Conn = D> + Send + 'static,
+    M::MakeFuture: Send,
+{
+    let records = parse_file::<DFColumnType>(path)?;
+    let mut runner = new_runner();
+    let split = match split_glob_includes(records) {
+        Ok(split) => split,
+        Err(records) => {
+            return runner
+                .run_multi_async(records)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"));
+        }
+    };
+
+    runner
+        .run_multi_async(split.prelude.clone())
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let (read_only, stateful): (Vec<_>, Vec<_>) = split
+        .fragments
+        .iter()
+        .cloned()
+        .partition(Fragment::is_read_only);
+    let parallelism = get_available_parallelism().unwrap_or(1);
+    let mut errors: Vec<String> = futures::stream::iter(read_only.into_iter().map(|fragment| {
+        let mut runner = new_runner();
+        let records: Vec<_> = split.runner_state().chain(fragment.records).collect();
+        tokio::spawn(async move {
+            runner
+                .run_multi_async(records)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }))
+    .buffered(parallelism)
+    .collect::<Vec<_>>()
+    .await
+    .into_iter()
+    .filter_map(|joined| match joined {
+        Ok(result) => result.err(),
+        Err(e) => Some(format!("query task failed: {e}")),
+    })
+    .collect();
+
+    for fragment in stateful {
+        if let Err(e) = runner.run_multi_async(fragment.records).await {
+            errors.push(e.to_string());
+        }
+    }
+    if let Err(e) = runner.run_multi_async(split.epilogue).await {
+        errors.push(e.to_string());
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("{}", errors.join("\n")))
+    }
 }
 
 /// Runs or completes a single `.slt` file against DuckDB.

@@ -6,9 +6,10 @@
 //!
 //! The binary itself lives in `bin/sqllogictests-runner.rs`; this crate exposes
 //! the DuckDB [`sqllogictest::AsyncDB`](duckdb::DuckDB) adapter and file
-//! discovery [`utils`].
+//! discovery [`utils`], and the [`split`] of a suite into setup, queries and teardown.
 
 pub mod duckdb;
 pub mod normalize;
 pub mod scratch;
+pub mod split;
 pub mod utils;
