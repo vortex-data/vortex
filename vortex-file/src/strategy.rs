@@ -150,7 +150,7 @@ impl WriteStrategyBuilder {
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
-            plan_reuse: Some(PlanReuseOptions::default()),
+            plan_reuse: None,
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
@@ -227,7 +227,7 @@ impl WriteStrategyBuilder {
     }
 
     /// Override how the chunks of one column reuse earlier scheme decisions, or pass `None` to
-    /// select schemes for each chunk separately. Reuse is on by default.
+    /// select schemes for each chunk separately. Reuse is off by default.
     pub fn with_plan_reuse(mut self, plan_reuse: Option<PlanReuseOptions>) -> Self {
         self.plan_reuse = plan_reuse;
         self

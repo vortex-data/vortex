@@ -173,7 +173,7 @@ impl CompressingStrategy {
             compressor: Arc::new(compressor),
             stats: Stat::all().collect(),
             concurrency: get_available_parallelism().unwrap_or(1),
-            plan_reuse: Some(PlanReuseOptions::default()),
+            plan_reuse: None,
         }
     }
 
@@ -187,6 +187,10 @@ impl CompressingStrategy {
 
     /// Override how the chunks of one stream reuse the scheme decisions of earlier chunks, or
     /// pass `None` to select schemes for each chunk separately.
+    ///
+    /// Reuse is off by default. When it is on, the strategy compresses the chunks in waves of a
+    /// fixed size, so that the output does not depend on `concurrency`. Thus, fewer chunks can be
+    /// in progress at the same time.
     pub fn with_plan_reuse(mut self, plan_reuse: Option<PlanReuseOptions>) -> Self {
         self.plan_reuse = plan_reuse;
         self
@@ -396,26 +400,38 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use async_trait::async_trait;
+    use futures::StreamExt as _;
+    use parking_lot::Mutex;
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_btrblocks::PlanReuseOptions;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_session::VortexSession;
 
+    use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::LayoutWriterContext;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::compressed::CompressingStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentSinkRef;
     use crate::segments::TestSegments;
+    use crate::sequence::SendableSequentialStream;
     use crate::sequence::SequenceId;
+    use crate::sequence::SequencePointer;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::sequence::SequentialStreamAdapter;
+    use crate::sequence::SequentialStreamExt;
     use crate::test::new_session;
 
     const CHUNK_LEN: usize = 1024;
@@ -455,6 +471,80 @@ mod tests {
         assert!(size_scope.compression_ratio() < 64.0 / input_bytes);
         assert_eq!(size_scope.uncompressed_bytes(), 0);
         assert_eq!(buffered_bytes.buffered_bytes(), 0);
+        Ok(())
+    }
+
+    /// A child strategy that records the buffered bytes of the write each time it takes a chunk.
+    struct ObserveBufferedBytes {
+        child: Arc<dyn LayoutStrategy>,
+        observed: Arc<Mutex<Vec<u64>>>,
+    }
+
+    #[async_trait]
+    impl LayoutStrategy for ObserveBufferedBytes {
+        async fn write_stream(
+            &self,
+            ctx: LayoutWriterContext,
+            segment_sink: SegmentSinkRef,
+            stream: SendableSequentialStream,
+            eof: SequencePointer,
+            session: &VortexSession,
+        ) -> VortexResult<LayoutRef> {
+            let dtype = stream.dtype().clone();
+            let tracker = ctx.buffered_bytes_tracker().clone();
+            let observed = Arc::clone(&self.observed);
+
+            let stream = stream.inspect(move |_| observed.lock().push(tracker.buffered_bytes()));
+
+            self.child
+                .write_stream(
+                    ctx,
+                    segment_sink,
+                    SequentialStreamAdapter::new(dtype, stream).sendable(),
+                    eof,
+                    session,
+                )
+                .await
+        }
+    }
+
+    /// The child counts a chunk when it takes it. Thus, the compressed output must not stay
+    /// reserved while the child holds the chunk.
+    #[rstest]
+    #[case::without_plan_reuse(None)]
+    #[case::with_plan_reuse(Some(PlanReuseOptions::default()))]
+    fn child_takes_chunks_without_compressed_reservation(
+        #[case] plan_reuse: Option<PlanReuseOptions>,
+    ) -> VortexResult<()> {
+        let chunks = (0..4)
+            .map(|_| Buffer::from_iter(0..CHUNK_LEN as u64).into_array())
+            .collect::<Vec<_>>();
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
+
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let child = ObserveBufferedBytes {
+            child: Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+            observed: Arc::clone(&observed),
+        };
+
+        // With one chunk in progress, no other compressed output can be reserved.
+        let strategy = CompressingStrategy::new(child, constant_compressor)
+            .with_concurrency(1)
+            .with_plan_reuse(plan_reuse);
+
+        let ctx = LayoutWriterContext::new(ArrayContext::empty());
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = chunked.to_array_stream().sequenced(ptr);
+        block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(ctx, segments, stream, eof, &session)
+                .await
+        })?;
+
+        assert_eq!(*observed.lock(), vec![0; 4]);
         Ok(())
     }
 
