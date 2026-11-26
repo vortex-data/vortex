@@ -165,7 +165,6 @@ fn is_dyn_dispatch_alprd_compatible(array: &ArrayRef) -> bool {
             .is_none_or(|patches| patches.chunk_offsets().is_some())
 }
 
-/// Returns the packed buffer, bit width and first-chunk offset of bit-packed ALP-RD codes.
 fn alprd_codes_view(codes: &ArrayRef) -> VortexResult<(BufferHandle, u8, u16)> {
     let (bitpacked, offset) = match codes.as_opt::<Slice>() {
         Some(slice) => (slice.child().clone(), slice.data().slice_range().start),
@@ -868,7 +867,6 @@ impl FusedPlan {
         Ok(pipeline)
     }
 
-    /// ALP-RD → right parts, then an `ALPRD` op. `range` slices the array.
     fn walk_alprd(
         &mut self,
         array: ArrayRef,

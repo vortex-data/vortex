@@ -37,8 +37,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 /// A value whose left part isn't in a dictionary built from `0.1`, so it becomes a patch.
 const OUTLIER: f64 = 3e100;
 
-/// `len` values: `0.1`, `0.2` or `0.3` by row, with `OUTLIER` at each of `outliers` and nulls at
-/// each of `nulls`.
 fn values(len: usize, outliers: &[usize], nulls: &[usize]) -> PrimitiveArray {
     PrimitiveArray::from_option_iter((0..len).map(|row| {
         if nulls.contains(&row) {
@@ -62,7 +60,6 @@ fn fused_ctx() -> VortexResult<CudaExecutionCtx> {
         .with_dispatch_mode(CudaDispatchMode::DynDispatchOnly))
 }
 
-/// Decodes `array` with a single fused plan, failing if it can't be fused.
 async fn decode_fused(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrayRef> {
     assert!(
         matches!(
@@ -135,12 +132,10 @@ async fn test_fused_alp_rd_sliced(#[case] range: Range<usize>) -> VortexResult<(
     let expected = array.into_array().slice(range.clone())?;
     let mut ctx = fused_ctx()?;
 
-    // A scan hands the GPU a lazy slice of the ALP-RD array.
     let lazy = encoded.clone().into_array().slice(range.clone())?;
     let gpu_result = decode_fused(lazy, &mut ctx).await?;
     assert_arrays_eq!(gpu_result, expected, &mut SESSION.create_execution_ctx());
 
-    // ALP-RD's slice kernel instead gives an ALP-RD array with sliced children and patches.
     let sliced = <ALPRD as SliceKernel>::slice(
         encoded.as_view(),
         range,
