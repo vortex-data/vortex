@@ -30,8 +30,10 @@ pub struct FieldDType {
 
 impl From<ViewedDType> for FieldDType {
     fn from(value: ViewedDType) -> Self {
-        let view = FieldDTypeInner::View(value, Arc::new(OnceLock::new()));
-        Self { inner: view }
+        let cache = value.shared_cache();
+        Self {
+            inner: FieldDTypeInner::View(value, cache),
+        }
     }
 }
 
@@ -636,6 +638,48 @@ mod test {
             panic!("field must parse to a struct");
         };
         assert!(Arc::ptr_eq(&first.0, &second.0));
+        Ok(())
+    }
+
+    #[test]
+    fn fields_sharing_a_table_share_its_cache() -> VortexResult<()> {
+        let common = DType::Struct(
+            StructFields::from_iter([("x", DType::Utf8(Nullability::Nullable))]),
+            Nullability::NonNullable,
+        );
+        let deep = DType::Struct(
+            StructFields::from_iter([("c", common.clone())]),
+            Nullability::NonNullable,
+        );
+        let dtype = DType::Struct(
+            StructFields::from_iter(
+                (0..4)
+                    .map(|i| (format!("c{i}"), common.clone()))
+                    .chain([("deep".to_string(), deep)]),
+            ),
+            Nullability::NonNullable,
+        );
+        let buffer = FlatBuffer::from(dtype.write_flatbuffer_bytes()?);
+        let parsed = DType::from_flatbuffer(buffer, &SESSION)?;
+        let fields = parsed.as_struct_fields_opt().unwrap();
+
+        let DType::Struct(deep_fields, _) = fields.field("deep").unwrap() else {
+            panic!("deep must parse to a struct");
+        };
+        let cells = fields.0.dtypes[..4]
+            .iter()
+            .chain([&deep_fields.0.dtypes[0]])
+            .map(|field| match &field.inner {
+                FieldDTypeInner::View(_, cell) => Arc::clone(cell),
+                FieldDTypeInner::Owned(_) => panic!("flatbuffer-backed field must be a View"),
+            })
+            .collect_vec();
+        assert!(cells.iter().all(|cell| Arc::ptr_eq(cell, &cells[0])));
+        assert!(cells[0].get().is_none());
+
+        fields.field_by_index(0).unwrap();
+        assert!(cells[0].get().is_some());
+        assert_eq!(parsed, dtype);
         Ok(())
     }
 
