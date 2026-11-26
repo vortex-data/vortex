@@ -12,12 +12,15 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
+use vortex_array::extension::datetime::TemporalRounding;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_expr::Expression;
@@ -31,6 +34,10 @@ use crate::between::StrictComparison;
 use crate::byte_length::ByteLength;
 use crate::case_when::CaseWhen;
 use crate::case_when::CaseWhenOptions;
+use crate::change_time_unit::ChangeTimeUnit;
+use crate::change_time_unit::ChangeTimeUnitOptions;
+use crate::convert_time_zone::ConvertTimeZone;
+use crate::convert_time_zone::ConvertTimeZoneOptions;
 use crate::dynamic::DynamicComparison;
 use crate::dynamic::DynamicComparisonExpr;
 use crate::dynamic::Rhs;
@@ -56,10 +63,71 @@ use crate::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::select::FieldSelection;
 use crate::select::Select;
 use crate::strpos::Strpos;
+use crate::timestamp_to_date::TimestampToDate;
+use crate::timestamp_to_time::TimestampToTime;
 use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::zip::Zip;
+
+/// Convert a [`Date`], [`Time`], or [`Timestamp`] to a coarser `unit` with an explicit
+/// [`TemporalRounding`].
+///
+/// `unit` **must** be coarser than the input unit and valid for the input type (a [`Date`]
+/// supports only days and milliseconds), or binding fails. At execution,
+/// [`TemporalRounding::Exact`] fails on a count with a remainder, and a [`Time`] fails when it
+/// rounds up to midnight, because the result must stay within the same day. A [`Timestamp`] keeps
+/// its time zone, and nulls stay null.
+///
+/// [`Date`]: vortex_array::extension::datetime::Date
+/// [`Time`]: vortex_array::extension::datetime::Time
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn change_time_unit(
+    input: Expression,
+    unit: TimeUnit,
+    rounding: TemporalRounding,
+) -> Expression {
+    ChangeTimeUnit.new_expr(ChangeTimeUnitOptions { unit, rounding }, [input])
+}
+
+/// Change the time zone of a [`Timestamp`] and keep its instant, so the stored count does not
+/// change.
+///
+/// The input **must** be a [`Timestamp`] with a time zone, or binding fails. Use
+/// [`replace_time_zone`] to keep the local clock time in another zone instead.
+///
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn convert_time_zone(input: Expression, time_zone: impl Into<Arc<str>>) -> Expression {
+    ConvertTimeZone.new_expr(
+        ConvertTimeZoneOptions {
+            time_zone: time_zone.into(),
+        },
+        [input],
+    )
+}
+
+/// Extract the local calendar date of a [`Timestamp`] as a [`Date`] in days.
+///
+/// A timestamp with a time zone uses the offset of that zone at its instant, and a timestamp
+/// without a time zone already counts local time. The input **must** be a [`Timestamp`], or
+/// binding fails. A date outside the `i32` range of days fails at execution.
+///
+/// [`Date`]: vortex_array::extension::datetime::Date
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn timestamp_to_date(input: Expression) -> Expression {
+    TimestampToDate.new_expr(EmptyOptions, [input])
+}
+
+/// Extract the local time of day of a [`Timestamp`] as a [`Time`] in the same unit.
+///
+/// The time zone applies as in [`timestamp_to_date`]. The input **must** be a [`Timestamp`], or
+/// binding fails.
+///
+/// [`Time`]: vortex_array::extension::datetime::Time
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn timestamp_to_time(input: Expression) -> Expression {
+    TimestampToTime.new_expr(EmptyOptions, [input])
+}
 
 /// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
 pub fn case_when(
@@ -113,33 +181,59 @@ pub fn bound_case_when_no_else(
 }
 
 /// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+///
+/// # Panics
+///
+/// Panics if `when_then_pairs` is empty or has more than `u32::MAX` pairs. Use
+/// [`try_nested_case_when`] when the pairs come from input the caller does not control.
 pub fn nested_case_when(
     when_then_pairs: Vec<(Expression, Expression)>,
     else_value: Option<Expression>,
 ) -> Expression {
-    assert!(
+    try_nested_case_when(when_then_pairs, else_value)
+        .vortex_expect("nested_case_when requires between 1 and u32::MAX when/then pairs")
+}
+
+/// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+///
+/// Returns an error if `when_then_pairs` is empty or has more than `u32::MAX` pairs.
+///
+/// ```rust
+/// # use vortex_expr::lit;
+/// # use vortex_functions::expr::try_nested_case_when;
+/// assert!(try_nested_case_when(vec![(lit(true), lit(1_i32))], Some(lit(0_i32))).is_ok());
+/// assert!(try_nested_case_when(vec![], Some(lit(0_i32))).is_err());
+/// ```
+pub fn try_nested_case_when(
+    when_then_pairs: Vec<(Expression, Expression)>,
+    else_value: Option<Expression>,
+) -> VortexResult<Expression> {
+    vortex_ensure!(
         !when_then_pairs.is_empty(),
         "nested_case_when requires at least one when/then pair"
     );
+    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
+        vortex_bail!(
+            "nested_case_when has too many when/then pairs: {}",
+            when_then_pairs.len()
+        );
+    };
 
     let has_else = else_value.is_some();
     let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));
-    for (condition, then_value) in &when_then_pairs {
-        children.push(condition.clone());
-        children.push(then_value.clone());
+    for (condition, then_value) in when_then_pairs {
+        children.push(condition);
+        children.push(then_value);
     }
     if let Some(else_expr) = else_value {
         children.push(else_expr);
     }
 
-    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
-        vortex_panic!("nested_case_when has too many when/then pairs");
-    };
     let options = CaseWhenOptions {
         num_when_then_pairs,
         has_else,
     };
-    CaseWhen.new_expr(options, children)
+    Ok(CaseWhen.new_expr(options, children))
 }
 
 /// Creates a bound n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
