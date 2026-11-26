@@ -492,6 +492,7 @@ impl FileOpener for VortexOpener {
                     scan_file.segments,
                 );
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                let unfiltered = native_filter.is_none();
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter)
@@ -499,19 +500,30 @@ impl FileOpener for VortexOpener {
                     // one applies it again, so the scan may stop evaluating one that rejects
                     // almost nothing.
                     .with_skip_unselective_dynamic(true);
-                if let Some(bytes) = byte_range {
-                    // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
-                    if rows.is_empty() {
-                        return Ok(stream::empty().boxed());
+                // Every partition maps the same byte boundary to the same row boundary.
+                let mut rows = match byte_range {
+                    Some(bytes) => {
+                        partition_row_range(bytes, file.object_meta.size, vxf.row_count())
                     }
-                    builder = builder.with_row_range(rows);
-                }
-                if let Some(selection) = file
+                    None => 0..vxf.row_count(),
+                };
+                let selection = file
                     .extensions
                     .get::<VortexAccessPlan>()
-                    .and_then(VortexAccessPlan::selection)
+                    .and_then(VortexAccessPlan::selection);
+                // Without a filter or a selection every row is output, so a limit is the first
+                // rows of the partition and the scan reads only those.
+                if unfiltered
+                    && selection.is_none()
+                    && let Some((limit, _)) = &native_limit
                 {
+                    rows.end = rows.end.min(rows.start.saturating_add(*limit));
+                }
+                if rows.is_empty() {
+                    return Ok(stream::empty().boxed());
+                }
+                builder = builder.with_row_range(rows);
+                if let Some(selection) = selection {
                     builder = builder.with_selection(selection.clone());
                 }
                 let handle = vxf.session().handle();
@@ -1500,6 +1512,32 @@ mod tests {
             .collect::<Vec<i32>>();
 
         assert_eq!(values, [4, 5, 6]);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_open_applies_limit_without_filter(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "unfiltered-limit/file.vortex";
+        let batch = record_batch!(("a", Int32, (1..=7).map(Some).collect::<Vec<_>>())).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from(batch.schema());
+
+        let mut opener = make_opener(object_store, table_schema, None);
+        opener.limit = Some(3);
+        opener.scan_v2 = scan_v2;
+
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        assert_eq!(
+            concat_batches(&batch.schema(), &batches)?,
+            batch.slice(0, 3)
+        );
 
         Ok(())
     }
