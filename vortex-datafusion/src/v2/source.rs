@@ -73,6 +73,7 @@ use std::fmt::Formatter;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::task::Context;
@@ -690,7 +691,7 @@ impl ScanExecution {
     ) -> VortexResult<ScanWork> {
         let ordered = request.ordered;
         let scan = data_source.scan(request).await?;
-        if !ordered {
+        if !ordered && !*FIXED_SPLIT_UNORDERED {
             return Ok(ScanWork::Stream(scan.open()?));
         }
         let pieces = NonZeroUsize::new(self.output_partitions.len()).unwrap_or(NonZeroUsize::MIN);
@@ -702,6 +703,12 @@ impl ScanExecution {
         ))
     }
 }
+
+/// Experiment toggle: `VORTEX_SCAN_FIXED_SPLIT=1` makes unordered scans read fixed `split(n)`
+/// pieces, one per output partition, instead of streams over one opened scan. It exists to
+/// measure shared work against fixed pieces and is read once per process.
+static FIXED_SPLIT_UNORDERED: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("VORTEX_SCAN_FIXED_SPLIT").is_ok_and(|value| value == "1"));
 
 /// One output partition of a [`ScanExecution`], which cancels the execution when it fails or is
 /// dropped before it finishes.

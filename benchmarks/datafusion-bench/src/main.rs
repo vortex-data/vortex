@@ -24,9 +24,13 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
+use futures::TryStreamExt;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
+use vortex::file::VortexOpenOptions;
 use vortex::file::multi::MultiFileDataSource;
+use vortex::file::multi::open_cached;
+use vortex::io::filesystem::FileListing;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::session::RuntimeSessionExt;
@@ -332,19 +336,50 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             None => format!("*.{}", format.ext()),
         };
 
-        let multi_ds = MultiFileDataSource::new(SESSION.clone())
-            .with_glob(glob_pattern, Some(fs))
-            .build()
-            .await?;
+        let data_source: DataSourceRef = match single_file_source(&fs, &glob_pattern).await? {
+            Some(data_source) => data_source,
+            None => Arc::new(
+                MultiFileDataSource::new(SESSION.clone())
+                    .with_glob(glob_pattern, Some(fs))
+                    .build()
+                    .await?,
+            ),
+        };
 
-        let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(multi_ds.dtype())?);
-        let data_source: DataSourceRef = Arc::new(multi_ds);
+        let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(data_source.dtype())?);
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
         session.register_table(table.name, table_provider)?;
     }
 
     Ok(())
+}
+
+/// Experiment toggle: with `VORTEX_BENCH_SINGLE_FILE_SOURCE=1`, a table that is exactly one file
+/// scans through that file's own data source, whose `open()` shares the file's splits across
+/// streams, instead of a `MultiFileDataSource`, whose `open()` hands each stream whole files.
+async fn single_file_source(
+    fs: &FileSystemRef,
+    glob: &str,
+) -> anyhow::Result<Option<DataSourceRef>> {
+    if std::env::var("VORTEX_BENCH_SINGLE_FILE_SOURCE").as_deref() != Ok("1") {
+        return Ok(None);
+    }
+    let files: Vec<FileListing> = fs.glob(glob)?.try_collect().await?;
+    let [listing] = files.as_slice() else {
+        return Ok(None);
+    };
+    let source = fs.open_read(&listing.path).await?;
+    let key = source.uri().is_none().then_some(listing.path.as_str());
+    let file = open_cached(
+        &SESSION,
+        key,
+        source,
+        listing.size,
+        &|options: VortexOpenOptions| options,
+    )
+    .await?;
+    Ok(Some(file.data_source()?))
 }
 
 /// Wrapper around DataFusion record batches implementing `BenchmarkQueryResult`.
