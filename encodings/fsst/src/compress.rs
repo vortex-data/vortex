@@ -77,9 +77,6 @@ pub fn fsst_compress(
 
 /// Compress a string array using FSST, choosing `i32` codes offsets when the worst-case
 /// compressed byte count fits within `max_i32_output_bytes` and `i64` offsets otherwise.
-///
-/// Production callers pass `i32::MAX as usize` via [`fsst_compress`]; tests can pass a smaller
-/// threshold to exercise the `i32 -> i64` switch without allocating gigabytes.
 pub(crate) fn fsst_compress_with_max_i32_bytes(
     array: &ArrayRef,
     compressor: &Compressor,
