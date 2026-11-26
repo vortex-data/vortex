@@ -128,6 +128,12 @@ impl BlockReader<'_> {
                 }
                 written_bits += copy_bits;
             }
+            let rem_bits = self.len & 7;
+            if rem_bits != 0
+                && let Some(last) = packed_out.last_mut()
+            {
+                *last &= (1u8 << rem_bits) - 1;
+            }
             return Ok(BitBuffer::new(packed_out.freeze(), self.len));
         }
 
@@ -388,7 +394,8 @@ fn eval_spine_node(
                                     bm_stride,
                                 )?,
                             }
-                            merge_vec_cst_in_place(bm_slice, n, k_right, rc, out01);
+                            // SAFETY: `k_right == popcount_bits(bm_slice, n)`.
+                            unsafe { merge_vec_cst_in_place(bm_slice, n, k_right, rc, out01) };
                             Ok(())
                         }
                         (Some(lc), None) => {
@@ -411,7 +418,8 @@ fn eval_spine_node(
                                     bm_stride,
                                 )?,
                             }
-                            merge_cst_vec_in_place(bm_slice, n, lc, k_left, out01);
+                            // SAFETY: `k_left == n - popcount_bits(bm_slice, n)`.
+                            unsafe { merge_cst_vec_in_place(bm_slice, n, lc, k_left, out01) };
                             Ok(())
                         }
                         (None, None) => {

@@ -99,6 +99,9 @@ pub struct PivcoMetadata {
     /// Compact serialized [`PivcoTree`] pre-order opcodes.
     #[prost(bytes, tag = "6")]
     pub tree_bytes: Vec<u8>,
+    /// Whether child 0 is a serialized validity bitmap array.
+    #[prost(bool, tag = "7")]
+    pub has_validity: bool,
 }
 
 /// A [`Pivco`]-encoded Vortex array.
@@ -234,6 +237,24 @@ impl ArrayEq for PivcoData {
     }
 }
 
+/// Number of `2^block_shift`-element blocks spanned by `offset + len` elements (`0` when `len == 0`),
+/// rejecting `offset + len` overflow on malformed inputs.
+#[inline]
+pub(crate) fn checked_num_blocks_for(
+    block_shift: u8,
+    offset: u16,
+    len: usize,
+) -> VortexResult<usize> {
+    if len == 0 {
+        Ok(0)
+    } else {
+        let total = usize::from(offset)
+            .checked_add(len)
+            .ok_or_else(|| vortex_err!("Pivco offset ({offset}) + len ({len}) overflows usize"))?;
+        Ok(total.div_ceil(1usize << block_shift))
+    }
+}
+
 /// Number of `2^block_shift`-element blocks spanned by `offset + len` elements (`0` when `len == 0`).
 #[inline]
 pub(crate) fn num_blocks_for(block_shift: u8, offset: u16, len: usize) -> usize {
@@ -250,7 +271,7 @@ impl PivcoData {
     /// `has_extra_bits`, `max_ebits`, and `tree_bytes` are derived directly from `tree` so
     /// in-memory state and wire metadata can never disagree.
     #[expect(clippy::too_many_arguments)]
-    pub fn try_new(
+    pub(crate) fn try_new(
         block_shift: u8,
         offset: u16,
         last_block_len: u16,
@@ -364,7 +385,7 @@ impl PivcoData {
             self.offset
         );
 
-        let expected_blocks = num_blocks_for(self.block_shift, self.offset, len);
+        let expected_blocks = checked_num_blocks_for(self.block_shift, self.offset, len)?;
         if len == 0 {
             vortex_ensure_eq!(self.offset, 0, "Empty PivcoArray must have offset 0");
             vortex_ensure_eq!(
@@ -487,7 +508,7 @@ impl PivcoData {
         Ok(data)
     }
 
-    pub(crate) fn to_metadata(&self) -> PivcoMetadata {
+    pub(crate) fn to_metadata(&self, has_validity: bool) -> PivcoMetadata {
         PivcoMetadata {
             offset: u32::from(self.offset),
             last_block_len: u32::from(self.last_block_len),
@@ -495,6 +516,7 @@ impl PivcoData {
             tree_base_offset: self.tree_base_offset,
             raw_base_word_offset: self.raw_base_word_offset,
             tree_bytes: self.tree_bytes.to_vec(),
+            has_validity,
         }
     }
 

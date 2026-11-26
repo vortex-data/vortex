@@ -13,6 +13,7 @@ use std::mem::MaybeUninit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 
 use super::BlockReader;
 use super::DecodeWorkspace;
@@ -342,19 +343,23 @@ fn decode_symbol_at_inner(
     let mut len = block_len;
     let mut pos = pos_in_block;
     let mut cursor = 0usize;
+    let mut frame_end = payload_bytes.len();
     let mut cached_root = false;
 
     loop {
+        let frame = &payload_bytes[..frame_end];
         match &tree.nodes[usize::from(node_idx)] {
             PivcoNode::SingleLeaf { sym } => return Ok((*sym, cached_root)),
             PivcoNode::Flat { depth, c2s, .. } => {
                 let depth_usize = usize::from(*depth);
                 let nbytes = (len * depth_usize).div_ceil(8);
                 vortex_ensure!(
-                    cursor + nbytes <= payload_bytes.len(),
+                    cursor
+                        .checked_add(nbytes)
+                        .is_some_and(|end| end <= frame_end),
                     "Truncated Pivco flat subtree ({nbytes} bytes)"
                 );
-                let packed = &payload_bytes[cursor..cursor + nbytes];
+                let packed = &frame[cursor..cursor + nbytes];
                 let bit_pos = pos * depth_usize;
                 let byte_idx = bit_pos >> 3;
                 let bit_off = bit_pos & 7;
@@ -371,9 +376,9 @@ fn decode_symbol_at_inner(
                 ..
             } => {
                 let is_root = node_idx == 0;
-                let bm = NodeBitmap::read(payload_bytes, &mut cursor, len, bm_scratch)?;
+                let bm = NodeBitmap::read(frame, &mut cursor, len, bm_scratch)?;
                 let left_bytes = if matches!(left_child, ChildSpec::Node(_)) {
-                    Some(read_left_subtree_bytes(payload_bytes, &mut cursor)?)
+                    Some(read_left_subtree_bytes(frame, &mut cursor)?)
                 } else {
                     None
                 };
@@ -392,16 +397,36 @@ fn decode_symbol_at_inner(
 
                 let (go_right, ones_before, total_ones) = bm.bit_and_ranks(bm_scratch, len, pos);
                 let k_left = len - total_ones;
-                if k_left == 0
-                    && let Some(lb) = left_bytes
-                {
-                    vortex_ensure_eq!(lb, 0, "Empty left subtree must have 0 left_subtree_bytes");
-                }
+                let left_end = if let Some(lb) = left_bytes {
+                    if k_left == 0 {
+                        vortex_ensure_eq!(
+                            lb,
+                            0,
+                            "Empty left subtree must have 0 left_subtree_bytes"
+                        );
+                    } else {
+                        vortex_ensure!(
+                            lb > 0,
+                            "Non-empty left subtree must have positive left_subtree_bytes"
+                        );
+                    }
+                    cursor
+                        .checked_add(lb)
+                        .filter(|&end| end <= frame_end)
+                        .ok_or_else(|| {
+                            vortex_err!(
+                                "Pivco left_subtree_bytes ({lb}) exceeds remaining subtree frame"
+                            )
+                        })?
+                } else {
+                    cursor
+                };
 
                 if !go_right {
                     match left_child {
                         ChildSpec::Leaf(sym) => return Ok((*sym, cached_root)),
                         ChildSpec::Node(l_idx) => {
+                            frame_end = left_end;
                             pos -= ones_before;
                             len = k_left;
                             node_idx = *l_idx;
@@ -411,7 +436,7 @@ fn decode_symbol_at_inner(
                     match right_child {
                         ChildSpec::Leaf(sym) => return Ok((*sym, cached_root)),
                         ChildSpec::Node(r_idx) => {
-                            cursor += left_bytes.unwrap_or(0);
+                            cursor = left_end;
                             pos = ones_before;
                             len = total_ones;
                             node_idx = *r_idx;
@@ -498,12 +523,26 @@ fn prefix_ebits_sum(
             let prefix_left = prefix_len - prefix_right;
             let k_left = len - total_right;
             let k_right = total_right;
-            if k_left == 0
-                && let Some(lb) = left_bytes
-            {
-                vortex_ensure_eq!(lb, 0, "Empty left subtree must have 0 left_subtree_bytes");
-            }
-            let right_start = *cursor + left_bytes.unwrap_or(0);
+            let right_start = if let Some(lb) = left_bytes {
+                if k_left == 0 {
+                    vortex_ensure_eq!(lb, 0, "Empty left subtree must have 0 left_subtree_bytes");
+                } else {
+                    vortex_ensure!(
+                        lb > 0,
+                        "Non-empty left subtree must have positive left_subtree_bytes"
+                    );
+                }
+                (*cursor)
+                    .checked_add(lb)
+                    .filter(|&end| end <= wire.len())
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "Pivco left_subtree_bytes ({lb}) exceeds remaining subtree frame"
+                        )
+                    })?
+            } else {
+                *cursor
+            };
 
             let left_sum = match left_child {
                 ChildSpec::Leaf(sym) => prefix_left * usize::from(EBITS_TABLE[usize::from(*sym)]),
@@ -517,7 +556,7 @@ fn prefix_ebits_sum(
                             k_left,
                             prefix_left,
                             None,
-                            wire,
+                            &wire[..right_start],
                             cursor,
                             bm_scratch,
                         )?
@@ -706,7 +745,8 @@ fn merge_internal_children(
                 bm_tail,
                 bm_stride,
             )?;
-            merge_cst_vec_in_place(bm_bytes, n, l_sym, k_left, out);
+            // SAFETY: `k_left == n - popcount_bits(bm_bytes, n)`.
+            unsafe { merge_cst_vec_in_place(bm_bytes, n, l_sym, k_left, out) };
             Ok(())
         }
         (ChildSpec::Node(l_idx), ChildSpec::Leaf(r_sym)) => {
@@ -728,7 +768,8 @@ fn merge_internal_children(
                     "Pivco left_subtree_bytes framing mismatch"
                 );
             }
-            merge_vec_cst_in_place(bm_bytes, n, k_right, r_sym, out);
+            // SAFETY: `k_right == popcount_bits(bm_bytes, n)`.
+            unsafe { merge_vec_cst_in_place(bm_bytes, n, k_right, r_sym, out) };
             Ok(())
         }
         (ChildSpec::Node(l_idx), ChildSpec::Node(r_idx)) => {
@@ -765,13 +806,17 @@ fn merge_internal_children(
                     bm_tail,
                     bm_stride,
                 )?;
-                merge_vec_vec_in_place_left(
-                    bm_bytes,
-                    n,
-                    k_right,
-                    &scratch[..k_right + MERGE_OVERREAD],
-                    out,
-                );
+                // SAFETY: `k_right == popcount_bits(bm_bytes, n)` and `scratch` holds `k_right`
+                // decoded right symbols plus `MERGE_OVERREAD` slack bytes.
+                unsafe {
+                    merge_vec_vec_in_place_left(
+                        bm_bytes,
+                        n,
+                        k_right,
+                        &scratch[..k_right + MERGE_OVERREAD],
+                        out,
+                    );
+                }
             } else {
                 // Wire carries `left` first: smaller child (`left`) decodes into `scratch[..k_left]`
                 // using `out[..k_left]` as its writable partner.
@@ -806,13 +851,17 @@ fn merge_internal_children(
                     bm_tail,
                     bm_stride,
                 )?;
-                merge_vec_vec_in_place_right(
-                    bm_bytes,
-                    n,
-                    &scratch[..k_left + MERGE_OVERREAD],
-                    k_left,
-                    out,
-                );
+                // SAFETY: `k_left == n - popcount_bits(bm_bytes, n)` and `scratch` holds `k_left`
+                // decoded left symbols plus `MERGE_OVERREAD` slack bytes.
+                unsafe {
+                    merge_vec_vec_in_place_right(
+                        bm_bytes,
+                        n,
+                        &scratch[..k_left + MERGE_OVERREAD],
+                        k_left,
+                        out,
+                    );
+                }
             }
             Ok(())
         }
