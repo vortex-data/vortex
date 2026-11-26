@@ -50,6 +50,7 @@ DEFAULT_SECONDS = 5.0
 # Every workspace package with `[[bench]]` targets runs in simulation, except these. Each entry gives
 # the reason, so that a new benchmark package is measured by default instead of skipped silently.
 EXCLUDED_PACKAGES: dict[str, str] = {
+    "lance-bench": "its criterion benchmark compares Vortex with Lance on one machine",
     "vortex-btrblocks": "its benchmarks are compiled out under `cfg(codspeed)`",
     "vortex-cuda": "its benchmarks need a GPU and run in the `bench-codspeed-cuda` jobs",
     "vortex-duckdb": "its build script downloads or builds DuckDB",
