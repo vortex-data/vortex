@@ -1019,9 +1019,9 @@ impl DataSource for VortexDataSource {
     }
 }
 
-/// Matches DataFusion's projection-collapse guard: do not inline a non-trivial inner expression
-/// that the outer projection references more than once, which would duplicate volatile or
-/// expensive work.
+/// Mirrors DataFusion's projection-collapse guard and also rejects volatile expressions: do not
+/// inline an inner expression referenced more than once by the outer projection if it is volatile
+/// or does not push to leaves, which would duplicate volatile or expensive work.
 fn can_merge_projection(existing: &ProjectionExprs, incoming: &ProjectionExprs) -> DFResult<bool> {
     let existing_exprs = existing.as_ref();
     let mut ref_counts = vec![0usize; existing_exprs.len()];
