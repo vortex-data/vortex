@@ -53,6 +53,7 @@ use vortex_edition::EditionId;
 use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
@@ -766,6 +767,67 @@ fn test_plan_rejects_nesting_deeper_than_the_cascade() -> VortexResult<()> {
     Plan::parse(&nested(MAX_CASCADE), &schemes)?;
     assert!(Plan::parse(&nested(MAX_CASCADE + 1), &schemes).is_err());
     assert!(Plan::parse(&nested(100_000), &schemes).is_err());
+    Ok(())
+}
+
+fn nullable_runs() -> ArrayRef {
+    PrimitiveArray::from_option_iter((0..100_000).map(|i| (i % 1_000 != 7).then_some(i / 100)))
+        .into_array()
+}
+
+/// A leaf's validity bitmap is a nested site, so a plan that keeps the leaf canonical still lets
+/// the bitmap be compressed, and recording the leaf's plan does not pick up the bitmap's scheme.
+#[test]
+fn test_nullable_leaf_plan_covers_the_leaf() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = nullable_runs();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let canonical = compressor.compress_with_plan(&input, &Plan::Canonical, &mut ctx)?;
+    assert!(canonical.is_canonical(), "{}", canonical.encoding_id());
+    let validity = canonical.validity()?;
+    let bitmap = validity
+        .as_array()
+        .vortex_expect("nullable input has a validity bitmap");
+    assert!(!bitmap.is_canonical(), "{}", bitmap.encoding_id());
+    assert_arrays_eq!(&canonical, &input, &mut ctx);
+
+    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
+    assert!(
+        matches!(&plan, Plan::Scheme { .. }),
+        "{plan} for {}",
+        compressed.encoding_id()
+    );
+    let replayed = compressor.compress_with_plan(&input, &plan, &mut ctx)?;
+    assert_eq!(replayed.nbytes(), compressed.nbytes());
+    assert_arrays_eq!(&replayed, &input, &mut ctx);
+    Ok(())
+}
+
+/// Struct fields are nested sites, so a struct's plan leaves them to estimation and replays to
+/// the same array.
+#[test]
+fn test_struct_plan_leaves_fields_to_estimation() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let strings = VarBinViewArray::from_iter_str((0..100_000).map(|i| ["a", "bb", "ccc"][i % 3]));
+    let input = StructArray::from_fields(&[
+        ("runs", runs()),
+        ("nullable", nullable_runs()),
+        ("strings", strings.into_array()),
+    ])?
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
+    assert_eq!(plan, Plan::Adaptive);
+
+    let replayed = compressor.compress_with_plan(&input, &plan, &mut ctx)?;
+    assert_eq!(replayed.nbytes(), compressed.nbytes());
+    assert_arrays_eq!(&replayed, &input, &mut ctx);
     Ok(())
 }
 
