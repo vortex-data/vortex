@@ -25,6 +25,10 @@ PRESETS = {
         "ClickBench and TPC-H SF=1 on NVMe with every Vortex integration and scan engine, one machine "
         "per combination (action/bench-scan)."
     ),
+    "pr-table": (
+        "ClickBench and TPC-H SF=1 on NVMe, DataFusion on the V2 scan, comparing Vortex files with a "
+        "vortex-table manifest over the same files, on one machine."
+    ),
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
     "pr-full": ("Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended)."),
     "nightly": (
@@ -110,6 +114,16 @@ STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS = Coverage(
     size_formats=(SizeFormat.ARROW_IPC, SizeFormat.PARQUET_SNAPPY),
 )
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
+# The file integration and the vortex-table manifest over the same files, in one entry so that both
+# run on the same machine.
+TABLE_VS_FILE = Coverage(
+    TargetSet(
+        (
+            BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.FILE, ScanEngine.V2),
+            BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.TABLE, ScanEngine.V2),
+        )
+    )
+)
 COMPACT = Coverage(COMPACT_TARGETS)
 
 # Concrete benchmark cases
@@ -166,6 +180,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-scan": with_all_scans(DEFAULT),
+            "pr-table": TABLE_VS_FILE,
             "pr-compact": COMPACT,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
             "develop": with_all_scans(FULL_LOCAL),
@@ -190,6 +205,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-scan": with_all_scans(DEFAULT),
+            "pr-table": TABLE_VS_FILE,
             "pr-compact": COMPACT,
             "pr-full": FULL_PR,
             "develop": with_all_scans(FULL_LOCAL),

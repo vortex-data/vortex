@@ -17,6 +17,7 @@ use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
+use datafusion_bench::table::ManifestTable;
 use datafusion_bench::tracer::Label;
 use datafusion_bench::tracer::get_labelset_from_global;
 use datafusion_bench::tracer::get_static_tracer;
@@ -130,6 +131,11 @@ struct Args {
     #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
     scan_api: bool,
 
+    /// Register Vortex tables as a vortex-table manifest over their files, built before the
+    /// queries, whose per-file stats drop files before DataFusion lists them. Needs the V2 scan.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    table: bool,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -144,6 +150,11 @@ async fn main() -> anyhow::Result<()> {
     let opts = Opts::from(args.options);
     let scan_v2 = !args.scan_v1;
     let scan_api = args.scan_api;
+    let table = args.table;
+    anyhow::ensure!(
+        !table || scan_v2,
+        "--table runs only on the V2 scan: pass --scan-v1 false"
+    );
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
@@ -203,8 +214,10 @@ async fn main() -> anyhow::Result<()> {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2, scan_api)
-                        .await?;
+                    register_benchmark_tables(
+                        &session, benchmark, format, scan_v2, scan_api, table,
+                    )
+                    .await?;
                     Ok((session, format))
                 }
             },
@@ -266,8 +279,10 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     format: Format,
     scan_v2: bool,
     scan_api: bool,
+    table_format: bool,
 ) -> anyhow::Result<()> {
-    if scan_api && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
+    let vortex = matches!(format, Format::OnDiskVortex | Format::VortexCompact);
+    if scan_api && vortex {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
@@ -287,6 +302,19 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                 Some(schema) => config.with_schema(Arc::new(schema.clone())),
                 None => config.infer_schema(&session.state()).await?,
             };
+
+            if table_format && vortex {
+                let (Some(url), Some(options), Some(schema)) = (
+                    config.table_paths.first().cloned(),
+                    config.options.clone(),
+                    config.file_schema.clone(),
+                ) else {
+                    anyhow::bail!("listing table config for {} is incomplete", table.name);
+                };
+                let provider = ManifestTable::try_new(session, url, options, schema).await?;
+                session.register_table(table_ref, Arc::new(provider))?;
+                continue;
+            }
 
             let listing_table = Arc::new(
                 ListingTable::try_new(config)?.with_cache(
