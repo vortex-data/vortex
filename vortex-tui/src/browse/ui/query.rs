@@ -235,6 +235,8 @@ impl QueryState {
         self.current_page = 0;
         self.total_row_count = None;
         self.results = None;
+        self.sort_column = None;
+        self.sort_direction = SortDirection::None;
 
         // Parse the SQL to extract base query, order clause, and page size.
         // Non-paginatable statements execute verbatim without rewriting or COUNT(*).
@@ -382,7 +384,7 @@ impl QueryState {
     /// Parse a paginatable SQL query into its base query, outer ORDER BY clause, and outer LIMIT.
     ///
     /// Returns `None` for invalid SQL, multi-statement input, non-query statements, or queries
-    /// with trailing or non-literal LIMIT clauses that should execute verbatim.
+    /// with non-zero OFFSET, trailing, or non-literal LIMIT clauses that should execute verbatim.
     fn parse_sql_parts(&self) -> Option<(String, Option<String>, Option<usize>)> {
         let sql = self.sql_input.trim();
         let dialect = GenericDialect {};
@@ -505,28 +507,42 @@ impl QueryState {
     }
 }
 
+fn parse_usize_literal(expr: &Expr) -> Option<usize> {
+    match expr {
+        Expr::Value(value_with_span) => match &value_with_span.value {
+            Value::Number(num, _) => num.parse::<usize>().ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn parse_paginatable_limit(limit_clause: LimitClause) -> Option<Option<usize>> {
-    let limit_expr = match limit_clause {
+    match limit_clause {
         LimitClause::LimitOffset {
-            limit, limit_by, ..
+            limit,
+            offset,
+            limit_by,
         } => {
             if !limit_by.is_empty() {
                 return None;
             }
+            if let Some(offset) = offset
+                && parse_usize_literal(&offset.value) != Some(0)
+            {
+                return None;
+            }
             match limit {
-                None => return Some(None),
-                Some(expr) => expr,
+                None => Some(None),
+                Some(expr) => parse_usize_literal(&expr).map(Some),
             }
         }
-        LimitClause::OffsetCommaLimit { limit, .. } => limit,
-    };
-
-    match limit_expr {
-        Expr::Value(value_with_span) => match value_with_span.value {
-            Value::Number(num, _) => num.parse::<usize>().ok().map(Some),
-            _ => None,
-        },
-        _ => None,
+        LimitClause::OffsetCommaLimit { offset, limit } => {
+            if parse_usize_literal(&offset) != Some(0) {
+                return None;
+            }
+            parse_usize_literal(&limit).map(Some)
+        }
     }
 }
 
@@ -879,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_sql_parts_preserves_utf8_offsets() {
+    fn test_parse_sql_parts_preserves_utf8_input() {
         let mut state = QueryState {
             sql_input: "SELECT * FROM data WHERE name = 'ı' LIMIT 10".to_string(),
             ..Default::default()
@@ -893,7 +909,7 @@ mod tests {
             ))
         );
 
-        state.sql_input = "SELECT 'ı', é ORDER BY id LIMIT 5 OFFSET 2".to_string();
+        state.sql_input = "SELECT 'ı', é ORDER BY id LIMIT 5 OFFSET 0".to_string();
         assert_eq!(
             state.parse_sql_parts(),
             Some((
@@ -905,7 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn limit_zero_pagination_does_not_panic() {
+    fn test_prepare_initial_query_limit_zero_pagination() {
         let mut state = QueryState {
             sql_input: "SELECT * FROM data LIMIT 0".to_string(),
             ..Default::default()
@@ -936,10 +952,16 @@ mod tests {
             "SELECT * FROM data LIMIT 1 + 2",
             "SELECT * FROM data LIMIT 5 BY id",
             "SELECT * FROM data FETCH FIRST 5 ROWS ONLY",
+            "SELECT * FROM data LIMIT 10 OFFSET 100",
+            "SELECT * FROM data OFFSET 5",
+            "SELECT * FROM data LIMIT 5, 10",
+            "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 2",
         ] {
             let mut state = QueryState {
                 sql_input: input.to_string(),
                 total_row_count: Some(50),
+                sort_column: Some(0),
+                sort_direction: SortDirection::Ascending,
                 results: Some(QueryResults {
                     batches: vec![],
                     total_rows: 1,
@@ -953,6 +975,8 @@ mod tests {
             assert!(state.base_query.is_empty());
             assert_eq!(state.order_clause, None);
             assert_eq!(state.total_row_count, None);
+            assert_eq!(state.sort_column, None);
+            assert_eq!(state.sort_direction, SortDirection::None);
             assert!(state.results.is_none());
             assert!(!state.needs_row_count);
             assert!(state.running);
@@ -1147,7 +1171,7 @@ mod tests {
                 20,
             ),
             (
-                "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 2",
+                "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 0",
                 "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 0",
                 5,
             ),
