@@ -33,6 +33,8 @@ mod array;
 #[cfg(feature = "native")]
 pub mod arrow_roundtrip;
 pub mod compress;
+#[cfg(feature = "ephyra")]
+pub mod ephyra_driver;
 pub mod error;
 pub mod fsst_like;
 mod row;
@@ -60,6 +62,8 @@ pub use array::run_fuzz_action;
 pub use array::sort_canonical_array;
 pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
+#[cfg(all(not(target_arch = "wasm32"), feature = "ephyra"))]
+pub use file::FileIoPlan;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,6 +74,8 @@ pub use file::has_duplicate_field_names;
 pub use file::has_nullable_struct;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::run_file_corruption;
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+pub use file::run_file_io;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
 #[cfg(feature = "cuda")]

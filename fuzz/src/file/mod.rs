@@ -2,10 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod corruption;
+#[cfg(feature = "native")]
+mod io;
+#[cfg(feature = "ephyra")]
+mod plan;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 pub use corruption::*;
+#[cfg(feature = "native")]
+pub use io::run_file_io;
+#[cfg(feature = "ephyra")]
+pub use plan::FileIoPlan;
 use vortex::expr::Expression;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::arbitrary::ArbitraryArray;

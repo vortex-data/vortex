@@ -1,0 +1,85 @@
+name: Ephyra fuzz check
+
+# A fixed-seed run of each ephyra property (fuzz/tests/*_ephyra.rs) on pull requests that touch
+# the fuzzers, so a result depends only on the change. Saved failures are not replayed: known bugs
+# are tracked by the scheduled searches' issues. The budget only guards against a hang.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    paths:
+      - "fuzz/src/**"
+      - "fuzz/tests/*_ephyra.rs"
+      - "fuzz/Cargo.toml"
+      - ".github/scripts/ephyra_report.py"
+      - ".github/scripts/run-ephyra-fuzz.sh"
+      - ".github/workflows/ephyra-check.yml"
+      - ".github/workflows/run-ephyra-fuzzer.yml"
+      - ".github/workflows/fuzz-*-ephyra.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+  CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
+
+jobs:
+  check:
+    name: "${{ matrix.target }} (ephyra, fixed seed)"
+    if: github.event.pull_request.draft != true
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: array_ops
+            tests: 200000
+          - target: file_io
+            tests: 20000
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=ephyra-{1}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'), matrix.target)
+          || 'ubuntu-latest' }}
+    env:
+      EPHYRA_REPORT_JSON: ${{ github.workspace }}/ephyra-report.jsonl
+      EPHYRA_FAILURES: "5"
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+
+      - name: Build
+        run: >-
+          cargo test --locked --release -p vortex-fuzz --features ephyra
+          --test "${{ matrix.target }}_ephyra" --no-run
+
+      - name: Run property
+        env:
+          EPHYRA_SEED: "1"
+          EPHYRA_TESTS: ${{ matrix.tests }}
+          EPHYRA_BUDGET_MS: "900000"
+          EPHYRA_REGRESSIONS: "0"
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo test --locked --release -p vortex-fuzz --features ephyra --test "${TARGET}_ephyra" \
+            -- --exact "$TARGET" --nocapture 2>&1 | tee ephyra-output.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Summarize
+        if: always() && hashFiles('ephyra-report.jsonl') != ''
+        run: >-
+          python3 .github/scripts/ephyra_report.py summary "${{ matrix.target }}" ephyra-report.jsonl
+          >> "$GITHUB_STEP_SUMMARY"

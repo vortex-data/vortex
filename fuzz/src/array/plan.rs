@@ -57,7 +57,7 @@ use crate::FUZZ_ARRAY_MAX_LEN;
 use crate::SESSION;
 
 /// The initial array, as bytes for [`ArbitraryArray`], followed by the actions to apply to it.
-#[derive(Clone, Debug, ephyra::Arbitrary)]
+#[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
 pub struct ArrayOpsPlan {
     /// The longest initial array, usually short so edge cases near empty arrays come up often.
     #[ephyra(gen = gens::frequency(vec![
@@ -79,7 +79,7 @@ pub struct ArrayOpsPlan {
 }
 
 /// Where a scalar parameter comes from.
-#[derive(Clone, Debug, ephyra::Arbitrary)]
+#[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
 pub enum ScalarPlan {
     /// The value at this position (modulo the length) of the current array.
     FromArray(u16),
@@ -88,7 +88,7 @@ pub enum ScalarPlan {
 }
 
 /// One action with its parameters, in the order of the simplest first.
-#[derive(Clone, Debug, ephyra::Arbitrary)]
+#[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
 pub enum ActionPlan {
     Sum,
     MinMax,

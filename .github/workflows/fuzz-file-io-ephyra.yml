@@ -1,0 +1,35 @@
+name: Fuzz file_io (ephyra)
+
+# The ephyra counterpart of fuzz-file-io.yml: runs after every Fuzz Build, like the libFuzzer
+# targets, with its own corpus. See run-ephyra-fuzzer.yml.
+
+on:
+  workflow_run:
+    workflows: ["Fuzz Build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      max_minutes:
+        description: "Search budget in minutes"
+        required: false
+        type: number
+        default: 150
+
+jobs:
+  fuzz:
+    name: "IO Fuzz (ephyra)"
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/run-ephyra-fuzzer.yml
+    with:
+      target: file_io
+      max_minutes: ${{ inputs.max_minutes || 150 }}
+      coverage_crates: >-
+        vortex_file vortex_layout vortex_array vortex_scan
+        vortex_btrblocks vortex_fastlanes vortex_expr vortex_io
+    secrets: inherit

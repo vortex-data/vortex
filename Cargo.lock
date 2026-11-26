@@ -175,7 +175,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73cd58deff2140a0a8eae87e417bd01db68a33e148aa93d1e8cd837e55e312b6"
 dependencies = [
- "object",
+ "object 0.39.1",
 ]
 
 [[package]]
@@ -4295,8 +4295,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd1a1caa1aec3df700ce0d4d791f725cbea8db09c6df739f1768c84bf3f44d67"
 dependencies = [
  "ephyra-macros",
+ "miniz_oxide 0.9.1",
+ "object 0.40.0",
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
+ "rustc-demangle",
  "serde",
  "serde_json",
 ]
@@ -7375,6 +7378,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "object_store"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9300,6 +9312,12 @@ dependencies = [
  "serde_json",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "rustc-demangle"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b74b56ffa8bb2830709a538c2cbcae9aa062db0d2a42563bfb09bdaae44020eb"
 
 [[package]]
 name = "rustc-hash"
@@ -11919,8 +11937,11 @@ dependencies = [
  "itertools 0.14.0",
  "libfuzzer-sys",
  "num-traits",
+ "parking_lot 0.12.5",
  "parquet-variant",
  "rstest",
+ "serde",
+ "serde_json",
  "strum 0.28.0",
  "tokio",
  "tracing",

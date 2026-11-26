@@ -3,20 +3,22 @@
 
 """Summarize ephyra JSON reports and file their failures as GitHub issues.
 
-`summary REPORT` prints Markdown for `$GITHUB_STEP_SUMMARY`. `issues REPORT --repo R --run-url U
---commit C` opens one issue per failure signature unless an open issue already has that exact
-title, so a failure that recurs on every run until it is fixed files one issue and no comments.
+`summary TARGET REPORT` prints Markdown for `$GITHUB_STEP_SUMMARY`. `issues TARGET REPORT --repo R
+--run-url U --commit C [--crash-dir D]` opens one issue per failure signature unless an open issue
+already has that exact title, so a failure that recurs on every run until it is fixed files one
+issue and no comments. Failures are merged across the workers' reports first. With `--crash-dir`,
+each issue carries the saved plan that reproduces it.
 """
 
 import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 Report = dict[str, Any]
 
-TITLE_PREFIX = "ephyra array_ops: "
 MAX_TITLE = 200
 MAX_MESSAGE = 6000
 
@@ -66,11 +68,25 @@ def merged_failures(reports: list[Report]) -> list[tuple[Report, Report]]:
     return list(merged.values())
 
 
+def crash_plans(crash_dir: str | None) -> dict[str, str]:
+    """The saved crash file contents for each signature in `crash_dir`."""
+    plans: dict[str, str] = {}
+    if not crash_dir or not Path(crash_dir).is_dir():
+        return plans
+    for path in sorted(Path(crash_dir).glob("*.json")):
+        try:
+            crash = json.loads(path.read_text())
+            plans[crash["signature"]] = json.dumps(crash)
+        except (OSError, ValueError, KeyError) as e:
+            print(f"skipping {path}: {e}", file=sys.stderr)
+    return plans
+
+
 def summary(args: argparse.Namespace) -> None:
     reports = load(args.report)
     tests = sum(r["tests"] for r in reports)
     statuses = sorted({r["status"] for r in reports})
-    print(f"### `array_ops` (ephyra): {', '.join(statuses)}")
+    print(f"### `{args.target}` (ephyra): {', '.join(statuses)}")
     print(f"{tests} tests over {len(reports)} worker(s)\n")
     print("| worker | status | tests | discarded | seconds | seed |\n|---|---|---|---|---|---|")
     for i, r in enumerate(reports):
@@ -102,12 +118,12 @@ def gh(*args: str) -> str:
     return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
 
 
-def issue_body(found: Report, report: Report, args: argparse.Namespace) -> str:
+def issue_body(found: Report, plan: str | None, args: argparse.Namespace) -> str:
     failure = found.get("failure") or {}
-    replay = replay_line(failure) or f"EPHYRA_SEED={report['seed']}"
     message = (failure.get("message") or "")[:MAX_MESSAGE]
+    test = f"{args.target}_ephyra"
     lines = [
-        f"The ephyra `array_ops` property failed {found.get('count', 1)} time(s) "
+        f"The ephyra `{args.target}` search failed {found.get('count', 1)} time(s) "
         f"in [this run]({args.run_url}) at commit {args.commit}.",
         "",
         f"Signature: `{found.get('signature', '')}`",
@@ -116,12 +132,20 @@ def issue_body(found: Report, report: Report, args: argparse.Namespace) -> str:
         "```",
         counterexample(failure)[:MAX_MESSAGE],
         "```",
-        "",
-        "Reproduce:",
-        "```bash",
-        f"{replay} cargo test --release -p vortex-fuzz --features ephyra "
-        "--test array_ops_ephyra -- --nocapture",
-        "```",
+    ]
+    if plan:
+        lines += [
+            "",
+            "Reproduce: save this plan as `crash.json` and replay it.",
+            "```json",
+            plan[:MAX_MESSAGE],
+            "```",
+            "```bash",
+            f"EPHYRA_PLAN=crash.json cargo test -p vortex-fuzz --features ephyra --test {test} "
+            f"-- --ignored --exact {args.target}_plan --nocapture",
+            "```",
+        ]
+    lines += [
         "",
         "<details><summary>Failure message</summary>",
         "",
@@ -134,9 +158,12 @@ def issue_body(found: Report, report: Report, args: argparse.Namespace) -> str:
 
 
 def issues(args: argparse.Namespace) -> None:
-    for found, report in merged_failures(load(args.report)):
-        title = (TITLE_PREFIX + found.get("signature", "unknown failure"))[:MAX_TITLE]
-        body = issue_body(found, report, args)
+    prefix = f"ephyra {args.target}: "
+    plans = crash_plans(args.crash_dir)
+    for found, _ in merged_failures(load(args.report)):
+        signature = found.get("signature", "unknown failure")
+        title = (prefix + signature)[:MAX_TITLE]
+        body = issue_body(found, plans.get(signature), args)
         existing = json.loads(
             gh(
                 "issue",
@@ -146,7 +173,7 @@ def issues(args: argparse.Namespace) -> None:
                 "--state",
                 "open",
                 "--search",
-                f'in:title "{TITLE_PREFIX.strip()}"',
+                f'in:title "{prefix.strip()}"',
                 "--json",
                 "number,title",
                 "--limit",
@@ -168,13 +195,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     s = sub.add_parser("summary")
+    s.add_argument("target")
     s.add_argument("report")
     s.set_defaults(func=summary)
     i = sub.add_parser("issues")
+    i.add_argument("target")
     i.add_argument("report")
     i.add_argument("--repo", required=True)
     i.add_argument("--run-url", required=True)
     i.add_argument("--commit", required=True)
+    i.add_argument("--crash-dir")
     i.set_defaults(func=issues)
     args = parser.parse_args()
     args.func(args)
