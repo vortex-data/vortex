@@ -194,10 +194,12 @@ impl WriteStrategyBuilder {
     /// [`CdcRepartitionStrategy`]), so files written from
     /// edited versions of the same data stay mostly byte-identical and deduplicate well on
     /// content-addressed stores such as Hugging Face Xet, which chunk files with the same
-    /// GEAR rolling hash. Zone maps are still written over fixed row blocks; only the
-    /// cross-chunk dictionary layer is omitted (dictionary state shared across chunks would
-    /// couple a chunk's bytes to data outside it), and BtrBlocks' per-chunk dictionary
-    /// schemes still apply.
+    /// GEAR rolling hash. Zone maps are still written over fixed row blocks, and BtrBlocks'
+    /// per-chunk dictionary schemes still apply. The layers that would couple a chunk's bytes to
+    /// data outside it are left out: the dictionary shared across chunks, and the coalescing and
+    /// buffering that regroup chunks by accumulated bytes. Chunk sizes therefore come from
+    /// `options` alone, and [`with_data_block_target_bytes`](Self::with_data_block_target_bytes)
+    /// and [`with_probe_compressor`](Self::with_probe_compressor) have no effect.
     pub fn with_content_defined_chunking(mut self, options: ContentDefinedChunkingOptions) -> Self {
         self.content_defined_chunking = Some(options);
         self

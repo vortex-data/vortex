@@ -18,8 +18,8 @@
 //! that contain an identical *logical* chunk of a column produce identical bytes for that chunk.
 //! The default write strategy, however, cuts columns into fixed row-count blocks
 //! (multiples of 8192 rows). Inserting or deleting a single row therefore shifts the contents of
-//! every downstream block by one row, every re-encoded block differs, and byte-level
-//! deduplication recovers almost nothing.
+//! every downstream block by one row, every block after the edit re-encodes differently, and
+//! byte-level deduplication recovers only the data that precedes it.
 //!
 //! [`CdcRepartitionStrategy`] replaces fixed row-count repartitioning with boundaries chosen by
 //! a rolling hash over the *logical values* of the column, the same trick Parquet's
