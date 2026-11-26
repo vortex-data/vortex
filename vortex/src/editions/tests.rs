@@ -3,18 +3,23 @@
 
 use std::sync::LazyLock;
 
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
@@ -22,11 +27,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_edition::ComponentKind;
@@ -42,16 +50,29 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_expr::col;
+use vortex_expr::eq;
 use vortex_expr::gt_eq;
 use vortex_expr::lit;
+use vortex_expr::lt;
+use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::FoRArraySlotsExt;
+use vortex_fastlanes::FoRReferences;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
+use vortex_mask::Mask;
+use vortex_pivco::Pivco;
+use vortex_pivco::PivcoOptions;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
+use vortex_zigzag::ZigZag;
+use vortex_zigzag::ZigZagArraySlotsExt;
+use vortex_zigzag::zigzag_encode;
 
 use super::CORE_2025_05_0;
 use super::CORE_2025_10_0;
@@ -835,5 +856,242 @@ async fn core_2025_10_0_writes_legacy_zone_maps() -> VortexResult<()> {
     );
 
     assert_eq!(statistics.paths().len(), 5);
+    Ok(())
+}
+
+/// End-to-end `.vortex` file round-trip for `vortex.pivco` under `UNSTABLE`:
+/// - `DEFAULT_CORE_EDITION` rejects `vortex.pivco` serialization.
+/// - Enabling `UNSTABLE` permits writing `PivcoArray`s (`!has_extra_bits`, `has_extra_bits` with
+///   `ebits > 57` and nulls, and `ZigZag(Pivco)`), and reading them back via full scan, `==` and
+///   `<` filter pushdown, `with_row_indices` (`take`), and `with_row_range` (`slice`).
+#[tokio::test]
+async fn unstable_pivco_vortex_file_roundtrip_and_queries() -> VortexResult<()> {
+    let len = 10_000usize;
+    let mut rng = StdRng::seed_from_u64(2026_0505);
+
+    // Column 1: skewed non-negative `u64` (`!has_extra_bits`, `OP-PHA` for `<` & `==` pushdown).
+    let gt_prim = PrimitiveArray::from_iter((0..len).map(|_| {
+        let d = rng.random_range(0..1000u32);
+        if d < 850 {
+            0u64
+        } else if d < 970 {
+            1u64
+        } else if d < 995 {
+            2u64
+        } else {
+            5u64
+        }
+    }));
+
+    // Column 2: nullable `u64` with `has_extra_bits` (including `ebits > 57`).
+    let wide_prim = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        if i % 13 == 0 {
+            None
+        } else if i % 5 == 0 {
+            Some(rng.random_range(0..32u64))
+        } else if i % 5 == 1 {
+            Some(64 + rng.random_range(0..500u64))
+        } else {
+            Some((1u64 << 60) + (i as u64) * 1_009)
+        }
+    }));
+
+    // Column 3: signed Laplacian `i32` (`ZigZag(Pivco)`).
+    let signed_prim = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        if i % 17 == 0 {
+            None
+        } else {
+            let mag = i32::try_from(i % 41).vortex_expect("fits i32");
+            Some(if i % 2 == 0 { -mag } else { mag })
+        }
+    }));
+
+    // Column 4: shifted `u64` (`1_700_000_000_000 + skewed_delta`) compressed as `FoR(Pivco)`.
+    let shifted_prim = PrimitiveArray::from_iter((0..len).map(|_| {
+        let d = rng.random_range(0..1000u32);
+        let delta = if d < 900 {
+            0u64
+        } else if d < 980 {
+            1u64
+        } else {
+            rng.random_range(2..1_024u64)
+        };
+        1_700_000_000_000u64 + delta
+    }));
+
+    let expected_struct = StructArray::from_fields(&[
+        ("gt", gt_prim.clone().into_array()),
+        ("wide", wide_prim.clone().into_array()),
+        ("signed", signed_prim.clone().into_array()),
+        ("shifted", shifted_prim.clone().into_array()),
+    ])?
+    .into_array();
+
+    let pivco_compressor = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+        match chunk.dtype() {
+            DType::Primitive(PType::U64, Nullability::NonNullable) => {
+                let prim = chunk.clone().execute::<PrimitiveArray>(ctx)?;
+                let first = prim.as_slice::<u64>().first().copied().unwrap_or(0);
+                if first >= 1_000_000_000_000 {
+                    let for_arr = FoR::encode(prim, ctx)?;
+                    let biased = for_arr.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+                    let child = Pivco::encode_with_options(
+                        &biased,
+                        PivcoOptions::op_pha().with_block_shift(11),
+                        ctx,
+                    )?
+                    .into_array();
+                    let FoRReferences::Global(reference) = for_arr.references() else {
+                        unreachable!()
+                    };
+                    return Ok(FoR::try_new(child, reference.clone())?.into_array());
+                }
+                Ok(Pivco::encode_with_options(
+                    &prim,
+                    PivcoOptions::op_pha().with_block_shift(11),
+                    ctx,
+                )?
+                .into_array())
+            }
+            DType::Primitive(PType::U64, Nullability::Nullable) => {
+                let prim = chunk.clone().execute::<PrimitiveArray>(ctx)?;
+                Ok(Pivco::encode_with_options(
+                    &prim,
+                    PivcoOptions::op_pha().with_block_shift(11),
+                    ctx,
+                )?
+                .into_array())
+            }
+            DType::Primitive(PType::I32, _) => {
+                let prim = chunk.clone().execute::<PrimitiveArray>(ctx)?;
+                let zz = zigzag_encode(prim.as_view())?;
+                let zz_prim = zz.encoded().clone().execute::<PrimitiveArray>(ctx)?;
+                let zz_pivco = Pivco::encode_with_options(
+                    &zz_prim,
+                    PivcoOptions::pha().with_block_shift(11),
+                    ctx,
+                )?
+                .into_array();
+                Ok(ZigZag::try_new(zz_pivco)?.into_array())
+            }
+            _ => Ok(chunk.clone()),
+        }
+    };
+
+    // 1. Default `core` session rejects `vortex.pivco` produced by the compressor.
+    let core_session = VortexSession::default();
+    let core_strategy = WriteStrategyBuilder::from_session(&core_session)
+        .with_compressor(pivco_compressor)
+        .build();
+    let mut rejected = ByteBufferMut::empty();
+    let err = core_session
+        .write_options()
+        .with_strategy(core_strategy)
+        .write(&mut rejected, expected_struct.clone().to_array_stream())
+        .await
+        .err()
+        .ok_or_else(|| vortex_err!("default core edition unexpectedly accepted vortex.pivco"))?;
+    assert!(
+        err.to_string()
+            .contains("Serialized array ID vortex.pivco not permitted by ctx"),
+        "unexpected error: {err}"
+    );
+
+    // 2. Enabling `UNSTABLE` permits writing `vortex.pivco` directly to a `.vortex` file.
+    let session = VortexSession::default();
+    session.enable_edition(UNSTABLE)?;
+    let pivco_strategy = WriteStrategyBuilder::from_session(&session)
+        .with_compressor(pivco_compressor)
+        .build();
+    let mut file_buf = ByteBufferMut::empty();
+    session
+        .write_options()
+        .with_strategy(pivco_strategy)
+        .write(&mut file_buf, expected_struct.clone().to_array_stream())
+        .await?;
+    let file_bytes = file_buf.freeze();
+
+    // 3. Full scan matches canonical values.
+    let file = session.open_options().open_buffer(file_bytes)?;
+    let full = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(full, expected_struct, &mut session.create_execution_ctx());
+
+    // 4. `==` filter pushdown (`gt == 1u64`).
+    let eq_filter = eq(col("gt"), lit(1u64)).bind(file.dtype())?;
+    let eq_actual = file
+        .scan()?
+        .with_filter(eq_filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let mut ctx = session.create_execution_ctx();
+    let eq_mask_arr = gt_prim.clone().into_array().compare(
+        ConstantArray::new(Scalar::from(1u64), len).into_array(),
+        CompareOperator::Eq,
+    )?;
+    let eq_mask = eq_mask_arr.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+    let eq_expected = expected_struct.filter(eq_mask)?;
+    assert_arrays_eq!(eq_actual, eq_expected, &mut ctx);
+
+    // 5. `<` filter pushdown (`wide < 64u64` and `gt < 2u64`).
+    let lt_filter = lt(col("gt"), lit(2u64)).bind(file.dtype())?;
+    let lt_actual = file
+        .scan()?
+        .with_filter(lt_filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let lt_mask_arr = gt_prim.clone().into_array().compare(
+        ConstantArray::new(Scalar::from(2u64), len).into_array(),
+        CompareOperator::Lt,
+    )?;
+    let lt_mask = lt_mask_arr.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+    let lt_expected = expected_struct.filter(lt_mask)?;
+    assert_arrays_eq!(lt_actual, lt_expected, &mut ctx);
+
+    let lt_wide_filter = lt(col("wide"), lit(64u64)).bind(file.dtype())?;
+    let lt_wide_actual = file
+        .scan()?
+        .with_filter(lt_wide_filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let lt_wide_mask_arr = wide_prim.clone().into_array().compare(
+        ConstantArray::new(Scalar::from(64u64), len).into_array(),
+        CompareOperator::Lt,
+    )?;
+    let lt_wide_mask = lt_wide_mask_arr
+        .fill_null(false)?
+        .execute::<Mask>(&mut ctx)?;
+    let lt_wide_expected = expected_struct.filter(lt_wide_mask)?;
+    assert_arrays_eq!(lt_wide_actual, lt_wide_expected, &mut ctx);
+
+    // 6. `with_row_indices` (`take` across multiple blocks).
+    let take_idx: Vec<u64> = (0..len as u64).step_by(173).collect();
+    let take_actual = file
+        .scan()?
+        .with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
+            take_idx.clone(),
+        ))?)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let take_expected = expected_struct.take(PrimitiveArray::from_iter(take_idx).into_array())?;
+    assert_arrays_eq!(take_actual, take_expected, &mut ctx);
+
+    // 7. `with_row_range` (`slice` crossing block boundaries).
+    let slice_actual = file
+        .scan()?
+        .with_row_range(137..8_901)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let slice_expected = expected_struct.slice(137..8_901)?;
+    assert_arrays_eq!(slice_actual, slice_expected, &mut ctx);
+
+    // 8. Default `BtrBlocks` compressor under `UNSTABLE` round-trips cleanly through `.vortex` file.
+    let auto_buf = write_with(&session, expected_struct.clone()).await?;
+    assert_written_values(&session, auto_buf, expected_struct).await?;
+
     Ok(())
 }
