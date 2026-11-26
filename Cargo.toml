@@ -26,6 +26,7 @@ members = [
     "vortex-file",
     "vortex-index/core",
     "vortex-index/ivf",
+    "vortex-index/trigram",
     "vortex-table",
     "vortex-ipc",
     "vortex",
@@ -326,6 +327,7 @@ vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features =
 vortex-functions = { version = "0.1.0", path = "./vortex-functions", default-features = false }
 vortex-index = { version = "0.1.0", path = "./vortex-index/core", default-features = false }
 vortex-index-ivf = { version = "0.1.0", path = "./vortex-index/ivf", default-features = false }
+vortex-index-trigram = { version = "0.1.0", path = "./vortex-index/trigram", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
