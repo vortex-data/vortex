@@ -567,8 +567,11 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::list::ListArraySlotsExt;
     use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -576,6 +579,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -585,6 +589,7 @@ mod tests {
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
     use crate::array::ParquetVariantArraySlotsExt;
+    use crate::array::logical_shredded_from_parquet_typed_value;
     use crate::array::parquet_typed_value_from_logical_shredded;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -887,6 +892,36 @@ mod tests {
         let canonical = array.clone().execute::<Canonical>(&mut ctx)?.into_array();
 
         assert_arrays_eq!(canonical, array, &mut ctx);
+        Ok(())
+    }
+
+    /// A shredded list keeps only the elements that its rows use, so that no element is mapped to
+    /// the metadata of another row. The offsets do not start at zero, as in a sliced list, and an
+    /// empty list still holds elements.
+    #[rstest]
+    #[case::sliced(buffer![2u32, 3, 5], 2, 3)]
+    #[case::no_rows(buffer![1u32], 0, 0)]
+    fn shredded_list_keeps_only_used_elements(
+        #[case] offsets: Buffer<u32>,
+        #[case] rows: usize,
+        #[case] used_elements: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let typed_value = ListArray::try_new(
+            buffer![0i32, 1, 2, 3, 4, 5].into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let metadata = VarBinViewArray::from_iter_bin(vec![[1u8, 0]; rows]).into_array();
+
+        let shredded = logical_shredded_from_parquet_typed_value(&metadata, typed_value, &mut ctx)?;
+        let list = shredded
+            .as_opt::<List>()
+            .ok_or_else(|| vortex_err!("expected a list"))?;
+
+        assert_eq!(list.elements().len(), used_elements);
         Ok(())
     }
 
