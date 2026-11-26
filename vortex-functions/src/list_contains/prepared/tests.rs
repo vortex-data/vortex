@@ -289,11 +289,11 @@ fn test_decimal_wide_values(
         .into_array(),
     [Some(true), Some(false), Some(true), Some(true)],
 )]
-#[case::float_zeros_equal(
+#[case::float_bits(
     PrimitiveArray::from_option_iter([Some(0.0f64), Some(f64::NAN)]).into_array(),
     PrimitiveArray::from_option_iter([Some(-0.0f64), Some(0.0), Some(f64::NAN), Some(1.5)])
         .into_array(),
-    [Some(true), Some(true), Some(true), Some(false)],
+    [Some(false), Some(true), Some(true), Some(false)],
 )]
 fn test_primitive_integers(
     #[case] elements: ArrayRef,

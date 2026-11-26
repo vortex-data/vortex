@@ -111,8 +111,8 @@ mod tests {
     use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
     use vortex_array::scalar_fn::builtin::operators::CompareMode;
-    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -188,12 +188,20 @@ mod tests {
         let mode = CompareMode::new(FloatOrder::ZerosEqual);
 
         for operator in ALL_OPERATORS {
-            let actual =
-                Compare::try_new_with_mode(encoded.clone().into_array(), rhs.clone(), operator, mode)?
-                    .into_array();
-            let expected =
-                Compare::try_new_with_mode(array.clone().into_array(), rhs.clone(), operator, mode)?
-                    .into_array();
+            let actual = Compare::try_new_with_mode(
+                encoded.clone().into_array(),
+                rhs.clone(),
+                operator,
+                mode,
+            )?
+            .into_array();
+            let expected = Compare::try_new_with_mode(
+                array.clone().into_array(),
+                rhs.clone(),
+                operator,
+                mode,
+            )?
+            .into_array();
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
