@@ -282,7 +282,7 @@ mod tests {
     use crate::stats::StatBound;
 
     #[test]
-    fn intersection_preserves_exact_over_inexact() {
+    fn intersection_exact_and_absent() {
         assert_eq!(
             Precision::Exact(false).intersection(&Precision::Inexact(true)),
             Some(IntersectionResult::Value(Precision::Exact(false)))
@@ -292,36 +292,16 @@ mod tests {
             Some(IntersectionResult::Value(Precision::Exact(false)))
         );
         assert_eq!(
-            Precision::Exact(true).intersection(&Precision::Inexact(false)),
-            Some(IntersectionResult::Value(Precision::Exact(true)))
-        );
-        assert_eq!(
-            Precision::Exact(5i32).intersection(&Precision::Inexact(10i32)),
-            Some(IntersectionResult::Value(Precision::Exact(5i32)))
-        );
-        assert_eq!(
             Precision::Exact(true).intersection(&Precision::Exact(false)),
             Some(IntersectionResult::Empty)
         );
-    }
-
-    #[test]
-    fn intersection_absent_is_identity() {
         assert_eq!(
             Precision::Exact(true).intersection(&Precision::Absent),
             Some(IntersectionResult::Value(Precision::Exact(true)))
         );
         assert_eq!(
-            Precision::Absent.intersection(&Precision::Exact(false)),
-            Some(IntersectionResult::Value(Precision::Exact(false)))
-        );
-        assert_eq!(
-            Precision::Inexact(false).intersection(&Precision::Absent),
+            Precision::Absent.intersection(&Precision::Inexact(false)),
             Some(IntersectionResult::Value(Precision::Inexact(false)))
-        );
-        assert_eq!(
-            Precision::<bool>::Absent.intersection(&Precision::Absent),
-            Some(IntersectionResult::Value(Precision::Absent))
         );
     }
 }

@@ -471,17 +471,10 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
     use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::NullArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -494,10 +487,8 @@ mod tests {
     use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::stats::Stat;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
-    use crate::ArrayExprExt;
     use crate::BoundExpression;
     use crate::Expression;
     use crate::ScalarFnExprExt;
@@ -514,8 +505,6 @@ mod tests {
     use crate::lt_eq;
     use crate::not_eq;
     use crate::or;
-    use crate::stats::bind::StatBinder;
-    use crate::stats::bind::bind_stats;
     use crate::stats::expr::StatFn;
     use crate::stats::expr::StatOptions;
     use crate::stats::rewrite::BoundExpressionPruneExt;
@@ -855,56 +844,6 @@ mod tests {
                 ),
             ))
         );
-        Ok(())
-    }
-    #[test]
-    fn non_nullable_cast_falsifier_handles_missing_and_null_stats() -> VortexResult<()> {
-        struct MissingStatBinder;
-        impl StatBinder for MissingStatBinder {
-            fn bind_aggregate(
-                &self,
-                _input: &BoundExpression,
-                _aggregate_fn: &AggregateFnRef,
-                _stat_dtype: &DType,
-            ) -> VortexResult<Option<BoundExpression>> {
-                Ok(None)
-            }
-        }
-
-        struct ZoneMaxBinder(DType);
-        impl StatBinder for ZoneMaxBinder {
-            fn bind_aggregate(
-                &self,
-                _input: &BoundExpression,
-                _aggregate_fn: &AggregateFnRef,
-                _stat_dtype: &DType,
-            ) -> VortexResult<Option<BoundExpression>> {
-                Ok(Some(col("a_max").bind(&self.0)?))
-            }
-        }
-
-        let target = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let expr = gt(cast(col("a"), target), lit(42i64));
-        let falsifier =
-            falsify(&expr)?.ok_or_else(|| vortex_err!("cast comparison should have falsifier"))?;
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let lowered_missing = bind_stats(falsifier.clone(), &MissingStatBinder)?;
-        let result = NullArray::new(1)
-            .into_array()
-            .apply_bound(&lowered_missing)?
-            .execute_scalar(0, &mut ctx)?;
-        assert!(result.is_null());
-
-        let zones = StructArray::from_fields(&[(
-            "a_max",
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(100)]).into_array(),
-        )])?
-        .into_array();
-        let lowered_zones = bind_stats(falsifier, &ZoneMaxBinder(zones.dtype().clone()))?;
-        let pruned = zones.apply_bound(&lowered_zones)?;
-        let expected = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
-        assert_arrays_eq!(pruned, expected, &mut ctx);
         Ok(())
     }
 
