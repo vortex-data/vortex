@@ -247,13 +247,8 @@ mod test {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::sync::LazyLock;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
 
-    use futures::FutureExt;
     use futures::StreamExt;
-    use futures::future;
-    use futures::join;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -267,7 +262,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
     use vortex_expr::and;
     use vortex_expr::gt;
     use vortex_expr::gt_eq;
@@ -277,8 +271,6 @@ mod test {
     use vortex_expr::root;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::segments::SegmentFuture;
-    use vortex_io::segments::SegmentId;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
@@ -604,71 +596,6 @@ mod test {
             let snapshot = usage.snapshot();
             assert_eq!(snapshot.splits_pruned, 2);
             assert_eq!(snapshot.splits_empty_after_predicate, 0);
-            Ok(())
-        })
-    }
-
-    struct FailOnceZoneSource {
-        inner: Arc<dyn SegmentSource>,
-        target: SegmentId,
-        calls: AtomicUsize,
-    }
-
-    impl SegmentSource for FailOnceZoneSource {
-        fn request(&self, id: SegmentId) -> SegmentFuture {
-            if id == self.target && self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                return future::ready(Err(vortex_err!("transient zone map read error"))).boxed();
-            }
-            self.inner.request(id)
-        }
-    }
-
-    #[rstest]
-    fn transient_zone_map_read_recovers_on_retry(
-        #[from(stats_layout)] (data, layout): (Arc<dyn SegmentSource>, LayoutRef),
-    ) -> VortexResult<()> {
-        block_on(|handle| async {
-            let session = session_with_handle(handle);
-            let zones_segment = layout.slot(1)?.unwrap().segment_ids()[0];
-            let source = Arc::new(FailOnceZoneSource {
-                inner: data,
-                target: zones_segment,
-                calls: AtomicUsize::new(0),
-            });
-            let reader = layout.new_reader(
-                "zoned".into(),
-                Arc::clone(&source) as Arc<dyn SegmentSource>,
-                &session,
-                &Default::default(),
-            )?;
-            let expr = gt(root(), lit(7)).bind(reader.dtype())?;
-            let equivalent = gt(root(), lit(7)).bind(reader.dtype())?;
-            let expected =
-                Mask::from_iter([false, false, false, false, false, false, true, true, true]);
-
-            assert!(
-                reader
-                    .pruning_evaluation(&(0..9), &expr, Mask::new_true(9))?
-                    .await
-                    .is_err()
-            );
-            assert_eq!(source.calls.load(Ordering::SeqCst), 1);
-
-            // Retry with the same expression and an equivalent expression concurrently:
-            // both must succeed and share a single successful zone-map load.
-            let same_fut = reader.pruning_evaluation(&(0..9), &expr, Mask::new_true(9))?;
-            let equiv_fut = reader.pruning_evaluation(&(0..9), &equivalent, Mask::new_true(9))?;
-            let (same_res, equiv_res) = join!(same_fut, equiv_fut);
-            assert_eq!(same_res?, expected);
-            assert_eq!(equiv_res?, expected);
-            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
-
-            // Subsequent pruning requests hit the cache without reading the zone map again.
-            let cached = reader
-                .pruning_evaluation(&(0..9), &expr, Mask::new_true(9))?
-                .await?;
-            assert_eq!(cached, expected);
-            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
             Ok(())
         })
     }
