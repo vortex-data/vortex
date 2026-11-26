@@ -21,6 +21,7 @@ use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::Manifest;
 
@@ -47,7 +48,7 @@ impl TableScan {
             session,
             projection: None,
             filter: None,
-            concurrency: 1,
+            concurrency: get_available_parallelism().unwrap_or(1),
         }
     }
 
@@ -63,8 +64,8 @@ impl TableScan {
         self
     }
 
-    /// How many chunks of a file each worker thread runs at once; [`ScanDriver`] multiplies it by
-    /// the available parallelism. Defaults to one.
+    /// How many chunks of a file run at once; zero runs them inline. Defaults to the available
+    /// parallelism.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
         self
