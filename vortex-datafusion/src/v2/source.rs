@@ -386,7 +386,8 @@ impl VortexDataSource {
 /// [`DataSource::open`] calls support only a single output partition; multiple output partitions
 /// must be opened through [`DataSourceExec`] or shared [`OpenArgs`]. Dropping an output partition
 /// before completion releases only that partition; the shared scan is cancelled on failure or
-/// stopped once every output partition has finished or been dropped.
+/// stopped once every output partition has finished or been dropped. An output partition that is
+/// never opened keeps the shared scan alive until the plan is dropped.
 /// Scan initialization attempts are serialized; cancellation may drop a pending attempt,
 /// allowing another output partition to retry it.
 ///
