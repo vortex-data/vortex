@@ -319,10 +319,22 @@ impl Patches {
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
-            let max = usize::try_from(&indices.execute_scalar(indices.len() - 1, ctx)?)
+            let min = usize::try_from(&indices.execute_scalar(0, ctx)?)
                 .map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
-                max - offset < array_len,
+                min >= offset,
+                "Patch minimum index {min} is less than offset {offset}"
+            );
+
+            let max = if indices.len() == 1 {
+                min
+            } else {
+                usize::try_from(&indices.execute_scalar(indices.len() - 1, ctx)?)
+                    .map_err(|_| vortex_err!("indices must be a number"))?
+            };
+            vortex_ensure!(
+                max.checked_sub(offset)
+                    .is_some_and(|max_idx| max_idx < array_len),
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
 
@@ -3605,5 +3617,40 @@ mod test {
             &patches,
             &piecewise(&[5, 50, 120], &[30, 40, 20], &[1, 1, 1]),
         )
+    }
+
+    #[test]
+    fn test_new_rejects_first_index_below_offset() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let err = Patches::new(
+            10,
+            5,
+            buffer![2u32, 10].into_array(),
+            buffer![1i32, 2].into_array(),
+            None,
+            &mut ctx,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Patch minimum index 2 is less than offset 5"),
+            "unexpected error: {err}"
+        );
+
+        let err = Patches::new(
+            10,
+            5,
+            buffer![2u32].into_array(),
+            buffer![1i32].into_array(),
+            None,
+            &mut ctx,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Patch minimum index 2 is less than offset 5"),
+            "unexpected error: {err}"
+        );
+        Ok(())
     }
 }
