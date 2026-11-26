@@ -392,6 +392,44 @@ fn detached_chunks_commit_in_order() -> VortexResult<()> {
     Ok(())
 }
 
+#[test]
+fn detached_waves_preserve_challenge_cadence() -> VortexResult<()> {
+    let _lock = LOCK.lock();
+    let compressor = compressor();
+    let reuse = PlanReuse::new(PlanReuseOptions {
+        challenge_after: Some(8),
+        ..PlanReuseOptions::default()
+    });
+
+    // Establish the initial plan from chunk 0 (as the layout writer does before wave batching).
+    let chunk0 = reuse.next_chunk();
+    let (_, estimates0) = compress_counting(&compressor, &low_cardinality(0), &chunk0)?;
+    assert!(estimates0 > 0);
+    reuse.commit(chunk0);
+
+    // Process chunks 1..40 in 16-chunk detached waves and verify challenges fire every 9 chunks
+    // (chunks 9, 18, 27, 36), matching `challenge_after: Some(8)`.
+    let mut challenged = Vec::new();
+    let mut idx = 1usize;
+    while idx < 40 {
+        let wave_end = (idx + 16).min(40);
+        let wave: Vec<_> = (idx..wave_end).map(|i| (i, reuse.next_chunk())).collect();
+        for (i, chunk) in wave {
+            let (_, estimates) =
+                compress_counting(&compressor, &low_cardinality(i as i64), &chunk)?;
+            if estimates > 0 {
+                challenged.push(i);
+            }
+            reuse.commit(chunk);
+        }
+        idx = wave_end;
+    }
+
+    assert_eq!(challenged, vec![9, 18, 27, 36]);
+
+    Ok(())
+}
+
 /// Encodes `i64` values in `0..8` as a `DictArray` with `u8` codes and `values_len` `i64` values,
 /// so the output always round-trips identically while its size is controlled by `values_len`.
 fn dict_with_padding(array: &ArrayRef, values_len: usize) -> VortexResult<ArrayRef> {

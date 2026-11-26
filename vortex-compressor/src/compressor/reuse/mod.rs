@@ -179,12 +179,14 @@ impl PlanReuse {
             return;
         };
         match update {
-            Some(PlanUpdate::Replace { plan, ratio }) => self.replace(plan, ratio),
+            // Detached commits preserve the parent's replay counter because `next_chunk` already
+            // reset it on `Challenge` and later chunks in the same wave already incremented it.
+            Some(PlanUpdate::Replace { plan, ratio }) => self.apply_replace(plan, ratio, true),
             Some(PlanUpdate::Keep {
                 expected,
                 plan,
                 ratio,
-            }) => self.keep(&expected, plan, ratio),
+            }) => self.apply_keep(&expected, plan, ratio, true),
             Some(PlanUpdate::UpdatePlan { expected, plan }) => self.update_plan(&expected, plan),
             None => {}
         }
@@ -218,6 +220,11 @@ impl PlanReuse {
     /// Replaces the cached plan. A plan without a scheme at the root, such as the plan of a
     /// constant chunk, tells nothing about the next chunk, so it is ignored.
     fn replace(&self, plan: CompressionPlan, ratio: f64) {
+        self.apply_replace(plan, ratio, false);
+    }
+
+    /// Replaces the cached plan, optionally preserving `replays` for detached wave commits.
+    fn apply_replace(&self, plan: CompressionPlan, ratio: f64, preserve_replays: bool) {
         if !matches!(plan.root_decision(), Some(Decision::Scheme(_))) {
             return;
         }
@@ -225,10 +232,15 @@ impl PlanReuse {
         let mut state = self.state.lock();
         match &mut *state {
             PlanReuseMode::Shared(cached) => {
+                let replays = if preserve_replays {
+                    cached.as_ref().map_or(0, |entry| entry.replays)
+                } else {
+                    0
+                };
                 *cached = Some(CachedPlan {
                     plan: Arc::new(plan),
                     ratio,
-                    replays: 0,
+                    replays,
                 });
             }
             PlanReuseMode::Detached { update, .. } => {
@@ -245,6 +257,17 @@ impl PlanReuse {
         updated_plan: Option<CompressionPlan>,
         ratio: f64,
     ) {
+        self.apply_keep(expected, updated_plan, ratio, false);
+    }
+
+    /// Keeps the cached plan, optionally preserving `replays` for detached wave commits.
+    fn apply_keep(
+        &self,
+        expected: &Arc<CompressionPlan>,
+        updated_plan: Option<CompressionPlan>,
+        ratio: f64,
+        preserve_replays: bool,
+    ) {
         let mut state = self.state.lock();
         match &mut *state {
             PlanReuseMode::Shared(cached) => {
@@ -255,7 +278,9 @@ impl PlanReuse {
                         entry.plan = Arc::new(plan);
                     }
                     entry.ratio = ratio;
-                    entry.replays = 0;
+                    if !preserve_replays {
+                        entry.replays = 0;
+                    }
                 }
             }
             PlanReuseMode::Detached { update, .. } => {
