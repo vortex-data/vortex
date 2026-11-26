@@ -31,6 +31,9 @@ use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
+use vortex::encodings::alp::ALPRD;
+use vortex::encodings::alp::ALPRDArrayExt;
+use vortex::encodings::alp::ALPRDArraySlotsExt;
 use vortex::encodings::alp::Exponents;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
@@ -52,6 +55,7 @@ use vortex::scalar_fn::ScalarFnVTable;
 use vortex::scalar_fn::builtin::cast::Cast;
 use vortex::session::VortexSession;
 
+use super::ALPRD_DICTIONARY_CAPACITY;
 use super::CudaDispatchPlan;
 use super::MAX_PLAN_BYTES;
 use super::MaterializedStage;
@@ -60,6 +64,7 @@ use super::PTypeTag_PTYPE_F32;
 use super::PTypeTag_PTYPE_F64;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
+use super::ScalarOp_ScalarOpCode_ALPRD;
 use super::SourceOp;
 use super::packed_plan_size;
 use super::ptype_to_tag;
@@ -96,6 +101,9 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     if id == ALP.id() {
         let arr = array.as_::<ALP>();
         return matches!(arr.dtype().as_ptype(), PType::F32 | PType::F64);
+    }
+    if id == ALPRD.id() {
+        return is_dyn_dispatch_alprd_compatible(array);
     }
     if id == BitPacked.id() {
         return is_bitpacked_with_global_bit_width(array);
@@ -145,6 +153,34 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         || id == Primitive.id()
         || id == Slice.id()
         || id == Sequence.id()
+}
+
+/// The `ALPRD` op unpacks the codes itself, so they must be bit-packed.
+fn is_dyn_dispatch_alprd_compatible(array: &ArrayRef) -> bool {
+    let alprd = array.as_::<ALPRD>();
+    matches!(alprd.dtype().as_ptype(), PType::F32 | PType::F64)
+        && alprd_codes_view(alprd.left_parts()).is_ok()
+        && alprd
+            .left_parts_patches()
+            .is_none_or(|patches| patches.chunk_offsets().is_some())
+}
+
+fn alprd_codes_view(codes: &ArrayRef) -> VortexResult<(BufferHandle, u8, u16)> {
+    let (bitpacked, offset) = match codes.as_opt::<Slice>() {
+        Some(slice) => (slice.child().clone(), slice.data().slice_range().start),
+        None => (codes.clone(), 0),
+    };
+    let Some(bp) = bitpacked.as_opt::<BitPacked>() else {
+        vortex_bail!(
+            "ALP-RD codes must be bit-packed, got {}",
+            bitpacked.encoding_id()
+        );
+    };
+    if PType::try_from(bp.dtype())? != PType::U16 || bp.patches().is_some() {
+        vortex_bail!("ALP-RD codes must be u16 without patches");
+    }
+    let (packed, bit_width, codes_offset, _) = bitpacked_slice_view(bp, offset, codes.len())?;
+    Ok((packed, bit_width, codes_offset))
 }
 
 /// Integer widening fuses as an `EXTEND` op after the child's ops.
@@ -241,6 +277,9 @@ struct Stage {
     source_patches: Option<PlanPatches>,
     /// Scalar ops with optional per-op patches (e.g. ALP float exceptions).
     scalar_ops: Vec<(ScalarOp, Option<PlanPatches>)>,
+    /// Indices into `FusedPlan::source_buffers` of buffers read by scalar ops (the ALP-RD
+    /// codes), keyed by the op's index in `scalar_ops`.
+    scalar_op_buffers: Vec<(usize, usize)>,
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
@@ -254,6 +293,7 @@ impl Stage {
             source,
             source_patches: None,
             scalar_ops: vec![],
+            scalar_op_buffers: vec![],
             source_buffer_index,
             source_ptype,
         }
@@ -521,10 +561,17 @@ impl FusedPlan {
                 if let Some(patches) = &patches {
                     let (ptr, bufs) =
                         load_patches_to_gpu(&patches.patches, patches.range.clone(), ctx).await?;
-                    op.params.alp.patches_ptr = ptr;
+                    if op.op_code == ScalarOp_ScalarOpCode_ALPRD {
+                        op.params.alprd.patches_ptr = ptr;
+                    } else {
+                        op.params.alp.patches_ptr = ptr;
+                    }
                     device_buffers.extend(bufs);
                 }
                 scalar_ops.push(op);
+            }
+            for &(op_index, buffer_index) in &stage.scalar_op_buffers {
+                scalar_ops[op_index].params.alprd.codes_ptr = device_ptrs[buffer_index];
             }
 
             stages.push(MaterializedStage::new(
@@ -584,6 +631,8 @@ impl FusedPlan {
             self.walk_zigzag(array, pending_subtrees)
         } else if id == ALP.id() {
             self.walk_alp(array, pending_subtrees)
+        } else if id == ALPRD.id() {
+            self.walk_alprd(array, None, pending_subtrees)
         } else if id == Dict.id() {
             self.walk_dict(array, pending_subtrees)
         } else if id == RunEnd.id() {
@@ -664,6 +713,15 @@ impl FusedPlan {
                 alp.exponents(),
                 pending_subtrees,
             );
+        }
+
+        // ALP-RD only has a slice kernel, which would slice the patches on the host.
+        if child.encoding_id() == ALPRD.id() {
+            if !is_dyn_dispatch_alprd_compatible(&child) {
+                return self.push_subtree(array, pending_subtrees);
+            }
+            let range = slice_arr.data().slice_range().clone();
+            return self.walk_alprd(child, Some(range), pending_subtrees);
         }
 
         vortex_bail!(
@@ -806,6 +864,62 @@ impl FusedPlan {
         pipeline
             .scalar_ops
             .push((ScalarOp::alp(alp_f, alp_e, output_ptype), patches));
+        Ok(pipeline)
+    }
+
+    fn walk_alprd(
+        &mut self,
+        array: ArrayRef,
+        range: Option<Range<usize>>,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let alprd = array.as_::<ALPRD>();
+        let float_ptype = alprd.dtype().as_ptype();
+        if float_ptype.byte_width() as u32 != self.output_elem_bytes {
+            vortex_bail!(
+                "ALP-RD {float_ptype} cannot be fused into a plan with a different output width"
+            );
+        }
+
+        let (left_parts, right_parts) = match &range {
+            Some(range) => (
+                alprd.left_parts().slice(range.clone())?,
+                alprd.right_parts().slice(range.clone())?,
+            ),
+            None => (alprd.left_parts().clone(), alprd.right_parts().clone()),
+        };
+        let (codes, code_bit_width, codes_offset) = alprd_codes_view(&left_parts)?;
+
+        let dictionary = alprd.left_parts_dictionary();
+        if dictionary.len() > ALPRD_DICTIONARY_CAPACITY as usize {
+            vortex_bail!(
+                "ALP-RD dictionary holds {} entries, more than {ALPRD_DICTIONARY_CAPACITY}",
+                dictionary.len()
+            );
+        }
+        let mut dictionary_entries = [0u16; ALPRD_DICTIONARY_CAPACITY as usize];
+        dictionary_entries[..dictionary.len()].copy_from_slice(dictionary.as_slice());
+
+        let patches = alprd
+            .left_parts_patches()
+            .map(|patches| PlanPatches { patches, range });
+
+        let mut pipeline = self.walk_child(right_parts, pending_subtrees)?;
+        let codes_index = self.source_buffers.len();
+        self.source_buffers.push(Some(codes));
+        pipeline
+            .scalar_op_buffers
+            .push((pipeline.scalar_ops.len(), codes_index));
+        pipeline.scalar_ops.push((
+            ScalarOp::alprd(
+                dictionary_entries,
+                codes_offset,
+                code_bit_width,
+                alprd.right_bit_width(),
+                ptype_to_tag(float_ptype),
+            ),
+            patches,
+        ));
         Ok(pipeline)
     }
 
