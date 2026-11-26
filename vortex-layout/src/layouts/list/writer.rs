@@ -15,7 +15,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::definedness::list_elements_definedness;
 use vortex_array::aggregate_fn::definedness::valid_definedness;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
@@ -32,6 +31,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar::NumericOperator;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -299,8 +299,11 @@ async fn transpose_list_column(
     Ok(())
 }
 
-/// Drop the elements that do not belong to the logical elements column: those of null lists, of
-/// lists `defined` does not select, and elements no list references. Dropped lists become empty.
+/// Drop the elements that do not belong to the logical elements column: those of null lists and
+/// of lists `defined` does not select. Dropped lists become empty.
+///
+/// Assumes normalized offsets (from [`canonicalize_to_list`]) so every element is referenced by
+/// some list when all lists are valid and defined.
 fn drop_absent_elements(
     list: ListArray,
     defined: &Mask,
@@ -308,8 +311,7 @@ fn drop_absent_elements(
 ) -> VortexResult<ListArray> {
     let validity = list.validity()?;
     let lists = valid_definedness(&validity, defined, exec_ctx)?;
-    let elements = list_elements_definedness(&list, &lists, exec_ctx)?;
-    if elements.all_true() {
+    if lists.all_true() {
         return Ok(list);
     }
 
@@ -318,14 +320,25 @@ fn drop_absent_elements(
         .clone()
         .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
         .execute::<PrimitiveArray>(exec_ctx)?;
+    let offsets = offsets.as_slice::<u64>();
     let mut kept = BufferMut::<u64>::with_capacity(offsets.len());
     kept.push(0);
     let mut end = 0u64;
-    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
+    let mut elements = BitBufferMut::new_unset(list.elements().len());
+    for (row, bounds) in offsets.windows(2).enumerate() {
         if lists.value(row) {
+            let start = usize::try_from(bounds[0])?;
+            let stop = usize::try_from(bounds[1])?;
+            if start < stop {
+                elements.fill_range(start, stop, true);
+            }
             end += bounds[1] - bounds[0];
         }
         kept.push(end);
+    }
+    let elements = Mask::from_buffer(elements.freeze());
+    if elements.all_true() {
+        return Ok(list);
     }
     // Writers serialize what they receive, so the filter is executed rather than left lazy.
     let elements = list
