@@ -424,6 +424,106 @@ impl Zstd {
             .data()
             .decompress(array.dtype(), &unsliced_validity, ctx)
     }
+
+    /// Materializes a sliced [`ZstdArray`] into an unsliced [`ZstdArray`] containing only the
+    /// slice's logical rows and validity.
+    pub(crate) fn compact_slice(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ZstdArray> {
+        let dtype = array.dtype();
+        let slice = array
+            .data()
+            .decompress_slice(dtype, &unsliced_validity(array), ctx)?;
+        let slice_mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
+        let validity = Validity::from_mask(slice_mask, dtype.nullability());
+        let value_range = slice.value_range()?;
+        let n_values = value_range.len();
+
+        if n_values == 0 {
+            let data = ZstdData::new(
+                None,
+                Vec::new(),
+                ZstdMetadata {
+                    dictionary_size: 0,
+                    frames: Vec::new(),
+                },
+                slice.n_rows,
+            );
+            return Self::try_new(dtype.clone(), data, validity);
+        }
+
+        let values_per_frame = array
+            .metadata
+            .frames
+            .first()
+            .and_then(|frame| usize::try_from(frame.n_values).ok())
+            .filter(|&v| v > 0)
+            .map_or(n_values, |v| v.min(n_values));
+
+        let (active_bytes, frame_byte_starts) = match dtype {
+            DType::Primitive(..) => {
+                let byte_range = slice.primitive_byte_range()?;
+                let active_bytes = &slice.bytes.as_slice()[byte_range];
+                let step_width = values_per_frame * slice.byte_width;
+                let frame_byte_starts = (0..active_bytes.len())
+                    .step_by(step_width)
+                    .collect::<Vec<_>>();
+                (active_bytes, frame_byte_starts)
+            }
+            DType::Binary(_) | DType::Utf8(_) => {
+                let (active_bytes, _) = slice.value_bytes()?;
+                let mut frame_byte_starts = Vec::with_capacity(n_values.div_ceil(values_per_frame));
+                let mut offset = 0;
+                for i in 0..n_values {
+                    if i % values_per_frame == 0 {
+                        frame_byte_starts.push(offset);
+                    }
+                    let value_len = zstd_value_len(active_bytes, offset)?;
+                    offset = offset
+                        .checked_add(size_of::<ViewLen>())
+                        .and_then(|o| o.checked_add(value_len))
+                        .ok_or_else(|| vortex_err!("Corrupt zstd values: value offset overflow"))?;
+                    vortex_ensure!(
+                        offset <= active_bytes.len(),
+                        "Corrupt zstd values: value at index {i} runs past the end of the {} byte \
+                         frame buffer",
+                        active_bytes.len()
+                    );
+                }
+                vortex_ensure_eq!(
+                    offset,
+                    active_bytes.len(),
+                    "Corrupt zstd values: length-prefixed values do not tile the frame buffer"
+                );
+                (active_bytes, frame_byte_starts)
+            }
+            _ => vortex_bail!("Unsupported dtype for Zstd array: {dtype}"),
+        };
+
+        // Recompress without dictionary training so small slices cannot fail dictionary training.
+        let Frames {
+            dictionary,
+            frames,
+            frame_metas,
+        } = ZstdData::compress_values(
+            active_bytes,
+            &frame_byte_starts,
+            0,
+            values_per_frame,
+            n_values,
+            false,
+        )?;
+        let metadata = ZstdMetadata {
+            dictionary_size: dictionary
+                .as_ref()
+                .map_or(0, |dict| dict.len())
+                .try_into()?,
+            frames: frame_metas,
+        };
+        let data = ZstdData::new(dictionary, frames, metadata, slice.n_rows);
+        Self::try_new(dtype.clone(), data, validity)
+    }
 }
 
 #[array_slots(Zstd)]
@@ -751,6 +851,24 @@ impl DecompressedSlice {
         Ok(start..end)
     }
 
+    /// Byte range within `bytes` holding this slice's fixed-width primitive values.
+    fn primitive_byte_range(&self) -> VortexResult<Range<usize>> {
+        let Range { start, end } = self.value_range()?;
+        start
+            .checked_mul(self.byte_width)
+            .zip(end.checked_mul(self.byte_width))
+            .filter(|(_, byte_stop)| *byte_stop <= self.bytes.len())
+            .map(|(byte_start, byte_stop)| byte_start..byte_stop)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Corrupt zstd metadata: values {start}..{end} of {} bytes each are out of \
+                     bounds of the {} byte frame buffer",
+                    self.byte_width,
+                    self.bytes.len()
+                )
+            })
+    }
+
     /// The bounds within `bytes` of the length-prefixed region that should hold exactly this
     /// slice's values.
     ///
@@ -961,7 +1079,7 @@ impl ZstdData {
     }
 
     fn compress_values(
-        value_bytes: &ByteBuffer,
+        value_bytes: &[u8],
         frame_byte_starts: &[usize],
         level: i32,
         values_per_frame: usize,
@@ -1004,7 +1122,7 @@ impl ZstdData {
                 .copied()
                 .unwrap_or(value_bytes.len());
 
-            let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
+            let uncompressed = &value_bytes[frame_byte_starts[i]..frame_byte_end];
             let mut compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
@@ -1072,18 +1190,29 @@ impl ZstdData {
         // We compress only the valid elements.
         let values = collect_valid_primitive(parray, ctx)?;
         let n_values = values.len();
+        if n_values == 0 {
+            return Ok(ZstdData::new(
+                None,
+                Vec::new(),
+                ZstdMetadata {
+                    dictionary_size: 0,
+                    frames: Vec::new(),
+                },
+                parray.len(),
+            ));
+        }
+
         let values_per_frame = if values_per_frame > 0 {
-            values_per_frame
+            values_per_frame.min(n_values)
         } else {
             n_values
         };
 
         let value_bytes = values.buffer_handle().try_to_host_sync()?;
-        // Align frames to buffer alignment. This is necessary for overaligned buffers.
-        let alignment = value_bytes.alignment().as_usize();
-        let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
+        let active_bytes = &value_bytes.as_slice()[..n_values * byte_width];
+        let step_width = values_per_frame * byte_width;
 
-        let frame_byte_starts = (0..n_values * byte_width)
+        let frame_byte_starts = (0..active_bytes.len())
             .step_by(step_width)
             .collect::<Vec<_>>();
         let Frames {
@@ -1091,7 +1220,7 @@ impl ZstdData {
             frames,
             frame_metas,
         } = Self::compress_values(
-            &value_bytes,
+            active_bytes,
             &frame_byte_starts,
             level,
             values_per_frame,
@@ -1162,8 +1291,20 @@ impl ZstdData {
         // We compress only the valid elements.
         let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv, ctx)?;
         let n_values = value_byte_indices.len();
+        if n_values == 0 {
+            return Ok(ZstdData::new(
+                None,
+                Vec::new(),
+                ZstdMetadata {
+                    dictionary_size: 0,
+                    frames: Vec::new(),
+                },
+                vbv.len(),
+            ));
+        }
+
         let values_per_frame = if values_per_frame > 0 {
-            values_per_frame
+            values_per_frame.min(n_values)
         } else {
             n_values
         };
@@ -1177,7 +1318,7 @@ impl ZstdData {
             frames,
             frame_metas,
         } = Self::compress_values(
-            &value_bytes,
+            value_bytes.as_slice(),
             &frame_byte_starts,
             level,
             values_per_frame,
@@ -1253,6 +1394,24 @@ impl ZstdData {
         dtype: &DType,
         n_stored_values: usize,
     ) -> VortexResult<usize> {
+        if dtype.is_primitive() {
+            // Fixed-width primitive values make the uncompressed byte size an exact value count.
+            // Deriving it from `uncompressed_size` also handles legacy files where overaligned
+            // primitive frame splitting left `n_values` smaller than the actual values stored in
+            // each frame, as well as older metadata that left `n_values` at zero.
+            let uncompressed_size = frame_uncompressed_size(frame_meta)?;
+            let byte_width = Self::byte_width(dtype);
+            vortex_ensure_eq!(
+                uncompressed_size % byte_width,
+                0,
+                "Corrupt zstd metadata: primitive frame uncompressed size {} is not a multiple of \
+                 byte width {}",
+                uncompressed_size,
+                byte_width
+            );
+            return Ok(uncompressed_size / byte_width);
+        }
+
         if frame_meta.n_values != 0 {
             return usize::try_from(frame_meta.n_values).map_err(|_| {
                 vortex_err!(
@@ -1260,12 +1419,6 @@ impl ZstdData {
                     frame_meta.n_values
                 )
             });
-        }
-
-        if dtype.is_primitive() {
-            // Possibly older primitive-only metadata that just didn't store this. Fixed-width
-            // values make the byte count an exact value count.
-            return Ok(frame_uncompressed_size(frame_meta)? / Self::byte_width(dtype));
         }
 
         // The same fallback would read a byte count as a value count for variable-width
@@ -1512,21 +1665,7 @@ impl ZstdData {
         let slice = self.decompress_slice(dtype, unsliced_validity, ctx)?;
         match dtype {
             DType::Primitive(..) => {
-                let Range { start, end } = slice.value_range()?;
-                let byte_range = start
-                    .checked_mul(slice.byte_width)
-                    .zip(end.checked_mul(slice.byte_width))
-                    .filter(|(_, byte_stop)| *byte_stop <= slice.bytes.len())
-                    .map(|(byte_start, byte_stop)| byte_start..byte_stop)
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "Corrupt zstd metadata: values {start}..{end} of {} bytes each are \
-                             out of bounds of the {} byte frame buffer",
-                            slice.byte_width,
-                            slice.bytes.len()
-                        )
-                    })?;
-                let slice_values_buffer = slice.bytes.slice(byte_range);
+                let slice_values_buffer = slice.bytes.slice(slice.primitive_byte_range()?);
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
                     dtype.as_ptype(),
