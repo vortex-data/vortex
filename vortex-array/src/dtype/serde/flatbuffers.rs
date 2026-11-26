@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -336,6 +337,34 @@ impl WriteFlatBuffer for DType {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        self.write_flatbuffer_shared(fbb, &mut HashMap::default())
+    }
+}
+
+/// Offsets of the [`DType`] subtrees already written to a builder.
+type DTypeOffsets<'fb> = HashMap<DType, WIPOffset<fb::DType<'fb>>>;
+
+impl DType {
+    /// Writes `self`, reusing the offset of any equal subtree already written, so that repeated
+    /// field types are stored once.
+    fn write_flatbuffer_shared<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        offsets: &mut DTypeOffsets<'fb>,
+    ) -> VortexResult<WIPOffset<fb::DType<'fb>>> {
+        if let Some(offset) = offsets.get(self) {
+            return Ok(*offset);
+        }
+        let offset = self.write_flatbuffer_unshared(fbb, offsets)?;
+        offsets.insert(self.clone(), offset);
+        Ok(offset)
+    }
+
+    fn write_flatbuffer_unshared<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        offsets: &mut DTypeOffsets<'fb>,
+    ) -> VortexResult<WIPOffset<fb::DType<'fb>>> {
         let dtype_union = match self {
             Self::Null => fb::Null::create(fbb, &fb::NullArgs {}).as_union_value(),
             Self::Bool(n) => fb::Bool::create(
@@ -377,7 +406,7 @@ impl WriteFlatBuffer for DType {
             )
             .as_union_value(),
             Self::List(edt, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
+                let element_type = Some(edt.write_flatbuffer_shared(fbb, offsets)?);
                 fb::List::create(
                     fbb,
                     &fb::ListArgs {
@@ -388,7 +417,7 @@ impl WriteFlatBuffer for DType {
                 .as_union_value()
             }
             Self::FixedSizeList(edt, size, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
+                let element_type = Some(edt.write_flatbuffer_shared(fbb, offsets)?);
                 fb::FixedSizeList::create(
                     fbb,
                     &fb::FixedSizeListArgs {
@@ -400,8 +429,8 @@ impl WriteFlatBuffer for DType {
                 .as_union_value()
             }
             Self::Map(map, n) => {
-                let key_type = Some(map.key_dtype().write_flatbuffer(fbb)?);
-                let value_type = Some(map.value_dtype().write_flatbuffer(fbb)?);
+                let key_type = Some(map.key_dtype().write_flatbuffer_shared(fbb, offsets)?);
+                let value_type = Some(map.value_dtype().write_flatbuffer_shared(fbb, offsets)?);
                 fb::Map::create(
                     fbb,
                     &fb::MapArgs {
@@ -423,7 +452,7 @@ impl WriteFlatBuffer for DType {
 
                 let dtypes = st
                     .fields()
-                    .map(|dtype| dtype.write_flatbuffer(fbb))
+                    .map(|dtype| dtype.write_flatbuffer_shared(fbb, offsets))
                     .collect::<VortexResult<Vec<_>>>()?;
                 let dtypes = Some(fbb.create_vector(&dtypes));
 
@@ -447,7 +476,7 @@ impl WriteFlatBuffer for DType {
 
                 let dtypes = uv
                     .variants()
-                    .map(|dtype| dtype.write_flatbuffer(fbb))
+                    .map(|dtype| dtype.write_flatbuffer_shared(fbb, offsets))
                     .collect::<VortexResult<Vec<_>>>()?;
                 let dtypes = Some(fbb.create_vector(&dtypes));
 
@@ -481,7 +510,8 @@ impl WriteFlatBuffer for DType {
             .as_union_value(),
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
-                let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
+                let storage_dtype =
+                    Some(ext.storage_dtype().write_flatbuffer_shared(fbb, offsets)?);
                 let metadata = Some(fbb.create_vector(&ext.serialize_metadata()?));
                 fb::Extension::create(
                     fbb,
@@ -570,6 +600,9 @@ mod test {
     use flatbuffers::FlatBufferBuilder;
     use flatbuffers::root;
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::dtype::DType;
     use crate::dtype::PType;
@@ -648,6 +681,47 @@ mod test {
         .unwrap();
         roundtrip_dtype(DType::struct_([("map", map)], Nullability::NonNullable));
         roundtrip_dtype(DType::Variant(Nullability::Nullable));
+    }
+
+    #[test]
+    fn equal_subtrees_are_written_once() -> VortexResult<()> {
+        let leaf = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let inner: DType = DType::Struct(
+            (0..100).map(|i| (format!("f{i}"), leaf.clone())).collect(),
+            Nullability::NonNullable,
+        );
+        let outer = DType::Struct(
+            (0..1000)
+                .map(|i| (format!("c{i}"), inner.clone()))
+                .collect(),
+            Nullability::Nullable,
+        );
+
+        let inner_len = inner.write_flatbuffer_bytes()?.len();
+        let bytes = outer.write_flatbuffer_bytes()?;
+        // Each repeated field costs only its name and offsets, not another copy of `inner`.
+        assert!(
+            bytes.len() < inner_len + 1000 * 32,
+            "outer {} bytes, inner {inner_len} bytes",
+            bytes.len()
+        );
+
+        let fb_struct = root::<fb::DType>(&bytes)?
+            .type__as_struct_()
+            .ok_or_else(|| vortex_err!("expected struct"))?;
+        let locs = fb_struct
+            .dtypes()
+            .ok_or_else(|| vortex_err!("expected dtypes"))?
+            .iter()
+            .map(|dt| dt._tab.loc())
+            .collect::<HashSet<_>>();
+        assert_eq!(locs.len(), 1);
+
+        assert_eq!(
+            DType::from_flatbuffer(FlatBuffer::from(bytes), &SESSION)?,
+            outer
+        );
+        Ok(())
     }
 
     fn make_basic_union() -> DType {
