@@ -5,6 +5,7 @@ package dev.vortex.api;
 
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeSession;
+import java.lang.ref.Reference;
 
 /**
  * Handle to a native Vortex session. The session owns a current-thread async runtime and is the entry point for opening
@@ -38,7 +39,11 @@ public final class Session {
      * <p>Select an older edition to write files that older Vortex readers can read.
      */
     public void enableEdition(String edition) {
-        NativeSession.enableEdition(pointer, edition);
+        try {
+            NativeSession.enableEdition(pointer, edition);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
     /** Internal: returns the native pointer. Do not free directly. */

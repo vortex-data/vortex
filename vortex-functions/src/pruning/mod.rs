@@ -31,6 +31,7 @@ use vortex_expr::stats::derive::StatDerivation;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_expr::stats::rewrite::falsify;
 use vortex_expr::stats::rewrite::helpers::*;
+use vortex_expr::stats::rewrite::satisfy;
 use vortex_expr::stats::session::StatsSessionExt;
 use vortex_session::VortexSession;
 
@@ -97,6 +98,21 @@ impl StatsRewriteRule for BetweenStatsRewrite {
         let lhs = compare(options.lower_strict.to_operator(), lower, arr.clone());
         let rhs = compare(options.upper_strict.to_operator(), arr, upper);
         falsify(&and(lhs, rhs), session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let options = expr.as_::<Between>();
+        let arr = expr.child(0).clone();
+        let lower = expr.child(1).clone();
+        let upper = expr.child(2).clone();
+
+        let lhs = compare(options.lower_strict.to_operator(), lower, arr.clone());
+        let rhs = compare(options.upper_strict.to_operator(), arr, upper);
+        satisfy(&and(lhs, rhs), session)
     }
 }
 
@@ -443,6 +459,7 @@ mod tests {
     use vortex_expr::lambda::row_count::RowCount;
     use vortex_expr::lit;
     use vortex_expr::lt;
+    use vortex_expr::lt_eq;
     use vortex_expr::or;
     use vortex_expr::stats::expr::StatFn;
     use vortex_expr::stats::expr::StatOptions;
@@ -541,6 +558,68 @@ mod tests {
             Some(or(
                 gt(lit(10), stat(col("a"), Stat::Max)),
                 gt(stat(col("a"), Stat::Min), lit(50)),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_between_satisfier() -> VortexResult<()> {
+        let cmp_satisfier =
+            |lhs_nulls: Expression, rhs_nulls: Expression, value_predicate: Expression| {
+                and(
+                    and(eq(lhs_nulls, lit(0u64)), eq(rhs_nulls, lit(0u64))),
+                    value_predicate,
+                )
+            };
+
+        let non_strict = between(
+            col("a"),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+        assert_rewrite_eq!(
+            satisfy(&non_strict)?,
+            Some(and(
+                cmp_satisfier(
+                    lit(0u64),
+                    stat(col("a"), Stat::NullCount),
+                    lt_eq(lit(10), stat(col("a"), Stat::Min)),
+                ),
+                cmp_satisfier(
+                    stat(col("a"), Stat::NullCount),
+                    lit(0u64),
+                    lt_eq(stat(col("a"), Stat::Max), lit(50)),
+                ),
+            ))
+        );
+
+        let strict = between(
+            col("a"),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::Strict,
+            },
+        );
+        assert_rewrite_eq!(
+            satisfy(&strict)?,
+            Some(and(
+                cmp_satisfier(
+                    lit(0u64),
+                    stat(col("a"), Stat::NullCount),
+                    lt(lit(10), stat(col("a"), Stat::Min)),
+                ),
+                cmp_satisfier(
+                    stat(col("a"), Stat::NullCount),
+                    lit(0u64),
+                    lt(stat(col("a"), Stat::Max), lit(50)),
+                ),
             ))
         );
         Ok(())

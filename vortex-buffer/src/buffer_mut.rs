@@ -217,6 +217,9 @@ impl<T> BufferMut<T> {
         allocator: BufferAllocatorRef,
     ) -> Self {
         const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
+        }
         let preferred_alignment = preferred_alignment.unwrap_or(Alignment::of::<u8>());
         let actual_alignment = max(preferred_alignment, alignment);
         let size = len
@@ -952,6 +955,9 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
+        }
         if self.as_ptr().align_offset(alignment.as_usize()) == 0 {
             Self { alignment, ..self }
         } else {
@@ -1504,5 +1510,26 @@ mod tests {
     fn fill_where_rejects_positions_of_another_length() {
         let mut buffer = BufferMut::from_iter([1u32, 2, 3]);
         buffer.fill_where::<false>(&BitBuffer::from_iter([true, false]), 0);
+    }
+
+    #[rstest]
+    #[case::none(Alignment::none())]
+    #[case::half(Alignment::new(4))]
+    #[should_panic(expected = "must align to the scalar type's alignment")]
+    fn test_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
+        let buffer = BufferMut::<u64>::from_iter([1, 2, 3]);
+        drop(buffer.aligned(alignment));
+    }
+
+    #[rstest]
+    #[case::none(Alignment::none())]
+    #[case::half(Alignment::new(4))]
+    #[should_panic(expected = "must align to the scalar type's alignment")]
+    fn test_zeroed_preferred_aligned_rejects_alignment_smaller_than_type(
+        #[case] alignment: Alignment,
+    ) {
+        drop(BufferMut::<u64>::zeroed_preferred_aligned(
+            4, alignment, None,
+        ));
     }
 }
