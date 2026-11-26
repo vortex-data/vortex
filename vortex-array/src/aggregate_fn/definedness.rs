@@ -593,9 +593,9 @@ mod tests {
     /// defined batches never cache a statistic on the batch.
     #[test]
     fn only_fully_defined_batches_cache_statistics() -> VortexResult<()> {
-        use crate::expr::stats::Precision;
-        use crate::expr::stats::Stat;
-        use crate::expr::stats::StatsProviderExt;
+        use crate::stats::Precision;
+        use crate::stats::Stat;
+        use crate::stats::StatsProviderExt;
 
         let mut ctx = ctx();
         let min = Min.bind(NumericalAggregateOpts::default());

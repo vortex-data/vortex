@@ -218,6 +218,9 @@ impl LayoutStrategy for RepartitionStrategy {
     }
 }
 
+/// Whole blocks removed from [`ChunksBuffer`], paired with their byte reservations.
+type ExactBlocks = (Vec<(ArrayRef, Mask)>, Vec<BufferedBytesReservation>);
+
 /// Buffers blocks until they hold enough rows and bytes to emit.
 ///
 /// Bytes are the exact uncompressed size of each block, not the buffers it holds: a view array
@@ -256,10 +259,7 @@ impl ChunksBuffer {
     /// A chunk that is split counts in full in the returned reservations, and its remainder gets
     /// a new reservation. So the bytes are counted twice until the caller drops the returned
     /// reservations, but they are never not counted.
-    fn collect_exact_blocks(
-        &mut self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(Vec<(ArrayRef, Mask)>, Vec<BufferedBytesReservation>)> {
+    fn collect_exact_blocks(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<ExactBlocks> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut reservations = Vec::with_capacity(self.data.len());
@@ -670,14 +670,25 @@ mod tests {
         let tracker = SizeScope::new();
         let mut buf = ChunksBuffer::new(0, 6, tracker.clone());
 
-        buf.push_back(buffer![1u64, 2, 3, 4].into_array(), &mut ctx)?;
-        buf.push_back(buffer![5u64, 6, 7, 8].into_array(), &mut ctx)?;
+        buf.push_back(
+            buffer![1u64, 2, 3, 4].into_array(),
+            Mask::new_true(4),
+            &mut ctx,
+        )?;
+        buf.push_back(
+            buffer![5u64, 6, 7, 8].into_array(),
+            Mask::new_true(4),
+            &mut ctx,
+        )?;
         assert_eq!(tracker.uncompressed_bytes(), 64);
 
         // The split chunk counts in full until the caller drops the returned reservations, and
         // its remainder has its own reservation.
         let (blocks, reservations) = buf.collect_exact_blocks(&mut ctx)?;
-        assert_eq!(blocks.iter().map(|block| block.len()).sum::<usize>(), 6);
+        assert_eq!(
+            blocks.iter().map(|(block, _)| block.len()).sum::<usize>(),
+            6
+        );
         assert_eq!(tracker.uncompressed_bytes(), 80);
 
         drop(reservations);
@@ -707,20 +718,10 @@ mod tests {
         let s1 = arr.slice(0..block_len)?;
         let s2 = arr.slice(block_len..n)?;
 
-<<<<<<< HEAD
         let mut buf = ChunksBuffer::new(0, block_len, SizeScope::new());
-        buf.push_back(s1, &mut ctx)?;
-        buf.push_back(s2, &mut ctx)?;
-||||||| parent of 109a6758b (Aggregate nested columns under nullable parents with a definedness mask)
-        let mut buf = ChunksBuffer::new(0, block_len);
-        buf.push_back(s1, &mut ctx)?;
-        buf.push_back(s2, &mut ctx)?;
-=======
-        let mut buf = ChunksBuffer::new(0, block_len);
         let (d1, d2) = (Mask::new_true(s1.len()), Mask::new_true(s2.len()));
         buf.push_back(s1, d1, &mut ctx)?;
         buf.push_back(s2, d2, &mut ctx)?;
->>>>>>> 109a6758b (Aggregate nested columns under nullable parents with a definedness mask)
 
         let _output = buf.pop_front().unwrap();
 
@@ -741,7 +742,7 @@ mod tests {
     #[test]
     fn exact_blocks_carry_the_definedness_on_their_rows() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut buf = ChunksBuffer::new(0, 3);
+        let mut buf = ChunksBuffer::new(0, 3, SizeScope::new());
         buf.push_back(
             buffer![1i32, 2].into_array(),
             Mask::from_iter([true, false]),
@@ -753,7 +754,7 @@ mod tests {
             &mut ctx,
         )?;
 
-        let blocks = buf.collect_exact_blocks(&mut ctx)?;
+        let (blocks, _reservations) = buf.collect_exact_blocks(&mut ctx)?;
         let defined_masks: Vec<_> = blocks.iter().map(|(_, defined)| defined.clone()).collect();
         assert_eq!(
             Mask::concat(defined_masks.iter())?,

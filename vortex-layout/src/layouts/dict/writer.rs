@@ -1092,7 +1092,7 @@ mod tests {
             Arc::new(probe),
         );
         let (mut seq, eof) = SequenceId::root().split();
-        let input: Vec<VortexResult<_>> = vec![Ok((seq.advance(), chunk))];
+        let input: Vec<VortexResult<_>> = vec![Ok(fully_defined(seq.advance(), chunk))];
         drop(seq);
 
         let err = block_on(|handle| async move {

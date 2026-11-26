@@ -367,9 +367,9 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
+    use vortex_array::stats::Stat;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_io::runtime::Handle;
