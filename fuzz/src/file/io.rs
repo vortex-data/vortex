@@ -14,21 +14,15 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::assert_arrays_eq;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
 use vortex_expr::ArrayExprExt;
 use vortex_file::OpenOptionsSessionExt;
-use vortex_file::WriteOptionsSessionExt;
-#[cfg(feature = "zstd")]
-use vortex_file::WriteStrategyBuilder;
 
 use super::FuzzFileAction;
 use super::has_duplicate_field_names;
 use super::has_nullable_struct;
 use crate::RUNTIME;
 use crate::SESSION;
-use crate::array::CompressorStrategy;
 
 /// Round-trip `fuzz` through a file, panicking on a mismatch.
 ///
@@ -38,7 +32,7 @@ pub fn run_file_io(fuzz: FuzzFileAction) -> bool {
         array,
         projection_expr,
         filter_expr,
-        compressor_strategy,
+        write_settings,
     } = fuzz;
     let array_data = array;
 
@@ -64,17 +58,7 @@ pub fn run_file_io(fuzz: FuzzFileAction) -> bool {
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
-    let write_options = match compressor_strategy {
-        CompressorStrategy::Default => SESSION.write_options(),
-        #[cfg(feature = "zstd")]
-        CompressorStrategy::Compact => SESSION.write_options().with_strategy(
-            WriteStrategyBuilder::from_session(&SESSION)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-                )
-                .build(),
-        ),
-    };
+    let write_options = write_settings.write_options();
 
     let mut full_buff = Vec::new();
     let _footer = write_options

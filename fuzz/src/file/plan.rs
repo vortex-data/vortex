@@ -19,8 +19,8 @@ use vortex_expr::arbitrary::filter_expr;
 use vortex_expr::arbitrary::projection_expr;
 
 use super::FuzzFileAction;
+use super::WriteSettings;
 use crate::FUZZ_FILE_ARRAY_MAX_LEN;
-use crate::array::CompressorStrategy;
 
 /// An array to write, the expressions to scan it back with, and the write strategy.
 #[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
@@ -44,8 +44,9 @@ pub struct FileIoPlan {
     /// Bytes for the filter expression; `None` keeps every row.
     #[ephyra(gen = gens::option(gens::vec(gens::int(0u8..=255)).len(0..=64)))]
     pub filter: Option<Vec<u8>>,
-    /// Write with the compact BtrBlocks strategy instead of the default.
-    pub compact: bool,
+    /// Bytes for the write settings, decoded as the libFuzzer target decodes them.
+    #[ephyra(gen = gens::vec(gens::int(0u8..=255)).len(0..=16))]
+    pub write_settings: Vec<u8>,
 }
 
 impl FileIoPlan {
@@ -76,11 +77,7 @@ impl FileIoPlan {
         Some(FuzzFileAction {
             projection_expr: expression(&self.projection, projection_expr),
             filter_expr: expression(&self.filter, filter_expr),
-            compressor_strategy: if self.compact {
-                compact_strategy()
-            } else {
-                CompressorStrategy::Default
-            },
+            write_settings: write_settings(&self.write_settings)?,
             array,
         })
     }
@@ -89,12 +86,10 @@ impl FileIoPlan {
 type ExprBuilder =
     fn(&mut Unstructured<'_>, &DType) -> arbitrary::Result<Option<vortex::expr::Expression>>;
 
-#[cfg(feature = "zstd")]
-fn compact_strategy() -> CompressorStrategy {
-    CompressorStrategy::Compact
-}
-
-#[cfg(not(feature = "zstd"))]
-fn compact_strategy() -> CompressorStrategy {
-    CompressorStrategy::Default
+/// Write settings from `bytes`, with the same restrictions as the libFuzzer target.
+fn write_settings(bytes: &[u8]) -> Option<WriteSettings> {
+    let mut settings = WriteSettings::arbitrary(&mut Unstructured::new(bytes)).ok()?;
+    settings.disable_editions = false;
+    settings.unrestricted = false;
+    Some(settings)
 }

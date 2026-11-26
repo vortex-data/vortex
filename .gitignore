@@ -228,6 +228,8 @@ compile_commands.json
 .agents/settings.local.json
 .agents/scheduled_tasks.lock
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
 .opencode
 
 # cargo sweep output

@@ -50,6 +50,7 @@ from ._lib.dtype import (
     bool_,
     date,
     decimal,
+    duration,
     fixed_size_list,
     float_,
     int_,
@@ -161,6 +162,7 @@ __all__ = [
     "list_",
     "fixed_size_list",
     "date",
+    "duration",
     "time",
     "timestamp",
     # Encodings

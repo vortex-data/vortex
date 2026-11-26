@@ -13,7 +13,7 @@
 //!
 //! - [`mask_words`] — walks a mask one `u64` word at a time, for kernels over 64-lane blocks.
 //! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], [`Repeat`], and read-only adapters.
-//! - [`sink`] — the [`IndexedSink`] trait and [`ReinterpretSink`].
+//! - [`sink`] — the [`IndexedSink`] trait.
 //! - [`map_into`] — out-of-place kernels via [`IndexedSourceExt`] (writes into a
 //!   caller-provided `&mut [MaybeUninit<R>]`).
 //! - [`map_in_place`] — in-place kernels via [`IndexedSinkExt`] (writes back through
@@ -41,7 +41,6 @@ pub use mask_words::for_each_mask_word;
 pub use mask_words::low_bits_mask;
 pub use mask_words::try_for_each_mask_word;
 pub use sink::IndexedSink;
-pub use sink::ReinterpretSink;
 pub use source::IndexedSource;
 pub use source::LaneZip;
 pub use source::Repeat;

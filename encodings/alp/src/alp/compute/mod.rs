@@ -8,6 +8,8 @@ mod filter;
 mod mask;
 pub(crate) mod nan_count;
 mod predicate;
+#[cfg(test)]
+mod prop_tests;
 mod slice;
 mod take;
 

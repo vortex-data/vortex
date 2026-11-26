@@ -11147,6 +11147,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fearless_simd",
  "fearless_simd_macros",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -11887,6 +11888,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
+ "simdutf8",
  "test-with",
  "vortex-array",
  "vortex-buffer",
@@ -12438,16 +12440,19 @@ name = "vortex-table"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "object_store 0.14.2",
  "tempfile",
  "tokio",
  "vortex",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-io",
  "vortex-layout",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -12571,6 +12576,7 @@ dependencies = [
 name = "vortex-zigzag"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "rstest",
  "vortex-array",
  "vortex-buffer",
