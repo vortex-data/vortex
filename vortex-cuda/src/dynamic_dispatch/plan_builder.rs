@@ -159,16 +159,23 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
 fn is_dyn_dispatch_alprd_compatible(array: &ArrayRef) -> bool {
     let alprd = array.as_::<ALPRD>();
     matches!(alprd.dtype().as_ptype(), PType::F32 | PType::F64)
-        && alprd_codes_view(alprd.left_parts()).is_ok()
+        && alprd_codes_view(alprd.left_parts(), None).is_ok()
         && alprd
             .left_parts_patches()
             .is_none_or(|patches| patches.chunk_offsets().is_some())
 }
 
-fn alprd_codes_view(codes: &ArrayRef) -> VortexResult<(BufferHandle, u8, u16)> {
-    let (bitpacked, offset) = match codes.as_opt::<Slice>() {
+fn alprd_codes_view(
+    codes: &ArrayRef,
+    range: Option<&Range<usize>>,
+) -> VortexResult<(BufferHandle, u8, u16)> {
+    let (bitpacked, base_offset) = match codes.as_opt::<Slice>() {
         Some(slice) => (slice.child().clone(), slice.data().slice_range().start),
         None => (codes.clone(), 0),
+    };
+    let (offset, len) = match range {
+        Some(range) => (base_offset + range.start, range.len()),
+        None => (base_offset, codes.len()),
     };
     let Some(bp) = bitpacked.as_opt::<BitPacked>() else {
         vortex_bail!(
@@ -179,7 +186,7 @@ fn alprd_codes_view(codes: &ArrayRef) -> VortexResult<(BufferHandle, u8, u16)> {
     if PType::try_from(bp.dtype())? != PType::U16 || bp.patches().is_some() {
         vortex_bail!("ALP-RD codes must be u16 without patches");
     }
-    let (packed, bit_width, codes_offset, _) = bitpacked_slice_view(bp, offset, codes.len())?;
+    let (packed, bit_width, codes_offset, _) = bitpacked_slice_view(bp, offset, len)?;
     Ok((packed, bit_width, codes_offset))
 }
 
@@ -881,14 +888,12 @@ impl FusedPlan {
             );
         }
 
-        let (left_parts, right_parts) = match &range {
-            Some(range) => (
-                alprd.left_parts().slice(range.clone())?,
-                alprd.right_parts().slice(range.clone())?,
-            ),
-            None => (alprd.left_parts().clone(), alprd.right_parts().clone()),
+        let right_parts = match &range {
+            Some(range) => alprd.right_parts().slice(range.clone())?,
+            None => alprd.right_parts().clone(),
         };
-        let (codes, code_bit_width, codes_offset) = alprd_codes_view(&left_parts)?;
+        let (codes, code_bit_width, codes_offset) =
+            alprd_codes_view(alprd.left_parts(), range.as_ref())?;
 
         let dictionary = alprd.left_parts_dictionary();
         if dictionary.len() > ALPRD_DICTIONARY_CAPACITY as usize {

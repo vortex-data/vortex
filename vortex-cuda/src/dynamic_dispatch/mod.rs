@@ -574,9 +574,6 @@ impl MaterializedPlan {
 }
 
 #[cfg(test)]
-mod alprd_tests;
-
-#[cfg(test)]
 mod tests {
     use std::f32::consts::E;
     use std::f32::consts::LN_2;
@@ -592,6 +589,7 @@ mod tests {
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::WidenArray;
+    use vortex::array::arrays::slice::SliceKernel;
     use vortex::array::builtins::ArrayBuiltins;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity;
@@ -606,7 +604,12 @@ mod tests {
     use vortex::encodings::alp::ALPArrayExt;
     use vortex::encodings::alp::ALPArraySlotsExt;
     use vortex::encodings::alp::ALPFloat;
+    use vortex::encodings::alp::ALPRD;
+    use vortex::encodings::alp::ALPRDArrayExt;
+    use vortex::encodings::alp::ALPRDArraySlotsExt;
     use vortex::encodings::alp::Exponents;
+    use vortex::encodings::alp::RDEncoder;
+    use vortex::encodings::alp::RDEncoderExt;
     use vortex::encodings::alp::alp_encode;
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
@@ -1976,6 +1979,121 @@ mod tests {
             matches!(plan, DispatchPlan::Fused(_)),
             "expected F64 primitive to be classified as Fused"
         );
+    }
+
+    async fn decode_fused(array: &ArrayRef) -> VortexResult<ArrayRef> {
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let plan = dispatch_plan(array, &mut ctx).await?;
+        Ok(plan
+            .execute(array.len(), &mut ctx)?
+            .into_host(ctx.execution_ctx())
+            .await?
+            .into_array())
+    }
+
+    #[rstest]
+    #[case::unsliced(3500, None)]
+    #[case::mid_chunk(3500, Some(1021..3300))]
+    #[case::chunk_boundary(3500, Some(1024..2048))]
+    #[crate::test]
+    async fn test_fused_alp_rd_f64(
+        #[case] len: usize,
+        #[case] slice_range: Option<Range<usize>>,
+    ) -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        // Outliers at chunk boundaries; null at 1500 and null-on-outlier at 1024.
+        let values = PrimitiveArray::from_option_iter((0..len).map(|i| match i {
+            1024 | 1500 => None,
+            0 | 1023 | 2048 | 3200 => Some(3e100),
+            _ => Some(sample[i % 3]),
+        }));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        assert!(encoded.left_parts_patches().is_some());
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let (array, expected) = if let Some(range) = &slice_range {
+            let lazy = encoded.clone().into_array().slice(range.clone())?;
+            let sliced = <ALPRD as SliceKernel>::slice(encoded.as_view(), range.clone(), &mut ctx)?
+                .ok_or_else(|| vortex_err!("expected ALP-RD slice"))?;
+            // Test both lazy Slice(ALPRD) and SliceKernel-reduced ALPRD.
+            let expected = values.into_array().slice(range.clone())?;
+            let actual = decode_fused(&sliced).await?;
+            assert_arrays_eq!(actual, expected, &mut ctx);
+            (lazy, expected)
+        } else {
+            (encoded.into_array(), values.into_array())
+        };
+        let actual = decode_fused(&array).await?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_fused_alp_rd_slice_of_sliced_codes() -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        let values = PrimitiveArray::from_iter((0..3500).map(|i| sample[i % sample.len()]));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        let mut ctx = SESSION.create_execution_ctx();
+        let sliced = <ALPRD as SliceKernel>::slice(encoded.as_view(), 1021..3300, &mut ctx)?
+            .ok_or_else(|| vortex_err!("expected ALP-RD slice"))?;
+
+        let actual = decode_fused(&sliced.slice(10..500)?).await?;
+        let expected = values.into_array().slice(1031..1521)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_fused_alp_rd_dictionary_values() -> VortexResult<()> {
+        let sample = [0.1f32, 0.2, 0.3];
+        let values = PrimitiveArray::from_iter(
+            (0..1500).map(|i| if i == 1100 { 3e30 } else { sample[i % 3] }),
+        );
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        assert!(encoded.left_parts_patches().is_some());
+        let codes = buffer![1100u16, 1, 0, 1100].into_array();
+        let expected = values.into_array().take(codes.clone())?;
+        let dict = DictArray::try_new(codes, encoded.into_array())?.into_array();
+        let actual = decode_fused(&dict).await?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_alp_rd_with_uncompressed_codes_is_not_fused() -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        let values = PrimitiveArray::from_option_iter((0..3000).map(|i| match i {
+            5 | 2100 => Some(3e100),
+            1500 => None,
+            _ => Some(sample[i % 3]),
+        }));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        let mut ctx = SESSION.create_execution_ctx();
+        let left_parts = encoded
+            .left_parts()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let uncompressed = ALPRD::try_new(
+            encoded.dtype().clone(),
+            left_parts.into_array(),
+            encoded.left_parts_dictionary().clone(),
+            encoded.right_parts().clone(),
+            encoded.right_bit_width(),
+            encoded.left_parts_patches(),
+        )?
+        .into_array();
+        assert!(matches!(
+            DispatchPlan::new(&uncompressed, CudaDispatchMode::Auto)?,
+            DispatchPlan::Unfused
+        ));
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let gpu_result = try_gpu_dispatch(&uncompressed, &mut cuda_ctx)
+            .await?
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(gpu_result, values, &mut ctx);
+        Ok(())
     }
 
     #[crate::test]
