@@ -531,7 +531,8 @@ fn concat_dicts(
                 let mask = chunk_codes
                     .validity()?
                     .execute_mask(chunk_codes.len(), ctx)?;
-                // Null slots may hold any code, so they are pointed at value 0 of the chunk.
+                // Null slots may hold any code, so they are pointed at value 0 of the block, which
+                // exists even when this chunk has no values.
                 match mask.bit_buffer() {
                     AllOr::All => codes.extend(
                         chunk_codes
@@ -539,13 +540,13 @@ fn concat_dicts(
                             .iter()
                             .map(|code| code + offset),
                     ),
-                    AllOr::None => codes.push_n(offset, chunk_codes.len()),
+                    AllOr::None => codes.push_n(0, chunk_codes.len()),
                     AllOr::Some(bits) => codes.extend(
                         chunk_codes
                             .as_slice::<u32>()
                             .iter()
                             .zip(bits.iter())
-                            .map(|(code, valid)| if valid { code + offset } else { offset }),
+                            .map(|(code, valid)| if valid { code + offset } else { 0 }),
                     ),
                 }
                 validity.append_buffer(&mask.into_bit_buffer());
@@ -662,6 +663,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -1008,6 +1010,33 @@ mod tests {
             .as_opt::<Dict>()
             .vortex_expect("block stays a dictionary");
         assert_eq!(dict.values().len(), 2);
+        assert_arrays_eq!(&block, &expected, &mut ctx);
+        Ok(())
+    }
+
+    /// An all-null Arrow dictionary imports with no values, so its null codes must still point at
+    /// a value of the merged dictionary.
+    #[test]
+    fn concat_dicts_keeps_null_codes_in_bounds() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Utf8(Nullable);
+        let with_values = DictArray::try_new(
+            buffer![0u32, 1].into_array(),
+            VarBinViewArray::from_iter([Some("x"), Some("y")], dtype.clone()).into_array(),
+        )?
+        .into_array();
+        let all_null = DictArray::try_new(
+            PrimitiveArray::from_option_iter([None::<u32>, None]).into_array(),
+            VarBinViewArray::from_iter(Vec::<Option<&str>>::new(), dtype.clone()).into_array(),
+        )?
+        .into_array();
+        let chunks = vec![with_values, all_null];
+        let expected = ChunkedArray::try_new(chunks.clone(), dtype.clone())?;
+
+        let block = finish_block(chunks, &dtype, &[Dict.id()], &mut ctx)?
+            .vortex_expect("block is not empty");
+
+        assert!(block.is::<Dict>());
         assert_arrays_eq!(&block, &expected, &mut ctx);
         Ok(())
     }

@@ -73,11 +73,12 @@ impl CompressorPlugin for BtrBlocksCompressor {
 /// Each path is relative to the column being compressed: the root path names the column itself,
 /// and deeper paths step through struct fields and list elements. An array at such a path whose
 /// encoding is allowed there keeps that encoding, and each of its child slots is compressed with
-/// the inner compressor. For example, a dictionary keeps its codes and values as a dictionary, so
-/// a reader exporting the field to an Arrow dictionary gets the stored dictionary back instead of
-/// re-encoding the decoded values. Everything else goes to the inner compressor.
+/// the children compressor. For example, a dictionary keeps its codes and values as a dictionary,
+/// so a reader exporting the field to an Arrow dictionary gets the stored dictionary back instead
+/// of re-encoding the decoded values. Everything else goes to the inner compressor.
 pub struct AllowedEncodingsCompressor {
     inner: Arc<dyn CompressorPlugin>,
+    children: Arc<dyn CompressorPlugin>,
     allowed: Arc<[(FieldPath, Vec<ArrayId>)]>,
 }
 
@@ -88,10 +89,19 @@ impl AllowedEncodingsCompressor {
         inner: C,
         allowed: impl IntoIterator<Item = (FieldPath, Vec<ArrayId>)>,
     ) -> Self {
+        let inner: Arc<dyn CompressorPlugin> = Arc::new(inner);
         Self {
-            inner: Arc::new(inner),
+            children: Arc::clone(&inner),
+            inner,
             allowed: allowed.into_iter().collect(),
         }
+    }
+
+    /// Compresses the children of kept arrays with `children` instead of the inner compressor,
+    /// for example to leave out schemes that would encode a kept dictionary's codes again.
+    pub fn with_children_compressor<C: CompressorPlugin>(mut self, children: C) -> Self {
+        self.children = Arc::new(children);
+        self
     }
 
     fn compress_at(
@@ -110,7 +120,7 @@ impl AllowedEncodingsCompressor {
                 .iter()
                 .map(|slot| {
                     slot.as_ref()
-                        .map(|child| self.inner.compress_chunk(child, ctx))
+                        .map(|child| self.children.compress_chunk(child, ctx))
                         .transpose()
                 })
                 .collect::<VortexResult<ArraySlots>>()?;

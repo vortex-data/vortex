@@ -16,6 +16,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
@@ -68,7 +69,8 @@ pub(super) fn to_arrow_dictionary(
         Ok(constant) => return constant_to_dict(constant, codes_type, values_field, options, ctx),
         Err(array) => array,
     };
-    if let Some(chunked) = array.as_opt::<Chunked>() {
+    // Otherwise, we should try and build a dictionary.
+    let array = if let Some(chunked) = array.as_opt::<Chunked>() {
         let chunks = chunked
             .iter_chunks()
             .map(|chunk| chunk.clone().execute_until::<ArrowDictExportable>(ctx))
@@ -78,31 +80,34 @@ pub(super) fn to_arrow_dictionary(
             .iter()
             .all(|chunk| chunk.is::<Dict>() || chunk.is::<Constant>())
         {
-            let chunks = chunks
-                .into_iter()
-                .map(|chunk| to_arrow_dictionary(chunk, codes_type, values_field, options, ctx))
+            let exported = chunks
+                .iter()
+                .map(|chunk| {
+                    to_arrow_dictionary(chunk.clone(), codes_type, values_field, options, ctx)
+                })
                 .collect::<VortexResult<Vec<_>>>()?;
-            let chunks = chunks
+            let exported = exported
                 .iter()
                 .map(|chunk| chunk.as_ref())
                 .collect::<Vec<_>>();
             // Concatenating dictionaries merges their values without re-encoding every row. It
             // fails only when the merged values overflow the codes type, which the row-wise path
             // handles.
-            if let Ok(array) = arrow_select::concat::concat(&chunks) {
+            if let Ok(array) = arrow_select::concat::concat(&exported) {
                 return Ok(array);
             }
         }
-    }
-
-    // Otherwise, we should try and build a dictionary.
-    // Arrow hides this functionality inside the cast module!
-    // Chunks are first joined into one canonical array, which exports faster than chunk by chunk.
-    let array = if array.is::<Chunked>() {
-        array.execute::<Canonical>(ctx)?.into_array()
+        // The chunks were already decoded above, and joined into one canonical array they export
+        // faster than chunk by chunk.
+        ChunkedArray::try_new(chunks, array.dtype().clone())?
+            .into_array()
+            .execute::<Canonical>(ctx)?
+            .into_array()
     } else {
         array
     };
+
+    // Arrow hides this functionality inside the cast module!
     let array = array.execute_arrow_with_options(Some(values_field), options, ctx)?;
     arrow_cast::cast(
         &array,

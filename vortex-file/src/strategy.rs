@@ -296,7 +296,7 @@ impl WriteStrategyBuilder {
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
             probe_compressor
         } else {
-            full_compressor
+            Arc::clone(&full_compressor)
         };
         let dict = DictStrategy::new(
             codes,
@@ -371,8 +371,11 @@ impl WriteStrategyBuilder {
                 .iter()
                 .flat_map(|(_, ids)| ids.iter().copied())
                 .collect();
+            // Kept dictionaries already hold their codes, so the codes compressor compresses
+            // their children, and the rest of the column gets every scheme.
             let allowed_compressor: Arc<dyn CompressorPlugin> = Arc::new(
-                AllowedEncodingsCompressor::new(Arc::clone(&codes_compressor), allowed),
+                AllowedEncodingsCompressor::new(Arc::clone(&full_compressor), allowed)
+                    .with_children_compressor(Arc::clone(&codes_compressor)),
             );
             let allowed_coalescing = coalesce_then_compress(
                 BufferedStrategy::new(ChunkedLayoutStrategy::new(Arc::clone(&flat)), 2 * ONE_MEG),
