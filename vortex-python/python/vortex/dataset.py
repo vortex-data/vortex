@@ -724,13 +724,17 @@ def open_dataset(
     *,
     store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     concurrency: int | None = None,
+    memory_map: bool = False,
+    without_segment_cache: bool = False,
 ) -> VortexDataset:
     """Open many Vortex files as one :class:`~vortex.dataset.VortexDataset`.
 
     The dataset reads the rows of every file in order, with column selection and filters pushed into
     the scan of each file. Reads keep up to ``concurrency`` splits in flight across file boundaries,
     so a dataset of many small files is read as concurrently as one large file. Opening the dataset
-    reads only the footer of the first file; the remaining files open lazily when scanned.
+    reads only the footer of the first file; the remaining files open lazily when scanned. The
+    dataset keeps the footer of each file that it opened, so a later scan of the file reads no
+    footer. The files must not change while the dataset reads them.
 
     Parameters
     ----------
@@ -747,6 +751,16 @@ def open_dataset(
         The maximum number of splits each read fetches and decodes ahead of the consumer, unless the
         read sets its own. Query engines such as DuckDB and Polars read the dataset without setting
         one, so this is how to tune their reads. By default, four splits per worker thread.
+    memory_map : :class:`bool`
+        If ``True``, memory-map each local file when the dataset first opens it, and keep the map.
+        Reads then come from the page cache, with no IO requests and no copies. This is fastest
+        for many small reads of the same files, such as random batches of rows. A map holds no
+        file handle. Every source must be a local path.
+    without_segment_cache : :class:`bool`
+        If ``False``, the dataset keeps the segments that it reads in a cache of up to 256 MiB that
+        all of its files share, so a later read of the same rows does not read them again. If
+        ``True``, each read reads its segments again. A dataset with ``memory_map=True`` has no
+        segment cache, because the page cache holds the segments.
 
     Examples
     --------
@@ -768,7 +782,13 @@ def open_dataset(
     """
     sources = [source] if isinstance(source, (str, os.PathLike)) else list(source)
     return VortexDataset(
-        _dataset.dataset_from_sources([os.fspath(source) for source in sources], store=store, concurrency=concurrency)
+        _dataset.dataset_from_sources(
+            [os.fspath(source) for source in sources],
+            store=store,
+            concurrency=concurrency,
+            memory_map=memory_map,
+            without_segment_cache=without_segment_cache,
+        )
     )
 
 

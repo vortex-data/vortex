@@ -3,6 +3,8 @@
 
 """Reading many Vortex files as one dataset with :func:`vortex.open_dataset`."""
 
+import multiprocessing
+import os
 from pathlib import Path
 
 import duckdb
@@ -299,3 +301,86 @@ def test_trailing_double_star_glob_reads_files(tmp_path: Path):
     vx.io.write(table(range(3, 6)), str(nested / "b.vortex"))
 
     assert vx.open_dataset(str(data / "**")).to_table() == table(range(0, 6))
+
+
+@pytest.mark.parametrize("memory_map", [False, True])
+def test_memory_map_reads_the_same_rows(root: Path, memory_map: bool):
+    ds = vx.open_dataset(root / "data", memory_map=memory_map)
+    assert ds.to_table() == expected("a.vortex", "b/b.vortex", "c.vortex")
+
+    # Rows from every file, out of order and repeated. The second take reuses what the first one
+    # kept of each file.
+    indices = pa.array([29, 3, 12, 0, 12, 24, 25])
+    rows = pc.take(expected("a.vortex", "b/b.vortex", "c.vortex"), indices)
+    assert ds.take(indices) == rows
+    assert ds.take(indices) == rows
+
+
+@pytest.mark.parametrize(
+    "source, store",
+    [
+        ("s3://bucket/data/", None),
+        ("data", LocalStore(prefix="/")),
+    ],
+)
+def test_memory_map_needs_local_paths(source: str, store: LocalStore | None):
+    with pytest.raises(ValueError, match="memory_map=True needs local paths"):
+        vx.open_dataset(source, store=store, memory_map=True)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")
+def test_forked_process_reads_the_files_its_parent_mapped(root: Path):
+    ds = vx.open_dataset(root / "data", memory_map=True)
+    indices = pa.array([29, 3, 12])
+    rows = ds.take(indices)
+
+    # A DataLoader worker is a forked process. It reads with the maps its parent kept, which need
+    # no IO threads of the parent.
+    context = multiprocessing.get_context("fork")
+    queue = context.Queue()
+
+    def read() -> None:
+        queue.put(ds.take(indices).to_pylist())
+
+    process = context.Process(target=read)
+    process.start()
+    child_rows = queue.get(timeout=60)
+    process.join(timeout=60)
+
+    assert process.exitcode == 0
+    assert child_rows == rows.to_pylist()
+
+
+def zero_files(data: Path) -> None:
+    """Write zeros over each Vortex file below `data`, and keep the size of the file."""
+    for path in data.rglob("*.vortex"):
+        path.write_bytes(bytes(path.stat().st_size))
+
+
+def test_segment_cache_serves_a_later_read(root: Path):
+    ds = vx.open_dataset(root / "data")
+    rows = expected("a.vortex", "b/b.vortex", "c.vortex")
+    assert ds.to_table() == rows
+
+    # The dataset keeps the footers and the segments that it read, so a later read of the same rows
+    # does not read the files again. Zeros in the files show this.
+    zero_files(root / "data")
+    assert ds.to_table() == rows
+
+    indices = pa.array([29, 3, 12])
+    assert ds.take(indices) == pc.take(rows, indices)
+
+
+def test_without_segment_cache_reads_the_files_again(root: Path):
+    ds = vx.open_dataset(root / "data", without_segment_cache=True)
+    rows = expected("a.vortex", "b/b.vortex", "c.vortex")
+    assert ds.to_table() == rows
+
+    zero_files(root / "data")
+
+    try:
+        result = ds.to_table()
+    except Exception:
+        result = None
+
+    assert result != rows

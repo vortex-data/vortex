@@ -144,7 +144,8 @@ pub fn read_url<'py>(
     let store = store
         .map(|store| store.extract::<AnyVortexStore>())
         .transpose()?;
-    let dataset = open_dataset(py, vec![url.to_string()], store, None, true)?;
+    // One read does not read a segment again, so a segment cache does not help it.
+    let dataset = open_dataset(py, vec![url.to_string()], store, None, true, false, true)?;
 
     dataset.to_array_inner(py, projection, row_filter, indices, row_range, None)
 }

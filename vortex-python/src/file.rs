@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
@@ -195,18 +196,7 @@ fn open_memory_mapped(
     };
 
     let has_footer = footer.is_some();
-    let open = move || -> VortexResult<VortexFile> {
-        let file = std::fs::File::open(&path_buf)?;
-        // SAFETY: Vortex files are immutable once written. A file that is changed or truncated
-        // while mapped gives wrong data or SIGBUS, as with any memory-mapped reader.
-        let mmap = unsafe { Mmap::map(&file)? };
-
-        let mut options = session().open_options();
-        if let Some(footer) = footer {
-            options = options.with_footer(footer);
-        }
-        options.open_buffer(ByteBuffer::from(mmap))
-    };
+    let open = move || open_memory_mapped_path(&path_buf, footer);
 
     let vxf = if has_footer {
         open()?
@@ -221,6 +211,28 @@ fn open_memory_mapped(
         without_segment_cache: true,
         memory_map: true,
     })
+}
+
+/// Open the local file at `path` as a memory map, whose segments are then slices of the map.
+///
+/// The map holds no file handle after the open. A known `footer` means the open reads nothing.
+pub(crate) fn open_memory_mapped_path(
+    path: &Path,
+    footer: Option<Footer>,
+) -> VortexResult<VortexFile> {
+    let file = std::fs::File::open(path)?;
+
+    // SAFETY: Vortex files are immutable once written. A file that is changed or truncated
+    // while mapped gives wrong data or SIGBUS, as with any memory-mapped reader.
+    let mmap = unsafe { Mmap::map(&file)? };
+
+    let mut options = session().open_options();
+
+    if let Some(footer) = footer {
+        options = options.with_footer(footer);
+    }
+
+    options.open_buffer(ByteBuffer::from(mmap))
 }
 
 /// Open a Vortex file through a Python object that performs the IO itself (see [`PyReadable`]).
