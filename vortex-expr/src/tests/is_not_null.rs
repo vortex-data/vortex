@@ -5,12 +5,14 @@ use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::scalar::Scalar;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -65,99 +67,112 @@ fn reduce_to_constant() -> VortexResult<()> {
 #[test]
 fn reduce_kleene() -> VortexResult<()> {
     let dtype = bool_dtype();
+    let and_opt = optimized(is_not_null(and(col("a"), col("b"))), &dtype)?;
     assert_eq!(
-        optimized(is_not_null(and(col("a"), col("b"))), &dtype)?,
+        and_opt,
         or(is_not_null(col("a")), not(col("b"))).bind(&dtype)?
     );
-    assert_eq!(
-        optimized(is_not_null(or(col("a"), col("b"))), &dtype)?,
-        or(is_not_null(col("a")), col("b")).bind(&dtype)?
+    let or_opt = optimized(is_not_null(or(col("a"), col("b"))), &dtype)?;
+    assert_eq!(or_opt, or(is_not_null(col("a")), col("b")).bind(&dtype)?);
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = StructArray::from_fields(&[
+        (
+            "a",
+            BoolArray::from_iter([Some(true), Some(false), None, Some(true), Some(false), None])
+                .into_array(),
+        ),
+        (
+            "b",
+            BoolArray::from_iter([true, true, true, false, false, false]).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    assert_arrays_eq!(
+        input.clone().apply(&is_not_null(and(col("a"), col("b"))))?,
+        BoolArray::from_iter([true, true, false, true, true, true]),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        input.apply(&is_not_null(or(col("a"), col("b"))))?,
+        BoolArray::from_iter([true, true, true, true, true, false]),
+        &mut ctx
     );
     Ok(())
 }
 
 #[test]
-fn evaluate_mask() {
+fn evaluate_mask() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let test_array =
         PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)]).into_array();
-    let expected = [true, false, true, false, true];
 
-    let result = test_array.clone().apply(&is_not_null(root())).unwrap();
-
-    assert_eq!(result.len(), test_array.len());
-    assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
-
-    for (i, expected_value) in expected.iter().enumerate() {
-        assert_eq!(
-            result
-                .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(*expected_value, Nullability::NonNullable)
-        );
-    }
+    let result = test_array.apply(&is_not_null(root()))?;
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([true, false, true, false, true]),
+        &mut ctx
+    );
+    Ok(())
 }
 
 #[test]
-fn evaluate_all_true() {
+fn evaluate_all_true() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
-    let result = test_array.clone().apply(&is_not_null(root())).unwrap();
-
-    assert_eq!(result.len(), test_array.len());
-    for i in 0..result.len() {
-        assert_eq!(
-            result
-                .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::NonNullable)
-        );
-    }
+    let result = test_array.apply(&is_not_null(root()))?;
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([true, true, true, true, true]),
+        &mut ctx
+    );
+    Ok(())
 }
 
 #[test]
-fn evaluate_all_false() {
+fn evaluate_all_false() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let test_array =
         PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None]).into_array();
+    assert_arrays_eq!(
+        test_array.apply(&is_not_null(root()))?,
+        BoolArray::from_iter([false, false, false, false, false]),
+        &mut ctx
+    );
 
-    let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+    assert_arrays_eq!(
+        NullArray::new(4).into_array().apply(&is_not_null(root()))?,
+        BoolArray::from_iter([false, false, false, false]),
+        &mut ctx
+    );
 
-    assert_eq!(result.len(), test_array.len());
-    for i in 0..result.len() {
-        assert_eq!(
-            result
-                .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::NonNullable)
-        );
-    }
+    let empty = PrimitiveArray::empty::<i32>(Nullability::Nullable).into_array();
+    assert_arrays_eq!(
+        empty.apply(&is_not_null(root()))?,
+        BoolArray::from_iter(std::iter::empty::<bool>()),
+        &mut ctx
+    );
+    Ok(())
 }
 
 #[test]
-fn evaluate_struct() {
+fn evaluate_struct() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let test_array = StructArray::from_fields(&[(
         "a",
         PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)]).into_array(),
-    )])
-    .unwrap()
+    )])?
     .into_array();
-    let expected = [true, false, true, false, true];
 
-    let result = test_array
-        .clone()
-        .apply(&is_not_null(get_item("a", root())))
-        .unwrap();
-
-    assert_eq!(result.len(), test_array.len());
-    assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
-
-    for (i, expected_value) in expected.iter().enumerate() {
-        assert_eq!(
-            result
-                .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(*expected_value, Nullability::NonNullable)
-        );
-    }
+    let result = test_array.apply(&is_not_null(get_item("a", root())))?;
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([true, false, true, false, true]),
+        &mut ctx
+    );
+    Ok(())
 }
 
 #[test]
