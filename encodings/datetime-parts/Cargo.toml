@@ -36,7 +36,7 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 
 [[bench]]
-name = "decode_chains"
+name = "date_time_parts_decode"
 harness = false
 
 [[bench]]
