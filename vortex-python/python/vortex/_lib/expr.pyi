@@ -73,7 +73,7 @@ def compare(
     left: IntoExpr,
     right: IntoExpr,
     *,
-    float_order: Literal["zeros_equal", "canonical", "ieee754"] = "zeros_equal",
+    float_order: Literal["total_order", "zeros_equal", "canonical", "ieee754"] = "total_order",
 ) -> Expr: ...
 def between(
     child: IntoExpr,
@@ -116,7 +116,7 @@ def list_contains(
     value: IntoExpr,
     *,
     sql_null_semantics: bool = False,
-    float_order: Literal["zeros_equal", "canonical", "ieee754"] = "zeros_equal",
+    float_order: Literal["total_order", "zeros_equal", "canonical", "ieee754"] = "total_order",
 ) -> Expr: ...
 def in_list(value: IntoExpr, list: IntoExpr) -> Expr: ...
 def list_length(child: IntoExpr) -> Expr: ...

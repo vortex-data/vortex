@@ -95,7 +95,7 @@ use vortex_arrow::ExecuteArrowExt;
 use crate::row_index::RowIndex;
 
 /// The comparison semantics of DataFusion: `-0.0 = +0.0`, and other floats compare by their bits.
-const DATAFUSION_MODE: CompareMode = CompareMode::from_float_order(FloatOrder::ZerosEqual);
+const DATAFUSION_MODE: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {

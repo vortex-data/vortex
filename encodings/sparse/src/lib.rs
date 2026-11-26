@@ -42,8 +42,6 @@ use vortex_array::require_opt_child;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::builtin::compare::Compare;
-use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -554,17 +552,10 @@ impl SparseData {
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
-        // Only values with the bits of the fill value become the fill, so `-0.0` stays distinct
-        // from `+0.0`.
-        let non_fill_bool = Compare::try_new_with_mode(
-            array.clone(),
-            fill_array.clone(),
-            CompareOperator::NotEq,
-            CompareMode::TOTAL_ORDER,
-        )?
-        .into_array()
-        .fill_null(Scalar::bool(true, Nullability::NonNullable))?
-        .execute::<BoolArray>(ctx)?;
+        let non_fill_bool = array
+            .compare(fill_array.clone(), CompareOperator::NotEq)?
+            .fill_null(Scalar::bool(true, Nullability::NonNullable))?
+            .execute::<BoolArray>(ctx)?;
         let non_fill_mask = Mask::from_buffer(non_fill_bool.to_bit_buffer());
 
         let non_fill_values = array

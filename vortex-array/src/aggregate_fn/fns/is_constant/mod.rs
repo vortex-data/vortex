@@ -46,8 +46,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::compare::Compare;
-use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::stats::Precision;
 use crate::stats::Stat;
@@ -79,14 +77,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
-    // A constant array keeps one bit pattern, so `-0.0` and `+0.0` are different values here.
-    let eq_result = Compare::try_new_with_mode(
-        a.clone(),
-        b.clone(),
-        CompareOperator::Eq,
-        CompareMode::TOTAL_ORDER,
-    )?
-    .into_array();
+    let eq_result = a.compare(b.clone(), CompareOperator::Eq)?;
     let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)
@@ -497,8 +488,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ExecutionCtx;
-    use crate::IntoArray;
+    use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateDTypes;
@@ -685,27 +675,6 @@ mod tests {
             &mut ctx
         )?);
         assert!(is_constant(&struct_of_lists.into_array(), &mut ctx)?);
-        Ok(())
-    }
-
-    /// A constant array keeps one bit pattern, so lists that differ only in the sign of a zero
-    /// are not constant.
-    #[test]
-    fn nested_signed_zeros_are_not_constant() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let zeros = |values: [f64; 2], ctx: &mut ExecutionCtx| {
-            ListArray::try_new(
-                PrimitiveArray::from_iter(values).into_array(),
-                buffer![0u32, 1, 2].into_array(),
-                Validity::NonNullable,
-                ctx,
-            )
-            .map(IntoArray::into_array)
-        };
-
-        assert!(!is_constant(&zeros([-0.0, 0.0], &mut ctx)?, &mut ctx)?);
-        assert!(is_constant(&zeros([-0.0, -0.0], &mut ctx)?, &mut ctx)?);
         Ok(())
     }
 

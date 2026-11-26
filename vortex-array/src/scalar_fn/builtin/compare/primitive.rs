@@ -205,7 +205,7 @@ where
 {
     match order {
         FloatOrder::TotalOrder => visit_compare::<T, V>(op, visitor),
-        FloatOrder::ZerosEqual => visit_default_float_compare::<T, V>(op, visitor),
+        FloatOrder::ZerosEqual => visit_bitwise_nan_compare::<T, V>(op, visitor),
         FloatOrder::Canonical => visit_zeros_equal_compare::<T, V, CANONICAL>(op, visitor),
         FloatOrder::Ieee754 => visit_zeros_equal_compare::<T, V, IEEE754>(op, visitor),
     }
@@ -217,7 +217,7 @@ where
 /// is true for that pair. IEEE 754 equality is also true only for pairs that are equal in this
 /// order. So each predicate is a total-order predicate and one IEEE 754 equality, without a
 /// branch for each value.
-fn visit_default_float_compare<T, V>(
+fn visit_bitwise_nan_compare<T, V>(
     op: CompareOperator,
     visitor: V,
 ) -> VortexResult<V::VisitResult>

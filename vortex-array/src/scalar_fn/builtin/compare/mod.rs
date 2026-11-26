@@ -8,10 +8,10 @@
 //! primitives, lane kernels from `vortex-compute` for decimals, binary views for strings/bytes, and
 //! a row-wise comparator for nested types. There is no Arrow fallback.
 //!
-//! By default, `-0.0 = +0.0`, and all other floating-point values use the same total ordering as
-//! [`Scalar`]: negative NaNs sort below negative infinity, positive NaNs sort above positive
-//! infinity, and distinct NaN payloads remain distinct. Another [`CompareMode`] can order `NaN`
-//! values like a query engine, or keep the signed zeros distinct as [`Scalar`] does.
+//! By default, floating-point values use the same total ordering as [`Scalar`]: `-0.0 < +0.0`,
+//! negative NaNs sort below negative infinity, positive NaNs sort above positive infinity, and
+//! distinct NaN payloads remain distinct. Another [`CompareMode`] can make the signed zeros equal,
+//! or order `NaN` values like a query engine.
 //!
 //! [`Compare`] binds a [`CompareOperator`] to two operands. It can execute through
 //! encoding-specific kernels before reaching the native dispatcher. [`CompareExecuteAdaptor`]
@@ -65,7 +65,6 @@ use crate::scalar_fn::builtin::binary::execute_strict_step;
 use crate::scalar_fn::builtin::binary::fmt_infix;
 use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
-use crate::scalar_fn::builtin::operators::FloatOrder;
 use crate::scalar_fn::display::ExprDisplay;
 use crate::validity::Validity;
 
@@ -114,15 +113,14 @@ impl CompareOptions {
 }
 
 impl From<CompareOperator> for CompareOptions {
-    #[allow(deprecated)]
     fn from(operator: CompareOperator) -> Self {
-        Self::new(operator, CompareMode::new())
+        Self::new(operator, CompareMode::TOTAL_ORDER)
     }
 }
 
 impl Display for CompareOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.compare_mode.is_zeros_equal() {
+        if self.compare_mode.is_total_order() {
             return Display::fmt(&self.operator, f);
         }
 
@@ -195,13 +193,12 @@ impl ScalarFnVTable for Compare {
         let opts = pb::CompareOpts::decode(metadata)?;
         let operator = pb::compare_opts::CompareOp::try_from(opts.op)?.into();
 
-        // Options written before the mode existed have no mode. They order floats in
-        // `ZerosEqual`.
+        // Options written before the mode existed have no mode. They compare in total order.
         let compare_mode = opts
             .mode
             .map(CompareMode::try_from)
             .transpose()?
-            .unwrap_or(CompareMode::from_float_order(FloatOrder::ZerosEqual));
+            .unwrap_or(CompareMode::TOTAL_ORDER);
 
         Ok(CompareOptions::new(operator, compare_mode))
     }
@@ -285,11 +282,9 @@ impl ScalarFnVTable for Compare {
 /// without first decompressing. The adaptor normalizes operand order so `array` is always
 /// the left-hand side, swapping the operator when necessary.
 ///
-/// A kernel can compare floats in [`CompareMode::TOTAL_ORDER`], and can compare its children in
-/// the `ZerosEqual` mode. The adaptor calls a kernel only when the requested mode, the total order,
-/// and the `ZerosEqual` mode all give the same result (see [`CompareMode::agrees_with_total_order`]
-/// and [`CompareMode::total_order_zero`]). Thus a kernel never gets an equality with a float
-/// zero.
+/// A kernel compares floats in [`CompareMode::TOTAL_ORDER`]. The adaptor calls a kernel only when
+/// the requested mode gives the same result (see [`CompareMode::agrees_with_total_order`] and
+/// [`CompareMode::total_order_zero`]).
 pub trait CompareKernel: VTable {
     /// Compares `lhs` with `rhs`, or returns `None` to use the default comparison path.
     ///
@@ -320,7 +315,6 @@ where
 {
     type Parent = ExactScalarFn<Compare>;
 
-    #[allow(deprecated)]
     fn execute_parent(
         &self,
         array: ArrayView<'_, V>,
@@ -364,12 +358,7 @@ where
 
         // Kernels compare in total order. Other modes use the canonical kernels, unless the
         // results agree.
-        // A kernel can compare its children in the `ZerosEqual` mode, so call it only when the mode,
-        // the total order, and the `ZerosEqual` mode all give the same result.
-        let constant = other.as_constant();
-        if mode.agrees_with_total_order(cmp_op, array.dtype(), constant)
-            && CompareMode::new().agrees_with_total_order(cmp_op, array.dtype(), constant)
-        {
+        if mode.agrees_with_total_order(cmp_op, array.dtype(), other.as_constant()) {
             return V::compare(array, other, cmp_op, ctx);
         }
 

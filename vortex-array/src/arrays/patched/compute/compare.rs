@@ -176,9 +176,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
-    use crate::scalar_fn::builtin::compare::Compare;
     use crate::scalar_fn::builtin::compare::CompareKernel;
-    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
     use crate::validity::Validity;
 
@@ -321,14 +319,13 @@ mod tests {
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 
-        // An equality with a zero does not reach the kernel, so compare through `Compare`.
-        let result = Compare::try_new_with_mode(
-            lhs.into_array(),
-            rhs,
+        let result = <Patched as CompareKernel>::compare(
+            lhs.as_view(),
+            &rhs,
             CompareOperator::Eq,
-            CompareMode::TOTAL_ORDER,
+            &mut ctx,
         )?
-        .into_array();
+        .ok_or_else(|| vortex_err!("expected compare result"))?;
 
         let expected = BoolArray::from_indices(10, [7], Validity::NonNullable).into_array();
 

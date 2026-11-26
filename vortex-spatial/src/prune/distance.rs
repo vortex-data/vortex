@@ -52,15 +52,15 @@ impl StatsRewriteRule for SpatialDistancePrune {
         // which an AABB can't prove.
         let options = expr.as_::<Compare>();
 
-        // The proof needs an order in which `-0.0 = +0.0`. For a radius that is not `NaN`, these
-        // orders differ only for a `NaN` distance. Such a row has a `NaN` coordinate, which makes
-        // the zone box the whole plane (see `GeometryAabb`), so no order prunes its chunk. A
-        // total-order comparison separates the zeros, and an order that this version does not
-        // know has no proof.
-        if !matches!(
+        // The proof holds in each order for a radius that is not `NaN` or a zero. These orders
+        // differ only for a `NaN` distance. Such a row has a `NaN` coordinate, which makes the zone
+        // box the whole plane (see `GeometryAabb`), so no order prunes its chunk. With a zero
+        // radius, the proof needs an order in which `-0.0 = +0.0`.
+        let zeros_equal = matches!(
             options.compare_mode().float_order(),
             FloatOrder::ZerosEqual | FloatOrder::Canonical | FloatOrder::Ieee754
-        ) {
+        );
+        if !zeros_equal && !options.compare_mode().is_total_order() {
             return Ok(None);
         }
 
@@ -88,7 +88,7 @@ impl StatsRewriteRule for SpatialDistancePrune {
         };
         // A NaN radius has no sound proof: `distance <op> NaN` is not a total order, so the chunk
         // must be scanned, not pruned.
-        if radius.is_nan() {
+        if radius.is_nan() || (!zeros_equal && radius == 0.0) {
             return Ok(None);
         }
 
@@ -204,21 +204,24 @@ mod tests {
         SpatialDistancePrune.falsify(&predicate, &session)
     }
 
-    /// Each order in which the zeros are equal prunes, so a filter from DuckDB or Spark prunes as
-    /// a default comparison does. A total-order comparison does not prune.
+    /// Each order prunes for a radius that is not a zero. With a zero radius, only the orders in
+    /// which the zeros are equal prune.
     #[rstest]
-    #[case::zeros_equal(FloatOrder::ZerosEqual, true)]
-    #[case::canonical(FloatOrder::Canonical, true)]
-    #[case::ieee754(FloatOrder::Ieee754, true)]
-    #[case::total_order(FloatOrder::TotalOrder, false)]
-    fn prunes_in_orders_with_equal_zeros(
+    #[case::zeros_equal(FloatOrder::ZerosEqual, 0.5, true)]
+    #[case::canonical(FloatOrder::Canonical, 0.5, true)]
+    #[case::ieee754(FloatOrder::Ieee754, 0.5, true)]
+    #[case::total_order(FloatOrder::TotalOrder, 0.5, true)]
+    #[case::zeros_equal_zero_radius(FloatOrder::ZerosEqual, 0.0, true)]
+    #[case::total_order_zero_radius(FloatOrder::TotalOrder, 0.0, false)]
+    fn prunes_in_each_order(
         #[case] float_order: FloatOrder,
+        #[case] radius: f64,
         #[case] prunes: bool,
     ) -> VortexResult<()> {
-        let mode = CompareMode::from_float_order(float_order);
+        let mode = CompareMode::new(float_order);
         let options = CompareOptions::new(CompareOperator::Lte, mode);
 
-        let Some(proof) = falsify_distance_in(options, true, 0.5)? else {
+        let Some(proof) = falsify_distance_in(options, true, radius)? else {
             assert!(!prunes);
             return Ok(());
         };
@@ -253,10 +256,11 @@ mod tests {
             FloatOrder::ZerosEqual,
             FloatOrder::Canonical,
             FloatOrder::Ieee754,
+            FloatOrder::TotalOrder,
         ] {
-            let mode = CompareMode::from_float_order(float_order);
+            let mode = CompareMode::new(float_order);
             let proof = falsify_distance_in(CompareOptions::new(operator, mode), true, radius)?
-                .expect("an order with equal zeros prunes");
+                .expect("each order prunes for a radius that is not a zero");
 
             let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
             let whole_plane = [

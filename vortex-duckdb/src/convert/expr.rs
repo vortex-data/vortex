@@ -811,7 +811,7 @@ fn try_from_between(
 
     let dtype = operand_dtype(between.input);
     let mode = compare_mode(&dtype);
-    if !mode.is_zeros_equal() {
+    if !mode.is_total_order() {
         return Ok(Some(between_with_mode(
             mode,
             array,

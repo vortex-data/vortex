@@ -169,23 +169,23 @@ fn test_struct_comparison() {
     );
 }
 
-const CANONICAL: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
+const CANONICAL: CompareMode = CompareMode::new(FloatOrder::Canonical);
 
-/// A comparison with a literal that has no floats keeps the `ZerosEqual` mode, so rewrites that need
-/// the `ZerosEqual` mode still apply to it. A float literal keeps the requested mode.
+/// A comparison with a literal that has no floats uses the total order, so rewrites that need the
+/// total order still apply to it. A float literal keeps the requested mode.
 #[rstest]
 #[case::integer(
     Scalar::from(1i32),
-    CompareMode::from_float_order(FloatOrder::ZerosEqual)
+    CompareMode::TOTAL_ORDER
 )]
 #[case::string(
     Scalar::from("a"),
-    CompareMode::from_float_order(FloatOrder::ZerosEqual)
+    CompareMode::TOTAL_ORDER
 )]
 #[case::float(Scalar::from(1.0f64), CANONICAL)]
 #[case::integer_list(
     int_list_scalar(),
-    CompareMode::from_float_order(FloatOrder::ZerosEqual)
+    CompareMode::TOTAL_ORDER
 )]
 fn compare_with_mode_keeps_default_mode_without_floats(
     #[case] value: Scalar,

@@ -460,10 +460,10 @@ fn int_constant_lhs_and_rhs(#[case] op: CompareOperator, #[case] expected: [bool
     assert_arrays_eq!(swapped, BoolArray::from_iter(expected_swapped), &mut ctx);
 }
 
-/// By default, `-0.0 = +0.0`, and all other floats compare with Vortex's total ordering: NaN is
-/// the largest value, and two NaNs are equal when their bits are equal.
+/// Floats compare with Vortex's total ordering: NaN is the largest value, equality is bitwise,
+/// and -0.0 < +0.0. This matches `Scalar` comparison semantics.
 #[rstest]
-fn float_default_order(#[values(4, 129)] len: usize) {
+fn float_total_order(#[values(4, 129)] len: usize) {
     let mut ctx = SESSION.create_execution_ctx();
     let lhs = PrimitiveArray::from_iter(
         [f64::NAN, f64::NAN, -0.0, 1.0]
@@ -483,32 +483,11 @@ fn float_default_order(#[values(4, 129)] len: usize) {
     let result = execute_compare_test(lhs.clone(), rhs.clone(), CompareOperator::Eq);
     assert_arrays_eq!(
         result,
-        BoolArray::from_iter([true, false, true, false].into_iter().cycle().take(len)),
-        &mut ctx
-    );
-
-    let result = execute_compare_test(lhs.clone(), rhs.clone(), CompareOperator::Lt);
-    assert_arrays_eq!(
-        result,
-        BoolArray::from_iter([false, false, false, true].into_iter().cycle().take(len)),
-        &mut ctx
-    );
-
-    // The total order keeps the zeros distinct, as `Scalar` comparison does.
-    let result = compare_with(
-        lhs.clone(),
-        rhs.clone(),
-        CompareOperator::Eq,
-        CompareMode::TOTAL_ORDER,
-    )
-    .unwrap();
-    assert_arrays_eq!(
-        result,
         BoolArray::from_iter([true, false, false, false].into_iter().cycle().take(len)),
         &mut ctx
     );
 
-    let result = compare_with(lhs, rhs, CompareOperator::Lt, CompareMode::TOTAL_ORDER).unwrap();
+    let result = execute_compare_test(lhs, rhs, CompareOperator::Lt);
     assert_arrays_eq!(
         result,
         BoolArray::from_iter([false, false, true, true].into_iter().cycle().take(len)),
@@ -1196,9 +1175,9 @@ const MODE_VALUES: [f64; 8] = [
     f64::NAN,
 ];
 
-const DATAFUSION: CompareMode = CompareMode::from_float_order(FloatOrder::ZerosEqual);
-const SPARK: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
-const PYARROW: CompareMode = CompareMode::from_float_order(FloatOrder::Ieee754);
+const DATAFUSION: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+const SPARK: CompareMode = CompareMode::new(FloatOrder::Canonical);
+const PYARROW: CompareMode = CompareMode::new(FloatOrder::Ieee754);
 
 fn compare_with(
     lhs: ArrayRef,
@@ -1499,9 +1478,9 @@ fn compare_options_round_trip(#[case] options: CompareOptions) -> VortexResult<(
     Ok(())
 }
 
-/// Options written before the mode existed have no mode. They order floats in `ZerosEqual`.
+/// Options written before the mode existed have no mode. They compare in total order.
 #[test]
-fn compare_options_without_mode_use_zeros_equal() -> VortexResult<()> {
+fn compare_options_without_mode_use_total_order() -> VortexResult<()> {
     let bytes = pb::CompareOpts {
         op: pb::compare_opts::CompareOp::Lt.into(),
         mode: None,
@@ -1510,10 +1489,7 @@ fn compare_options_without_mode_use_zeros_equal() -> VortexResult<()> {
 
     assert_eq!(
         Compare.deserialize(&bytes, &SESSION)?,
-        CompareOptions::new(
-            CompareOperator::Lt,
-            CompareMode::from_float_order(FloatOrder::ZerosEqual)
-        )
+        CompareOptions::new(CompareOperator::Lt, CompareMode::TOTAL_ORDER)
     );
     Ok(())
 }

@@ -199,8 +199,8 @@ public final class SparkFilterToVortexExpression {
 
     /**
      * Compare {@code lhs} with {@code rhs} with Spark semantics. Spark makes {@code -0.0} equal to {@code 0.0}, and
-     * makes all {@code NaN} values equal and greater than all other values. Vortex orders {@code NaN} values by sign
-     * and payload by default, and Spark cannot restore rows that the scan drops, so float comparisons use
+     * makes all {@code NaN} values equal and greater than all other values. Vortex compares the bits of floats by
+     * default, and Spark cannot restore rows that the scan drops, so float comparisons use
      * {@link #SPARK_FLOAT_ORDER}.
      */
     private static Expression compare(BinaryOp op, DataType dataType, Expression lhs, Expression rhs) {

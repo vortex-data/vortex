@@ -73,7 +73,7 @@ impl ScalarFnVTable for DynamicComparison {
     ) -> std::fmt::Result {
         Display::fmt(expr.display_child(0), f)?;
         write!(f, " {} dynamic(", dynamic.operator)?;
-        if !dynamic.compare_mode.is_zeros_equal() {
+        if !dynamic.compare_mode.is_total_order() {
             write!(f, "mode=[{}], ", dynamic.compare_mode)?;
         }
         match dynamic.scalar() {

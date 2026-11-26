@@ -331,9 +331,9 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
     Ok(())
 }
 
-// A residual cannot recover rows dropped by a partially converted filter. The pushed default
-// comparison makes `-0.0` equal to `+0.0`, as DataFusion does, so both zero rows must survive
-// the scan and the residual filter.
+// A residual cannot recover rows dropped by a partially converted filter. The pushed comparison
+// makes `-0.0` equal to `+0.0`, as DataFusion does, so both zero rows must survive the scan and
+// the residual filter.
 #[rstest]
 #[case::static_filter(false)]
 #[case::dynamic_filter(true)]

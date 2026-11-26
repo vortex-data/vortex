@@ -375,7 +375,7 @@ fn test_prepared_set_rows_are_the_constant_list() -> VortexResult<()> {
 
 const SQL: ListContainsOptions = ListContainsOptions {
     sql_null_semantics: true,
-    compare_mode: CompareMode::from_float_order(FloatOrder::ZerosEqual),
+    compare_mode: CompareMode::new(FloatOrder::ZerosEqual),
 };
 
 #[rstest]

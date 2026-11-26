@@ -137,10 +137,11 @@ fn parse_compare_mode(float_order: jbyte) -> Result<CompareMode, JNIError> {
         0 => FloatOrder::ZerosEqual,
         1 => FloatOrder::Canonical,
         2 => FloatOrder::Ieee754,
+        3 => FloatOrder::TotalOrder,
         other => throw_runtime!("unknown float order code: {other}"),
     };
 
-    Ok(CompareMode::from_float_order(float_order))
+    Ok(CompareMode::new(float_order))
 }
 
 /// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.

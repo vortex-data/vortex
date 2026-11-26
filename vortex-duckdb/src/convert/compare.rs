@@ -17,7 +17,7 @@ use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scalar_fn::builtin::operators::FloatOrder;
 
 /// The comparison semantics of DuckDB.
-const DUCKDB_MODE: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
+const DUCKDB_MODE: CompareMode = CompareMode::new(FloatOrder::Canonical);
 
 /// Returns the compare mode of DuckDB for operands of `dtype`. It is the `ZerosEqual` mode when
 /// `dtype` holds no floats.

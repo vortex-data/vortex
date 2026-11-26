@@ -112,7 +112,7 @@ message CompareMode {
 message CompareOpts {
   CompareOp op = 1;
   // How the comparison orders values. Options written before the mode existed have none, and
-  // compare floats with `ZerosEqual`.
+  // compare in total order.
   CompareMode mode = 2;
 
   enum CompareOp {
@@ -181,7 +181,7 @@ message LikeOpts {
 message ListContainsOpts {
   bool sql_null_semantics = 1;
   // How the needle and the elements compare. Options written before the mode existed have none,
-  // and compare floats with `ZerosEqual`.
+  // and compare in total order.
   CompareMode compare_mode = 2;
 }
 

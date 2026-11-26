@@ -57,7 +57,6 @@ use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
-use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_array::scalar_fn::is_not_null_node;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::validity::Validity;
@@ -118,17 +117,16 @@ pub struct ListContainsOptions {
     pub sql_null_semantics: bool,
     /// How the needle and the elements compare floats, at the top level and in nested values.
     ///
-    /// The default options order floats in [`FloatOrder::ZerosEqual`], where `-0.0 = +0.0`.
-    /// [`CompareMode::TOTAL_ORDER`] compares the bits of floats.
+    /// The default options compare in [`CompareMode::TOTAL_ORDER`], which compares the bits of
+    /// floats.
     pub compare_mode: CompareMode,
 }
 
 impl Default for ListContainsOptions {
-    #[allow(deprecated)]
     fn default() -> Self {
         Self {
             sql_null_semantics: false,
-            compare_mode: CompareMode::new(),
+            compare_mode: CompareMode::TOTAL_ORDER,
         }
     }
 }
@@ -138,7 +136,7 @@ impl Display for ListContainsOptions {
         if self.sql_null_semantics {
             write!(f, "sql_null_semantics")?;
         }
-        if !self.compare_mode.is_zeros_equal() {
+        if !self.compare_mode.is_total_order() {
             if self.sql_null_semantics {
                 write!(f, ", ")?;
             }
@@ -274,13 +272,12 @@ impl ScalarFnVTable for ListContains {
     ) -> VortexResult<Self::Options> {
         let opts = pb::ListContainsOpts::decode(metadata)?;
 
-        // Options written before the mode existed have no mode. They order floats in
-        // `ZerosEqual`.
+        // Options written before the mode existed have no mode. They compare in total order.
         let compare_mode = opts
             .compare_mode
             .map(CompareMode::try_from)
             .transpose()?
-            .unwrap_or(CompareMode::from_float_order(FloatOrder::ZerosEqual));
+            .unwrap_or(CompareMode::TOTAL_ORDER);
 
         Ok(ListContainsOptions {
             sql_null_semantics: opts.sql_null_semantics,
@@ -1539,9 +1536,9 @@ mod tests {
         )
     }
 
-    /// Options written before the mode existed have no mode. They order floats in `ZerosEqual`.
+    /// Options written before the mode existed have no mode. They compare in total order.
     #[test]
-    fn test_deserialize_without_mode_uses_zeros_equal() -> VortexResult<()> {
+    fn test_deserialize_without_mode_uses_total_order() -> VortexResult<()> {
         let bytes = pb::ListContainsOpts {
             sql_null_semantics: true,
             compare_mode: None,
@@ -1552,7 +1549,7 @@ mod tests {
             ListContains.deserialize(&bytes, &SESSION)?,
             ListContainsOptions {
                 sql_null_semantics: true,
-                compare_mode: CompareMode::from_float_order(FloatOrder::ZerosEqual),
+                compare_mode: CompareMode::TOTAL_ORDER,
             }
         );
         Ok(())
@@ -1660,9 +1657,9 @@ mod tests {
         Ok(())
     }
 
-    const ZEROS_EQUAL: CompareMode = CompareMode::from_float_order(FloatOrder::ZerosEqual);
-    const CANONICAL: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
-    const IEEE754: CompareMode = CompareMode::from_float_order(FloatOrder::Ieee754);
+    const ZEROS_EQUAL: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+    const CANONICAL: CompareMode = CompareMode::new(FloatOrder::Canonical);
+    const IEEE754: CompareMode = CompareMode::new(FloatOrder::Ieee754);
 
     #[rstest]
     #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false, false])]
@@ -1778,9 +1775,9 @@ mod tests {
     }
 
     #[test]
-    fn constant_set_of_floats_agrees_with_compare() -> VortexResult<()> {
-        // Membership has to agree with the default comparison: `-0.0` and `0.0` are the same
-        // member, and NaN is a member of a set that holds NaN.
+    fn constant_set_of_floats_is_bitwise() -> VortexResult<()> {
+        // Membership has to agree with the compare kernel: `-0.0` and `0.0` are different
+        // members, and NaN is a member of a set that holds NaN.
         let needles = PrimitiveArray::from_option_iter([
             Some(1.0f64),
             Some(f64::NAN),
@@ -1796,7 +1793,7 @@ mod tests {
             [
                 Some(true),
                 Some(true),
-                Some(true),
+                Some(false),
                 Some(true),
                 Some(false),
                 None,

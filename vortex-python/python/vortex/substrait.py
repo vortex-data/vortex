@@ -620,7 +620,7 @@ def singular_or_list(
     """``value IN (options...)``, with the semantics of the PyArrow ``is_in`` that produces it.
 
     PyArrow's ``is_in`` looks up the bits of a float, so ``-0.0`` is not in a set that holds
-    ``+0.0``. In Vortex the zeros are equal, so the membership also keeps the other zero.
+    ``+0.0``. The membership in Vortex also compares the bits of floats by default.
 
     PyArrow's ``is_in`` never gives null. A null value is an element only of a set that holds a
     null and does not skip nulls, and Substrait does not carry whether nulls are skipped. So a set

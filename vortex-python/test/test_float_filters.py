@@ -4,11 +4,10 @@
 """Float filters pushed into Vortex keep the rows that the engine itself keeps.
 
 PyArrow compares floats with IEEE 754 semantics, and Polars makes all NaNs equal and greater than
-all other values. Both make ``-0.0`` equal to ``+0.0``, as Vortex does, but Vortex orders NaNs by
-their bits by default. So each pushed comparison must carry the semantics of its engine.
+all other values. Both make ``-0.0`` equal to ``+0.0``, but Vortex compares the bits of floats by
+default. So each pushed comparison must carry the semantics of its engine.
 
-PyArrow's ``is_in`` looks up the bits of a float, but in Vortex the zeros are equal in a set, so
-the ``is_in`` filter here holds no zero.
+PyArrow's ``is_in`` looks up the bits of a float, as the membership in Vortex does by default.
 """
 
 import math

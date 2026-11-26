@@ -176,7 +176,7 @@ pub struct CompareOpts {
     #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
     pub op: i32,
     /// How the comparison orders values. Options written before the mode existed have none, and
-    /// compare floats with `ZerosEqual`.
+    /// compare in total order.
     #[prost(message, optional, tag = "2")]
     pub mode: ::core::option::Option<CompareMode>,
 }
@@ -422,7 +422,7 @@ pub struct ListContainsOpts {
     #[prost(bool, tag = "1")]
     pub sql_null_semantics: bool,
     /// How the needle and the elements compare. Options written before the mode existed have none,
-    /// and compare floats with `ZerosEqual`.
+    /// and compare in total order.
     #[prost(message, optional, tag = "2")]
     pub compare_mode: ::core::option::Option<CompareMode>,
 }

@@ -787,7 +787,7 @@ fn div_expr(left: Expression, right: Expression) -> Expression {
 
 /// Compares the arguments, and orders floats with the given semantics.
 ///
-/// By default, ``-0.0`` is equal to ``+0.0`` and NaNs are ordered by their bits. Use another order to
+/// By default, floats compare by their bits, so ``-0.0`` is less than ``+0.0``. Use another order to
 /// match the query engine that gave the predicate. Arguments that do not contain floats ignore the
 /// order.
 ///
@@ -798,6 +798,7 @@ fn div_expr(left: Expression, right: Expression) -> Expression {
 /// left : :class:`Any`
 /// right : :class:`Any`
 /// float_order : :class:`str`
+///     ``"total_order"`` compares the bits of floats, so ``-0.0`` is less than ``+0.0``.
 ///     ``"zeros_equal"`` makes ``-0.0`` equal to ``+0.0`` and orders NaNs by their bits.
 ///     ``"canonical"`` makes the zeros equal, and makes all NaNs equal and greater than all other
 ///     values. ``"ieee754"`` makes the zeros equal, and makes each comparison with a NaN false,
@@ -807,7 +808,7 @@ fn div_expr(left: Expression, right: Expression) -> Expression {
 /// -------
 /// :class:`vortex.Expr`
 #[pyfunction]
-#[pyo3(signature = (operator, left, right, *, float_order = "zeros_equal"))]
+#[pyo3(signature = (operator, left, right, *, float_order = "total_order"))]
 pub fn compare(
     operator: &str,
     left: PyIntoExpr,
@@ -841,6 +842,7 @@ pub fn compare(
 /// Parses the float semantics of a comparison.
 fn compare_mode(float_order: &str) -> PyResult<CompareMode> {
     let float_order = match float_order {
+        "total_order" => FloatOrder::TotalOrder,
         "zeros_equal" => FloatOrder::ZerosEqual,
         "canonical" => FloatOrder::Canonical,
         "ieee754" => FloatOrder::Ieee754,
@@ -851,7 +853,7 @@ fn compare_mode(float_order: &str) -> PyResult<CompareMode> {
         }
     };
 
-    Ok(CompareMode::from_float_order(float_order))
+    Ok(CompareMode::new(float_order))
 }
 
 /// True where `child` lies between `lower` and `upper`.
@@ -1194,7 +1196,7 @@ pub fn merge(exprs: &Bound<'_, PyAny>, duplicate_handling: &str) -> PyResult<PyE
     value,
     *,
     sql_null_semantics = false,
-    float_order = "zeros_equal"
+    float_order = "total_order"
 ))]
 pub fn list_contains(
     child: PyIntoExpr,

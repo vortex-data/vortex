@@ -130,7 +130,7 @@ public final class Expression {
     /**
      * Compare {@code lhs} with {@code rhs}, ordering floats in {@code order}.
      *
-     * <p>{@link #binary(BinaryOp, Expression, Expression)} orders floats in {@link FloatOrder#ZEROS_EQUAL}. A query
+     * <p>{@link #binary(BinaryOp, Expression, Expression)} orders floats in {@link FloatOrder#TOTAL_ORDER}. A query
      * engine that pushes a float comparison down must use its own semantics, for example {@link FloatOrder#CANONICAL}
      * for Spark; otherwise the scan can drop rows.
      */
@@ -224,7 +224,7 @@ public final class Expression {
      *     against an empty list with Vortex's default rules, where the result is {@code false}.
      */
     public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
-        return listContains(list, needle, sqlNullSemantics, FloatOrder.ZEROS_EQUAL);
+        return listContains(list, needle, sqlNullSemantics, FloatOrder.TOTAL_ORDER);
     }
 
     /**
@@ -244,7 +244,7 @@ public final class Expression {
      * both filter the row out of a scan.
      */
     public static Expression in(Expression value, Expression list) {
-        return in(value, list, FloatOrder.ZEROS_EQUAL);
+        return in(value, list, FloatOrder.TOTAL_ORDER);
     }
 
     /**
@@ -651,7 +651,7 @@ public final class Expression {
      */
     public enum FloatOrder {
         /**
-         * The Vortex default: {@code -0.0 = +0.0}, and {@code NaN} values are ordered by sign and payload, as in Rust's
+         * {@code -0.0 = +0.0}, and {@code NaN} values are ordered by sign and payload, as in Rust's
          * {@code f64::total_cmp}.
          */
         ZEROS_EQUAL((byte) 0),
@@ -664,7 +664,12 @@ public final class Expression {
          * {@code -0.0 = +0.0}, and {@code NaN} is unordered, as in IEEE 754: each comparison is false, except
          * {@code !=}.
          */
-        IEEE754((byte) 2);
+        IEEE754((byte) 2),
+        /**
+         * The Vortex default: the total order over the bit patterns, as in Rust's {@code f64::total_cmp}, so
+         * {@code -0.0 < +0.0}.
+         */
+        TOTAL_ORDER((byte) 3);
 
         private final byte code;
 
