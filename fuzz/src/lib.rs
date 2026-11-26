@@ -57,6 +57,8 @@ pub use file::FuzzFileAction;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileCorruption;
 #[cfg(not(target_arch = "wasm32"))]
+pub use file::WriteSettings;
+#[cfg(not(target_arch = "wasm32"))]
 pub use file::has_duplicate_field_names;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::has_nullable_struct;

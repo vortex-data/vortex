@@ -2,7 +2,7 @@ name: Fuzz compress_gpu
 
 on:
   schedule:
-    - cron: "0 */3 * * *"  # every 3 hours
+    - cron: "0 */3 * * *"  # every 3 hours; keep in sync with cycle_hours below
   workflow_dispatch: { }
 
 jobs:
@@ -24,5 +24,7 @@ jobs:
       # OOM-style error. protect_shadow_gap=0 frees that VA range for CUDA.
       extra_env: "ASAN_OPTIONS=protect_shadow_gap=0"
       jobs: 1
+      max_time: 9000
+      cycle_hours: 3
       report: false
     secrets: inherit
