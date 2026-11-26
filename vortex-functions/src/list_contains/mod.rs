@@ -983,114 +983,91 @@ mod tests {
     }
 
     #[test]
-    pub fn test_one() {
+    pub fn test_one() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(1));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(true), Some(false)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_all() {
+    pub fn test_all() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(true), Some(true)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_none() {
+    pub fn test_none() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(4));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(false), Some(false)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_empty() {
+    pub fn test_empty() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::AllValid,
             &mut ctx,
-        )
-        .unwrap()
+        )?
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(true), Some(false)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_nullable() {
+    pub fn test_nullable() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::Array(BoolArray::from(BitBuffer::from(vec![true, false])).into_array()),
             &mut ctx,
-        )
-        .unwrap()
+        )?
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert!(
-            !item
-                .is_valid(1, &mut SESSION.create_execution_ctx())
-                .unwrap()
-        );
+        assert_arrays_eq!(item, BoolArray::from_iter([Some(true), None]), &mut ctx);
+        Ok(())
     }
 
     #[test]
@@ -1125,7 +1102,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_constant_scalars() {
+    pub fn test_constant_scalars() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         // Both list and needle are constants - should use scalar optimization
@@ -1137,23 +1115,14 @@ mod tests {
 
         // Test contains true
         let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
-        let result = arr.clone().apply(&expr).unwrap();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::NonNullable)
-        );
+        let result = arr.clone().apply(&expr)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true]), &mut ctx);
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.apply(&expr).unwrap();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::NonNullable)
-        );
+        let result = arr.apply(&expr)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false]), &mut ctx);
+        Ok(())
     }
 
     #[test]
@@ -1167,22 +1136,20 @@ mod tests {
 
         let expr = list_contains(lit(list.clone()), lit(needle.clone()));
         let result = array.clone().apply(&expr)?;
-        assert_eq!(
-            result.execute_scalar(0, &mut ctx)?,
-            Scalar::bool(false, Nullability::Nullable)
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false), Some(false)]),
+            &mut ctx
         );
 
         let expr = list_contains(lit(list), lit(2i32));
         let result = array.clone().apply(&expr)?;
-        assert_eq!(
-            result.execute_scalar(0, &mut ctx)?,
-            Scalar::bool(false, Nullability::NonNullable)
-        );
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false]), &mut ctx);
 
         let list = Scalar::null(DType::List(dtype, Nullability::Nullable));
         let expr = list_contains(lit(list), lit(needle));
         let result = array.apply(&expr)?;
-        assert!(result.execute_scalar(0, &mut ctx)?.is_null());
+        assert_arrays_eq!(result, BoolArray::from_iter([None, None]), &mut ctx);
         Ok(())
     }
 

@@ -1011,3 +1011,6 @@ pub mod bound {
     pub use super::bound_variant_get as variant_get;
     pub use super::bound_zip_expr as zip_expr;
 }
+
+#[cfg(test)]
+mod tests;
