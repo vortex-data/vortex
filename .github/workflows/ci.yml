@@ -177,9 +177,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      # Cargo locks each target directory, so the doctests build into their own one to run
-      # alongside the rustdoc build. They compile with `--all-features`, so they would not
-      # reuse the `cargo doc` artifacts anyway.
+      # Doctests use their own target dir so they don't wait on cargo doc's lock.
       - parallel:
           - name: Docs
             id: docs
