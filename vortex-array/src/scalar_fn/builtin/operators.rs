@@ -201,8 +201,8 @@ impl Display for FloatOrder {
 /// [`CompareMode::new`], which selects [`FloatOrder::ZerosEqual`], is deprecated. The functions
 /// that take no mode, such as `eq` and `ArrayBuiltins::compare`, still use it.
 ///
-/// To add the order of another type, add a field, a `with_*` function, and its part of
-/// [`CompareMode::for_dtype`] and [`CompareMode::agrees_with_total_order`].
+/// To add the order of another type, add a field and its part of [`CompareMode::for_dtype`] and
+/// [`CompareMode::agrees_with_total_order`].
 ///
 /// | Engine                 | [`FloatOrder`] |
 /// |------------------------|----------------|
@@ -243,12 +243,6 @@ impl CompareMode {
     #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
         Self::from_float_order(FloatOrder::ZerosEqual)
-    }
-
-    /// Returns this mode with the given order of floats.
-    pub const fn with_float_order(mut self, float_order: FloatOrder) -> Self {
-        self.float_order = float_order;
-        self
     }
 
     /// Returns how the mode orders floats.
