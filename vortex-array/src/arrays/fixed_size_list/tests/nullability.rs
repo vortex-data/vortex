@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -195,8 +196,12 @@ fn test_validity_types() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_mixed_nullability_patterns() -> VortexResult<()> {
+#[rstest]
+#[case::null_list_null_elements([None, None])]
+#[case::null_list_non_null_elements([Some(99), Some(100)])]
+fn test_mixed_nullability_patterns(
+    #[case] null_list_elements: [Option<i16>; 2],
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let len = 5;
     let list_size = 2;
@@ -205,8 +210,8 @@ fn test_mixed_nullability_patterns() -> VortexResult<()> {
     let elements = PrimitiveArray::from_option_iter(vec![
         Some(1i16), // List 0
         None,
-        Some(99), // List 1 (null list; underlying element values ignored)
-        Some(100),
+        null_list_elements[0], // List 1 (null list)
+        null_list_elements[1],
         Some(5), // List 2
         Some(6),
         Some(7), // List 3
@@ -216,6 +221,8 @@ fn test_mixed_nullability_patterns() -> VortexResult<()> {
     ]);
     let validity = Validity::from_iter([true, false, true, true, true]);
     let fsl = FixedSizeListArray::new(elements.into_array(), list_size, validity, len);
+
+    assert!(fsl.execute_scalar(1, &mut ctx)?.is_null());
 
     let expected = FixedSizeListArray::new(
         PrimitiveArray::from_option_iter([
