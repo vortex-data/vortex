@@ -163,6 +163,47 @@ def test_date_scalar_defaults_to_days() -> None:
     assert scalar.as_py() == datetime.date(1969, 12, 31)
 
 
+_EPOCH_ORDINAL = datetime.date(1970, 1, 1).toordinal()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        datetime.date(1, 1, 1),
+        datetime.date(1600, 2, 29),
+        datetime.date(1900, 2, 28),
+        datetime.date(1900, 3, 1),
+        datetime.date(1969, 3, 1),
+        datetime.date(2000, 2, 29),
+        datetime.date(2000, 3, 1),
+        datetime.date(2024, 2, 29),
+        datetime.date(2100, 3, 1),
+        datetime.date(9999, 12, 31),
+    ],
+)
+def test_date_scalar_matches_python_calendar(value: datetime.date) -> None:
+    scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
+    assert scalar.storage() == value.toordinal() - _EPOCH_ORDINAL
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        datetime.datetime(1, 1, 1),
+        datetime.datetime(1900, 3, 1, 12, 30, 15, 7),
+        datetime.datetime(1969, 12, 31, 23, 59, 59, 999_999),
+        datetime.datetime(2024, 2, 29, 6, 0, 0, 1),
+        datetime.datetime(9999, 12, 31, 23, 59, 59, 999_999),
+    ],
+)
+def test_timestamp_scalar_matches_python_calendar(value: datetime.datetime) -> None:
+    expected = (value - datetime.datetime(1970, 1, 1)) // datetime.timedelta(microseconds=1)
+    scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
+    assert scalar.storage() == expected
+
+
 @pytest.mark.parametrize(
     "unit,expected",
     [
