@@ -11,6 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -43,6 +45,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::Scalar;
@@ -590,33 +593,63 @@ static PIVCO_PHA: PivcoScheme = PivcoScheme::pha();
 static PIVCO_OP_PHA: PivcoScheme = PivcoScheme::op_pha();
 static PIVCO_AUTO: PivcoScheme = PivcoScheme::auto();
 
-#[rstest]
-#[case::ph(&PIVCO_PH)]
-#[case::pha(&PIVCO_PHA)]
-#[case::op_pha(&PIVCO_OP_PHA)]
-fn test_pivco_scheme_options_roundtrip(#[case] scheme: &'static dyn Scheme) -> VortexResult<()> {
-    let mut rng = StdRng::seed_from_u64(42);
-    let input = PrimitiveArray::from_iter((0..16_384).map(|_| {
-        let u = rng.random_range(0..1000u32);
-        if u < 900 {
-            0u32
-        } else if u < 980 {
-            1
-        } else {
-            rng.random_range(2..64)
-        }
-    }))
-    .into_array();
+fn check_pivco_scheme_roundtrip<T>(tc: &TestCase) -> VortexResult<()>
+where
+    T: NativePType + gs::Integer + 'static,
+{
+    let nullable = tc.draw(gs::booleans());
+    let allow_for = tc.draw(gs::booleans());
+    let scheme_idx = tc.draw(gs::integers::<u8>().max_value(3));
+    let len = tc.draw(gs::integers::<usize>().min_value(0).max_value(2_048));
+    let pattern: Vec<(T, bool)> = tc.draw(
+        gs::vecs(gs::tuples2(gs::integers::<T>(), gs::booleans()))
+            .min_size(1)
+            .max_size(16),
+    );
+    let (values, valid): (Vec<T>, Vec<bool>) = pattern.iter().copied().cycle().take(len).unzip();
+
+    let validity = if nullable {
+        Validity::Array(BoolArray::from_iter(valid).into_array())
+    } else {
+        Validity::NonNullable
+    };
+    let input = PrimitiveArray::new(Buffer::from_iter(values), validity).into_array();
+
+    let base_scheme: &'static PivcoScheme = match scheme_idx {
+        0 => &PIVCO_AUTO,
+        1 => &PIVCO_PH,
+        2 => &PIVCO_PHA,
+        _ => &PIVCO_OP_PHA,
+    };
+    let scheme: &'static dyn Scheme = if allow_for {
+        base_scheme
+    } else {
+        base_scheme.refine(&|id: &ArrayId| *id == pivco_id())
+    };
     let compressor = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
         .build();
-    let compressed = assert_roundtrip(&compressor, &input)?;
-    assert!(
-        compressed.is::<Pivco>(),
-        "expected vortex.pivco, got {}",
-        compressed.encoding_id()
-    );
+    assert_roundtrip(&compressor, &input)?;
     Ok(())
+}
+
+/// Compressing any integer primitive array through `PivcoScheme` (any integer ptype, nullable or
+/// non-nullable including arbitrary null-slot values, `FoR` on or off, and any preset mode) must
+/// round-trip identically.
+#[hegel::test(test_cases = 50, print_blob = true)]
+fn pivco_scheme_roundtrip_property(tc: TestCase) {
+    match tc.draw(gs::integers::<u8>().max_value(7)) {
+        0 => check_pivco_scheme_roundtrip::<u8>(&tc),
+        1 => check_pivco_scheme_roundtrip::<u16>(&tc),
+        2 => check_pivco_scheme_roundtrip::<u32>(&tc),
+        3 => check_pivco_scheme_roundtrip::<u64>(&tc),
+        4 => check_pivco_scheme_roundtrip::<i8>(&tc),
+        5 => check_pivco_scheme_roundtrip::<i16>(&tc),
+        6 => check_pivco_scheme_roundtrip::<i32>(&tc),
+        _ => check_pivco_scheme_roundtrip::<i64>(&tc),
+    }
+    .vortex_expect("PivcoScheme round-trip property");
 }
 
 #[test]
@@ -712,12 +745,8 @@ fn test_pivco_for_cascade_and_op_pha_promotion() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::non_nullable(false)]
-#[case::nullable(true)]
-fn test_alprd_left_parts_cascades_to_pivco_and_cuda_keeps_bitpacked(
-    #[case] nullable: bool,
-) -> VortexResult<()> {
+#[test]
+fn test_alprd_left_parts_cascades_to_pivco_and_cuda_keeps_bitpacked() -> VortexResult<()> {
     let mut rng = StdRng::seed_from_u64(2026_1127);
     let len = 16_384usize;
 
@@ -725,106 +754,108 @@ fn test_alprd_left_parts_cascades_to_pivco_and_cuda_keeps_bitpacked(
     // exponent prefixes follow a geometric(0.5) distribution (~2.0 bits of entropy vs 3 bits in
     // `BitPacked`), so `left_parts` cascades to `Pivco` when `vortex.pivco` is permitted.
     let values: Vec<f32> = (0..len).map(|_| rng.random::<f32>()).collect();
-    let input = if nullable {
-        PrimitiveArray::from_option_iter(
-            values
-                .into_iter()
-                .enumerate()
-                .map(|(i, v)| (i % 29 != 0).then_some(v)),
-        )
-        .into_array()
-    } else {
-        PrimitiveArray::from_iter(values).into_array()
-    };
+    for nullable in [false, true] {
+        let input = if nullable {
+            PrimitiveArray::from_option_iter(
+                values
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(i, v)| (i % 29 != 0).then_some(v)),
+            )
+            .into_array()
+        } else {
+            PrimitiveArray::from_iter(values.iter().copied()).into_array()
+        };
 
-    let make_session = |enable_unstable: bool| -> VortexResult<VortexSession> {
-        let session = VortexSession::empty();
-        vortex_alp::initialize(&session);
-        vortex_fastlanes::initialize(&session);
-        vortex_pivco::initialize(&session);
-        for family in EDITION_FAMILIES {
-            session.editions().declare_family(family)?;
-        }
-        for declaration in EDITION_DECLARATIONS {
-            session.register_edition(declaration)?;
-        }
-        session.enable_edition(CORE_2026_08_3)?;
-        if enable_unstable {
-            session.enable_edition(UNSTABLE)?;
-        }
-        Ok(session)
-    };
+        let make_session = |enable_unstable: bool| -> VortexResult<VortexSession> {
+            let session = VortexSession::empty();
+            vortex_alp::initialize(&session);
+            vortex_fastlanes::initialize(&session);
+            vortex_pivco::initialize(&session);
+            for family in EDITION_FAMILIES {
+                session.editions().declare_family(family)?;
+            }
+            for declaration in EDITION_DECLARATIONS {
+                session.register_edition(declaration)?;
+            }
+            session.enable_edition(CORE_2026_08_3)?;
+            if enable_unstable {
+                session.enable_edition(UNSTABLE)?;
+            }
+            Ok(session)
+        };
 
-    // Core edition only: ALPRD keeps BitPacked left_parts.
-    let core_session = make_session(false)?;
-    let core_compressor = BtrBlocksCompressorBuilder::from_session(&core_session).build();
-    let core_compressed = assert_roundtrip(&core_compressor, &input)?;
-    let core_alprd = core_compressed
-        .as_opt::<ALPRD>()
-        .vortex_expect("expected ALPRD under core edition");
-    assert!(
-        core_alprd.left_parts().is::<BitPacked>(),
-        "expected BitPacked left_parts under core edition, got {}",
-        core_alprd.left_parts().encoding_id()
-    );
+        // Core edition only: ALPRD keeps BitPacked left_parts.
+        let core_session = make_session(false)?;
+        let core_compressor = BtrBlocksCompressorBuilder::from_session(&core_session).build();
+        let core_compressed = assert_roundtrip(&core_compressor, &input)?;
+        let core_alprd = core_compressed
+            .as_opt::<ALPRD>()
+            .vortex_expect("expected ALPRD under core edition");
+        assert!(
+            core_alprd.left_parts().is::<BitPacked>(),
+            "expected BitPacked left_parts under core edition, got {}",
+            core_alprd.left_parts().encoding_id()
+        );
 
-    // Core + unstable: ALPRD cascades left_parts into Pivco and shrinks strictly.
-    let unstable_session = make_session(true)?;
-    let unstable_compressor = BtrBlocksCompressorBuilder::from_session(&unstable_session).build();
-    let pivco_compressed = assert_roundtrip(&unstable_compressor, &input)?;
-    let pivco_alprd = pivco_compressed
-        .as_opt::<ALPRD>()
-        .vortex_expect("expected ALPRD under unstable edition");
-    assert!(
-        pivco_alprd.left_parts().is::<Pivco>(),
-        "expected Pivco left_parts under unstable edition, got {}",
-        pivco_alprd.left_parts().encoding_id()
-    );
-    assert!(
-        pivco_alprd.right_parts().is::<BitPacked>(),
-        "expected BitPacked right_parts, got {}",
-        pivco_alprd.right_parts().encoding_id()
-    );
-    assert!(
-        pivco_compressed.nbytes() < core_compressed.nbytes(),
-        "expected ALPRD(Pivco) ({} B) to be strictly smaller than ALPRD(BitPacked) ({} B)",
-        pivco_compressed.nbytes(),
-        core_compressed.nbytes()
-    );
+        // Core + unstable: ALPRD cascades left_parts into Pivco and shrinks strictly.
+        let unstable_session = make_session(true)?;
+        let unstable_compressor =
+            BtrBlocksCompressorBuilder::from_session(&unstable_session).build();
+        let pivco_compressed = assert_roundtrip(&unstable_compressor, &input)?;
+        let pivco_alprd = pivco_compressed
+            .as_opt::<ALPRD>()
+            .vortex_expect("expected ALPRD under unstable edition");
+        assert!(
+            pivco_alprd.left_parts().is::<Pivco>(),
+            "expected Pivco left_parts under unstable edition, got {}",
+            pivco_alprd.left_parts().encoding_id()
+        );
+        assert!(
+            pivco_alprd.right_parts().is::<BitPacked>(),
+            "expected BitPacked right_parts, got {}",
+            pivco_alprd.right_parts().encoding_id()
+        );
+        assert!(
+            pivco_compressed.nbytes() < core_compressed.nbytes(),
+            "expected ALPRD(Pivco) ({} B) to be strictly smaller than ALPRD(BitPacked) ({} B)",
+            pivco_compressed.nbytes(),
+            core_compressed.nbytes()
+        );
 
-    // Verify scalar_at and slice on ALPRD(Pivco).
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_eq!(
-        pivco_compressed.execute_scalar(1_234, &mut ctx)?,
-        input.execute_scalar(1_234, &mut ctx)?
-    );
-    assert_arrays_eq!(
-        &pivco_compressed.slice(500..9_000)?,
-        &input.slice(500..9_000)?,
-        &mut ctx
-    );
+        // Verify scalar_at and slice on ALPRD(Pivco).
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            pivco_compressed.execute_scalar(1_234, &mut ctx)?,
+            input.execute_scalar(1_234, &mut ctx)?
+        );
+        assert_arrays_eq!(
+            &pivco_compressed.slice(500..9_000)?,
+            &input.slice(500..9_000)?,
+            &mut ctx
+        );
 
-    // CUDA preset: excludes Pivco even when unstable is enabled, keeping BitPacked left_parts.
-    let cuda_compressor = BtrBlocksCompressorBuilder::from_session(&unstable_session)
-        .only_cuda_compatible()
-        .build();
-    let cuda_compressed = assert_roundtrip(&cuda_compressor, &input)?;
-    let cuda_alprd = cuda_compressed
-        .as_opt::<ALPRD>()
-        .vortex_expect("expected ALPRD under CUDA preset");
-    assert!(
-        cuda_alprd.left_parts().is::<BitPacked>(),
-        "expected CUDA preset to keep BitPacked left_parts, got {}",
-        cuda_alprd.left_parts().encoding_id()
-    );
+        // CUDA preset: excludes Pivco even when unstable is enabled, keeping BitPacked left_parts.
+        let cuda_compressor = BtrBlocksCompressorBuilder::from_session(&unstable_session)
+            .only_cuda_compatible()
+            .build();
+        let cuda_compressed = assert_roundtrip(&cuda_compressor, &input)?;
+        let cuda_alprd = cuda_compressed
+            .as_opt::<ALPRD>()
+            .vortex_expect("expected ALPRD under CUDA preset");
+        assert!(
+            cuda_alprd.left_parts().is::<BitPacked>(),
+            "expected CUDA preset to keep BitPacked left_parts, got {}",
+            cuda_alprd.left_parts().encoding_id()
+        );
+    }
 
     Ok(())
 }
 
-#[rstest]
-#[case::schemes_decide(false)]
-#[case::policy_keeps(true)]
-fn test_pivco_honors_child_policy_on_validity(#[case] keep: bool) -> VortexResult<()> {
+#[test]
+fn test_pivco_honors_child_policy_on_validity() -> VortexResult<()> {
     let mut rng = StdRng::seed_from_u64(99);
     let input = PrimitiveArray::from_option_iter((0..16_384).map(|i| {
         if (1000..2000).contains(&i) {
@@ -843,16 +874,18 @@ fn test_pivco_honors_child_policy_on_validity(#[case] keep: bool) -> VortexResul
     }))
     .into_array();
 
-    let mut builder = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&PIVCO_AUTO)
-        .with_new_scheme(&BoolRunEndScheme);
-    if keep {
-        builder = builder.with_child_policy(Arc::new(KeepEverything));
+    for keep in [false, true] {
+        let mut builder = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&PIVCO_AUTO)
+            .with_new_scheme(&BoolRunEndScheme);
+        if keep {
+            builder = builder.with_child_policy(Arc::new(KeepEverything));
+        }
+        let compressed = assert_roundtrip(&builder.build(), &input)?;
+        assert!(compressed.is::<FoR>(), "{}", compressed.encoding_id());
+        let validity_array = compressed.validity()?.to_array(input.len());
+        assert_eq!(validity_array.is_canonical(), keep);
     }
-    let compressed = assert_roundtrip(&builder.build(), &input)?;
-    assert!(compressed.is::<FoR>(), "{}", compressed.encoding_id());
-    let validity_array = compressed.validity()?.to_array(input.len());
-    assert_eq!(validity_array.is_canonical(), keep);
     Ok(())
 }
 
@@ -992,12 +1025,8 @@ fn test_alprd_child_zero_allows_only_pivco() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::allow_for(true)]
-#[case::disallow_for(false)]
-fn test_pivco_direct_compress_negative_without_prior_estimate(
-    #[case] allow_for: bool,
-) -> VortexResult<()> {
+#[test]
+fn test_pivco_direct_compress_negative_without_prior_estimate() -> VortexResult<()> {
     /// Forces `PivcoScheme::compress` to be called directly without ever invoking
     /// `PivcoScheme::expected_compression_ratio`.
     #[derive(Debug)]
@@ -1060,80 +1089,37 @@ fn test_pivco_direct_compress_negative_without_prior_estimate(
         -5_000 + delta
     }))
     .into_array();
-
-    let wrapper: &'static dyn Scheme = if allow_for {
-        &DIRECT_WITH_FOR
-    } else {
-        &DIRECT_NO_FOR
-    };
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(wrapper)
-        .build();
-
-    let compressed = assert_roundtrip(&compressor, &input)?;
-    if allow_for {
-        let for_arr = compressed
-            .as_opt::<FoR>()
-            .vortex_expect("expected FoR(Pivco) when allow_for=true");
-        assert!(for_arr.encoded().is::<Pivco>());
-    } else {
-        assert!(
-            compressed.is_canonical(),
-            "expected canonical fallback when allow_for=false on negative input, got {}",
-            compressed.encoding_id()
-        );
-    }
-
-    // Wide-span negative (`i64::MIN..=i64::MAX`, span > i64::MAX) must also never bail.
     let wide =
         PrimitiveArray::from_iter((0..2048).map(|i| if i % 2 == 0 { i64::MIN } else { i64::MAX }))
             .into_array();
-    let wide_out = compressor.compress(&wide, &mut ctx)?;
-    assert_arrays_eq!(&wide_out, &wide, &mut ctx);
-    assert!(wide_out.is_canonical());
 
-    Ok(())
-}
+    for (allow_for, wrapper) in [
+        (true, &DIRECT_WITH_FOR as &'static dyn Scheme),
+        (false, &DIRECT_NO_FOR as &'static dyn Scheme),
+    ] {
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(wrapper)
+            .build();
 
-#[test]
-fn test_pivco_scheme_ignores_dirty_negative_null_slots() -> VortexResult<()> {
-    let mut rng = StdRng::seed_from_u64(271828);
-    let len = 16_384usize;
-    let mut values = Vec::with_capacity(len);
-    let mut valid = Vec::with_capacity(len);
-    for i in 0..len {
-        if i % 13 == 0 {
-            valid.push(false);
-            // Poison masked-off null physical slots with extreme negative values.
-            values.push(if i % 26 == 0 { i64::MIN } else { -999_999 });
+        let compressed = assert_roundtrip(&compressor, &input)?;
+        if allow_for {
+            let for_arr = compressed
+                .as_opt::<FoR>()
+                .vortex_expect("expected FoR(Pivco) when allow_for=true");
+            assert!(for_arr.encoded().is::<Pivco>());
         } else {
-            valid.push(true);
-            let u = rng.random_range(0..1000u32);
-            let v = if u < 900 {
-                0i64
-            } else if u < 980 {
-                1
-            } else {
-                rng.random_range(2..64)
-            };
-            values.push(v);
+            assert!(
+                compressed.is_canonical(),
+                "expected canonical fallback when allow_for=false on negative input, got {}",
+                compressed.encoding_id()
+            );
         }
-    }
-    let input = PrimitiveArray::new(
-        Buffer::from_iter(values),
-        Validity::Array(BoolArray::from_iter(valid).into_array()),
-    )
-    .into_array();
 
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&PIVCO_AUTO)
-        .with_new_scheme(&BoolRunEndScheme)
-        .build();
-    let compressed = assert_roundtrip(&compressor, &input)?;
-    assert!(
-        compressed.is::<Pivco>(),
-        "expected unbiased Pivco when valid values are non-negative, got {}",
-        compressed.encoding_id()
-    );
+        // Wide-span negative (`i64::MIN..=i64::MAX`, span > i64::MAX) must also never bail.
+        let wide_out = compressor.compress(&wide, &mut ctx)?;
+        assert_arrays_eq!(&wide_out, &wide, &mut ctx);
+        assert!(wide_out.is_canonical());
+    }
+
     Ok(())
 }
