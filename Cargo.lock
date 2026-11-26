@@ -11986,6 +11986,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-index-examples"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 60.2.0",
+ "futures",
+ "parquet 60.2.0",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "vortex",
+ "vortex-array",
+ "vortex-arrow",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-file",
+ "vortex-functions",
+ "vortex-index",
+ "vortex-index-inverted",
+ "vortex-index-ivf",
+ "vortex-index-trigram",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-scan",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-index-inverted"
 version = "0.1.0"
 dependencies = [
