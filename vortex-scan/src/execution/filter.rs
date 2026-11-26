@@ -116,6 +116,11 @@ impl FilterPlans {
         })
     }
 
+    /// The plan of every conjunct, in conjunct order.
+    pub(crate) fn predicates(&self) -> &[PlanRef] {
+        &self.predicates
+    }
+
     /// Whether dynamic conjuncts that keep almost every row are switched off.
     pub(crate) fn skips_unselective_dynamic(&self) -> bool {
         self.expression.skips_unselective_dynamic()
