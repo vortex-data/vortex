@@ -1,9 +1,14 @@
 name: Fuzzer Fix Automation
 
-# Distinct from the caller's `fuzzer-fix-<issue>` group: this reusable workflow runs inside the caller's run, so sharing the name would make it cancel its own parent (cancel-in-progress).
+# One attempt per issue at a time. A newer attempt waits for the running one
+# instead of cancelling it, so a session that is close to done is not thrown
+# away, and the attempts never write the shared status comment at the same time.
+# Distinct from the caller's `fuzzer-fix-<issue>` group: this reusable workflow
+# runs inside the caller's run, so sharing the name would deadlock it on its own
+# parent.
 concurrency:
   group: fuzzer-fix-automation-${{ inputs.issue_number || github.run_id }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
@@ -117,6 +122,23 @@ jobs:
           echo "issue_title=$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
           rm "$WORK_DIR/issue.json"
 
+      # Every attempt reports its status in one comment on the issue, found by its
+      # comment tag. Each attempt replaces the previous attempt's status, and the
+      # last step below replaces "started" with the result.
+      - name: Post started status
+        id: status_started
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          pr-number: ${{ inputs.issue_number }}
+          comment-tag: fuzzer-fix-status
+          message: |
+            ## 🤖 Fuzzer fix: 🔄 started
+
+            An automated fix attempt is running for this issue. This comment is updated
+            when it finishes.
+
+            [Run ${{ github.run_id }}, attempt ${{ github.run_attempt }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) · started ${{ steps.fetch_issue.outputs.started_at }}
+
       - name: Extract crash details from issue
         id: extract
         env:
@@ -180,35 +202,10 @@ jobs:
           if [ -n "$url" ]; then
             echo "::notice::Issue #$ISSUE_NUMBER already has an open fix pull request: $url"
             echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "url=$url" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-
-      # Without this, a human-filed issue that lacks the fields above fails with
-      # no trace on the issue.
-      - name: Comment that the issue lacks crash details
-        if: ${{ failure() && steps.extract.outcome == 'failure' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          {
-            cat <<'EOF'
-          The fuzzer fix automation could not start, because this issue does not have the
-          crash details it needs. It reads these lines from the issue body, in the format that
-          the fuzz pipeline's report uses:
-
-          ```
-          **Target**: `<fuzz target>`
-          **Crash File**: `<crash file name>`
-          https://github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>
-          ```
-          EOF
-            echo
-            echo "[View run]($RUN_URL)"
-          } | gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file -
 
       - name: Download crash artifact
         id: download
@@ -318,30 +315,6 @@ jobs:
             echo "Crash reproduced (exit code $exit_code)"
             echo "repro_summary=crashed with exit code $exit_code" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Comment that the crash does not reproduce
-        if: steps.reproduce.outputs.crash_reproduced == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
-          TARGET: ${{ steps.extract.outputs.target }}
-          CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<EOF
-          ## 🤖 Automated analysis
-
-          The crash input \`$CRASH_FILE\` no longer crashes the \`$TARGET\` fuzz target at
-          \`$GITHUB_SHA\`, so no fix was attempted. It was probably fixed by a recent commit.
-
-          \`\`\`bash
-          cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $TARGET <crash file> -- -runs=1 -rss_limit_mb=0
-          \`\`\`
-
-          The nightly retest closes this issue if the input keeps passing. If the crash is
-          non-deterministic, it needs a person to investigate. [View run]($RUN_URL)
-          EOF
 
       # The Claude session gets a token that can only comment on issues, so the
       # review gate does not rest on the prompt alone: the session cannot push
@@ -609,28 +582,6 @@ jobs:
           retention-days: 90
           overwrite: true
 
-      - name: Comment that the fix was not approved
-        if: ${{ !cancelled() && steps.stage.outputs.has_changes == 'true' && steps.review.outputs.verdict != 'approve' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
-          VERDICT: ${{ steps.review.outputs.verdict }}
-          ARTIFACT_URL: ${{ steps.upload_unapproved.outputs.artifact-url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          case "$VERDICT" in
-            request_changes) reason="The reviewer requested changes that were not resolved." ;;
-            checks_failed) reason="The reviewer approved, but reported a failed or skipped check." ;;
-            stale) reason="Files changed after the last review, so the approval no longer applies." ;;
-            *) reason="No review verdict was written, so the fix was never reviewed." ;;
-          esac
-          link="${ARTIFACT_URL:-$RUN_URL}"
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<EOF
-          No pull request was opened for the proposed fix (verdict: \`$VERDICT\`). $reason
-          The patch and any review are in the [run artifacts]($link).
-          EOF
-
       - name: Generate GitHub App token for the fix branch and pull request
         id: push-token
         if: ${{ !cancelled() && steps.stage.outputs.has_changes == 'true' && steps.review.outputs.verdict == 'approve' }}
@@ -641,22 +592,6 @@ jobs:
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write
-
-      # A Claude session that fails before changing anything, for example on an
-      # authentication error, otherwise leaves no trace on the issue.
-      - name: Comment that the fix attempt failed
-        if: ${{ !cancelled() && steps.claude.outcome == 'failure' && steps.stage.outputs.has_changes != 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file - <<EOF
-          The automated fix attempt for this issue failed before it changed any code, so no
-          pull request was opened. The [run]($RUN_URL) has the cause; its summary lists the
-          session's turns and any denied tool calls.
-          EOF
 
       - name: Commit and push fix branch
         id: commit
@@ -690,6 +625,7 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
       - name: Open draft pull request for fix branch
+        id: pr
         # The App token ensures the PR triggers normal CI; a draft keeps the
         # fuzzer firehose low-noise until a maintainer marks it ready.
         if: ${{ !cancelled() && steps.commit.outputs.branch != '' }}
@@ -713,6 +649,7 @@ jobs:
 
           if [[ -n "$existing_pr" ]]; then
             echo "Pull request already exists: $existing_pr"
+            echo "url=$existing_pr" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -766,6 +703,103 @@ jobs:
               --label "changelog/fix"
           )"
           echo "Created draft pull request: $pr_url"
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
 
-          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
-            --body "🔀 Opened a draft pull request with the reviewed fix: $pr_url"
+      # Runs after every outcome, cancellation included, so the status comment
+      # never stays at "started". The first matching case wins.
+      - name: Write final status
+        id: status_final
+        if: ${{ always() && steps.status_started.outcome == 'success' }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          OPEN_PR_URL: ${{ steps.open_pr.outputs.url }}
+          EXTRACT_OUTCOME: ${{ steps.extract.outcome }}
+          CRASH_REPRODUCED: ${{ steps.reproduce.outputs.crash_reproduced }}
+          TARGET: ${{ steps.extract.outputs.target }}
+          CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          HAS_CHANGES: ${{ steps.stage.outputs.has_changes }}
+          VERDICT: ${{ steps.review.outputs.verdict }}
+          UNAPPROVED_URL: ${{ steps.upload_unapproved.outputs.artifact-url }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          STARTED_AT: ${{ steps.fetch_issue.outputs.started_at }}
+          RUN_LINK: "[Run ${{ github.run_id }}, attempt ${{ github.run_attempt }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORK_DIR: ${{ runner.temp }}/fuzz-fix
+        run: |
+          mkdir -p "$WORK_DIR"
+          out="$WORK_DIR/status.md"
+
+          if [ "$JOB_STATUS" = cancelled ]; then
+            state="🚫 cancelled"
+            detail="The run was cancelled before it finished, so it opened no pull request."
+          elif [ -n "$OPEN_PR_URL" ]; then
+            state="⏭️ skipped"
+            detail="This issue already has an open fix pull request, $OPEN_PR_URL, so no new attempt was made."
+          elif [ "$EXTRACT_OUTCOME" = failure ]; then
+            state="❌ failed"
+            detail=$(cat <<'EOF'
+          The attempt could not start, because this issue does not have the crash details it
+          needs. It reads these lines from the issue body, in the format that the fuzz
+          pipeline's report uses:
+
+          ```
+          **Target**: `<fuzz target>`
+          **Crash File**: `<crash file name>`
+          https://github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>
+          ```
+          EOF
+            )
+          elif [ "$CRASH_REPRODUCED" = false ]; then
+            state="✅ no fix needed"
+            detail=$(cat <<EOF
+          The crash input \`$CRASH_FILE\` no longer crashes the \`$TARGET\` fuzz target at
+          \`$GITHUB_SHA\`, so no fix was attempted. It was probably fixed by a recent commit.
+
+          \`\`\`bash
+          cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $TARGET <crash file> -- -runs=1 -rss_limit_mb=0
+          \`\`\`
+
+          The nightly retest closes this issue if the input keeps passing. If the crash is
+          non-deterministic, it needs a person to investigate.
+          EOF
+            )
+          elif [ -n "$PR_URL" ]; then
+            state="✅ succeeded"
+            detail="The fix passed the \`fuzz-fix-review\` skill, and a draft pull request is open: $PR_URL"
+          elif [ "$HAS_CHANGES" = true ] && [ "$VERDICT" != approve ]; then
+            case "$VERDICT" in
+              request_changes) reason="The reviewer requested changes that were not resolved." ;;
+              checks_failed) reason="The reviewer approved, but reported a failed or skipped check." ;;
+              stale) reason="Files changed after the last review, so the approval no longer applies." ;;
+              *) reason="No review verdict was written, so the fix was never reviewed." ;;
+            esac
+            state="❌ failed"
+            detail="No pull request was opened for the proposed fix (verdict: \`${VERDICT:-missing}\`). $reason The patch and any review are in the [run artifacts](${UNAPPROVED_URL:-$RUN_URL})."
+          elif [ "$CLAUDE_OUTCOME" = failure ]; then
+            state="❌ failed"
+            detail="The fix session failed before it changed any code. The run has the cause; its summary lists the session's turns and any denied tool calls."
+          elif [ "$CRASH_REPRODUCED" = true ] && [ "$HAS_CHANGES" = false ]; then
+            state="❌ no fix"
+            detail="The session changed no code. Its comments on this issue explain why a person needs to fix the crash."
+          else
+            state="❌ failed"
+            detail="A step of the run failed. The run log has the cause."
+          fi
+
+          {
+            echo "## 🤖 Fuzzer fix: $state"
+            echo
+            echo "$detail"
+            echo
+            echo "$RUN_LINK · started $STARTED_AT · finished $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "$out"
+          echo "file=$out" >> "$GITHUB_OUTPUT"
+
+      - name: Post final status
+        if: ${{ always() && steps.status_final.outputs.file != '' }}
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          pr-number: ${{ inputs.issue_number }}
+          comment-tag: fuzzer-fix-status
+          file-path: ${{ steps.status_final.outputs.file }}
