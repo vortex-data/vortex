@@ -806,8 +806,13 @@ impl Patches {
             return Ok(SearchResult::NotFound(indices.len()));
         };
 
+        // Patch indices use the narrowest type that holds the largest patch index, not the array
+        // length, so the shifted needle can overflow `T`. It is then past every patch.
+        let Some(needle) = index.checked_add(&offset) else {
+            return Ok(SearchResult::NotFound(patches_end_idx));
+        };
         let chunk_indices = &indices[patches_start_idx..patches_end_idx];
-        let result = chunk_indices.search_sorted(&(index + offset), SearchSortedSide::Left)?;
+        let result = chunk_indices.search_sorted(&needle, SearchSortedSide::Left)?;
 
         Ok(match result {
             SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
@@ -1184,7 +1189,11 @@ impl Patches {
                     return Ok(SearchResult::NotFound(patch_indices.len()));
                 };
 
-                patch_indices.search_sorted(&(take_idx + offset), SearchSortedSide::Left)
+                // A needle that overflows `PatchT` is past every patch index.
+                let Some(needle) = take_idx.checked_add(&offset) else {
+                    return Ok(SearchResult::NotFound(patch_indices.len()));
+                };
+                patch_indices.search_sorted(&needle, SearchSortedSide::Left)
             },
         )
     }
@@ -2231,6 +2240,40 @@ mod test {
             PrimitiveArray::from_iter([0u64, 2]),
             &mut ctx
         );
+    }
+
+    /// u8 patch indices on an array longer than 256: after a slice, a take index plus the slice
+    /// offset exceeds `u8::MAX`. Found by the ephyra `array_ops` property.
+    #[rstest]
+    fn take_search_needle_past_narrow_patch_indices(
+        #[values(false, true)] chunked: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let chunk_offsets = chunked.then(|| buffer![0u64, 2].into_array());
+        let patches = Patches::new(
+            1100,
+            0,
+            buffer![10u8, 200].into_array(),
+            buffer![1i32, 2].into_array(),
+            chunk_offsets,
+            &mut ctx,
+        )?;
+        let sliced = patches
+            .slice(5..1100, &mut ctx)?
+            .vortex_expect("the slice keeps the patch at 200");
+
+        // 195 is the patch at 200; 253 + 5 = 258 does not fit in u8 and matches no patch.
+        let taken = sliced
+            .take_search(
+                PrimitiveArray::new(buffer![195u64, 253], Validity::NonNullable),
+                false,
+                &mut ctx,
+            )?
+            .vortex_expect("the patch at 200 is taken");
+
+        assert_arrays_eq!(taken.indices(), PrimitiveArray::from_iter([0u64]), &mut ctx);
+        assert_arrays_eq!(taken.values(), PrimitiveArray::from_iter([2i32]), &mut ctx);
+        Ok(())
     }
 
     #[test]

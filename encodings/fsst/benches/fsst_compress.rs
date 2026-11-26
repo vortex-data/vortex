@@ -82,7 +82,35 @@ fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize
 
 #[divan::bench(args = BENCH_ARGS)]
 fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
-    let array = generate_test_data(string_count, avg_len, unique_chars);
+    bench_decompress(
+        bencher,
+        generate_test_data(string_count, avg_len, unique_chars),
+    );
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn decompress_fsst_utf8_ascii(
+    bencher: Bencher,
+    (string_count, avg_len, unique_chars): (usize, usize, u8),
+) {
+    bench_decompress(
+        bencher,
+        generate_utf8_test_data(string_count, avg_len, unique_chars, false),
+    );
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn decompress_fsst_utf8_non_ascii(
+    bencher: Bencher,
+    (string_count, avg_len, unique_chars): (usize, usize, u8),
+) {
+    bench_decompress(
+        bencher,
+        generate_utf8_test_data(string_count, avg_len, unique_chars, true),
+    );
+}
+
+fn bench_decompress(bencher: Bencher, array: ArrayRef) {
     let mut ctx = SESSION.create_execution_ctx();
     let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
     let encoded = fsst_compress(&array, &compressor, &mut ctx)
@@ -202,6 +230,42 @@ fn chunked_into_canonical(
 
 fn needle(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Scalar {
     array.execute_scalar(0, ctx).unwrap()
+}
+
+const NON_ASCII_CHARS: [char; 8] = ['é', 'ü', 'ñ', 'ö', 'α', 'β', '中', '文'];
+
+/// Helper function to generate random UTF-8 string data.
+///
+/// `avg_len` counts characters rather than bytes, so `non_ascii` cases hold 2–3x more bytes than
+/// the corresponding ASCII cases (with `unique_chars <= 4` drawing only 2-byte characters).
+fn generate_utf8_test_data(
+    string_count: usize,
+    avg_len: usize,
+    unique_chars: u8,
+    non_ascii: bool,
+) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut strings = Vec::with_capacity(string_count);
+    let non_ascii_alphabet = (unique_chars as usize).clamp(1, NON_ASCII_CHARS.len());
+
+    for _ in 0..string_count {
+        let len = avg_len * rng.random_range(50..=150) / 100;
+        let s: String = if non_ascii {
+            (0..len)
+                .map(|_| NON_ASCII_CHARS[rng.random_range(0..non_ascii_alphabet)])
+                .collect()
+        } else {
+            (0..len)
+                .map(|_| rng.random_range(b'a'..(b'a' + unique_chars)) as char)
+                .collect()
+        };
+        strings.push(Some(s));
+    }
+
+    let array = VarBinArray::from_iter(strings, DType::Utf8(Nullability::NonNullable)).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// Helper function to generate random string data.
