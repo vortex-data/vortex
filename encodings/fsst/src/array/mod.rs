@@ -64,6 +64,7 @@ use crate::canonical::FSST_DECODE_SLACK;
 use crate::canonical::FsstDecodePlan;
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_bytes;
+use crate::canonical::validate_utf8_rows;
 
 mod plugin;
 
@@ -203,7 +204,7 @@ impl VTable for FSST {
         FSSTSlots::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(
             array,
             array.uncompressed_lengths(),
@@ -216,7 +217,7 @@ impl VTable for FSST {
         );
         require_validity!(array, FSSTSlots::CODES_VALIDITY);
 
-        canonicalize_fsst(array.as_view()).map(ExecutionResult::done)
+        canonicalize_fsst(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
     fn append_to_builder(
@@ -245,6 +246,9 @@ impl VTable for FSST {
             .validity()?
             .execute_mask(array.array().len(), ctx)?;
         let (uncompressed_bytes, uncompressed_lens) = fsst_decode_bytes(array, ctx)?;
+        if matches!(array.dtype(), DType::Utf8(_)) {
+            validate_utf8_rows(uncompressed_bytes.as_slice(), &uncompressed_lens, &validity)?;
+        }
         match_each_integer_ptype!(uncompressed_lens.ptype(), |P| {
             builder.append_buffer_with_lengths(
                 uncompressed_bytes.freeze(),
@@ -274,9 +278,18 @@ where
         .validity()?
         .execute_mask(array.array().len(), ctx)?;
     let decompressor = array.decompressor();
+    let is_utf8 = matches!(array.dtype(), DType::Utf8(_));
     // Built once, outside the ptype match: the decoder is `#[inline(always)]`, so creating the
     // closure inside each arm would stamp out a copy of the whole decode loop per length type.
-    let mut decode = |out: &mut [MaybeUninit<u8>]| plan.decode_into(&decompressor, out);
+    let mut decode = |out: &mut [MaybeUninit<u8>]| {
+        let len = plan.decode_into(&decompressor, out)?;
+        if is_utf8 {
+            // SAFETY: `decode_into` initialized the first `len` bytes of `out`.
+            let decoded = unsafe { std::slice::from_raw_parts(out.as_ptr().cast::<u8>(), len) };
+            validate_utf8_rows(decoded, &plan.lengths, &validity)?;
+        }
+        Ok(len)
+    };
     match_each_integer_ptype!(plan.lengths.ptype(), |P| {
         // SAFETY: `decode_into` initializes exactly the prefix whose length it returns.
         unsafe {

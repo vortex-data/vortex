@@ -96,6 +96,12 @@ mod tests;
 /// This is equal to the default capacity for Arrow Arrays.
 pub const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
+/// Builder for constructing a canonical Vortex array.
+///
+/// # Error handling
+///
+/// If a fallible `append_*` method returns `Err`, the builder's contents are unspecified and
+/// callers must discard it rather than continuing to append or calling [`finish`](Self::finish).
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
 

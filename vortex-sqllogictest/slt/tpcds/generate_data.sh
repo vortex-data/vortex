@@ -32,10 +32,14 @@ rm -f "${DATA_DIR}"/dbgen_version.parquet
 
 # The Parquet files are kept so the `parquet.slt` suites and the parity test
 # can read them.
-for f in "${DATA_DIR}"/*.parquet; do
-  echo "Converting $(basename "$f") to Vortex..."
-  (cd "${CRATE_DIR}" && cargo run --profile "${VORTEX_SLT_PROFILE:-release}" --package vortex-tui --bin vx -- convert "$f")
-done
+# Build vx once, then convert the tables concurrently: each conversion reads and
+# writes its own files.
+export CRATE_DIR VORTEX_SLT_PROFILE="${VORTEX_SLT_PROFILE:-release}"
+(cd "${CRATE_DIR}" && cargo build --profile "${VORTEX_SLT_PROFILE}" --package vortex-tui --bin vx)
+printf '%s\0' "${DATA_DIR}"/*.parquet | xargs -0 -n 1 -P "$(getconf _NPROCESSORS_ONLN)" bash -c '
+  echo "Converting $(basename "$1") to Vortex..."
+  cd "${CRATE_DIR}" && cargo run --quiet --profile "${VORTEX_SLT_PROFILE}" --package vortex-tui --bin vx -- convert "$1"
+' _
 
 # The parity test reads every table in both formats through DuckDB and fails if
 # any row differs, so a bad conversion is caught before the query result files
