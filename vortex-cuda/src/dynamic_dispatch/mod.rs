@@ -404,6 +404,30 @@ impl ScalarOp {
         }
     }
 
+    /// ALP-RD decode. The codes and patches pointers are set when the plan is materialized.
+    pub fn alprd(
+        dictionary: [u16; ALPRD_DICTIONARY_CAPACITY as usize],
+        codes_offset: u16,
+        code_bit_width: u8,
+        right_bit_width: u8,
+        output_ptype: PTypeTag,
+    ) -> Self {
+        Self {
+            op_code: ScalarOp_ScalarOpCode_ALPRD,
+            output_ptype,
+            params: ScalarParams {
+                alprd: ScalarParams_AlpRdParams {
+                    codes_ptr: 0,
+                    patches_ptr: 0,
+                    dictionary,
+                    codes_offset,
+                    code_bit_width,
+                    right_bit_width,
+                },
+            },
+        }
+    }
+
     /// Cast to the requested output type.
     pub fn cast(output_ptype: PTypeTag) -> Self {
         Self {
@@ -548,6 +572,9 @@ impl MaterializedPlan {
         )))
     }
 }
+
+#[cfg(test)]
+mod alprd_tests;
 
 #[cfg(test)]
 mod tests {
