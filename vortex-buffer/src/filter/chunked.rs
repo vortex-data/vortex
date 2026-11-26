@@ -153,11 +153,14 @@ impl<'a, T: Copy, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
     /// Filters chunk by chunk from the bitmap `bits`.
     fn push_bitmap(&mut self, offset: usize, bits: &BitBuffer) {
         let len = bits.len();
+        if len == 0 {
+            return;
+        }
         let bits_bytes = bits.inner().as_slice();
         let mut words = [0u64; CHUNK_WORDS];
         let mut indices = [0usize; MAX_SPARSE_VALUES];
 
-        for chunk_idx in 0..(offset + len).div_ceil(FILTER_CHUNK_LEN) {
+        for chunk_idx in (offset / FILTER_CHUNK_LEN)..(offset + len).div_ceil(FILTER_CHUNK_LEN) {
             // The range `start..end` of the array that falls within this chunk, which begins at
             // index `chunk_offset` within the chunk.
             let chunk_start = chunk_idx * FILTER_CHUNK_LEN;
@@ -535,5 +538,18 @@ mod tests {
             check::<u8>(&bits, offset, cached);
             check::<u64>(&bits, offset, cached);
         }
+    }
+
+    #[rstest]
+    fn test_filter_chunked_offset_past_first_chunk(
+        #[values(FILTER_CHUNK_LEN, FILTER_CHUNK_LEN + 1, FILTER_CHUNK_LEN * 2 + 37)] offset: usize,
+        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
+    ) {
+        let bits = (0..2500).map(|i| i % 5 == 0).collect::<BitBuffer>();
+        check::<u8>(&bits, offset, cached);
+        check::<u64>(&bits, offset, cached);
+
+        let empty = BitBuffer::empty();
+        check::<u64>(&empty, offset, cached);
     }
 }
