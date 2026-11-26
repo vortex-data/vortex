@@ -80,21 +80,24 @@ pub(super) fn to_arrow_dictionary(
             .iter()
             .all(|chunk| chunk.is::<Dict>() || chunk.is::<Constant>())
         {
+            // A chunk fails to export when its codes overflow the codes type, and the concat fails
+            // when the merged values do. The row-wise path below handles both whenever the
+            // distinct values fit.
             let exported = chunks
                 .iter()
                 .map(|chunk| {
                     to_arrow_dictionary(chunk.clone(), codes_type, values_field, options, ctx)
                 })
-                .collect::<VortexResult<Vec<_>>>()?;
-            let exported = exported
-                .iter()
-                .map(|chunk| chunk.as_ref())
-                .collect::<Vec<_>>();
-            // Concatenating dictionaries merges their values without re-encoding every row. It
-            // fails only when the merged values overflow the codes type, which the row-wise path
-            // handles.
-            if let Ok(array) = arrow_select::concat::concat(&exported) {
-                return Ok(array);
+                .collect::<VortexResult<Vec<_>>>();
+            if let Ok(exported) = exported {
+                let exported = exported
+                    .iter()
+                    .map(|chunk| chunk.as_ref())
+                    .collect::<Vec<_>>();
+                // Concatenating dictionaries merges their values without re-encoding every row.
+                if let Ok(array) = arrow_select::concat::concat(&exported) {
+                    return Ok(array);
+                }
             }
         }
         // The chunks were already decoded above, and joined into one canonical array they export
@@ -386,6 +389,34 @@ mod tests {
             &StringArray::from(vec!["a", "b", "c"]) as &dyn arrow_array::Array
         );
         assert_eq!(actual.keys(), &UInt8Array::from(vec![1, 0, 2, 2]));
+        Ok(())
+    }
+
+    /// A chunk whose codes do not fit the codes type is exported through one cast over all chunks,
+    /// which only needs the distinct values to fit.
+    #[test]
+    fn chunked_dicts_with_wide_codes_fit_narrow_keys() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str((0..400).map(|i| format!("v{i}"))).into_array();
+        let wide = DictArray::try_new(buffer![300u32, 300, 5].into_array(), values)?;
+        let narrow = DictArray::try_new(
+            buffer![0u8, 1].into_array(),
+            VarBinViewArray::from_iter_str(["v300", "v5"]).into_array(),
+        )?;
+        let chunked = ChunkedArray::try_new(
+            vec![wide.into_array(), narrow.into_array()],
+            DType::Utf8(NonNullable),
+        )?;
+
+        let actual = execute(
+            chunked.into_array(),
+            &dict_type(DataType::UInt8, DataType::Utf8),
+        )?;
+
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        assert_eq!(
+            flat.as_ref(),
+            &StringArray::from(vec!["v300", "v300", "v5", "v300", "v5"]) as &dyn arrow_array::Array
+        );
         Ok(())
     }
 
