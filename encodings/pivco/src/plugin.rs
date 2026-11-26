@@ -17,7 +17,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -27,6 +26,7 @@ use crate::array::Pivco;
 use crate::array::PivcoData;
 use crate::array::PivcoMetadata;
 use crate::array::PivcoSlots;
+use crate::array::checked_num_blocks_for;
 use crate::array::pivco_id;
 use crate::codec::DEFAULT_BLOCK_SHIFT;
 use crate::codec::MAX_BLOCK_SHIFT;
@@ -51,11 +51,9 @@ impl ArrayPlugin for PivcoPlugin {
             .as_opt::<Pivco>()
             .ok_or_else(|| vortex_err!("PivcoPlugin cannot serialize {}", array.encoding_id()))?;
 
-        let metadata = view.data().to_metadata();
-        let children: Vec<ArrayRef> = view.slots()[PivcoSlots::VALIDITY_CHILD]
-            .clone()
-            .into_iter()
-            .collect();
+        let validity_child = view.slots()[PivcoSlots::VALIDITY_CHILD].clone();
+        let metadata = view.data().to_metadata(validity_child.is_some());
+        let children: Vec<ArrayRef> = validity_child.into_iter().collect();
 
         Ok(Some(ArraySerialization::new(
             pivco_id(),
@@ -113,6 +111,7 @@ impl ArrayPlugin for PivcoPlugin {
             metadata.offset
         );
         let offset = u16::try_from(metadata.offset)?;
+        checked_num_blocks_for(block_shift, offset, len)?;
         vortex_ensure!(
             usize::try_from(metadata.last_block_len).is_ok_and(|n| n <= block_values),
             "PivcoMetadata last_block_len {} must be <= {block_values}",
@@ -134,17 +133,19 @@ impl ArrayPlugin for PivcoPlugin {
             PivcoTree::from_bytes(&metadata.tree_bytes)?
         };
 
-        let validity = match children.len() {
-            0 => Validity::from(dtype.nullability()),
-            1 => {
-                vortex_ensure!(
-                    dtype.is_nullable(),
-                    "Non-nullable PivcoArray cannot have a validity child"
-                );
-                let validity_arr = children.get(0, &Validity::DTYPE, len)?;
-                child_to_validity(Some(&validity_arr), Nullability::Nullable)
-            }
-            other => vortex_bail!("PivcoArray expects 0 or 1 children, got {other}"),
+        let validity = if metadata.has_validity {
+            vortex_ensure!(
+                dtype.is_nullable(),
+                "Non-nullable PivcoArray cannot have a validity child"
+            );
+            vortex_ensure!(
+                !children.is_empty(),
+                "PivcoArray metadata declares a validity child, but none was provided"
+            );
+            let validity_arr = children.get(0, &Validity::DTYPE, len)?;
+            child_to_validity(Some(&validity_arr), Nullability::Nullable)
+        } else {
+            Validity::from(dtype.nullability())
         };
 
         let data = PivcoData::try_new(

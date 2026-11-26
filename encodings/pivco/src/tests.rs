@@ -541,8 +541,9 @@ fn zero_slack_tail_extra_bits_roundtrip() -> VortexResult<()> {
 enum HeaderCorruption {
     TooFewBuffers,
     TooManyBuffers,
-    NonNullableWithChild,
-    TwoChildren,
+    NonNullableWithDeclaredValidity,
+    MissingDeclaredValidity,
+    OffsetPlusLenOverflow,
     MisalignedRawBits,
     MisalignedTreePayload,
     TruncatedTreePayload,
@@ -560,8 +561,9 @@ enum HeaderCorruption {
 #[rstest]
 #[case::too_few_buffers(HeaderCorruption::TooFewBuffers)]
 #[case::too_many_buffers(HeaderCorruption::TooManyBuffers)]
-#[case::non_nullable_child(HeaderCorruption::NonNullableWithChild)]
-#[case::two_children(HeaderCorruption::TwoChildren)]
+#[case::non_nullable_declared_validity(HeaderCorruption::NonNullableWithDeclaredValidity)]
+#[case::missing_declared_validity(HeaderCorruption::MissingDeclaredValidity)]
+#[case::offset_len_overflow(HeaderCorruption::OffsetPlusLenOverflow)]
 #[case::misaligned_raw(HeaderCorruption::MisalignedRawBits)]
 #[case::misaligned_tree(HeaderCorruption::MisalignedTreePayload)]
 #[case::truncated_tree(HeaderCorruption::TruncatedTreePayload)]
@@ -608,13 +610,18 @@ fn rejects_corrupt_metadata_and_headers(#[case] case: HeaderCorruption) -> Vorte
         HeaderCorruption::TooManyBuffers => {
             bufs.push(bufs[2].clone());
         }
-        HeaderCorruption::NonNullableWithChild => {
+        HeaderCorruption::NonNullableWithDeclaredValidity => {
+            meta.has_validity = true;
             children.push(ConstantArray::new(true, len).into_array());
         }
-        HeaderCorruption::TwoChildren => {
+        HeaderCorruption::MissingDeclaredValidity => {
             dtype = dtype.as_nullable();
-            let c = ConstantArray::new(true, len).into_array();
-            children = vec![c.clone(), c];
+            meta.has_validity = true;
+            children.clear();
+        }
+        HeaderCorruption::OffsetPlusLenOverflow => {
+            meta.offset = 1;
+            len = usize::MAX;
         }
         HeaderCorruption::MisalignedRawBits => {
             bufs[2] = make_unaligned(&bufs[2]);
@@ -1259,6 +1266,7 @@ fn rejects_tree_symbols_exceeding_dtype_width(
         tree_base_offset: 0,
         raw_base_word_offset: 0,
         tree_bytes: tree.to_bytes(),
+        has_validity: false,
     };
     let deser_res = PivcoPlugin.deserialize(
         ArrayDeserialization::new(
@@ -1960,7 +1968,7 @@ fn serialized_block_bytes_pinned_per_bitmap_marker() -> VortexResult<()> {
         let prim = PrimitiveArray::new(Buffer::from_iter(case.vals), Validity::NonNullable);
         let opts = PivcoOptions::pha().with_block_shift(case.shift);
         let enc = Pivco::encode_with_options(&prim, opts, &mut ctx)?;
-        let tree_bytes = enc.data().to_metadata().tree_bytes;
+        let tree_bytes = enc.data().to_metadata(false).tree_bytes;
         let headers = enc.data().block_headers().as_host();
         let payload = enc.data().tree_payload().as_host();
         assert_eq!(tree_bytes, [1, 0, 0, 0, 1], "{name}: tree bytes changed");
@@ -2105,5 +2113,75 @@ fn compare_edge_cases_shift13_u64_const_left_and_root_tail_mask() -> VortexResul
         let expected = small_prim.clone().into_array().compare(rhs, op)?;
         assert_arrays_eq!(bool_arr.into_array(), expected, &mut ctx);
     }
+    Ok(())
+}
+
+/// Verifies `docs/specs/versioning/wire-contracts.md` child rules: validity presence comes from
+/// `PivcoMetadata::has_validity`, and any trailing children appended by a future writer are ignored.
+#[test]
+fn trailing_extra_children_are_ignored_per_wire_contract() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let vals: Vec<u32> = (0..128u32).map(|i| i % 7).collect();
+
+    // Case 1: Nullable AllValid (`has_validity == false`), with a trailing all-false bool child.
+    // The reader must NOT misread the trailing child as validity.
+    let all_valid_prim = PrimitiveArray::new(Buffer::from_iter(vals.clone()), Validity::AllValid);
+    let enc_all_valid =
+        Pivco::encode_with_options(&all_valid_prim, PivcoOptions::pha(), &mut ctx)?.into_array();
+    let ser1 = PivcoPlugin
+        .serialize(&enc_all_valid, &SESSION)?
+        .vortex_expect("serialize");
+    let meta1 = PivcoMetadata::decode(ser1.metadata.as_slice())?;
+    assert!(!meta1.has_validity);
+    assert!(ser1.children.is_empty());
+    let bufs1: Vec<BufferHandle> = ser1
+        .buffers
+        .into_iter()
+        .map(BufferHandle::new_host)
+        .collect();
+    let bogus_trailing = ConstantArray::new(false, all_valid_prim.len()).into_array();
+    let deser1 = PivcoPlugin.deserialize(
+        ArrayDeserialization::new(
+            crate::pivco_id(),
+            enc_all_valid.dtype(),
+            enc_all_valid.len(),
+            &ser1.metadata,
+            &bufs1,
+            &std::slice::from_ref(&bogus_trailing),
+        ),
+        &SESSION,
+    )?;
+    assert_arrays_eq!(deser1, all_valid_prim.into_array(), &mut ctx);
+
+    // Case 2: Nullable with bitmap validity (`has_validity == true`), plus a trailing extra child.
+    let validity = Validity::from_iter((0..128).map(|i| i % 3 != 0));
+    let nullable_prim = PrimitiveArray::new(Buffer::from_iter(vals), validity);
+    let enc_nullable =
+        Pivco::encode_with_options(&nullable_prim, PivcoOptions::pha(), &mut ctx)?.into_array();
+    let ser2 = PivcoPlugin
+        .serialize(&enc_nullable, &SESSION)?
+        .vortex_expect("serialize");
+    let meta2 = PivcoMetadata::decode(ser2.metadata.as_slice())?;
+    assert!(meta2.has_validity);
+    assert_eq!(ser2.children.len(), 1);
+    let bufs2: Vec<BufferHandle> = ser2
+        .buffers
+        .into_iter()
+        .map(BufferHandle::new_host)
+        .collect();
+    let mut children2 = ser2.children;
+    children2.push(bogus_trailing);
+    let deser2 = PivcoPlugin.deserialize(
+        ArrayDeserialization::new(
+            crate::pivco_id(),
+            enc_nullable.dtype(),
+            enc_nullable.len(),
+            &ser2.metadata,
+            &bufs2,
+            &children2,
+        ),
+        &SESSION,
+    )?;
+    assert_arrays_eq!(deser2, nullable_prim.into_array(), &mut ctx);
     Ok(())
 }
