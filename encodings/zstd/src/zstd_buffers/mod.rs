@@ -562,6 +562,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::NullArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
@@ -841,10 +842,14 @@ mod tests {
     #[case::primitive(make_primitive_array())]
     #[case::varbinview(make_varbinview_array())]
     #[case::nullable_varbinview(make_nullable_varbinview_array())]
-    #[case::constant_zero_buffers(ConstantArray::new(Scalar::from(7i32), 8).into_array())]
+    #[case::constant_single_buffer(ConstantArray::new(Scalar::from(7i32), 8).into_array())]
+    #[case::null_zero_buffers(NullArray::new(8).into_array())]
     fn test_decode_plan_happy_path(#[case] input: ArrayRef) -> VortexResult<()> {
         let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?;
         let plan = compressed.data().decode_plan()?;
+        if matches!(input.dtype(), DType::Null) {
+            assert_eq!(plan.num_frames(), 0);
+        }
 
         assert_eq!(
             plan.num_frames(),
