@@ -943,6 +943,58 @@ impl<T> BufferMut<T> {
         Buffer::from_allocation(self.allocation, offset, self.length, self.alignment)
     }
 
+    /// Hand the buffer over as a `Vec<T>` without copying, if its memory is exactly what a
+    /// `Vec<T>` would free.
+    ///
+    /// That holds for a buffer adopted from a `Vec<T>`, also after it has grown, but not in
+    /// general for one Vortex allocated itself: those are laid out for over-alignment, and a
+    /// `Vec<T>` can only free memory aligned to `T`. The data must also start at the front of its
+    /// memory. Use [`into_vec`](Self::into_vec) to copy when this fails.
+    ///
+    /// ```
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// let mut buffer = BufferMut::from(vec![1u32, 2, 3]);
+    /// buffer.push(4);
+    /// let values = buffer.try_into_vec().expect("adopted from a Vec, then grown");
+    /// assert_eq!(values, [1, 2, 3, 4]);
+    /// ```
+    pub fn try_into_vec(self) -> Result<Vec<T>, Self> {
+        if self.allocation.size() != 0 && self.ptr.cast::<u8>() != self.allocation.ptr() {
+            return Err(self);
+        }
+        let Self {
+            allocation,
+            ptr,
+            length,
+            capacity,
+            alignment,
+            _marker,
+        } = self;
+        // SAFETY: the first `length` elements from `ptr` are initialised, and `ptr` is the front
+        // of the allocation.
+        unsafe { allocation.try_into_vec(length) }.map_err(|allocation| Self {
+            allocation,
+            ptr,
+            length,
+            capacity,
+            alignment,
+            _marker,
+        })
+    }
+
+    /// Convert the buffer into a `Vec<T>`, without copying where [`try_into_vec`] can and with a
+    /// copy otherwise.
+    ///
+    /// [`try_into_vec`]: Self::try_into_vec
+    pub fn into_vec(self) -> Vec<T>
+    where
+        T: Copy,
+    {
+        self.try_into_vec()
+            .unwrap_or_else(|buffer| buffer.as_slice().to_vec())
+    }
+
     /// Return a `BufferMut<T>` with the same data as this one with the given alignment.
     ///
     /// If the data is already properly aligned, this is a metadata-only operation.
@@ -1181,6 +1233,25 @@ impl<T> BufferMut<T> {
         I: TrustedLen<Item = Result<T, E>>,
     {
         iter.process_results(|values| Self::from_trusted_len_iter(values))
+    }
+}
+
+impl<T: Copy> From<Vec<T>> for BufferMut<T> {
+    /// Adopt the `Vec`'s allocation without copying. Its spare capacity becomes the buffer's, and
+    /// [`BufferMut::try_into_vec`] hands it back the same way.
+    fn from(vec: Vec<T>) -> Self {
+        const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
+        let length = vec.len();
+        let capacity = vec.capacity();
+        let allocation = Allocation::from_vec(vec);
+        Self {
+            ptr: allocation.ptr().cast(),
+            allocation,
+            length,
+            capacity,
+            alignment: Alignment::of::<T>(),
+            _marker: Default::default(),
+        }
     }
 }
 

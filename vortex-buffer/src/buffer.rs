@@ -634,6 +634,36 @@ impl<T> Buffer<T> {
         }
     }
 
+    /// Hand the buffer over as a `Vec<T>` without copying, if it is the only handle to its memory
+    /// and that memory is exactly what a `Vec<T>` would free. See [`BufferMut::try_into_vec`].
+    ///
+    /// ```
+    /// use vortex_buffer::Buffer;
+    ///
+    /// let values = vec![1i64, 2, 3];
+    /// let ptr = values.as_ptr();
+    /// let buffer = Buffer::from(values);
+    /// let values = buffer.try_into_vec().expect("adopted from a Vec and not shared");
+    /// assert_eq!(values.as_ptr(), ptr);
+    /// ```
+    pub fn try_into_vec(self) -> Result<Vec<T>, Self> {
+        self.try_into_mut()?
+            .try_into_vec()
+            .map_err(BufferMut::freeze)
+    }
+
+    /// Convert the buffer into a `Vec<T>`, without copying where [`try_into_vec`] can and with a
+    /// copy otherwise.
+    ///
+    /// [`try_into_vec`]: Self::try_into_vec
+    pub fn into_vec(self) -> Vec<T>
+    where
+        T: Copy,
+    {
+        self.try_into_vec()
+            .unwrap_or_else(|buffer| buffer.as_slice().to_vec())
+    }
+
     /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.
     pub fn into_mut(self) -> BufferMut<T>
     where

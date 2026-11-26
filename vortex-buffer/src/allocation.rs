@@ -318,6 +318,33 @@ impl Allocation {
         &self.allocator
     }
 
+    /// Hand the allocation over to a `Vec<T>` holding its first `len` elements, if it is exactly
+    /// the allocation such a `Vec` would free: from the global allocator, aligned to `T` and no
+    /// more, and a whole number of `T`s long. Otherwise give it back untouched.
+    ///
+    /// ## Safety
+    ///
+    /// The first `len` elements of the allocation must be initialised values of `T`.
+    pub(crate) unsafe fn try_into_vec<T>(self, len: usize) -> Result<Vec<T>, Self> {
+        if self.layout.size() == 0 {
+            debug_assert_eq!(len, 0);
+            return Ok(Vec::new());
+        }
+        if !self.allocator.is_statically_allocated()
+            || self.layout.align() != align_of::<T>()
+            || !self.layout.size().is_multiple_of(size_of::<T>())
+        {
+            return Err(self);
+        }
+
+        let capacity = self.layout.size() / size_of::<T>();
+        // The `Vec` frees the block from here on. The global allocator handle holds nothing.
+        let this = ManuallyDrop::new(self);
+        // SAFETY: the block came from the global allocator with exactly
+        // `Layout::array::<T>(capacity)`, and the caller guarantees its first `len` elements.
+        Ok(unsafe { Vec::from_raw_parts(this.ptr.cast::<T>().as_ptr(), len, capacity) })
+    }
+
     pub(crate) fn grow(&mut self, new_layout: Layout) {
         let allocation = if self.layout.size() == 0 {
             self.allocator.allocate(new_layout)
