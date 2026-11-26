@@ -39,7 +39,9 @@ lance-index = { version = "14", default-features = false }
 lance-linalg = { version = "14", default-features = false }
 vortex = { workspace = true, features = ["files", "tokio"] }
 vortex-index = { workspace = true }
+vortex-index-inverted = { workspace = true }
 vortex-index-ivf = { workspace = true }
+vortex-index-trigram = { workspace = true }
 
 [lib]
 test = false

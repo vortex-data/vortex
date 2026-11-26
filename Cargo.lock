@@ -6083,7 +6083,9 @@ dependencies = [
  "vortex",
  "vortex-bench",
  "vortex-index",
+ "vortex-index-inverted",
  "vortex-index-ivf",
+ "vortex-index-trigram",
 ]
 
 [[package]]
