@@ -21,7 +21,7 @@ use vortex_fuzz::run_fuzz_action;
 #[test]
 fn generated_casts_update_following_oracles() {
     // U8 [7, 9], then cast to U16, cast to U32, and read row 1.
-    let seed = [1, 0, 0, 0, 2, 0, 7, 9, 2, 6, 1, 1, 0, 6, 1, 2, 0, 11, 0, 1];
+    let seed = [1, 0, 0, 2, 0, 7, 9, 2, 6, 1, 1, 0, 6, 1, 2, 0, 11, 0, 1];
     let fuzz = FuzzArrayAction::arbitrary(&mut Unstructured::new(&seed))
         .expect("infallible cast actions must be generated");
     let [
@@ -52,7 +52,7 @@ fn generated_casts_update_following_oracles() {
 #[test]
 fn nullable_cast_removal_is_rejected_by_generator() {
     // Nullable U8 [null, null], then cast to nonnullable U16.
-    let seed = [1, 0, 1, 0, 2, 0, 7, 9, 1, 0, 6, 1, 1, 0];
+    let seed = [1, 0, 1, 2, 0, 7, 9, 1, 0, 6, 1, 1, 0];
     assert!(matches!(
         FuzzArrayAction::arbitrary(&mut Unstructured::new(&seed)),
         Err(arbitrary::Error::EmptyChoose)

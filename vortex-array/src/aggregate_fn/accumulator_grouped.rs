@@ -34,7 +34,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::executor::max_iterations;
 use crate::match_each_integer_ptype;
 
 /// Reference-counted type-erased grouped accumulator.
@@ -297,7 +296,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-        for _ in 0..max_iterations() {
+        for _ in 0..ctx.max_iterations() {
             // Try a registered grouped kernel for the current element encoding.
             if let Some(kernel) = ctx
                 .aggregate_kernels()
