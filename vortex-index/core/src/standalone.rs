@@ -16,6 +16,7 @@
 //! as the trigram index never put two files' rows in one block. [`IndexFile::locate_files`] and [`IndexFile::hits_by_file`] map results
 //! back to each file's own rows, ready to pass to a scan as a row selection.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use futures::stream;
@@ -178,7 +179,13 @@ impl IndexFileInfo {
             }
             vortex_bail!("Not a Vortex index file: no {INDEX_FILE_METADATA_KEY} segment");
         };
-        let metadata = IndexFileMetadata::decode(bytes.as_slice())
+        Self::decode(bytes.as_slice(), file.session())
+    }
+
+    /// Decode the description of an index file from its metadata segment, read by the caller,
+    /// such as a plan that reads the segment through its own sources.
+    pub fn decode(bytes: &[u8], session: &VortexSession) -> VortexResult<Self> {
+        let metadata = IndexFileMetadata::decode(bytes)
             .map_err(|err| vortex_err!("Invalid index file metadata: {err}"))?;
         vortex_ensure_eq!(
             metadata.version,
@@ -190,7 +197,7 @@ impl IndexFileInfo {
                 .source_dtype
                 .as_ref()
                 .ok_or_else(|| vortex_err!("Index file metadata has no source dtype"))?,
-            file.session(),
+            session,
         )?;
         Ok(Self {
             kind: metadata.kind,
@@ -634,10 +641,25 @@ pub struct IndexFile<V: IndexVTable> {
     offsets: Vec<u64>,
 }
 
+impl<V: IndexVTable> Clone for IndexFile<V> {
+    fn clone(&self) -> Self {
+        Self {
+            info: self.info.clone(),
+            rows: Arc::clone(&self.rows),
+            offsets: self.offsets.clone(),
+        }
+    }
+}
+
 impl<V: IndexVTable> IndexFile<V> {
     /// Open an index file written by [`IndexFileBuilder`] for kind `vtable`.
     pub fn open(vtable: V, file: &VortexFile) -> VortexResult<Self> {
-        let info = IndexFileInfo::read(file)?;
+        Self::open_with_info(vtable, file, IndexFileInfo::read(file)?)
+    }
+
+    /// Open an index file whose description `info` the caller has already read, such as with
+    /// [`IndexFileInfo::decode`].
+    pub fn open_with_info(vtable: V, file: &VortexFile, info: IndexFileInfo) -> VortexResult<Self> {
         if info.kind != vtable.id().as_ref() {
             vortex_bail!(
                 "Index file holds a {} index, not {}",
@@ -753,6 +775,23 @@ impl<V: IndexKind> IndexFile<V> {
                 })
             })
             .collect()
+    }
+
+    /// The rows of `hits` in each covered file they fall in, as selections for the files' scans.
+    ///
+    /// A selection reads rows in row order, so the hits' scores and ranking are not carried over.
+    pub fn hit_selections(&self, hits: &[Hit]) -> VortexResult<Vec<FileSelection>> {
+        let mut rows: BTreeMap<usize, RoaringTreemap> = BTreeMap::new();
+        for hit in self.hits_by_file(hits)? {
+            rows.entry(hit.file).or_default().insert(hit.row);
+        }
+        Ok(rows
+            .into_iter()
+            .map(|(file, rows)| FileSelection {
+                file,
+                selection: Selection::IncludeRoaring(rows),
+            })
+            .collect())
     }
 }
 
