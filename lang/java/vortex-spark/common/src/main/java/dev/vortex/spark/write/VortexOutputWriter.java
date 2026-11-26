@@ -90,23 +90,23 @@ public final class VortexOutputWriter extends OutputWriter {
         this.options = options;
         this.writable = writable;
 
-        try {
-            int configuredBatchSize = configuredBatchSize(options);
-            if (configuredBatchSize < MIN_BATCH_SIZE || configuredBatchSize > MAX_BATCH_SIZE) {
-                logger.warn(
-                        "Batch size {} is out of valid range [{}, {}], using default: {}",
-                        configuredBatchSize,
-                        MIN_BATCH_SIZE,
-                        MAX_BATCH_SIZE,
-                        DEFAULT_BATCH_SIZE);
-                this.batchSize = DEFAULT_BATCH_SIZE;
-            } else {
-                this.batchSize = configuredBatchSize;
-                if (this.batchSize != DEFAULT_BATCH_SIZE) {
-                    logger.debug("Using configured batch size: {}", this.batchSize);
-                }
+        int configuredBatchSize = configuredBatchSize(options);
+        if (configuredBatchSize < MIN_BATCH_SIZE || configuredBatchSize > MAX_BATCH_SIZE) {
+            logger.warn(
+                    "Batch size {} is out of valid range [{}, {}], using default: {}",
+                    configuredBatchSize,
+                    MIN_BATCH_SIZE,
+                    MAX_BATCH_SIZE,
+                    DEFAULT_BATCH_SIZE);
+            this.batchSize = DEFAULT_BATCH_SIZE;
+        } else {
+            this.batchSize = configuredBatchSize;
+            if (this.batchSize != DEFAULT_BATCH_SIZE) {
+                logger.debug("Using configured batch size: {}", this.batchSize);
             }
+        }
 
+        try {
             this.allocator = new RootAllocator();
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
@@ -133,9 +133,6 @@ public final class VortexOutputWriter extends OutputWriter {
         } catch (IOException e) {
             closeAfterInitializationFailure(e);
             throw new UncheckedIOException("Failed to initialize VortexOutputWriter for " + filePath, e);
-        } catch (RuntimeException | Error e) {
-            closeAfterInitializationFailure(e);
-            throw e;
         }
     }
 
@@ -235,15 +232,9 @@ public final class VortexOutputWriter extends OutputWriter {
 
         if (vortexWriter != null) {
             try {
-                if (aborting || failure != null) {
-                    vortexWriter.abort();
-                } else {
-                    vortexWriter.finish();
-                }
+                vortexWriter.finish();
             } catch (IOException e) {
                 failure = addFailure(failure, e);
-            } catch (RuntimeException e) {
-                failure = addFailure(failure, new IOException("Failed to finalize Vortex writer", e));
             } finally {
                 vortexWriter = null;
             }
@@ -316,31 +307,14 @@ public final class VortexOutputWriter extends OutputWriter {
         return failure;
     }
 
-    private void closeAfterInitializationFailure(Throwable failure) {
-        if (vortexWriter != null) {
-            try {
-                vortexWriter.abort();
-            } catch (RuntimeException | Error e) {
-                failure.addSuppressed(e);
-            } finally {
-                vortexWriter = null;
-            }
+    private void closeAfterInitializationFailure(IOException failure) {
+        closeArrowResources(failure);
+        try {
+            writable.close();
+        } catch (IOException e) {
+            failure.addSuppressed(e);
         }
-        IOException arrowFailure = closeArrowResources(null);
-        if (arrowFailure != null) {
-            failure.addSuppressed(arrowFailure);
-        }
-        if (writable != null) {
-            try {
-                writable.close();
-            } catch (IOException | RuntimeException | Error e) {
-                failure.addSuppressed(e);
-            } finally {
-                writable = null;
-            }
-        }
-        session = null;
-        closed = true;
+        writable = null;
     }
 
     private static IOException addFailure(IOException failure, IOException additional) {

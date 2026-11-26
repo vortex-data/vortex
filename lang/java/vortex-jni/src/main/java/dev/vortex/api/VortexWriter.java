@@ -8,7 +8,6 @@ import dev.vortex.io.NativeWritable;
 import dev.vortex.jni.NativeBuffers;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
-import java.lang.ref.Cleaner;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -35,16 +34,14 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * <p>Call {@link #close()} to flush remaining batches and finalize the file. Call {@link #finish(Map)} instead to add
  * metadata segments that are known only after the last batch, for example a bloom filter of the written keys.
  *
- * <p>If the writer becomes unreachable without an explicit {@code close()} or {@code finish()}, {@link VortexCleaner}
- * aborts the writer and releases native resources without writing a footer — callers should always finalize explicitly
- * so that data is flushed and I/O errors surface through the normal call path.
+ * <p>If the writer becomes unreachable without an explicit {@code close()}, {@link VortexCleaner} will flush and
+ * release native resources as a backstop — but callers should always finalize explicitly so that I/O errors surface
+ * through the normal call path.
  */
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
     private final Schema arrowSchema;
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final Cleaner.Cleanable cleanable;
-    private boolean aborted;
     private volatile VortexWriteSummary summary;
     private double finalCompressionRatio = 1.0;
 
@@ -55,9 +52,9 @@ public final class VortexWriter implements AutoCloseable {
         this.pointer = pointer;
         this.arrowSchema = arrowSchema;
         AtomicBoolean closedRef = this.closed;
-        this.cleanable = VortexCleaner.register(this, () -> {
+        VortexCleaner.register(this, () -> {
             if (closedRef.compareAndSet(false, true)) {
-                NativeWriter.abort(pointer);
+                NativeWriter.close(pointer);
             }
         });
     }
@@ -407,9 +404,6 @@ public final class VortexWriter implements AutoCloseable {
      */
     public synchronized VortexWriteSummary finish(Map<String, byte[]> metadata) throws IOException {
         Objects.requireNonNull(metadata, "metadata");
-        if (aborted) {
-            throw new IllegalStateException("writer already aborted");
-        }
         if (closed.get()) {
             throw new IllegalStateException("writer already finished; metadata must be given to the first finish");
         }
@@ -423,17 +417,12 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     private VortexWriteSummary finishWith(Map<String, byte[]> metadata) throws IOException {
-        if (aborted) {
-            throw new IllegalStateException("writer already aborted");
-        }
         if (closed.compareAndSet(false, true)) {
             try {
                 finalCompressionRatio = NativeWriter.compressionRatio(pointer);
                 summary = NativeWriter.finish(pointer, metadata);
             } catch (RuntimeException e) {
                 throw new IOException("failed to close writer", e);
-            } finally {
-                cleanable.clean();
             }
         }
 
@@ -444,29 +433,9 @@ public final class VortexWriter implements AutoCloseable {
         return summary;
     }
 
-    /**
-     * Cancel the write and release native resources without writing a footer or flushing the sink. Idempotent.
-     *
-     * <p>The output is left incomplete and unreadable. Has no effect if the writer has already been finished or
-     * aborted.
-     */
-    public synchronized void abort() {
-        if (closed.compareAndSet(false, true)) {
-            aborted = true;
-            try {
-                NativeWriter.abort(pointer);
-            } finally {
-                cleanable.clean();
-            }
-        }
-    }
-
-    /** Flush any pending batches and finalize the file, unless already aborted. Idempotent. */
+    /** Flush any pending batches and finalize the file. Idempotent. */
     @Override
-    public synchronized void close() throws IOException {
-        if (aborted) {
-            return;
-        }
+    public void close() throws IOException {
         finish();
     }
 }

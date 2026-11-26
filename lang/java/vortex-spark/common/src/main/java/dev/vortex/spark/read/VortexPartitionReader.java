@@ -168,9 +168,6 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
     @Override
     public ColumnarBatch get() {
-        if (!batchLoaded) {
-            throw new IllegalStateException("no batch loaded; call next() first");
-        }
         try {
             return getBatch();
         } catch (RuntimeException | Error e) {
@@ -180,9 +177,10 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
     }
 
     private ColumnarBatch getBatch() {
-        if (currentBatch != null) {
-            return currentBatch;
+        if (!batchLoaded) {
+            throw new IllegalStateException("no batch loaded; call next() first");
         }
+        batchLoaded = false;
         VectorSchemaRoot root;
         try {
             root = currentReader.getVectorSchemaRoot();

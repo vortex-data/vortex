@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.vortex.api.DataSource;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
-import dev.vortex.io.NativeWritable;
 import dev.vortex.jni.NativeFiles;
 import dev.vortex.relocated.org.apache.arrow.memory.ArrowBuf;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
@@ -23,14 +22,12 @@ import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import dev.vortex.spark.io.HadoopWritable;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
@@ -163,50 +160,7 @@ final class VortexOutputWriterTest {
         writer.close();
 
         assertEquals(0, allocator.getAllocatedMemory());
-        assertThrows(RuntimeException.class, () -> DataSource.open(VortexSparkSession.get(), writer.path()));
-    }
-
-    @Test
-    void constructorFailureClosesWritableOnRuntimeAndIoErrors() {
-        StructType unsupportedSchema = new StructType().add("interval", DataTypes.CalendarIntervalType, true);
-        AtomicBoolean closedOnRuntime = new AtomicBoolean(false);
-        NativeWritable runtimeSink = trackingWritable(closedOnRuntime);
-        assertThrows(
-                UnsupportedOperationException.class,
-                () -> new VortexOutputWriter(
-                        tempDir.resolve("unsupported.vortex").toUri().toString(),
-                        unsupportedSchema,
-                        VortexOptions.empty(),
-                        runtimeSink));
-        assertTrue(closedOnRuntime.get(), "writable should be closed when constructor throws RuntimeException");
-
-        StructType validSchema = new StructType().add("id", DataTypes.LongType, false);
-        AtomicBoolean closedOnIo = new AtomicBoolean(false);
-        NativeWritable ioSink = trackingWritable(closedOnIo);
-        assertThrows(
-                UncheckedIOException.class,
-                () -> new VortexOutputWriter(
-                        tempDir.resolve("bad-meta.vortex").toUri().toString(),
-                        validSchema,
-                        VortexOptions.empty(),
-                        ioSink,
-                        Map.of("k".repeat(1024), new byte[] {1})));
-        assertTrue(closedOnIo.get(), "writable should be closed when constructor throws IOException");
-    }
-
-    private static NativeWritable trackingWritable(AtomicBoolean closed) {
-        return new NativeWritable() {
-            @Override
-            public void write(byte[] buffer, int offset, int length) {}
-
-            @Override
-            public void flush() {}
-
-            @Override
-            public void close() {
-                closed.set(true);
-            }
-        };
+        assertEquals(List.of(), readRows(writer.path()));
     }
 
     /**

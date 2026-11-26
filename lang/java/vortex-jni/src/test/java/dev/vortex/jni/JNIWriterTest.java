@@ -943,60 +943,6 @@ public final class JNIWriterTest {
     }
 
     @Test
-    public void testNullRawAddressesRejected() throws IOException {
-        Path outputPath = tempDir.resolve("test_null_addrs.vortex");
-        String writePath = outputPath.toAbsolutePath().toUri().toString();
-        Session session = Session.create();
-
-        try (RootAllocator allocator = new RootAllocator();
-                VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
-                        .build()) {
-            assertThrows(IOException.class, () -> writer.writeBatch(0L, 0L));
-            assertThrows(IllegalArgumentException.class, () -> writer.writeBatch(0L));
-            try (VectorSchemaRoot root = VectorSchemaRoot.create(personSchema(), allocator);
-                    ArrowArray array = ArrowArray.allocateNew(allocator)) {
-                root.setRowCount(0);
-                Data.exportVectorSchemaRoot(allocator, root, null, array);
-                assertThrows(IOException.class, () -> writer.writeBatch(array.memoryAddress(), 0L));
-                assertEquals(0L, array.snapshot().release);
-            }
-            try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
-                Data.exportSchema(allocator, personSchema(), null, schema);
-                assertThrows(IOException.class, () -> writer.writeBatch(0L, schema.memoryAddress()));
-                assertEquals(0L, schema.snapshot().release);
-            }
-        }
-
-        assertThrows(RuntimeException.class, () -> NativePartition.rowCount(0L, new long[2]));
-        assertThrows(RuntimeException.class, () -> NativePartition.scanArrow(0L, 0L, 0L));
-        assertThrows(RuntimeException.class, () -> NativeSession.enableEdition(0L, "core2025.10.0"));
-    }
-
-    @Test
-    public void testAbortLeavesNoValidFooterAndReleasesBuffers() throws IOException {
-        Path outputPath = tempDir.resolve("test_abort.vortex");
-        String writePath = outputPath.toAbsolutePath().toUri().toString();
-        Session session = Session.create();
-
-        try (RootAllocator allocator = new RootAllocator()) {
-            try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
-                    .build()) {
-                writePeopleBatch(writer, allocator);
-                writer.abort();
-                writer.abort();
-                assertThrows(IllegalStateException.class, writer::finish);
-                IllegalStateException finishWithMeta =
-                        assertThrows(IllegalStateException.class, () -> writer.finish(Map.of("k", new byte[] {1})));
-                assertTrue(finishWithMeta.getMessage().contains("aborted"));
-                assertThrows(IllegalStateException.class, () -> writer.writeBatch(0L, 0L));
-            }
-            assertEquals(0L, allocator.getAllocatedMemory());
-        }
-
-        assertThrows(RuntimeException.class, () -> DataSource.open(session, writePath));
-    }
-
-    @Test
     @Disabled
     public void testParquetVariantRoundTrip() throws IOException {
         Path outputPath = tempDir.resolve("test_parquet_variant.vortex");

@@ -181,22 +181,6 @@ final class VortexPartitionReaderLifecycleTest {
         reader.close();
     }
 
-    @Test
-    void getIsIdempotentUntilNextAdvances() throws Exception {
-        try (VortexPartitionReader reader = open()) {
-            assertThrows(IllegalStateException.class, reader::get);
-            assertTrue(reader.next());
-            ColumnarBatch first = reader.get();
-            ColumnarBatch second = reader.get();
-            assertSame(first, second);
-            assertEquals(3, second.numRows());
-            assertEquals(10, second.column(0).getInt(0));
-            assertEquals(12, second.column(0).getInt(2));
-            assertFalse(reader.next());
-            assertThrows(IllegalStateException.class, reader::get);
-        }
-    }
-
     private VortexPartitionReader open() throws IOException {
         long length = Files.size(file);
         PartitionedFile split = new PartitionedFile(

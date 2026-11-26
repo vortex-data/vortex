@@ -81,9 +81,6 @@ public final class NativeWriter {
     /** Flush and close the writer. Must be called exactly once. */
     public static native void close(long writerPointer);
 
-    /** Abort the writer without writing a footer or flushing the sink. Must be called at most once. */
-    public static native void abort(long writerPointer);
-
     /**
      * Flush and close the writer, returning its completed-file summary. Must be called exactly once.
      *

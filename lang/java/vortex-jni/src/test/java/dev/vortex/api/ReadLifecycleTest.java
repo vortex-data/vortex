@@ -10,7 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.io.NativeReadable;
+import dev.vortex.jni.NativePartition;
 import dev.vortex.jni.NativeRuntime;
+import dev.vortex.jni.NativeSession;
 import java.io.IOException;
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
@@ -223,6 +225,13 @@ final class ReadLifecycleTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void nullNativePointersRejected() {
+        assertThrows(RuntimeException.class, () -> NativePartition.rowCount(0L, new long[2]));
+        assertThrows(RuntimeException.class, () -> NativePartition.scanArrow(0L, 0L, 0L));
+        assertThrows(RuntimeException.class, () -> NativeSession.enableEdition(0L, "core2025.10.0"));
     }
 
     @Test

@@ -66,7 +66,6 @@ pub unsafe fn vx_array_sink_open_file_with_strategy(
     dtype: *const vx_dtype,
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<*mut vx_array_sink> {
-    vortex_ensure!(!session.is_null(), "null session");
     let session = vx_session::as_ref(session).clone();
 
     if path.ptr.is_null() {
@@ -74,7 +73,6 @@ pub unsafe fn vx_array_sink_open_file_with_strategy(
     }
     let path = unsafe { path.as_str() }?.to_string();
 
-    vortex_ensure!(!dtype.is_null(), "null dtype");
     let file_dtype = vx_dtype::as_ref(dtype);
     // The channel size 32 was chosen arbitrarily.
     let (sink, rx) = mpsc::channel(32);
@@ -109,7 +107,6 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or_default(error_out, || {
-        vortex_ensure!(!session.is_null(), "null session");
         let strategy = WriteStrategyBuilder::from_session(vx_session::as_ref(session)).build();
         unsafe { vx_array_sink_open_file_with_strategy(session, path, dtype, strategy) }
     })
@@ -147,7 +144,6 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     error_out: *mut *mut vx_error,
 ) {
     try_or_default(error_out, || {
-        vortex_ensure!(!sink.is_null(), "null sink");
         let vx_array_sink {
             sink,
             writer,
@@ -197,9 +193,7 @@ mod tests {
     use crate::data_source::vx_data_source_options;
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
-    use crate::error::vx_error_code;
     use crate::error::vx_error_free;
-    use crate::error::vx_error_get_code;
     use crate::session::vx_session_enable_edition;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
@@ -433,42 +427,6 @@ mod tests {
 
             vx_error_free(error);
             vx_dtype_free(vx_dtype_ptr);
-            vx_session_free(session);
-        }
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn test_sink_null_pointers() {
-        // SAFETY: `session` and `dtype` stay live until freed below, and the sink entry points
-        // accept null pointers and report them through `error_out`.
-        unsafe {
-            let session = vx_session_new();
-            let temp_file = NamedTempFile::new().unwrap();
-            let path = vx_view::from_str(temp_file.path().to_str().unwrap());
-            let dtype = vx_dtype::new(DType::Primitive(vortex::dtype::PType::I32, false.into()));
-
-            let mut error = std::ptr::null_mut();
-            let sink = vx_array_sink_open_file(std::ptr::null(), path, dtype, &raw mut error);
-            assert!(sink.is_null());
-            assert!(!error.is_null());
-            assert_eq!(vx_error_get_code(error), vx_error_code::VX_ERROR_CODE_OTHER);
-            vx_error_free(error);
-
-            error = std::ptr::null_mut();
-            let sink = vx_array_sink_open_file(session, path, std::ptr::null(), &raw mut error);
-            assert!(sink.is_null());
-            assert!(!error.is_null());
-            assert_eq!(vx_error_get_code(error), vx_error_code::VX_ERROR_CODE_OTHER);
-            vx_error_free(error);
-
-            error = std::ptr::null_mut();
-            vx_array_sink_close(std::ptr::null_mut(), &raw mut error);
-            assert!(!error.is_null());
-            assert_eq!(vx_error_get_code(error), vx_error_code::VX_ERROR_CODE_OTHER);
-            vx_error_free(error);
-
-            vx_dtype_free(dtype);
             vx_session_free(session);
         }
     }
