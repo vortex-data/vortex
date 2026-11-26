@@ -324,19 +324,13 @@ impl LayoutReader for DictReader {
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY:
-            //  * The codes dtype is guaranteed to be an integer type from the layout
-            //  * The codes child reader ensures the correct dtype.
-            //  * The codes come from the file and are not checked here. Each operation that
-            //    uses a code as an index into the values does its own bounds check.
-            //  * The layout stores `all_values_referenced` and if this is malicious then it must
-            //    only affect correctness not memory safety.
-            let array = unsafe {
-                DictArray::new_unchecked(codes, values)
-                    .set_all_values_referenced(all_values_referenced)
+            let mut dict = DictArray::try_new(codes, values)?;
+            if all_values_referenced {
+                // SAFETY: The layout metadata asserts all values are referenced. Per `DictData`,
+                // an inaccurate flag only affects semantics, never memory safety.
+                dict = unsafe { dict.set_all_values_referenced(true) };
             }
-            .into_array()
-            .optimize_ctx(&session)?;
+            let array = dict.into_array().optimize_ctx(&session)?;
 
             array.apply_bound(&expr_outer)
         }
@@ -371,6 +365,7 @@ mod tests {
     use vortex_array::dtype::StructFields;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::ArrayExprExt;
     use vortex_expr::BoundExpression;
@@ -394,6 +389,7 @@ mod tests {
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::layouts::dict::DictLayout;
     use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
     use crate::layouts::dict::reader::split_expression_for_pushdown;
     use crate::layouts::dict::writer::DictLayoutOptions;
@@ -837,5 +833,43 @@ mod tests {
         let (outer, inner) = split_bound(expr.clone(), &dtype).unwrap();
         assert_eq!(outer, expr.bind(&dtype).unwrap());
         assert_eq!(inner, None);
+    }
+
+    async fn write_flat_layout(
+        array: ArrayRef,
+        segments: &Arc<TestSegments>,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutRef> {
+        let (ptr, eof) = SequenceId::root().split();
+        FlatLayoutStrategy::default()
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(segments),
+                array.to_array_stream().sequenced(ptr),
+                eof,
+                session,
+            )
+            .await
+    }
+
+    #[test]
+    fn projection_rejects_non_integer_codes_layout() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let values =
+                write_flat_layout(buffer![10i32, 20].into_array(), &segments, &session).await?;
+            let float_codes =
+                write_flat_layout(buffer![0.0f32, 1.0].into_array(), &segments, &session).await?;
+            let layout = DictLayout::new(values, float_codes).into_layout();
+            let reader =
+                layout.new_reader("dict".into(), segments, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
+                .await;
+            assert!(result.is_err());
+            Ok(())
+        })
     }
 }
