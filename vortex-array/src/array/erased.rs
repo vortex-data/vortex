@@ -42,6 +42,8 @@ use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
+use crate::block::BlockOp;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -677,6 +679,24 @@ impl ArrayRef {
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
         self.0.data.reduce(self)
+    }
+
+    /// See [`VTable::block_source`](crate::vtable::VTable::block_source).
+    pub(crate) fn block_source(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        self.0.data.block_source(self, ctx)
+    }
+
+    /// See [`VTable::block_op`](crate::vtable::VTable::block_op).
+    pub(crate) fn block_op(
+        &self,
+        slot_idx: usize,
+        child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        self.0.data.block_op(self, slot_idx, child_dtype, ctx)
     }
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

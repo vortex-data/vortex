@@ -330,24 +330,24 @@ impl From<TraceResolution> for TraceInterest {
     }
 }
 
-/// Snapshot-friendly wrapper around [`ArrayRef`] that renders the encoding, dtype, and length
-/// using the canonical [`Display`] format (`vortex.primitive(i32, len=4)`).
+/// Snapshot-friendly summary of an [`ArrayRef`]: the encoding, dtype, and length in the
+/// canonical [`Display`] format (`vortex.primitive(i32, len=4)`).
 ///
-/// Carries a clone of the [`ArrayRef`] instead of duplicating fields,
-/// so trace events stay small and share the same rendering as every other `{array}` print in
-/// the codebase.
+/// Renders the array when the event is recorded rather than holding a clone of it, so tracing
+/// does not keep arrays alive and change what it observes: an array the executor would own
+/// uniquely, and could take apart or decode in place, stays uniquely owned while traced.
 #[derive(Clone, Debug)]
-pub(crate) struct ArraySummary(ArrayRef);
+pub(crate) struct ArraySummary(String);
 
 impl ArraySummary {
     pub(crate) fn new(array: &ArrayRef) -> Self {
-        Self(array.clone())
+        Self(array.to_string())
     }
 }
 
 impl Display for ArraySummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.0, f)
+        f.write_str(&self.0)
     }
 }
 
@@ -665,6 +665,19 @@ pub(crate) fn record_execute_slot(
     });
 }
 
+pub(crate) fn record_fuse_start(array: &ArrayRef) {
+    record(TraceEvent::FuseStart {
+        array: ArraySummary::new(array),
+    });
+}
+
+pub(crate) fn record_fuse_extend(parent: &ArrayRef, ops: usize) {
+    record(TraceEvent::FuseExtend {
+        parent: ArraySummary::new(parent),
+        ops,
+    });
+}
+
 /// Record that a block program ran `ops` ops over `len` rows.
 pub(crate) fn record_block_drive(ops: usize, len: usize) {
     record(TraceEvent::BlockDrive { ops, len });
@@ -940,6 +953,13 @@ enum TraceEvent {
         subject: &'static str,
         array: ArraySummary,
     },
+    FuseStart {
+        array: ArraySummary,
+    },
+    FuseExtend {
+        parent: ArraySummary,
+        ops: usize,
+    },
     BlockDrive {
         ops: usize,
         len: usize,
@@ -1031,6 +1051,8 @@ impl TraceEvent {
             | TraceEvent::ExecuteEncoding { .. }
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
+            | TraceEvent::FuseStart { .. }
+            | TraceEvent::FuseExtend { .. }
             | TraceEvent::BlockDrive { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
             TraceEvent::BlockOp { .. } => 3,
@@ -1189,6 +1211,10 @@ impl TraceEvent {
             } => write!(f, "{step} slot={slot_idx} parent={parent} child={child}"),
             TraceEvent::ExecuteDone { array } => {
                 write!(f, "Done array={array}")
+            }
+            TraceEvent::FuseStart { array } => write!(f, "fuse start array={array}"),
+            TraceEvent::FuseExtend { parent, ops } => {
+                write!(f, "fuse extend parent={parent} ops={ops}")
             }
             TraceEvent::BuilderEvent {
                 action,

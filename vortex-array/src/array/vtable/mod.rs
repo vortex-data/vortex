@@ -37,6 +37,8 @@ use crate::IntoArray;
 pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
+use crate::block::BlockOp;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -170,6 +172,41 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// known.
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
+        Ok(None)
+    }
+
+    /// Emit this array's values block by block, for the executor to fuse with the parents that
+    /// wait for it: an array that does is a leaf. See [`crate::block`].
+    ///
+    /// Returns `None` when the array cannot emit blocks without executing a child first, so the
+    /// executor executes it as usual, until it is canonical, and a canonical primitive array is a
+    /// leaf. Only called on arrays of a primitive dtype, whose blocks
+    /// hold values of that type.
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        _ = (array, ctx);
+        Ok(None)
+    }
+
+    /// Transform blocks of the child in `slot_idx` into blocks of this array's values, for the
+    /// executor to fuse with that child. See [`crate::block`].
+    ///
+    /// The executor calls this for the slot `execute` requested with
+    /// [`ExecutionStep::ExecuteSpine`](crate::ExecutionStep::ExecuteSpine), on an array whose
+    /// slot it took out to execute, so the implementation must not read that slot. The op must
+    /// produce exactly the values `execute` produces once that slot is canonical, and the array's
+    /// validity must be the slot's. `child_dtype` is
+    /// the dtype of the child in `slot_idx`. Only called on arrays of a primitive dtype whose child
+    /// in `slot_idx` has a primitive dtype too.
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        _ = (array, slot_idx, child_dtype, ctx);
         Ok(None)
     }
 }

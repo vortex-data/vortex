@@ -334,7 +334,9 @@ where
     Ok(())
 }
 
-fn validate_packed<T: PhysicalPType>(
+/// The number of chunks `packed` holds for `len` values from `offset`, and the length of its last
+/// chunk, or 0 if that is full. Errors if `packed` does not hold exactly those chunks.
+pub(crate) fn validate_packed<T: PhysicalPType>(
     packed_len: usize,
     bit_width: usize,
     offset: usize,

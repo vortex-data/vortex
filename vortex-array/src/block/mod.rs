@@ -39,10 +39,15 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 
 mod cast;
+mod chain;
+#[cfg(test)]
+mod executor_tests;
 mod program;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use chain::FusedChain;
+pub(crate) use chain::fusable_ptype;
 pub use program::BlockProgram;
 
 /// The most rows a block holds.
