@@ -81,6 +81,7 @@ impl VTable for BitPacked {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    // `fastlanes.bitpacked.v2` was retired after experimental use; do not reuse that wire ID.
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("fastlanes.bitpacked");
         *ID
