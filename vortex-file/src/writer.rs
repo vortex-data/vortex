@@ -64,12 +64,16 @@ use vortex_session::registry::Id;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::WriteSizeEstimator;
 use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
+use crate::encryption::EncryptionSpec;
+use crate::encryption::FileEncryption;
+use crate::encryption::SegmentCipher;
 use crate::footer::FileStatistics;
 use crate::footer::MAX_METADATA_KEY_BYTES;
 use crate::footer::MAX_METADATA_SEGMENTS;
@@ -98,6 +102,7 @@ pub struct VortexWriteOptions {
     write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
     deferred_metadata: DeferredMetadata,
+    encryption: Option<FileEncryption>,
 }
 
 /// Extension trait for constructing [`VortexWriteOptions`] from a session.
@@ -123,6 +128,7 @@ impl VortexWriteOptions {
             write_legacy_statistics: true,
             metadata: HashMap::default(),
             deferred_metadata: DeferredMetadata::default(),
+            encryption: None,
         }
     }
 
@@ -178,6 +184,17 @@ impl VortexWriteOptions {
     //  read-time is sane? I guess most layouts will have some reasonable validation.
     pub fn exclude_dtype(mut self) -> Self {
         self.exclude_dtype = true;
+        self
+    }
+
+    /// Encrypt the file as configured by `encryption`.
+    ///
+    /// Every segment, including the footer, is encrypted with the footer key, and only
+    /// the postscript, which records segment locations and key metadata, is stored in plaintext.
+    /// Readers must be opened with a matching
+    /// [`FileDecryption`](crate::encryption::FileDecryption).
+    pub fn with_encryption(mut self, encryption: FileEncryption) -> Self {
+        self.encryption = Some(encryption);
         self
     }
 
@@ -422,14 +439,25 @@ impl VortexWriteOptions {
         write.write_all(ByteBuffer::copy_from(MAGIC_BYTES)).await?;
         let mut position = MAGIC_BYTES.len() as u64;
 
-        // Create a channel to send buffers from the segment sink to the output stream.
-        let (send, recv_stream) = bounded(1);
+        // Create a channel to send buffers from the segment sink to the output stream. Encrypted
+        // segments are sent before they are encrypted, so the channel's capacity bounds how many
+        // are encrypted in parallel.
+        let capacity = if self.encryption.is_some() {
+            get_available_parallelism().unwrap_or(1)
+        } else {
+            1
+        };
+        let (send, recv_stream) = bounded(capacity);
 
-        let segments = Arc::new(BufferedSegmentSink::new(
-            send,
-            position,
-            self.size.buffered_bytes_tracker().clone(),
-        ));
+        let EncryptingSink {
+            segments,
+            cipher,
+            encryption_specs,
+        } = encrypting_sink(
+            BufferedSegmentSink::new(send, position, self.size.buffered_bytes_tracker().clone()),
+            self.encryption.as_ref(),
+        )?;
+        let segments = Arc::new(segments);
 
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
@@ -451,7 +479,7 @@ impl VortexWriteOptions {
         // Flush buffers as they arrive
         pin_mut!(recv_stream);
         while let Some(segment_buffer) = recv_stream.next().await {
-            let (buffer, reservation) = segment_buffer.into_parts();
+            let (buffer, reservation) = segment_buffer.resolve().await?;
             if !buffer.is_empty() {
                 position += buffer.len() as u64;
                 write.write_all(buffer).await?;
@@ -489,11 +517,16 @@ impl VortexWriteOptions {
             statistics,
             ReadContext::new(ctx.array_ctx().to_ids()),
         );
+        if cipher.is_some() {
+            footer = footer.with_encryption_specs(encryption_specs.into())?;
+        }
 
         // Emit the footer buffers and EOF.
-        let (footer_buffers, metadata, approx_byte_size) = footer
-            .clone()
-            .into_serializer(&self.session)
+        let mut serializer = footer.clone().into_serializer(&self.session);
+        if let Some(cipher) = cipher {
+            serializer = serializer.with_cipher(cipher);
+        }
+        let (footer_buffers, metadata, approx_byte_size) = serializer
             .with_layout_context(new_layout_context(&self.session, enforce_editions))
             .with_metadata_segments(metadata)
             .with_offset(position)
@@ -547,6 +580,38 @@ impl VortexWriteOptions {
             deferred_metadata,
         }
     }
+}
+
+/// A segment sink configured for encryption, with the ciphers the footer needs.
+struct EncryptingSink {
+    segments: BufferedSegmentSink,
+    /// The footer key's cipher, if the file is encrypted.
+    cipher: Option<SegmentCipher>,
+    /// The footer's encryption specs.
+    encryption_specs: Vec<EncryptionSpec>,
+}
+
+/// Configure `segments` to encrypt segments as `encryption` requires.
+fn encrypting_sink(
+    segments: BufferedSegmentSink,
+    encryption: Option<&FileEncryption>,
+) -> VortexResult<EncryptingSink> {
+    let Some(encryption) = encryption else {
+        return Ok(EncryptingSink {
+            segments,
+            cipher: None,
+            encryption_specs: Vec::new(),
+        });
+    };
+    let cipher = encryption.file_cipher(encryption.footer_key())?;
+    // Index 0 of the footer's encryption specs is reserved for plaintext segments, and index 1
+    // holds the footer key.
+    let encryption_specs = vec![EncryptionSpec::plaintext(), cipher.spec().clone()];
+    Ok(EncryptingSink {
+        segments: segments.with_cipher(cipher.clone(), 1),
+        cipher: Some(cipher),
+        encryption_specs,
+    })
 }
 
 fn new_array_context(session: &VortexSession, enforce_editions: bool) -> ArrayContext {
