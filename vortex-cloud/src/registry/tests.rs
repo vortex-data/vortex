@@ -473,3 +473,60 @@ fn test_double_slash_in_mount_prefix_rejected() -> Result<(), Box<dyn std::error
     );
     Ok(())
 }
+
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+#[test]
+fn test_lookup_env_case_insensitive() {
+    let vars = || {
+        vec![
+            (
+                std::ffi::OsString::from("HF_TOKEN"),
+                std::ffi::OsString::from("upper"),
+            ),
+            (
+                std::ffi::OsString::from("OTHER"),
+                std::ffi::OsString::from("ignored"),
+            ),
+        ]
+    };
+
+    // Exact match wins without calling the fallback scanner.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Ok("exact".to_string()), || {
+            panic!("exact match must not scan the environment");
+            #[allow(unreachable_code)]
+            vars()
+        })
+        .as_deref(),
+        Some("exact")
+    );
+
+    // Missing exact key falls back to case-insensitive scan.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Err(std::env::VarError::NotPresent), vars)
+            .as_deref(),
+        Some("upper")
+    );
+
+    // Non-Unicode exact match returns None without scanning.
+    assert_eq!(
+        super::lookup_env_case_insensitive(
+            "hf_token",
+            Err(std::env::VarError::NotUnicode(std::ffi::OsString::from(
+                "bad"
+            ))),
+            || {
+                panic!("NotUnicode must not scan the environment");
+                #[allow(unreachable_code)]
+                vars()
+            },
+        ),
+        None
+    );
+
+    // Absent key returns None.
+    assert_eq!(
+        super::lookup_env_case_insensitive("missing", Err(std::env::VarError::NotPresent), vars),
+        None
+    );
+}
