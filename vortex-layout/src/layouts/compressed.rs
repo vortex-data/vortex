@@ -122,11 +122,13 @@ impl LayoutStrategy for CompressingStrategy {
                 let session = compute_session.clone();
                 let backpressure = backpressure.clone();
 
-                // Count the input as uncompressed until its compressed output is counted.
+                // Count the input as uncompressed until its compressed output is counted. Only
+                // the compression is work in progress: the child can take the output late, when
+                // it waits for the order of the segments.
                 let input_reservation = chunk
                     .as_ref()
                     .ok()
-                    .map(|(_, chunk)| backpressure.reserve_pending(chunk.nbytes()));
+                    .map(|(_, chunk)| backpressure.reserve_pending(chunk.nbytes()).in_progress());
 
                 handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
@@ -234,6 +236,7 @@ mod tests {
         assert!(backpressure.compression_ratio() < 64.0 / input_bytes);
         assert_eq!(backpressure.pending_bytes(), 0);
         assert_eq!(backpressure.buffered_bytes(), 0);
+        assert_eq!(backpressure.in_progress_bytes(), 0);
         Ok(())
     }
 

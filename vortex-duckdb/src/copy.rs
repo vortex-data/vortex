@@ -496,13 +496,12 @@ mod tests {
             let array = StructArray::from_fields(&[("i", buffer![1u32, 2, 3].into_array())])
                 .unwrap()
                 .into_array();
-            let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()
                 .with_file_statistics(file_statistics)
-                .writer(&mut buf, array.dtype().clone());
+                .writer(ByteBufferMut::empty(), array.dtype().clone());
             writer.push(array).await.unwrap();
-            writer.finish().await.unwrap()
+            writer.finish().await.unwrap().0
         })
     }
 
@@ -544,14 +543,13 @@ mod tests {
                 StructArray::new(["s", "c\"q"].into(), [inner, c], 3, Validity::NonNullable)
                     .into_array();
 
-            let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()
                 .include_nested_statistics()
                 .with_file_statistics(pruning_aggregate_fns())
-                .writer(&mut buf, outer.dtype().clone());
+                .writer(ByteBufferMut::empty(), outer.dtype().clone());
             writer.push(outer).await?;
-            writer.finish().await
+            writer.finish().await.map(|(summary, _)| summary)
         })?;
 
         let file_stats = summary

@@ -17,6 +17,7 @@ use object_store::UploadPart;
 use object_store::path::Path;
 use vortex_error::VortexResult;
 
+use crate::Backpressure;
 use crate::IoBuf;
 use crate::VortexWrite;
 #[cfg(not(target_arch = "wasm32"))]
@@ -25,6 +26,8 @@ use crate::compat::Compat;
 /// Adapter type to write data through an [`ObjectStore`] instance.
 ///
 /// Call [`VortexWrite::shutdown`] to publish the object or [`Self::abort`] to discard it.
+/// On native targets, each submitted part uploads in a task while the caller keeps writing, and
+/// counts as work in progress on the [`Backpressure`] of [`Self::with_backpressure`].
 /// Upload errors preserve the original error and attempt cleanup. Dropping an uncompleted writer
 /// or cancelling a write, flush, or shutdown schedules background cleanup and rejects further writes.
 /// A cancelled shutdown does not report whether the object was published.
@@ -36,6 +39,7 @@ use crate::compat::Compat;
 pub struct ObjectStoreWrite {
     state: UploadState,
     concurrency: usize,
+    backpressure: Backpressure,
 }
 
 struct ActiveUpload {
@@ -65,7 +69,19 @@ impl ObjectStoreWrite {
                 parts: FuturesUnordered::new(),
             }),
             concurrency: 0,
+            backpressure: Backpressure::new(),
         })
+    }
+
+    /// Count the parts that upload as work in progress on `backpressure`.
+    ///
+    /// Give the [`Backpressure`] of the write that fills this writer. That write then takes no
+    /// more input while the parts in upload are at its limit. This writer never waits for the
+    /// limit itself, because the write that it would wait for can hold data for this writer. Use
+    /// [`Self::with_concurrency`] for a bound that this writer enforces.
+    pub fn with_backpressure(mut self, backpressure: Backpressure) -> Self {
+        self.backpressure = backpressure;
+        self
     }
 
     /// Set the maximum number of in-flight parts. Defaults to zero, meaning unlimited.
@@ -150,17 +166,18 @@ impl ObjectStoreWrite {
 
     async fn upload_buffer(&mut self) -> io::Result<()> {
         let concurrency = self.concurrency;
+        let backpressure = self.backpressure.clone();
         let active = self.ensure_active()?;
         while concurrency != 0 && active.parts.len() >= concurrency {
             active.parts.next().await.transpose()?;
         }
         // Independent, fixed-size allocations keep a submitted part from retaining a larger buffer.
         let payload = std::mem::replace(&mut active.buffer, BytesMut::with_capacity(CHUNK_SIZE));
-        active.parts.push(
-            active
-                .upload
-                .put_part(PutPayload::from_bytes(payload.freeze())),
-        );
+        let bytes = payload.len() as u64;
+        let part = active
+            .upload
+            .put_part(PutPayload::from_bytes(payload.freeze()));
+        active.parts.push(spawn_part(part, &backpressure, bytes));
         Ok(())
     }
 
@@ -169,6 +186,43 @@ impl ObjectStoreWrite {
         drop(self.abort().await);
         error
     }
+}
+
+/// Runs `part` in a task, so that it completes while nothing polls the writer.
+///
+/// The part counts as work in progress on `backpressure` until its task completes.
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_part(part: UploadPart, backpressure: &Backpressure, bytes: u64) -> UploadPart {
+    let reservation = backpressure.reserve_written(bytes);
+    // Release the bytes in the task. The writer polls the returned future only in `flush`.
+    let part = async move {
+        let result = part.await;
+        drop(reservation);
+        result
+    };
+
+    // A current-thread runtime only runs tasks while its caller yields, so it could starve parts.
+    if let Ok(handle) = tokio::runtime::Handle::try_current()
+        && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+    {
+        let task = handle.spawn(part);
+        return Box::pin(async move {
+            task.await.unwrap_or_else(|error| {
+                Err(object_store::Error::Generic {
+                    store: "ObjectStoreWrite",
+                    source: Box::new(error),
+                })
+            })
+        });
+    }
+
+    Box::pin(smol::spawn(Compat::new(part)))
+}
+
+/// Without a task, the part waits for the writer to poll it, so it is not work in progress.
+#[cfg(target_arch = "wasm32")]
+fn spawn_part(part: UploadPart, _backpressure: &Backpressure, _bytes: u64) -> UploadPart {
+    part
 }
 
 fn spawn_detached_cleanup(fut: impl Future<Output = ()> + Send + 'static) {

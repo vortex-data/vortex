@@ -32,7 +32,7 @@ pub struct LayoutWriterContext {
 }
 
 impl LayoutWriterContext {
-    /// Creates a context for a layout write with a fresh [`Backpressure`].
+    /// Creates a context for a layout write with a fresh [`Backpressure`] that has no limit.
     pub fn new(array_ctx: ArrayContext) -> Self {
         Self {
             array_ctx,
@@ -102,8 +102,8 @@ impl LayoutWriterContext {
         &self.array_ctx
     }
 
-    /// Replaces the byte accounting of this write, so callers can observe the counts from outside
-    /// the strategy tree.
+    /// Replaces the byte accounting of this write, so callers can observe the counts and set the
+    /// limit from outside the strategy tree.
     pub fn with_backpressure(mut self, backpressure: Backpressure) -> Self {
         self.backpressure = backpressure;
         self

@@ -1,26 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
 use std::sync::Arc;
 
-use futures::SinkExt;
-use futures::TryStreamExt;
-use futures::channel::mpsc;
-use futures::channel::mpsc::Sender;
-use vortex::array::ArrayRef;
-use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
+#[cfg(test)]
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
-use vortex::file::WriteSummary;
+use vortex::file::Writer;
+use vortex::io::IoBuf;
+use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::Task;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 
 use crate::RUNTIME;
@@ -45,9 +41,41 @@ use crate::string::vx_view;
 /// perform operations on it at a time, and coordination is required to ensure `close` is
 /// called exactly once after all `push` operations are complete.
 pub struct vx_array_sink {
-    sink: Sender<VortexResult<ArrayRef>>,
-    writer: Task<VortexResult<WriteSummary>>,
+    writer: Writer<LazyFile>,
     dtype: DType,
+}
+
+/// A file that the write task creates on its first write, so that a creation error fails the
+/// write and not the open call.
+struct LazyFile {
+    path: String,
+    file: Option<async_fs::File>,
+}
+
+impl LazyFile {
+    async fn file(&mut self) -> io::Result<&mut async_fs::File> {
+        if self.file.is_none() {
+            self.file = Some(async_fs::File::create(&self.path).await?);
+        }
+
+        self.file
+            .as_mut()
+            .ok_or_else(|| io::Error::other("the file was not created"))
+    }
+}
+
+impl VortexWrite for LazyFile {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        self.file().await?.write_all(buffer).await
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        self.file().await?.flush().await
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        self.file().await?.shutdown().await
+    }
 }
 
 /// Open a file sink with an explicit layout strategy.
@@ -73,27 +101,15 @@ pub unsafe fn vx_array_sink_open_file_with_strategy(
     }
     let path = unsafe { path.as_str() }?.to_string();
 
-    let file_dtype = vx_dtype::as_ref(dtype);
-    // The channel size 32 was chosen arbitrarily.
-    let (sink, rx) = mpsc::channel(32);
-    let dtype = file_dtype.clone();
-    let array_stream = ArrayStreamAdapter::new(dtype.clone(), rx.into_stream());
+    let dtype = vx_dtype::as_ref(dtype).clone();
+    let file = LazyFile { path, file: None };
 
-    let writer_session = session.clone();
-    let writer = session.handle().spawn(async move {
-        let mut file = async_fs::File::create(path).await?;
-        writer_session
-            .write_options()
-            .with_strategy(strategy)
-            .write(&mut file, array_stream)
-            .await
-    });
+    let writer = session
+        .write_options()
+        .with_strategy(strategy)
+        .writer(file, dtype.clone());
 
-    Ok(Box::into_raw(Box::new(vx_array_sink {
-        sink,
-        writer,
-        dtype,
-    })))
+    Ok(Box::into_raw(Box::new(vx_array_sink { writer, dtype })))
 }
 
 /// Opens a writable array stream, where sink is used to push values into the stream.
@@ -130,9 +146,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
         let sink = unsafe { &mut *sink };
 
         vortex_ensure_eq!(*array.dtype(), sink.dtype);
-        RUNTIME
-            .block_on(sink.sink.send(Ok(array.clone())))
-            .map_err(|e| vortex_err!("Send error: {e}"))
+        RUNTIME.block_on(sink.writer.push(array.clone()))
     })
 }
 
@@ -144,17 +158,8 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     error_out: *mut *mut vx_error,
 ) {
     try_or_default(error_out, || {
-        let vx_array_sink {
-            sink,
-            writer,
-            dtype: _,
-        } = *unsafe { Box::from_raw(sink) };
-        drop(sink);
-
-        RUNTIME.block_on(async {
-            let _footer = writer.await?;
-            VortexResult::Ok(())
-        })?;
+        let vx_array_sink { writer, dtype: _ } = *unsafe { Box::from_raw(sink) };
+        RUNTIME.block_on(writer.finish())?;
 
         Ok(())
     })

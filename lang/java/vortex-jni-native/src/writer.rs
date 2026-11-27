@@ -6,6 +6,7 @@
 //! Writes go through an in-flight queue of at most [`WRITE_CHANNEL_CAPACITY`] pending
 //! batches on the same thread that drives the current-thread runtime.
 
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,14 +19,6 @@ use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_fs::File;
-use futures::SinkExt;
-use futures::Stream;
-use futures::StreamExt;
-use futures::channel::mpsc;
-use futures::channel::oneshot;
-use futures::future::Either;
-use futures::future::select;
-use futures::pin_mut;
 use jni::Env;
 use jni::EnvUnowned;
 use jni::objects::JClass;
@@ -40,8 +33,7 @@ use jni::sys::jlong;
 use jni::sys::jobject;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
-use vortex::array::ArrayRef;
-use vortex::array::stream::ArrayStreamAdapter;
+use parking_lot::Mutex;
 use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
@@ -49,19 +41,18 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::file::DeferredMetadata;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
+use vortex::file::Writer;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::Backpressure;
-use vortex::io::BackpressureReservation;
+use vortex::io::IoBuf;
 use vortex::io::VortexWrite;
 use vortex::io::compat::Compat;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -80,10 +71,6 @@ use crate::session::session_ref;
 use crate::statistics::checked_jlong;
 use crate::statistics::column_statistics_to_java;
 use crate::statistics::footer_column_statistics;
-
-/// Capacity of the in-flight write queue. Small on purpose so that back-pressure from
-/// the writer is felt on the Java thread producing batches.
-const WRITE_CHANNEL_CAPACITY: usize = 4;
 
 enum ResolvedStore {
     ObjectStore(Arc<dyn ObjectStore>, ObjectStorePath),
@@ -106,25 +93,37 @@ fn resolve_store(
     }
 }
 
-/// A batch in the in-flight write queue, with the reservation that counts it as uncompressed.
-type QueuedBatch = (VortexResult<ArrayRef>, BackpressureReservation);
+/// The sinks that a [`NativeWriter`] writes to.
+enum NativeSink {
+    File(File),
+    ObjectStore(ObjectStoreWrite),
+    Java(JavaWrite),
+}
 
-/// Creates the in-flight write queue and the array stream that the write task reads from it.
-///
-/// The write task drops the reservation of a batch when it takes the batch from the queue. From
-/// then on, the layout strategies count the batch.
-fn write_queue(
-    write_schema: DType,
-) -> (
-    mpsc::Sender<QueuedBatch>,
-    ArrayStreamAdapter<impl Stream<Item = VortexResult<ArrayRef>>>,
-) {
-    let (tx, rx) = mpsc::channel::<QueuedBatch>(WRITE_CHANNEL_CAPACITY);
-    let rx = rx.map(|(batch, reservation)| {
-        drop(reservation);
-        batch
-    });
-    (tx, ArrayStreamAdapter::new(write_schema, rx))
+impl VortexWrite for NativeSink {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        match self {
+            Self::File(write) => write.write_all(buffer).await,
+            Self::ObjectStore(write) => write.write_all(buffer).await,
+            Self::Java(write) => write.write_all(buffer).await,
+        }
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::File(write) => write.flush().await,
+            Self::ObjectStore(write) => write.flush().await,
+            Self::Java(write) => write.flush().await,
+        }
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        match self {
+            Self::File(write) => write.shutdown().await,
+            Self::ObjectStore(write) => write.shutdown().await,
+            Self::Java(write) => write.shutdown().await,
+        }
+    }
 }
 
 /// Write options for `session`: its defaults, or the compact strategy, which trades read throughput
@@ -142,58 +141,33 @@ fn session_write_options(session: &VortexSession, compact: bool) -> VortexWriteO
     )
 }
 
-/// Native writer holding a write-task handle and a sender that Java pushes batches into.
+/// Native writer that Java pushes batches into.
 pub struct NativeWriter {
-    handle: Option<Task<VortexResult<WriteSummary>>>,
-    abort_tx: Option<oneshot::Sender<()>>,
+    // Java can call the writer from more than one thread, and a push needs exclusive access.
+    writer: Mutex<Writer<NativeSink>>,
     session: VortexSession,
     arrow_schema: SchemaRef,
     write_schema: DType,
     backpressure: Backpressure,
-    deferred_metadata: DeferredMetadata,
-    sender: mpsc::Sender<QueuedBatch>,
 }
 
 impl NativeWriter {
-    /// Spawn the write task into `write` and return the writer that sends batches to it.
-    fn start<W: VortexWrite + Unpin + Send + 'static>(
+    fn start(
         session: &VortexSession,
         arrow_schema: SchemaRef,
         write_schema: DType,
         write_options: VortexWriteOptions,
-        write: W,
+        sink: NativeSink,
     ) -> Self {
-        let (sender, stream) = write_queue(write_schema.clone());
-        let (abort_tx, abort_rx) = oneshot::channel::<()>();
-
         let backpressure = write_options.backpressure();
-        let deferred_metadata = write_options.deferred_metadata();
-
-        let mut write = write;
-        let handle = session.handle().spawn(async move {
-            let write_fut = async move {
-                let summary = write_options.write(&mut write, stream).await?;
-                write.shutdown().await?;
-                Ok(summary)
-            };
-            pin_mut!(write_fut);
-            // Poll `abort_rx` first so a cancelled writer drops `write_fut` immediately
-            // without polling compression, footer serialization, or sink shutdown again.
-            match select(abort_rx, write_fut).await {
-                Either::Right((result, _)) => result,
-                Either::Left((..)) => Err(vortex_err!("writer aborted")),
-            }
-        });
+        let writer = write_options.writer(sink, write_schema.clone());
 
         Self {
-            handle: Some(handle),
-            abort_tx: Some(abort_tx),
+            writer: Mutex::new(writer),
             session: session.clone(),
             arrow_schema,
             write_schema,
             backpressure,
-            deferred_metadata,
-            sender,
         }
     }
 
@@ -224,11 +198,9 @@ impl NativeWriter {
                 vortex_batch.dtype()
             ));
         }
-        let reservation = self.backpressure.reserve_pending(vortex_batch.nbytes());
-        let mut sender = self.sender.clone();
-        RUNTIME
-            .block_on(async move { sender.send((Ok(vortex_batch), reservation)).await })
-            .map_err(|e| vortex_err!("failed to send batch: {e}"))
+
+        let mut writer = self.writer.lock();
+        RUNTIME.block_on(writer.push(vortex_batch))
     }
 
     fn bytes_written(&self) -> u64 {
@@ -247,32 +219,26 @@ impl NativeWriter {
         self.backpressure.compression_ratio()
     }
 
-    /// Close the input and wait for the write task. The task adds `metadata` to the footer.
-    fn close(mut self, metadata: HashMap<String, ByteBuffer>) -> VortexResult<WriteSummary> {
-        // The write task reads the metadata after the input ends, so add it first.
-        self.deferred_metadata.extend(metadata);
+    fn close(self, metadata: HashMap<String, ByteBuffer>) -> VortexResult<WriteSummary> {
+        let writer = self.writer.into_inner();
 
-        self.sender.disconnect();
-        let handle = self
-            .handle
-            .take()
-            .ok_or_else(|| vortex_err!("writer already closed"))?;
-        RUNTIME.block_on(handle)
+        RUNTIME.block_on(async move {
+            let (summary, mut sink) = writer.finish_with_metadata(metadata).await?;
+            sink.shutdown().await?;
+            Ok(summary)
+        })
     }
 
     /// Cancel the write task without writing a footer or flushing the sink, and wait for the
     /// write task and any cancelled subtasks on the current-thread executor to exit.
-    fn abort(mut self) {
-        drop(self.abort_tx.take());
-        // Keep `self.sender` connected until the write task exits so the layout task cannot
-        // observe EOF and finalize the file before cancellation takes effect.
-        if let Some(mut handle) = self.handle.take() {
-            drop(RUNTIME.block_on(std::future::poll_fn(|cx| handle.poll_join(cx))));
-            // Drain cancelled subtasks scheduled when `write_fut` dropped so they release
-            // their Arrow buffers before `abort` returns. Relies on `CurrentThreadRuntime`'s
-            // FIFO task queue running those cancelled tasks ahead of this newly spawned one.
-            RUNTIME.block_on(self.session.handle().spawn(async {}));
-        }
+    fn abort(self) {
+        let writer = self.writer.into_inner();
+        RUNTIME.block_on(writer.abort());
+
+        // Drain cancelled subtasks scheduled when the write stopped so they release their Arrow
+        // buffers before `abort` returns. Relies on `CurrentThreadRuntime`'s FIFO task queue
+        // running those cancelled tasks ahead of this newly spawned one.
+        RUNTIME.block_on(self.session.handle().spawn(async {}));
     }
 }
 
@@ -338,17 +304,25 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
                     }
                     Ok::<_, VortexError>(File::create(path).await?)
                 })?;
-                NativeWriter::start(session, arrow_schema, write_schema, write_options, file)
-            }
-            ResolvedStore::ObjectStore(store, path) => {
-                let object_write =
-                    RUNTIME.block_on(ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path))?;
                 NativeWriter::start(
                     session,
                     arrow_schema,
                     write_schema,
                     write_options,
-                    object_write,
+                    NativeSink::File(file),
+                )
+            }
+            ResolvedStore::ObjectStore(store, path) => {
+                // The parts in upload count on the limit of the write that makes them.
+                let object_write = RUNTIME
+                    .block_on(ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path))?
+                    .with_backpressure(write_options.backpressure());
+                NativeWriter::start(
+                    session,
+                    arrow_schema,
+                    write_schema,
+                    write_options,
+                    NativeSink::ObjectStore(object_write),
                 )
             }
         };
@@ -404,7 +378,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
             arrow_schema,
             write_schema,
             write_options,
-            JavaWrite::new(vm, writable),
+            NativeSink::Java(JavaWrite::new(vm, writable)),
         );
 
         Ok(Box::new(writer).into_raw())

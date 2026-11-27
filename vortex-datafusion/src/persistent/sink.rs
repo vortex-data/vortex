@@ -162,14 +162,16 @@ impl FileSink for VortexSink {
             let import_schema = Arc::clone(&writer_schema);
             let dtype = dtype.clone();
             file_write_tasks.spawn(async move {
-                let object_writer = ObjectStoreWrite::new(object_store, &file.path)
-                    .await
-                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?;
-                let mut object_writer = CountingVortexWrite::new(object_writer);
-                let bytes_written = object_writer.counter();
-
                 let write_options = session.write_options();
                 let buffered_bytes = write_options.backpressure();
+
+                // The parts in upload count on the limit of the write that makes them.
+                let object_writer = ObjectStoreWrite::new(object_store, &file.path)
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?
+                    .with_backpressure(buffered_bytes.clone());
+                let mut object_writer = CountingVortexWrite::new(object_writer);
+                let bytes_written = object_writer.counter();
 
                 let file_size = Arc::clone(&file.size);
                 let stream = ReceiverStream::new(rx).map(move |rb| {

@@ -23,6 +23,7 @@ mod tests {
     use vortex_layout::session::LayoutSession;
     use vortex_session::VortexSession;
 
+    use crate::MAGIC_BYTES;
     use crate::WriteOptionsSessionExt;
     use crate::WriteStrategyBuilder;
 
@@ -93,17 +94,16 @@ mod tests {
 
     #[tokio::test]
     async fn estimate_is_writer_scoped() -> VortexResult<()> {
-        let mut first_buf = ByteBufferMut::empty();
-        let mut first = write_options().writer(&mut first_buf, dtype()?);
-        let mut second_buf = ByteBufferMut::empty();
-        let mut second = write_options().writer(&mut second_buf, dtype()?);
+        let mut first = write_options().writer(ByteBufferMut::empty(), dtype()?);
+        let mut second = write_options().writer(ByteBufferMut::empty(), dtype()?);
 
         for index in 0..4 {
             first.push(batch(index)?).await?;
         }
 
         assert!(first.estimated_size() > 0);
-        assert_eq!(second.estimated_size(), 0);
+        // The write task of the second writer wrote only the magic bytes.
+        assert!(second.estimated_size() <= MAGIC_BYTES.len() as u64);
 
         second.push(batch(0)?).await?;
         assert!(second.estimated_size() > 0);
@@ -119,14 +119,13 @@ mod tests {
     #[case::three_quarters(3 * BATCHES / 4)]
     #[tokio::test]
     async fn estimate_is_close_to_the_size_partway(#[case] batches: usize) -> VortexResult<()> {
-        let mut buf = ByteBufferMut::empty();
-        let mut writer = write_options().writer(&mut buf, dtype()?);
+        let mut writer = write_options().writer(ByteBufferMut::empty(), dtype()?);
         for index in 0..batches {
             writer.push(batch(index)?).await?;
         }
 
         let estimate = writer.estimated_size() as f64;
-        let size = writer.finish().await?.size() as f64;
+        let size = writer.finish().await?.0.size() as f64;
 
         let error = (estimate - size).abs() / size;
         assert!(
@@ -165,16 +164,15 @@ mod tests {
     #[case::two_blocks(128)]
     #[tokio::test]
     async fn estimate_is_close_for_dictionary_columns(#[case] batches: usize) -> VortexResult<()> {
-        let mut buf = ByteBufferMut::empty();
         let mut writer = SESSION
             .write_options()
-            .writer(&mut buf, dictionary_batch(0)?.dtype().clone());
+            .writer(ByteBufferMut::empty(), dictionary_batch(0)?.dtype().clone());
         for index in 0..batches {
             writer.push(dictionary_batch(index)?).await?;
         }
 
         let estimate = writer.estimated_size() as f64;
-        let size = writer.finish().await?.size() as f64;
+        let size = writer.finish().await?.0.size() as f64;
 
         let error = (estimate - size).abs() / size;
         assert!(
@@ -212,16 +210,16 @@ mod tests {
     #[case::after_the_first_block(24)]
     #[tokio::test]
     async fn estimate_is_close_for_constant_columns(#[case] batches: usize) -> VortexResult<()> {
-        let mut buf = ByteBufferMut::empty();
-        let mut writer = SESSION
-            .write_options()
-            .writer(&mut buf, constant_column_batch(0)?.dtype().clone());
+        let mut writer = SESSION.write_options().writer(
+            ByteBufferMut::empty(),
+            constant_column_batch(0)?.dtype().clone(),
+        );
         for index in 0..batches {
             writer.push(constant_column_batch(index)?).await?;
         }
 
         let estimate = writer.estimated_size() as f64;
-        let size = writer.finish().await?.size() as f64;
+        let size = writer.finish().await?.0.size() as f64;
 
         let error = (estimate - size).abs() / size;
         assert!(
@@ -236,8 +234,7 @@ mod tests {
         let options = write_options();
         let estimator = options.backpressure();
 
-        let mut buf = ByteBufferMut::empty();
-        let mut writer = options.writer(&mut buf, dtype()?);
+        let mut writer = options.writer(ByteBufferMut::empty(), dtype()?);
         let mut largest = 0u64;
         for index in 0..BATCHES {
             writer.push(batch(index)?).await?;
@@ -257,7 +254,7 @@ mod tests {
             largest = largest.max(estimate);
         }
 
-        let summary = writer.finish().await?;
+        let (summary, buf) = writer.finish().await?;
         assert_eq!(estimator.buffered_bytes(), 0);
         assert_eq!(estimator.pending_bytes(), 0);
         assert_eq!(estimator.estimated_size(), summary.size());
