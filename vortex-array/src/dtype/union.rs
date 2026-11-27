@@ -167,7 +167,11 @@ impl UnionVariants {
 
 impl UnionVariants {
     /// Validate that `names`, `dtypes`, and `type_ids` are mutually consistent.
-    fn validate_shape(names: &FieldNames, n_dtypes: usize, type_ids: &[u8]) -> VortexResult<()> {
+    pub(crate) fn validate_shape(
+        names: &FieldNames,
+        n_dtypes: usize,
+        type_ids: &[u8],
+    ) -> VortexResult<()> {
         vortex_ensure_eq!(
             names.len(),
             n_dtypes,

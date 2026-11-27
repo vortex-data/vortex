@@ -17,6 +17,8 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -472,9 +474,28 @@ pub fn bound_dynamic_with_options(
         .vortex_expect("dynamic comparisons require a compatible left-hand dtype")
 }
 
-/// Creates a dynamic comparison expression.
+/// Creates a dynamic comparison expression that compares in [`CompareMode::TOTAL_ORDER`].
 pub fn dynamic(
     operator: CompareOperator,
+    rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
+    rhs_dtype: DType,
+    default: bool,
+    lhs: Expression,
+) -> Expression {
+    dynamic_with_mode(
+        operator,
+        CompareMode::TOTAL_ORDER,
+        rhs_value,
+        rhs_dtype,
+        default,
+        lhs,
+    )
+}
+
+/// Creates a dynamic comparison expression that orders floats in the given [`CompareMode`].
+pub fn dynamic_with_mode(
+    operator: CompareOperator,
+    compare_mode: CompareMode,
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
     rhs_dtype: DType,
     default: bool,
@@ -483,6 +504,7 @@ pub fn dynamic(
     dynamic_with_options(
         DynamicComparisonExpr {
             operator,
+            compare_mode,
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -504,6 +526,7 @@ pub fn bound_dynamic(
     bound_dynamic_with_options(
         DynamicComparisonExpr {
             operator,
+            compare_mode: CompareMode::TOTAL_ORDER,
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -573,11 +596,18 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
 
 /// Creates an expression that checks whether a list contains a value, with explicit
 /// [`ListContainsOptions`].
+///
+/// For a literal list, the compare mode keeps only the settings that can change a comparison of
+/// its elements, so that equal filters are equal expressions.
 pub fn list_contains_opts(
     list: Expression,
     value: Expression,
-    options: ListContainsOptions,
+    mut options: ListContainsOptions,
 ) -> Expression {
+    if let Some(DType::List(element_dtype, _)) = list.as_opt::<Literal>().map(Scalar::dtype) {
+        options.compare_mode = options.compare_mode.for_dtype(element_dtype);
+    }
+
     ListContains.new_expr(options, [list, value])
 }
 
@@ -591,11 +621,22 @@ pub fn list_contains_opts(
 /// let expr = in_list(root(), lit(vec![1, 2, 3]));
 /// ```
 pub fn in_list(needle: Expression, list: Expression) -> Expression {
+    in_list_with_mode(needle, list, CompareMode::TOTAL_ORDER)
+}
+
+/// Creates `needle IN (list)` with SQL null semantics, where the needle and the elements compare
+/// floats in `compare_mode`. See [`in_list`].
+pub fn in_list_with_mode(
+    needle: Expression,
+    list: Expression,
+    compare_mode: CompareMode,
+) -> Expression {
     list_contains_opts(
         list,
         needle,
         ListContainsOptions {
             sql_null_semantics: true,
+            compare_mode,
         },
     )
 }
@@ -627,6 +668,21 @@ pub fn in_list_of(
     needle: Expression,
     element_dtype: DType,
     elements: Vec<Scalar>,
+) -> VortexResult<Expression> {
+    in_list_of_with_mode(needle, element_dtype, elements, CompareMode::TOTAL_ORDER)
+}
+
+/// Creates `needle IN (elements)` like [`in_list_of`], where the needle and the elements compare
+/// floats in `compare_mode`.
+///
+/// # Errors
+///
+/// Returns an error if an element is not a null and not of `element_dtype`.
+pub fn in_list_of_with_mode(
+    needle: Expression,
+    element_dtype: DType,
+    elements: Vec<Scalar>,
+    compare_mode: CompareMode,
 ) -> VortexResult<Expression> {
     let element_dtype = if elements.iter().any(Scalar::is_null) {
         element_dtype.as_nullable()
@@ -669,7 +725,7 @@ pub fn in_list_of(
         elements.dedup();
     }
     let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
-    Ok(in_list(needle, lit(list)))
+    Ok(in_list_with_mode(needle, lit(list), compare_mode))
 }
 
 /// The smallest and largest of non-null integer `scalars` when they hold every integer between
@@ -711,6 +767,7 @@ pub fn bound_in_list(needle: BoundExpression, list: BoundExpression) -> BoundExp
         .try_new_bound_expr(
             ListContainsOptions {
                 sql_null_semantics: true,
+                compare_mode: CompareMode::TOTAL_ORDER,
             },
             [list, needle],
         )

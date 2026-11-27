@@ -18,3 +18,4 @@ jobs:
     with:
       benchmark_id: compress-bench
       benchmark_name: Compression
+      nvme_region: true

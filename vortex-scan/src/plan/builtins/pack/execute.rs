@@ -155,7 +155,7 @@ impl Operator for PackSource {
         let arrays = (usize::from(nullable)..inlets)
             .map(&mut take)
             .collect::<VortexResult<Vec<_>>>()?;
-        let array = assemble(&self.fields, arrays, validity).into_array();
+        let array = assemble(&self.fields, len, arrays, validity).into_array();
         Ok(Step::Final(array))
     }
 }
@@ -176,29 +176,35 @@ impl Operator for WrapStage {
         let Input::Batch(batch) = input else {
             return Ok(Step::End);
         };
+        let len = batch.len();
         Ok(Step::Final(
-            assemble(&self.fields, vec![batch], Validity::NonNullable).into_array(),
+            assemble(&self.fields, len, vec![batch], Validity::NonNullable).into_array(),
         ))
     }
 }
 
-/// A struct of `fields` over arrays of one length.
+/// A struct of `fields` over `len` rows.
 ///
 /// The type is not derived or validated per batch: a `Pack` plan checks when it is built that
 /// each field's plan produces the field's dtype over the struct's rows, and a pack source takes
-/// the same rows from every field.
-fn assemble(fields: &StructFields, arrays: Vec<ArrayRef>, validity: Validity) -> StructArray {
-    let len = arrays.first().map_or(0, |array| array.len());
+/// the same rows from every field (and validity, when nullable).
+fn assemble(
+    fields: &StructFields,
+    len: usize,
+    arrays: Vec<ArrayRef>,
+    validity: Validity,
+) -> StructArray {
     debug_assert!(
         arrays.iter().all(|array| array.len() == len)
             && fields
                 .fields()
                 .zip(&arrays)
-                .all(|(dtype, array)| &dtype == array.dtype()),
+                .all(|(dtype, array)| &dtype == array.dtype())
+            && validity.maybe_len().is_none_or(|vlen| vlen == len),
         "pack fields do not match the struct"
     );
-    // SAFETY: the plan validated every field's dtype against `fields`, and every array holds the
-    // same rows, checked above in debug builds.
+    // SAFETY: the plan validated every field's dtype against `fields`, and every array and
+    // validity buffer holds `len` rows, checked above in debug builds.
     unsafe { StructArray::new_unchecked(arrays, fields.clone(), len, validity) }
 }
 

@@ -225,6 +225,9 @@ pub mod flatbuffers {
 }
 
 #[cfg(test)]
+pub(crate) mod generate;
+
+#[cfg(test)]
 mod test {
     use std::sync::LazyLock;
 
