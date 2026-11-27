@@ -20,11 +20,13 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::test_harness::check_metadata;
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
 use super::EliasFano;
 use super::EliasFanoArray;
@@ -295,4 +297,21 @@ fn test_elias_fano_metadata() {
         }
         .encode_to_vec(),
     );
+}
+
+#[test]
+fn packed_lower_fuses_across_block_boundaries() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::from_iter((0..3_071u32).map(|row| row * 17 + row % 11));
+    let ef = encode(&input)?;
+    let upper = unary_encode(ef.upper().as_::<Primitive>(), &mut ctx)?
+        .ok_or_else(|| vortex_err!("expected unary bucket counts"))?;
+    let lower = ef.lower().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let packed = bitpack_encode(&lower, ef.lower_bits(), None, &mut ctx)?;
+    let array =
+        EliasFano::try_new(upper.into_array(), packed.into_array(), ef.lower_bits())?.into_array();
+    let trace = fusion_trace(array.clone(), &SESSION)?;
+    assert!(trace.contains("fuse extend"), "{trace}");
+    assert_arrays_eq!(array, input.into_array(), &mut ctx);
+    Ok(())
 }
