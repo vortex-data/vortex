@@ -131,18 +131,18 @@ impl Scheme for ALPRDScheme {
         // The patches are of the left parts, not of the input, so they stay inside ALP-RD.
         let (patches, keep) = KeptPatches::interior(self, 1, left_parts_patches, exec_ctx)?;
         Ok(Encoded::new(compress, keep, move |children, _| {
-            let compressed_validity = children.validity()?;
+            let fallback = with_compressed_validity(left_parts, children.validity()?)?;
             let left_parts = if has_left_child {
                 let [compressed_left] = children.compressed::<1>()?;
-                if compressed_left.nbytes() < left_parts.nbytes()
-                    && compressed_left.dtype() == left_parts.dtype()
+                if compressed_left.nbytes() < fallback.nbytes()
+                    && compressed_left.dtype() == fallback.dtype()
                 {
                     compressed_left
                 } else {
-                    with_compressed_validity(left_parts, compressed_validity)?
+                    fallback
                 }
             } else {
-                with_compressed_validity(left_parts, compressed_validity)?
+                fallback
             };
             patches.build(children, |patches| {
                 Ok(vortex_alp::ALPRD::try_new(
