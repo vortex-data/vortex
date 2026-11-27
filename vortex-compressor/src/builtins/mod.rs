@@ -10,10 +10,12 @@
 
 mod dict;
 
+pub use dict::BITPACKING_MIN_BITS_SAVED;
 pub use dict::BinaryDictScheme;
 pub use dict::DecimalDictScheme;
 pub use dict::FloatDictScheme;
 pub use dict::IntDictScheme;
+pub use dict::RLE_MIN_RUN_LENGTH;
 pub use dict::StringDictScheme;
 pub use dict::float_dictionary_encode;
 pub use dict::integer_dictionary_encode;

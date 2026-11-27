@@ -92,13 +92,15 @@ impl Scheme for IntDictScheme {
         let finished_cascading = compress_ctx.finished_cascading();
 
         let uncompressed_values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
-        let values_bits = if finished_cascading {
+        // `FoRScheme` skips when its own `CompressorContext` has `allowed_cascading == 0`, so
+        // `Dict -> values -> FoR` requires at least 2 cascade levels remaining here.
+        let values_bits = if compress_ctx.allowed_cascading() < 2 {
             uncompressed_values_bits
         } else {
             // `FoR + BitPacked` compresses `values` to the `max - min` span width (padded to
             // 1024-element FastLanes blocks plus one reference scalar) when it beats raw storage.
             let values_bw = u64::from(u64::BITS - stats.erased().max_minus_min().leading_zeros());
-            if values_bw + super::BITPACKING_MIN_BITS_SAVED <= bit_width {
+            if values_bw + u64::from(super::BITPACKING_MIN_BITS_SAVED) <= bit_width {
                 let packed_values_bits = u64::from(distinct_values_count)
                     .next_multiple_of(super::FASTLANES_BLOCK_LEN)
                     .saturating_mul(values_bw)
@@ -541,6 +543,27 @@ mod tests {
         assert!(
             ratio > 7.5 && ratio < 8.1,
             "expected ~8x ratio when cascading is exhausted, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn one_cascade_level_left_does_not_credit_for_values_narrowing() {
+        let len = 4096usize;
+        let values: Vec<i64> = (0..len).map(|i| 1_000_000 + (i % 1024) as i64).collect();
+        let mut one_left = CompressorContext::new();
+        for _ in 0..(MAX_CASCADE - 1) {
+            one_left = one_left.descend_with_scheme(IntDictScheme.id(), 0);
+        }
+        assert_eq!(one_left.allowed_cascading(), 1);
+
+        let ratio_full = estimate_ratio(
+            PrimitiveArray::from_iter(values.iter().copied()),
+            CompressorContext::new(),
+        );
+        let ratio_one_left = estimate_ratio(PrimitiveArray::from_iter(values), one_left);
+        assert!(
+            ratio_one_left < 3.0 && ratio_one_left < ratio_full,
+            "expected uncompressed values (~2.46x) with 1 cascade level left, got {ratio_one_left} vs full {ratio_full}"
         );
     }
 }

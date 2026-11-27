@@ -88,6 +88,11 @@ impl CompressorContext {
         self.allowed_cascading == 0
     }
 
+    /// Remaining cascade levels allowed below this compression site.
+    pub(crate) fn allowed_cascading(&self) -> usize {
+        self.allowed_cascading
+    }
+
     /// Returns a context that disallows further cascading.
     pub fn as_leaf(mut self) -> Self {
         self.allowed_cascading = 0;
