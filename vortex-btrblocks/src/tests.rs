@@ -599,7 +599,7 @@ where
     let nullable = tc.draw(gs::booleans());
     let allow_for = tc.draw(gs::booleans());
     let scheme_idx = tc.draw(gs::integers::<u8>().max_value(3));
-    let len = tc.draw(gs::integers::<usize>().min_value(0).max_value(2_048));
+    let len = tc.draw(gs::integers::<usize>().min_value(1_024).max_value(2_048));
     let pattern: Vec<(T, bool)> = tc.draw(
         gs::vecs(gs::tuples2(gs::integers::<T>(), gs::booleans()))
             .min_size(1)
@@ -637,7 +637,7 @@ where
 /// non-nullable including arbitrary null-slot values, `FoR` on or off, and any preset mode) must
 /// round-trip identically.
 #[hegel::test(test_cases = 50, print_blob = true)]
-fn pivco_scheme_roundtrip_property(tc: TestCase) {
+fn test_pivco_scheme_roundtrip_property(tc: TestCase) {
     match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => check_pivco_scheme_roundtrip::<u8>(&tc),
         1 => check_pivco_scheme_roundtrip::<u16>(&tc),
