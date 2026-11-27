@@ -207,6 +207,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::validity::Validity;
@@ -287,7 +288,7 @@ mod tests {
     #[case::all_null_bitmap_varying_packed(
         PrimitiveArray::new(
             Buffer::from_iter((0u32..1024).map(|i| i % 4)),
-            Validity::from_iter([false; 1024]),
+            Validity::Array(BoolArray::from_iter([false; 1024]).into_array()),
         ),
         Some(true)
     )]
@@ -299,7 +300,7 @@ mod tests {
         Some(false)
     )]
     #[case::empty(PrimitiveArray::from_iter(std::iter::empty::<u32>()), None)]
-    fn kernel_respects_validity_and_empty(
+    fn test_kernel_respects_validity_and_empty(
         #[case] source: PrimitiveArray,
         #[case] expected: Option<bool>,
     ) -> VortexResult<()> {

@@ -480,7 +480,7 @@ mod tests {
     #[case::full_and_trailer(0, 1500, None, 1, Some(476))]
     #[case::header_and_trailer(100, 1000, Some(924), 0, Some(76))]
     #[case::header_full_and_trailer(100, 2048, Some(924), 1, Some(100))]
-    fn unpacked_chunks_partitions_without_overlap(
+    fn test_unpacked_chunks_partitions_without_overlap(
         #[case] offset: usize,
         #[case] len: usize,
         #[case] expected_initial: Option<usize>,
@@ -488,17 +488,15 @@ mod tests {
         #[case] expected_trailer: Option<usize>,
     ) -> VortexResult<()> {
         let total_chunks = (offset + len).div_ceil(CHUNK_SIZE);
-        let source: Vec<u32> = (0..total_chunks * CHUNK_SIZE)
-            .map(|i| (i % 16) as u32)
-            .collect();
-        let packed = bitpack_primitive(&source, 4);
+        let source: Vec<u32> = (0..total_chunks * CHUNK_SIZE).map(|i| i as u32).collect();
+        let packed = bitpack_primitive(&source, 12);
         let expected = &source[offset..offset + len];
 
         let mut scratch = [const { MaybeUninit::<u32>::uninit() }; CHUNK_SIZE];
         let mut chunks = BitUnpackedChunks::try_new_with_strategy(
             BitPackingStrategy,
             packed.as_slice(),
-            4,
+            12,
             offset,
             len,
             &mut scratch,
@@ -549,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn single_full_chunk_array_unpacked_chunks() -> VortexResult<()> {
+    fn test_single_full_chunk_array_unpacked_chunks() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<u32> = (0..1024).map(|i| i % 4).collect();
         let array = BitPackedData::encode(
