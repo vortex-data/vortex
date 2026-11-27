@@ -1695,62 +1695,137 @@ async fn file_excluding_dtype() -> VortexResult<()> {
     Ok(())
 }
 
+/// Regression test for <https://github.com/vortex-data/vortex/issues/12169>.
+///
+/// Struct field dtypes are parsed lazily, so a file whose field has a corrupt type tag used to open
+/// and then panic on first access to its fields, e.g. during `scan()`. The dtype flatbuffer is now
+/// verified up front, so opening the file fails instead.
 #[tokio::test]
-async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
+async fn open_with_unknown_field_dtype_tag_fails() -> VortexResult<()> {
     use vortex_array::dtype::flatbuffers as dtype_fb;
-    use vortex_array::flatbuffers::FlatBuffer;
 
-    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
-
+    // The fuzzer's input: an empty `struct {"": bool}` file.
+    let array = StructArray::try_new(
+        [""].into(),
+        vec![BoolArray::from_iter(Vec::<bool>::new()).into_array()],
+        0,
+        Validity::NonNullable,
+    )?
+    .into_array();
     let mut writer = vec![];
     SESSION
         .write_options()
-        .exclude_dtype()
         .write(&mut writer, array.to_array_stream())
         .await?;
-    let buffer: Bytes = writer.into();
 
-    let vxf = SESSION
+    // Find the dtype segment in the file and the type tag of its only field.
+    let dtype_bytes = array.dtype().write_flatbuffer_bytes()?;
+    let dtype_bytes: &[u8] = dtype_bytes.as_ref();
+    let segment = writer
+        .windows(dtype_bytes.len())
+        .position(|window| window == dtype_bytes)
+        .expect("the dtype segment is written verbatim");
+    let field = flatbuffers::root::<dtype_fb::DType>(dtype_bytes)?
+        .type__as_struct_()
+        .and_then(|struct_| struct_.dtypes())
+        .expect("a struct dtype")
+        .get(0);
+    let tag =
+        field._tab.loc() + usize::from(field._tab.vtable().get(dtype_fb::DType::VT_TYPE_TYPE));
+    assert_eq!(dtype_bytes[tag], dtype_fb::Type::Bool.0);
+
+    writer[segment + tag] = 200;
+    let err = SESSION
         .open_options()
-        .with_dtype(array.dtype().clone())
-        .open_buffer(buffer.clone())?;
-    assert!(vxf.file_stats().is_some());
+        .open_buffer(Bytes::from(writer))
+        .err()
+        .expect("a corrupt field dtype must fail to open, not panic on scan");
+    assert!(err.to_string().contains("Unknown DType variant"), "{err}");
 
-    let mut fbb = FlatBufferBuilder::new();
-    let name_a = fbb.create_string("a");
-    let names = fbb.create_vector(&[name_a]);
-    let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
-    let unknown = dtype_fb::DType::create(
-        &mut fbb,
-        &dtype_fb::DTypeArgs {
-            type_type: dtype_fb::Type(200),
-            type_: Some(unknown_type.as_union_value()),
-        },
-    );
-    let dtypes = fbb.create_vector(&[unknown]);
-    let struct_table = dtype_fb::Struct_::create(
-        &mut fbb,
-        &dtype_fb::Struct_Args {
-            names: Some(names),
-            dtypes: Some(dtypes),
-            nullable: false,
-        },
-    );
-    let root = dtype_fb::DType::create(
-        &mut fbb,
-        &dtype_fb::DTypeArgs {
-            type_type: dtype_fb::Type::Struct_,
-            type_: Some(struct_table.as_union_value()),
-        },
-    );
-    fbb.finish_minimal(root);
-    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
+    Ok(())
+}
 
-    let vxf = SESSION
-        .open_options()
-        .with_dtype(dtype)
-        .open_buffer(buffer)?;
-    assert!(vxf.file_stats().is_none());
+/// Returns the byte range in `file` of the dtype or layout segment named by the postscript.
+fn postscript_segment(file: &[u8], region: &str) -> std::ops::Range<usize> {
+    let eof = file.len() - crate::EOF_SIZE;
+    let len_at = eof + crate::VERSION_BYTES;
+    let postscript_len = usize::from(u16::from_le_bytes([file[len_at], file[len_at + 1]]));
+    let postscript = flatbuffers::root::<fb::Postscript>(&file[eof - postscript_len..eof])
+        .expect("valid postscript");
+    let segment = match region {
+        "dtype" => postscript.dtype(),
+        "layout" => postscript.layout(),
+        _ => unreachable!("unknown region {region}"),
+    }
+    .expect("segment is present");
+    let start = usize::try_from(segment.offset()).expect("offset fits in usize");
+    start..start + segment.length() as usize
+}
+
+/// Parses every lazily viewed child of `dtype`, panicking if one is invalid.
+fn parse_all_fields(dtype: &DType) {
+    match dtype {
+        DType::Struct(fields, _) => fields.fields().for_each(|field| parse_all_fields(&field)),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => parse_all_fields(element),
+        _ => {}
+    }
+}
+
+/// Flips bits in the dtype or layout segment one byte at a time. Every corrupted file that opens
+/// must have a dtype and layout tree that can be fully materialized, because corruption has to be
+/// reported by `open` rather than by a later scan.
+#[rstest]
+#[case::dtype("dtype")]
+#[case::layout("layout")]
+#[tokio::test]
+async fn corrupt_files_that_open_are_fully_readable(#[case] region: &str) -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        ("a", PrimitiveArray::from_iter(0i64..3000).into_array()),
+        (
+            "b",
+            VarBinViewArray::from_iter_nullable_str((0..3000).map(|i| Some(format!("s{}", i % 7))))
+                .into_array(),
+        ),
+        (
+            "c",
+            BoolArray::from_iter((0..3000).map(|i| i % 3 == 0)).into_array(),
+        ),
+    ])?
+    .into_array();
+    let mut file = vec![];
+    SESSION
+        .write_options()
+        .write(&mut file, array.to_array_stream())
+        .await?;
+
+    let mut opened = 0;
+    for pos in postscript_segment(&file, region) {
+        for mask in [0x01u8, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0xff] {
+            let mut corrupted = file.clone();
+            corrupted[pos] ^= mask;
+            let Ok(vxf) = SESSION.open_options().open_buffer(corrupted) else {
+                continue;
+            };
+            opened += 1;
+
+            parse_all_fields(vxf.dtype());
+            let mut stack = vec![Arc::clone(vxf.footer().layout())];
+            while let Some(layout) = stack.pop() {
+                for segment_id in layout.segment_ids() {
+                    assert!(
+                        (*segment_id as usize) < vxf.footer().segment_map().len(),
+                        "byte {pos} ^ {mask:#04x}: segment {} out of range",
+                        *segment_id
+                    );
+                }
+                stack.extend(layout.children().unwrap_or_else(|err| {
+                    panic!("byte {pos} ^ {mask:#04x} opened, but its layout is invalid: {err}")
+                }));
+            }
+        }
+    }
+    // Some flips, e.g. of nullability flags or row counts, still describe a valid file.
+    assert!(opened > 0);
 
     Ok(())
 }
