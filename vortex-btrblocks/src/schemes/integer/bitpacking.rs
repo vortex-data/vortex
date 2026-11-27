@@ -213,29 +213,28 @@ impl Scheme for BitPackingScheme {
     }
 }
 
-/// The fewest bits per value that packing must save. Saving one bit, as `u8` values at width 7 do,
-/// isn't worth unpacking on every read.
+/// The fewest bits per value that packing must save.
 const MIN_BITS_SAVED: usize = 2;
 
-fn saves_enough_bits(ptype: PType, bit_width: u8) -> bool {
+fn should_pack(ptype: PType, bit_width: u8) -> bool {
     ptype.bit_width() - usize::from(bit_width) >= MIN_BITS_SAVED
 }
 
-/// Returns `None` when the best width saves fewer than [`MIN_BITS_SAVED`] bits.
+/// Returns `None` when compressing is not beneficial.
 fn compress_global(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<BitPackedArray>> {
     let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
     let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
-    if !saves_enough_bits(primitive_array.ptype(), bw) {
+    if !should_pack(primitive_array.ptype(), bw) {
         return Ok(None);
     }
     bitpack_encode(primitive_array, bw, Some(&histogram), exec_ctx).map(Some)
 }
 
-/// Uses global packing for uniform widths. Returns `None` when no block's width saves
-/// [`MIN_BITS_SAVED`] bits.
+/// Uses global packing for uniform widths. Returns `None` for empty input or when compressing is
+/// not beneficial.
 fn compress_blocked(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
@@ -243,7 +242,7 @@ fn compress_blocked(
     let (bit_widths, num_exceptions) = find_best_bit_widths(primitive_array, exec_ctx)?;
     if !bit_widths
         .iter()
-        .any(|&bw| saves_enough_bits(primitive_array.ptype(), bw))
+        .any(|&bw| should_pack(primitive_array.ptype(), bw))
     {
         return Ok(None);
     }

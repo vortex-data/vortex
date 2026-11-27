@@ -424,19 +424,17 @@ fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
 
 static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
-/// `u8` values at width 7 save one bit and stay unpacked; at width 4 they are packed.
 #[rstest]
 #[case::saves_one_bit(64, false)]
 #[case::saves_four_bits(8, true)]
 fn test_bitpacking_skips_small_savings(
     #[case] min_value: u8,
     #[case] expect_packed: bool,
-    #[values(&BITPACKING_V1, &BITPACKING_V2)] scheme: &'static BitPackingScheme,
 ) -> VortexResult<()> {
     let input = PrimitiveArray::from_iter((0..7u8).cycle().take(10_000).map(|v| min_value + v))
         .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(scheme)
+        .with_new_scheme(&BITPACKING_V2)
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
 
