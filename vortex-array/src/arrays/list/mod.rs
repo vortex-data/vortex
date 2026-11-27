@@ -8,6 +8,7 @@ pub use array::ListData;
 pub use array::ListDataParts;
 pub use array::ListSlots;
 pub use array::ListSlotsView;
+pub use array::known_offset_span;
 pub use vtable::ListArray;
 
 pub(crate) mod compute;

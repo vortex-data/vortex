@@ -8,24 +8,20 @@ mod filter;
 mod like;
 pub(crate) mod uncompressed_size_in_bytes;
 
-use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::take_referenced;
+use vortex_array::arrays::list::known_offset_span;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::take_varbin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::stats::Stat;
-use vortex_array::stats::StatsProviderExt;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
@@ -38,9 +34,7 @@ const MIN_GATHER_LEN: usize = 1024;
 /// Minimum compressed payload for gathering from a small array, measured by `fsst_take`.
 const MIN_GATHER_COMPRESSED_BYTES: u64 = 8 * 1024;
 
-/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers compressed
-/// rows. A denser take decodes each referenced row once instead: gathering decodes a row again
-/// for every index that repeats it, and costs more per row than decoding in bulk.
+/// Gather compressed rows directly when there are fewer indices than one fourth of the rows.
 const SPARSE_TAKE_DENOMINATOR: usize = 4;
 
 impl TakeExecute for FSST {
@@ -53,13 +47,16 @@ impl TakeExecute for FSST {
             if array.len() < MIN_GATHER_LEN {
                 return Ok(None);
             }
-            return take_referenced(array.array(), indices, ctx, |referenced, ctx| {
-                take_compressed(array, referenced, ctx)
-            })
-            .map(Some);
+            return take_referenced(
+                array.array(),
+                indices,
+                known_offset_span(array.codes_offsets()),
+                ctx,
+                |referenced, ctx| take_compressed(array, referenced, ctx),
+            );
         }
         if array.len() < MIN_GATHER_LEN {
-            let Some(bytes) = compressed_byte_span(array.codes_offsets())
+            let Some(bytes) = known_offset_span(array.codes_offsets())
                 .filter(|&bytes| bytes >= MIN_GATHER_COMPRESSED_BYTES)
             else {
                 return Ok(None);
@@ -148,25 +145,6 @@ fn selected_bytes_fit<O: IntegerPType, I: IntegerPType>(
     })
 }
 
-// Slices retain their backing bytes, so only the logical offsets describe their decode cost.
-// Inspect already-materialized offsets or cached exact bounds without executing either child.
-fn compressed_byte_span(offsets: &ArrayRef) -> Option<u64> {
-    if let Some(offsets) = offsets.as_opt::<Primitive>()
-        && offsets.buffer_handle().as_host_opt().is_some()
-    {
-        return match_each_integer_ptype!(offsets.ptype(), |P| {
-            let values = offsets.as_slice::<P>();
-            let first = values.first()?.to_u64()?;
-            let last = values.last()?.to_u64()?;
-            last.checked_sub(first)
-        });
-    }
-    let stats = offsets.statistics();
-    let first = stats.get_as::<u64>(Stat::Min).as_exact()?;
-    let last = stats.get_as::<u64>(Stat::Max).as_exact()?;
-    last.checked_sub(first)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -182,6 +160,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::dict::TakeExecute;
+    use vortex_array::arrays::list::known_offset_span;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -198,7 +177,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::compressed_byte_span;
     use crate::FSST;
     use crate::FSSTArray;
     use crate::fsst_compress;
@@ -399,18 +377,18 @@ mod tests {
             buffer![1000u64, 20000].into_array(),
         )
         .into_array();
-        assert_eq!(compressed_byte_span(&offsets), None);
+        assert_eq!(known_offset_span(&offsets), None);
         offsets
             .statistics()
             .set(Stat::Min, Precision::exact(1000u64));
         offsets
             .statistics()
             .set(Stat::Max, Precision::exact(20000u64));
-        assert_eq!(compressed_byte_span(&offsets), Some(19000));
+        assert_eq!(known_offset_span(&offsets), Some(19000));
         offsets
             .statistics()
             .set(Stat::Min, Precision::Inexact(1000u64.into()));
-        assert_eq!(compressed_byte_span(&offsets), None);
+        assert_eq!(known_offset_span(&offsets), None);
     }
 
     type FsstBuilder = fn(&mut ExecutionCtx) -> FSSTArray;

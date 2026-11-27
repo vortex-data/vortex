@@ -10,6 +10,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::take_referenced;
 use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::list::known_offset_span;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -23,9 +24,7 @@ use crate::OnPairArraySlotsExt;
 /// Below this many rows, decoding all of them costs less than gathering token runs.
 const MIN_GATHER_LEN: usize = 1024;
 
-/// A take with fewer indices than `1 / SPARSE_TAKE_DENOMINATOR` of the rows gathers token runs.
-/// A denser take decodes each referenced row once instead: gathering decodes a row again for
-/// every index that repeats it, and costs more per row than decoding in bulk.
+/// Gather token runs directly when there are fewer indices than one fourth of the rows.
 const SPARSE_TAKE_DENOMINATOR: usize = 4;
 
 impl TakeExecute for OnPair {
@@ -38,10 +37,13 @@ impl TakeExecute for OnPair {
             return Ok(None);
         }
         if indices.len().saturating_mul(SPARSE_TAKE_DENOMINATOR) >= array.len() {
-            return take_referenced(array.array(), indices, ctx, |referenced, ctx| {
-                take_token_runs(array, referenced, ctx)
-            })
-            .map(Some);
+            return take_referenced(
+                array.array(),
+                indices,
+                known_offset_span(array.codes_offsets()),
+                ctx,
+                |referenced, ctx| take_token_runs(array, referenced, ctx),
+            );
         }
         take_token_runs(array, indices, ctx).map(Some)
     }

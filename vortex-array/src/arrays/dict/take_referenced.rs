@@ -5,101 +5,122 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::execute::take_canonical;
 use crate::match_each_integer_ptype;
 
-/// With at least this many indices per value, remapping every index costs more than decoding
-/// the unreferenced values saves.
-const DENSE_INDICES_PER_VALUE: usize = 4;
-
-/// Once at least `1 / DENSE_REFERENCED_DENOMINATOR` of the values are referenced, gathering them
-/// costs more than decoding the unreferenced ones.
-const DENSE_REFERENCED_DENOMINATOR: usize = 5;
-
-/// Takes `indices` from `values`, an encoding that decodes row by row, decoding each value at most
-/// once.
-///
-/// When few values are referenced, `gather` takes them from the encoded `values` in order, they
-/// are decoded, and the indices are remapped into them. Otherwise, or when there are many indices
-/// per value, every value is decoded, which is cheaper than gathering most of them or remapping
-/// every index.
+/// Takes from a row-wise encoding by gathering and decoding distinct rows in source order.
+/// `code_count` is the number of compressed codes in the logical source range, when known.
+/// Returns `None` when the caller should use its normal execution path.
 pub fn take_referenced(
     values: &ArrayRef,
     indices: &ArrayRef,
+    code_count: Option<u64>,
     ctx: &mut ExecutionCtx,
     gather: impl FnOnce(&ArrayRef, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
-) -> VortexResult<ArrayRef> {
-    let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-    let referenced = if indices.len() >= values.len().saturating_mul(DENSE_INDICES_PER_VALUE) {
-        None
-    } else {
-        match_each_integer_ptype!(indices.ptype(), |P| {
-            remap_referenced(indices.as_slice::<P>(), values.len())
-        })
-    };
+) -> VortexResult<Option<ArrayRef>> {
+    if values.len() < 1024 || u32::try_from(values.len()).is_err() {
+        return Ok(None);
+    }
+    let limit = gather_limit(values.len(), indices.len(), code_count);
+    if limit == 0 {
+        return Ok(None);
+    }
 
-    let (decoded, indices) = match referenced {
+    let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+    let validity = indices.validity()?;
+    let mask = validity.execute_mask(indices.len(), ctx)?;
+    if mask.all_false() {
+        return Ok(None);
+    }
+    let referenced = match_each_integer_ptype!(indices.ptype(), |P| {
+        remap_referenced(indices.as_slice::<P>(), &mask, values.len(), limit)
+    });
+    let (values, indices) = match referenced {
         Some((referenced, remapped)) => (
             gather(&referenced.into_array(), ctx)?,
-            PrimitiveArray::new(remapped, indices.validity()?).into_array(),
+            PrimitiveArray::new(remapped, validity),
         ),
-        None => (values.clone(), indices.into_array()),
+        None => (values.clone(), indices),
     };
-    decoded
-        .execute::<Canonical>(ctx)?
-        .into_array()
-        .take(indices)?
-        .execute::<Canonical>(ctx)
-        .map(Canonical::into_array)
+
+    // Finish the dense fallback here so the executor does not retry the same marking pass.
+    let decoded = values.execute::<Canonical>(ctx)?.into_array();
+    let taken = take_canonical(decoded.as_::<AnyCanonical>(), indices.as_view(), ctx)?;
+    Ok(Some(taken.into_array()))
 }
 
-/// Returns the values `indices` reference, in order, and each index's position among them, or
-/// `None` when so many values are referenced that decoding all of them is cheaper.
-///
-/// Null indices are treated like valid ones: the taken validity hides whatever they gather, so
-/// they cost at most one extra value. Their arbitrary, possibly out-of-bounds, values are clamped.
+/// Estimates how many distinct rows are cheaper to gather than to bulk decode. The weights
+/// approximate setup, index remapping, and per-row work in units of compressed codes.
+/// Longer strings can amortize gathering a larger fraction of a dictionary.
+fn gather_limit(rows: usize, indices: usize, code_count: Option<u64>) -> usize {
+    let codes = code_count
+        .and_then(|count| usize::try_from(count).ok())
+        .unwrap_or_else(|| rows.saturating_mul(16));
+    // Start with bulk decode and view construction, then deduct the setup and rank buffer.
+    let budget = codes
+        .saturating_add(rows.saturating_mul(8))
+        .saturating_sub(8 * 1024)
+        .saturating_sub(indices.saturating_mul(size_of::<u32>()));
+    // Each selected row also needs its compressed range, decoded length and view.
+    let per_row = (codes / rows).saturating_add(32);
+    (budget / per_row).min(rows.div_ceil(2))
+}
+
 fn remap_referenced<P: AsPrimitive<usize>>(
     indices: &[P],
+    validity: &Mask,
     len: usize,
+    limit: usize,
 ) -> Option<(Buffer<u32>, Buffer<u32>)> {
-    let last = len.checked_sub(1)?;
-    u32::try_from(len).ok()?;
-    let dense_count = len.div_ceil(DENSE_REFERENCED_DENOMINATOR);
+    let mut words = vec![0u64; len.div_ceil(64)];
+    let chunk_size = len.div_ceil(2);
+    let mut count = 0;
 
-    // First a mark per value, then each value's position among the referenced values. Marking
-    // stops as soon as enough values are referenced to decode them all.
-    let mut ranks = vec![0u32; len];
-    let mut referenced_count = 0;
-    for chunk in indices.chunks(256) {
-        for &idx in chunk {
-            let mark = &mut ranks[idx.as_().min(last)];
-            referenced_count += (1 - *mark) as usize;
-            *mark = 1;
+    // Count bits in batches so high-cardinality takes can abandon marking early.
+    for (chunk_idx, chunk) in indices.chunks(chunk_size).enumerate() {
+        let mut mark = |idx: P| {
+            let row = idx.as_();
+            *words.get_mut(row / 64)? |= 1 << (row % 64);
+            Some(())
+        };
+        match validity.bit_buffer() {
+            AllOr::All => chunk.iter().copied().try_for_each(&mut mark)?,
+            AllOr::None => return None,
+            AllOr::Some(bits) => {
+                let start = chunk_idx * chunk_size;
+                bits.slice(start..start + chunk.len())
+                    .try_for_each_set_index(|i| mark(chunk[i]).ok_or(()))
+                    .ok()?;
+            }
         }
-        if referenced_count >= dense_count {
+        count = words.iter().map(|word| word.count_ones() as usize).sum();
+        if count >= limit {
             return None;
         }
     }
 
-    let mut referenced = BufferMut::<u32>::with_capacity(referenced_count);
-    let mut next_rank = 0u32;
-    for (value, rank) in (0u32..).zip(ranks.iter_mut()) {
-        let is_referenced = *rank;
-        *rank = next_rank;
-        next_rank += is_referenced;
-        if is_referenced != 0 {
-            referenced.push(value);
+    let mut referenced = BufferMut::with_capacity(count);
+    let mut ranks = vec![0u32; len];
+    for (block, mut word) in words.into_iter().enumerate() {
+        while word != 0 {
+            let row = block * 64 + word.trailing_zeros() as usize;
+            *ranks.get_mut(row)? = u32::try_from(referenced.len()).ok()?;
+            referenced.push(u32::try_from(row).ok()?);
+            word &= word - 1;
         }
     }
-
-    let remapped = indices
-        .iter()
-        .map(|&idx| ranks[idx.as_().min(last)])
-        .collect();
+    // Payloads at null positions can be out of bounds. The output validity masks their ranks.
+    let remapped = Buffer::from_trusted_len_iter(
+        indices.iter().map(|idx| ranks.get(idx.as_()).copied().unwrap_or(0)),
+    );
     Some((referenced.freeze(), remapped))
 }
