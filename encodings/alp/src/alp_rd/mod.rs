@@ -19,10 +19,14 @@ use num_traits::PrimInt;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
@@ -32,6 +36,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
@@ -40,6 +45,12 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::match_each_alp_float_ptype;
+use crate::sample_valid_values;
+use crate::sanitize_nulls;
+
+/// Matches the `alp` crate's ALP-RD dictionary search sample budget and run length.
+const ALPRD_MAX_SAMPLE: usize = 4096;
+const ALPRD_SAMPLE_BLOCK: usize = 64;
 
 mod array;
 mod compute;
@@ -53,6 +64,39 @@ pub(crate) fn initialize(session: &VortexSession) {
     rules::register_parent_rules(session);
 }
 
+/// Trains an ALP-RD encoder on only the valid values of `array` and encodes it.
+///
+/// Null slots are excluded from dictionary training and replaced with code `0` and right part `0`
+/// during encoding, so dirty garbage bits in null positions cannot pollute the dictionary or emit
+/// wasted patches.
+///
+/// # Errors
+///
+/// Returns an error if `array` is not `f32` or `f64`, or if its validity mask cannot be executed.
+pub fn alp_rd_encode(
+    array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ALPRDArray> {
+    let validity = array.validity()?;
+    let mask = validity.execute_mask(array.len(), ctx)?;
+
+    match array.ptype() {
+        PType::F32 => {
+            let encoder = rd_encoder_from_masked::<f32>(array.as_slice::<f32>(), &mask);
+            Ok(encode_generic_with_mask::<f32>(
+                &encoder, array, validity, &mask,
+            ))
+        }
+        PType::F64 => {
+            let encoder = rd_encoder_from_masked::<f64>(array.as_slice::<f64>(), &mask);
+            Ok(encode_generic_with_mask::<f64>(
+                &encoder, array, validity, &mask,
+            ))
+        }
+        ptype => vortex_bail!("ALP-RD can only encode f32 and f64, got {ptype}"),
+    }
+}
+
 /// Encoding of Vortex arrays with an ALP-RD [`RDEncoder`].
 pub trait RDEncoderExt {
     /// Encode a set of floating point values with ALP-RD.
@@ -64,7 +108,49 @@ pub trait RDEncoderExt {
 
 impl RDEncoderExt for RDEncoder {
     fn encode(&self, array: ArrayView<'_, Primitive>) -> ALPRDArray {
-        match_each_alp_float_ptype!(array.ptype(), |P| { encode_generic::<P>(self, array) })
+        let validity = array
+            .validity()
+            .vortex_expect("ALP RD validity should be derivable");
+        let mask = validity_mask_without_ctx(&validity, array.len());
+        match_each_alp_float_ptype!(array.ptype(), |P| {
+            encode_generic_with_mask::<P>(self, array, validity, &mask)
+        })
+    }
+}
+
+/// Builds an [`RDEncoder`] from only the valid elements of `values`, handling empty and all-null
+/// inputs without panicking.
+fn rd_encoder_from_masked<T: ALPRDFloat + NativePType>(values: &[T], mask: &Mask) -> RDEncoder {
+    match mask {
+        Mask::AllTrue(0) | Mask::AllFalse(_) => RDEncoder::new(&[T::zero()]),
+        Mask::AllTrue(_) => RDEncoder::new(values),
+        Mask::Values(mask_values) => {
+            let sample =
+                sample_valid_values(values, mask_values, ALPRD_MAX_SAMPLE, ALPRD_SAMPLE_BLOCK);
+            RDEncoder::new(&sample)
+        }
+    }
+}
+
+/// Resolves a [`Validity`] into a [`Mask`] without an [`ExecutionCtx`] for canonical validity
+/// encodings, falling back to `AllTrue` for non-canonical validity arrays.
+fn validity_mask_without_ctx(validity: &Validity, len: usize) -> Mask {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => Mask::AllTrue(len),
+        Validity::AllInvalid => Mask::AllFalse(len),
+        Validity::Array(arr) => {
+            if let Some(bool_array) = arr.as_opt::<Bool>() {
+                Mask::from_buffer(bool_array.to_bit_buffer())
+            } else if let Some(constant) = arr.as_opt::<Constant>() {
+                if constant.scalar().as_bool().value().unwrap_or(false) {
+                    Mask::AllTrue(len)
+                } else {
+                    Mask::AllFalse(len)
+                }
+            } else {
+                Mask::AllTrue(len)
+            }
+        }
     }
 }
 
@@ -79,22 +165,54 @@ fn patch_chunk_offsets(exception_positions: &[u64], len: usize) -> Buffer<u64> {
         .collect()
 }
 
-fn encode_generic<T>(encoder: &RDEncoder, array: ArrayView<'_, Primitive>) -> ALPRDArray
+fn encode_generic_with_mask<T>(
+    encoder: &RDEncoder,
+    array: ArrayView<'_, Primitive>,
+    validity: Validity,
+    mask: &Mask,
+) -> ALPRDArray
 where
     T: ALPRDFloat + NativePType,
     T::UINT: NativePType,
 {
-    let (left_parts, right_parts, exceptions_pos, exceptions) =
-        split_parts(encoder, array.as_slice::<T>());
-    let len = left_parts.len();
+    let values = array.as_slice::<T>();
+    let len = values.len();
+
+    let (left_parts, right_parts, exceptions_pos, exceptions) = match mask {
+        Mask::AllTrue(_) => {
+            let (left, right, exc_pos, exc) = split_parts(encoder, values);
+            (Buffer::from(left), Buffer::from(right), exc_pos, exc)
+        }
+        Mask::AllFalse(_) => {
+            assert!(
+                !encoder.codes().is_empty(),
+                "codes lookup table must be populated before RD encoding"
+            );
+            (
+                Buffer::<u16>::zeroed(len),
+                Buffer::<T::UINT>::zeroed(len),
+                Vec::new(),
+                Vec::new(),
+            )
+        }
+        Mask::Values(mask_values) => {
+            let &first_left = encoder
+                .codes()
+                .first()
+                .vortex_expect("codes lookup table must be populated before RD encoding");
+            // Substitute a float whose left part is `dict[0]` (code `0`) and right part is `0`,
+            // so null slots never emit exception patches and decode cleanly under validity.
+            let null_fill = T::from_bits(
+                <T as ALPRDFloat>::from_u16(first_left) << usize::from(encoder.right_bit_width()),
+            );
+            let sanitized = sanitize_nulls(values, mask_values, null_fill);
+            let (left, right, exc_pos, exc) = split_parts(encoder, &sanitized);
+            (Buffer::from(left), Buffer::from(right), exc_pos, exc)
+        }
+    };
 
     // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-    let primitive_left = PrimitiveArray::new(
-        Buffer::from(left_parts),
-        array
-            .validity()
-            .vortex_expect("ALP RD validity should be derivable"),
-    );
+    let primitive_left = PrimitiveArray::new(left_parts, validity);
     // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
     let packed_left = unsafe {
         bitpack_encode_unchecked(primitive_left, encoder.left_bit_width())
@@ -102,7 +220,7 @@ where
             .into_array()
     };
 
-    let primitive_right = PrimitiveArray::new(Buffer::from(right_parts), Validity::NonNullable);
+    let primitive_right = PrimitiveArray::new(right_parts, Validity::NonNullable);
     // SAFETY: by construction, all values in right_parts are right_bit_width + leading zeros.
     let packed_right = unsafe {
         bitpack_encode_unchecked(primitive_right, encoder.right_bit_width())
@@ -385,20 +503,27 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::ALPRD;
     use super::ALPRDArrayExt;
+    use super::ALPRDFloat;
     use super::Primitive;
     use super::RDEncoder;
     use super::RDEncoderExt;
+    use super::alp_rd_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -514,5 +639,176 @@ mod tests {
             encoded.left_parts_dictionary().as_slice(),
             &[514, 1538, 515, 1539, 513, 1537, 512, 1536]
         );
+    }
+
+    /// Generates >8 distinct dirty left-part bit patterns including NaN, sentinel bits, and extremes.
+    fn dirty_null_values_f32() -> Vec<f32> {
+        let mut values = vec![
+            f32::NAN,
+            f32::from_bits(0xdead_beef),
+            1e30_f32,
+            -1e30_f32,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            1e-30_f32,
+            f32::from_bits(1),
+        ];
+        for prefix in 0u32..16 {
+            values.push(f32::from_bits((0x2000 + prefix * 0x0333) << 16 | 0x5a5a));
+        }
+        values
+    }
+
+    fn dirty_null_values_f64() -> Vec<f64> {
+        let mut values = vec![
+            f64::NAN,
+            f64::from_bits(0xdead_beef_cafe_babe),
+            1e300_f64,
+            -1e300_f64,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            1e-300_f64,
+            f64::from_bits(1),
+        ];
+        for prefix in 0u64..16 {
+            values.push(f64::from_bits(
+                (0x2000 + prefix * 0x0333) << 48 | 0x0000_5a5a_1234_5678,
+            ));
+        }
+        values
+    }
+
+    fn check_dirty_nulls_alprd<T>(clean_values: &[T], dirty_values: &[T]) -> VortexResult<()>
+    where
+        T: ALPRDFloat + NativePType,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 10_000;
+        let mut raw = Vec::with_capacity(len);
+        let mut valid_only = Vec::with_capacity(len);
+        let mut is_valid = Vec::with_capacity(len);
+
+        for row in 0..len {
+            if row % 10 == 0 {
+                raw.push(dirty_values[row % dirty_values.len()]);
+                is_valid.push(false);
+            } else {
+                let value = clean_values[row % clean_values.len()];
+                raw.push(value);
+                valid_only.push(value);
+                is_valid.push(true);
+            }
+        }
+
+        let array = PrimitiveArray::new(Buffer::from(raw), Validity::from_iter(is_valid));
+        let clean_array =
+            PrimitiveArray::new(Buffer::from(valid_only.clone()), Validity::NonNullable);
+
+        // Both `alp_rd_encode` and `RDEncoder::encode` must avoid patches on dirty null slots.
+        let encoded = alp_rd_encode(array.as_view(), &mut ctx)?;
+        let clean_encoded = alp_rd_encode(clean_array.as_view(), &mut ctx)?;
+
+        assert!(encoded.left_parts_patches().is_none());
+        assert_eq!(encoded.right_bit_width(), clean_encoded.right_bit_width());
+        assert_eq!(
+            encoded.left_parts_dictionary().as_slice(),
+            clean_encoded.left_parts_dictionary().as_slice()
+        );
+        assert_arrays_eq!(encoded.clone(), array, &mut ctx);
+
+        let direct_encoded = RDEncoder::new(&valid_only).encode(array.as_view());
+        assert!(direct_encoded.left_parts_patches().is_none());
+        assert_arrays_eq!(direct_encoded, array, &mut ctx);
+
+        // Verify take, filter, slice, and scalar_at remain sound on dummy null slots.
+        let take_indices = PrimitiveArray::from_iter([0u32, 1, 10, 11, 9990, 9999]).into_array();
+        assert_arrays_eq!(
+            encoded.take(take_indices.clone())?,
+            array.take(take_indices)?,
+            &mut ctx
+        );
+        let filter_mask = Mask::from_iter((0..len).map(|row| row % 7 == 0));
+        assert_arrays_eq!(
+            encoded.filter(filter_mask.clone())?,
+            array.filter(filter_mask)?,
+            &mut ctx
+        );
+        assert_arrays_eq!(encoded.slice(5..55)?, array.slice(5..55)?, &mut ctx);
+        assert!(encoded.execute_scalar(0, &mut ctx)?.is_null());
+        assert_eq!(
+            encoded.execute_scalar(1, &mut ctx)?,
+            array.execute_scalar(1, &mut ctx)?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dirty_nulls_alprd_f32() -> VortexResult<()> {
+        let clean: Vec<f32> = (0..64).map(|idx| 1.0_f32 + (idx as f32) * 1e-4).collect();
+        check_dirty_nulls_alprd(&clean, &dirty_null_values_f32())
+    }
+
+    #[test]
+    fn test_dirty_nulls_alprd_f64() -> VortexResult<()> {
+        let clean: Vec<f64> = (0..64).map(|idx| 1.0_f64 + (idx as f64) * 1e-6).collect();
+        check_dirty_nulls_alprd(&clean, &dirty_null_values_f64())
+    }
+
+    #[rstest]
+    #[case::f32(1.123_456_f32, dirty_null_values_f32())]
+    #[case::f64(1.123_456_789_012_f64, dirty_null_values_f64())]
+    fn test_dirty_nulls_alprd_edge_cases<T>(
+        #[case] valid_value: T,
+        #[case] dirty_values: Vec<T>,
+    ) -> VortexResult<()>
+    where
+        T: ALPRDFloat + NativePType,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // All-null array with >8 distinct dirty left-part patterns.
+        let all_null_raw: Vec<T> = (0..1024)
+            .map(|row| dirty_values[row % dirty_values.len()])
+            .collect();
+        let all_null =
+            PrimitiveArray::new(Buffer::from(all_null_raw.clone()), Validity::AllInvalid);
+        let all_null_encoded = alp_rd_encode(all_null.as_view(), &mut ctx)?;
+        assert!(all_null_encoded.left_parts_patches().is_none());
+        assert_arrays_eq!(all_null_encoded.clone(), all_null, &mut ctx);
+        assert!(all_null_encoded.execute_scalar(0, &mut ctx)?.is_null());
+
+        // Compressed ConstantArray(false) validity with dirty garbage bits.
+        let const_null = PrimitiveArray::new(
+            Buffer::from(all_null_raw),
+            Validity::Array(ConstantArray::new(false, 1024).into_array()),
+        );
+        let const_null_encoded = alp_rd_encode(const_null.as_view(), &mut ctx)?;
+        assert!(const_null_encoded.left_parts_patches().is_none());
+        assert_arrays_eq!(const_null_encoded, const_null, &mut ctx);
+
+        // Empty array must not panic.
+        let empty = PrimitiveArray::new(Buffer::<T>::empty(), Validity::AllValid);
+        let empty_encoded = alp_rd_encode(empty.as_view(), &mut ctx)?;
+        assert!(empty_encoded.left_parts_patches().is_none());
+        assert_arrays_eq!(empty_encoded, empty, &mut ctx);
+
+        // Single valid value surrounded by dirty nulls with >8 distinct left parts.
+        let mut one_valid_raw: Vec<T> = (0..1024)
+            .map(|row| dirty_values[row % dirty_values.len()])
+            .collect();
+        let mut one_valid_mask = vec![false; 1024];
+        one_valid_raw[777] = valid_value;
+        one_valid_mask[777] = true;
+        let one_valid = PrimitiveArray::new(
+            Buffer::from(one_valid_raw),
+            Validity::from_iter(one_valid_mask),
+        );
+        let one_valid_encoded = alp_rd_encode(one_valid.as_view(), &mut ctx)?;
+        assert!(one_valid_encoded.left_parts_patches().is_none());
+        assert_eq!(one_valid_encoded.left_parts_dictionary().len(), 1);
+        assert_arrays_eq!(one_valid_encoded, one_valid, &mut ctx);
+
+        Ok(())
     }
 }
