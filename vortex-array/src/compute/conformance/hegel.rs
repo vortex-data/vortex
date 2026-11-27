@@ -196,8 +196,8 @@ pub fn check_encoding_roundtrip_and_ops(
 
         assert_step_eq(tc, &next_encoded, &next_canonical, step, "op", ctx)?;
 
-        // Mix lazy chains and eagerly optimized chains so both parent-reduce pushdowns and lazy
-        // wrapper execution paths are exercised.
+        // Mix unoptimized chains (which accumulate ops lazily before execution) with
+        // intermediate `optimize_ctx` steps (which exercise eager parent-reduce rewrites).
         cur_encoded = if tc.draw(gs::booleans()) {
             let optimized = next_encoded.optimize_ctx(ctx.session())?;
             assert_step_eq(tc, &optimized, &next_canonical, step, "optimized op", ctx)?;
@@ -465,7 +465,7 @@ mod tests {
     });
 
     #[hegel::test(test_cases = 50, print_blob = true)]
-    fn dict_array_passes_hegel_encoding_harness(tc: TestCase) {
+    fn test_dict_array_passes_hegel_encoding_harness(tc: TestCase) {
         let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<i32> = tc.draw(gs::vecs(gs::integers::<i32>()).min_size(1).max_size(12));
         let values_validity = if tc.draw(gs::booleans()) {
@@ -474,7 +474,11 @@ mod tests {
             draw_validity(&tc, values.len())
         };
         let values_len = values.len();
-        let values_array = PrimitiveArray::new(Buffer::from(values), values_validity).into_array();
+        let values_mask = values_validity
+            .execute_mask(values_len, &mut ctx)
+            .vortex_expect("values mask");
+        let values_array =
+            PrimitiveArray::new(Buffer::from(values.clone()), values_validity.clone()).into_array();
 
         let codes_len = tc.draw(gs::integers::<usize>().max_value(32));
         let codes: Vec<u16> = if codes_len == 0 {
@@ -494,15 +498,30 @@ mod tests {
         } else {
             draw_validity(&tc, codes_len)
         };
-        let codes_array = PrimitiveArray::new(Buffer::from(codes), codes_validity).into_array();
+        let codes_mask = codes_validity
+            .execute_mask(codes_len, &mut ctx)
+            .vortex_expect("codes mask");
+        let codes_array =
+            PrimitiveArray::new(Buffer::from(codes.clone()), codes_validity.clone()).into_array();
+
+        let expected_values: Vec<i32> = codes.iter().map(|&c| values[usize::from(c)]).collect();
+        let expected_validity = if matches!(codes_validity, Validity::NonNullable)
+            && matches!(values_validity, Validity::NonNullable)
+        {
+            Validity::NonNullable
+        } else {
+            Validity::from_iter(
+                codes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &c)| codes_mask.value(i) && values_mask.value(usize::from(c))),
+            )
+        };
+        let canonical =
+            PrimitiveArray::new(Buffer::from(expected_values), expected_validity).into_array();
 
         let dict = DictArray::try_new(codes_array, values_array)
             .vortex_expect("valid dict")
-            .into_array();
-        let canonical = dict
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .vortex_expect("canonicalize dict")
             .into_array();
 
         check_encoding_roundtrip_and_ops(

@@ -331,7 +331,7 @@ where
 /// Generated sequences match an exact `i128` oracle across bulk decode, `scalar_at`, serde,
 /// scalar `compare`, and chained `slice`/`take`/`filter`/`mask` operations.
 #[hegel::test(test_cases = 100, print_blob = true)]
-fn sequence_matches_exact_model_and_ops(tc: TestCase) {
+fn test_sequence_matches_exact_model_and_ops(tc: TestCase) {
     let mut ctx = SESSION.create_execution_ctx();
     let (sequence, canonical) = draw_sequence(&tc).vortex_expect("draw valid sequence");
     check_encoding_roundtrip_and_ops(

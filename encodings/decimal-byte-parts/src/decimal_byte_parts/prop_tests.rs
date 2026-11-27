@@ -330,7 +330,7 @@ fn decoded_survives_encode_then_decode(tc: TestCase) {
 /// across bulk decode, `scalar_at`, serde metadata preservation, re-encoding, `compare`, and
 /// chained `slice`/`take`/`filter`/`mask` operations.
 #[hegel::test(test_cases = 100, print_blob = true)]
-fn encoded_parts_match_oracle_and_ops(tc: TestCase) {
+fn test_encoded_parts_match_oracle_and_ops(tc: TestCase) {
     let mut ctx = SESSION.create_execution_ctx();
     let (encoded, oracle) = draw_encoded_with_oracle(&tc, &mut ctx).vortex_expect("draw encoded");
     let expected_lower_parts = encoded.lower_parts().len();
@@ -358,6 +358,9 @@ fn encoded_parts_match_oracle_and_ops(tc: TestCase) {
     )
     .vortex_expect("encoded parts oracle and ops");
 
-    let re_encoded = DecimalByteParts::encode(&oracle, &mut ctx).vortex_expect("re-encode");
+    let decoded = encoded_ref
+        .execute::<DecimalArray>(&mut ctx)
+        .vortex_expect("decode");
+    let re_encoded = DecimalByteParts::encode(&decoded, &mut ctx).vortex_expect("re-encode");
     assert_arrays_eq!(re_encoded, oracle, &mut ctx);
 }

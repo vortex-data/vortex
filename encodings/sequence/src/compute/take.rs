@@ -136,6 +136,7 @@ mod test {
     use hegel::TestCase;
     use hegel::generators as gs;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -143,6 +144,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::hegel::draw_validity;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::dtype::IntegerPType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::match_each_integer_ptype;
@@ -311,17 +313,21 @@ mod test {
         };
         let index_ptype = tc.draw(gs::sampled_from(&INDEX_PTYPES));
         let indices = match_each_integer_ptype!(index_ptype, |I| {
-            let buffer = Buffer::<I>::from_iter(
-                indices
-                    .iter()
-                    .map(|&index| num_traits::cast::<u8, I>(index).vortex_expect("index fits")),
-            );
-            PrimitiveArray::new(buffer, index_validity).into_array()
+            build_take_indices::<I>(&indices, index_validity)
         });
 
         let expected = canonical.into_array().take(indices.clone())?;
         let taken = sequence.into_array().take(indices)?;
         assert_arrays_eq!(taken, expected, &mut ctx);
         Ok(())
+    }
+
+    fn build_take_indices<I: IntegerPType>(indices: &[u8], validity: Validity) -> ArrayRef {
+        let buffer = Buffer::<I>::from_iter(
+            indices
+                .iter()
+                .map(|&index| num_traits::cast::<u8, I>(index).vortex_expect("index fits")),
+        );
+        PrimitiveArray::new(buffer, validity).into_array()
     }
 }
