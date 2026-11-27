@@ -234,6 +234,12 @@ format, and reader version.
 6. **Recorded reader requirements are sound.** Each recorded origin version supplies readers for
    every member of the edition, but applications must register those implementations to use them.
 
+The `core` editions frozen before these rules were checked have known exceptions. The recorded
+minimum of `core2025.06.0` was corrected once, from `0.40.0` to `0.42.0`. Some files that the
+current writer produces under `core2025.05.0`, `core2025.06.0`, and `core2025.10.0` cannot be read
+by the recorded minimum version. `vortex-test/compat-gen/accepted-edition-failures.json` lists them,
+and the compatibility check fails if a new one appears.
+
 Together, these rules establish the relationship:
 
 ```text
