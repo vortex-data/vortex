@@ -28,7 +28,7 @@ Minimum Vortex Rust crate version: `0.36.0`.
 ### `core2025.06.0`
 
 Minimum Vortex Rust crate version: `0.42.0`. Earlier releases `0.40.0` and `0.41.x` do not register
-these encodings in the default read path.
+`vortex.pco` or `vortex.zstd` in the default read path.
 
 - `array`: `vortex.pco`, `vortex.sequence`, `vortex.zstd`
 

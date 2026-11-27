@@ -160,7 +160,7 @@ fn newest_recorded(
 /// `vortex.pco` or `vortex.zstd` in `vortex-file`'s `DEFAULT_REGISTRY`, so neither
 /// Rust's `VortexOpenOptions` nor Python's `PyRegistry` can open files written under
 /// `core2025.06.0`. `0.42.0` is the first release that registers them.
-/// See https://github.com/vortex-data/vortex/pull/12008.
+/// See <https://github.com/vortex-data/vortex/pull/12008>.
 fn is_allowed_min_version_correction(
     record_path: &str,
     changed: &[&str],
