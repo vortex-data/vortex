@@ -39,6 +39,11 @@ on:
         required: false
         type: string
         default: ""
+      extra_flags:
+        description: "Extra libFuzzer flags, space-separated"
+        required: false
+        type: string
+        default: ""
       jobs:
         description: "Number of parallel fuzzing jobs (libfuzzer -fork=N)."
         required: false
@@ -104,6 +109,7 @@ jobs:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
       FUZZ_TARGET: ${{ inputs.fuzz_target }}
       EXTRA_ENV: ${{ inputs.extra_env }}
+      EXTRA_FLAGS: ${{ inputs.extra_flags }}
       FUZZ_JOBS: ${{ inputs.jobs }}
       MAX_TIME: ${{ inputs.max_time }}
       CYCLE_HOURS: >-
