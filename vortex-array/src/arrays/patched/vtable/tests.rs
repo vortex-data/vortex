@@ -28,6 +28,7 @@ use crate::VortexSessionExecute;
 use crate::arrays::Patched;
 use crate::arrays::PatchedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::patched::PatchKernel;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
@@ -76,6 +77,45 @@ fn test_execute() {
     expected[3] = 1;
 
     assert_arrays_eq!(array, expected.into_array(), &mut ctx);
+}
+
+#[test]
+fn patch_kernel_reads_aligned_and_split_chunks() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let indices = [0u32, 1023, 1024, 1033, 2047, 2048, 2060];
+    let values = [1u16, 2, 3, 4, 5, 6, 7];
+    let patches = Patches::new(
+        3072,
+        0,
+        PrimitiveArray::from_iter(indices).into_array(),
+        PrimitiveArray::from_iter(values).into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let inner = buffer![0u16; 3072].into_array();
+    let array = Patched::from_array_and_patches(inner, &patches, &mut ctx)?;
+    let sliced = array
+        .into_array()
+        .slice(1030..3072)?
+        .optimize_ctx(&SESSION)?;
+    let kernel = PatchKernel::<u16>::try_new(sliced.as_::<Patched>()).unwrap();
+
+    // Relative row 1018 begins at physical row 2048. The overlapping window below
+    // starts inside the preceding chunk, and its patches can lie on either side.
+    let mut tail = [0u16; 1024];
+    kernel.apply(1018, &mut tail);
+    let mut expected_tail = [0u16; 1024];
+    expected_tail[0] = 6;
+    expected_tail[12] = 7;
+    assert_eq!(tail, expected_tail);
+    let mut split = [0u16; 1024];
+    kernel.apply(0, &mut split);
+    let mut expected = [0u16; 1024];
+    expected[3] = 4;
+    expected[1017] = 5;
+    expected[1018] = 6;
+    assert_eq!(split, expected);
+    Ok(())
 }
 
 #[test]
