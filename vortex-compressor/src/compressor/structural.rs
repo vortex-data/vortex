@@ -174,9 +174,9 @@ impl CascadingCompressor {
 
         let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
 
-        // Record the root scheme with the offsets child index so root exclusion rules apply.
-        let offset_ctx = compress_ctx
-            .clone()
+        // Start from a fresh root context (preserving sampling mode) so root exclusion rules
+        // apply at index 0 and nested lists do not exhaust an ancestor's cascade budget.
+        let offset_ctx = fresh_root_ctx(&compress_ctx)
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
         let list_offsets_primitive = list_array
             .offsets()
@@ -213,8 +213,9 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         let compressed_elems = self.compress(list_view.elements(), exec_ctx)?;
 
-        let offset_ctx = compress_ctx
-            .clone()
+        // Start from a fresh root context (preserving sampling mode) so root exclusion rules
+        // apply at index 0 and nested lists do not exhaust an ancestor's cascade budget.
+        let offset_ctx = fresh_root_ctx(&compress_ctx)
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
         let list_view_offsets_primitive = list_view
             .offsets()
@@ -227,8 +228,7 @@ impl CascadingCompressor {
             exec_ctx,
         )?;
 
-        let sizes_ctx = compress_ctx
-            .clone()
+        let sizes_ctx = fresh_root_ctx(&compress_ctx)
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
         let list_view_sizes_primitive = list_view
             .sizes()
@@ -292,5 +292,15 @@ impl CascadingCompressor {
         // SAFETY: compression rewrites each child slot to an equivalent physical representation,
         // preserving the parent array's logical values and statistics.
         unsafe { array.clone().with_slots(slots) }
+    }
+}
+
+/// Returns a fresh root [`CompressorContext`] preserving whether `parent` is compressing a sample.
+fn fresh_root_ctx(parent: &CompressorContext) -> CompressorContext {
+    let ctx = CompressorContext::new();
+    if parent.is_sample() {
+        ctx.with_sampling()
+    } else {
+        ctx
     }
 }
