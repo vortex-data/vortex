@@ -112,6 +112,7 @@ harness = false
 [[bench]]
 name = "list_read"
 harness = false
+required-features = ["_test-harness"]
 
 [lints]
 workspace = true
