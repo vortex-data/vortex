@@ -189,8 +189,8 @@ mod tests {
     #[case::nullable_patched(true, true, false, None)]
     #[case::single_patched(true, true, true, None)]
     #[case::sliced_mid_chunk(true, true, false, Some((517, 4013)))]
-    #[case::sliced_to_a_patch(true, false, false, Some((1023, 11 * 97 + 1)))]
-    #[case::sliced_single(true, false, true, Some((1000, 1100)))]
+    #[case::sliced_to_a_patch(true, false, false, Some((1023, 34 * 97 + 1)))]
+    #[case::sliced_single(true, false, true, Some((1000, 3100)))]
     fn alp_over_for_bp_fuses(
         #[case] patched: bool,
         #[case] nullable: bool,
