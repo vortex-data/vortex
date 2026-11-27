@@ -18,6 +18,7 @@
 //!
 //! [Variant encoding]: https://github.com/apache/parquet-format/blob/master/VariantEncoding.md
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use parquet_variant::Variant;
@@ -95,13 +96,17 @@ pub(crate) fn covers(dtype: &DType) -> bool {
 ///
 /// Returns `Some(None)` if the path does not exist in the value, and `None` for bytes that are
 /// cut short.
-fn follow<'v>(ids: &[usize], mut value: &'v [u8], depth: usize) -> Option<Option<&'v [u8]>> {
+fn follow<'v>(
+    names: &Names<'_, '_>,
+    mut value: &'v [u8],
+    depth: usize,
+) -> Option<Option<&'v [u8]>> {
     for name in 0..depth {
         // A value that is not an object has no fields.
         let Some(object) = Object::new(value)? else {
             return Some(None);
         };
-        match object.field_with_id(ids[name])? {
+        match object.field(names, name)? {
             Some(field) => value = field,
             None => return Some(None),
         }
@@ -163,7 +168,7 @@ fn decimal_as_int64(unscaled: i128, scale: u8) -> Option<i64> {
 trait Append {
     /// Appends `value`, converted to the builder's dtype. Returns `None` for bytes that are cut
     /// short or do not decode.
-    fn append(&mut self, ids: &[usize], value: &[u8]) -> Option<()>;
+    fn append(&mut self, names: &Names<'_, '_>, value: &[u8]) -> Option<()>;
 
     fn append_null(&mut self);
 }
@@ -172,10 +177,10 @@ trait Append {
 ///
 /// Generic over the builder, so that the loop of a string or an integer target is compiled for
 /// that builder alone.
-fn append_rows<B: Append>(
+fn append_rows<'m, B: Append>(
     builder: &mut B,
-    cache: &mut FieldCache<'_>,
-    metadata: &ResolvedViews<'_>,
+    cache: &mut FieldCache<'_, 'm>,
+    metadata: &ResolvedViews<'m>,
     value: &ResolvedViews<'_>,
     valid: &Mask,
     depth: usize,
@@ -185,9 +190,9 @@ fn append_rows<B: Append>(
             builder.append_null();
             continue;
         }
-        let ids = cache.resolve(metadata, idx)?;
-        match follow(ids, value.bytes(idx), depth)? {
-            Some(value) => builder.append(ids, value)?,
+        let names = cache.resolve(metadata, idx)?;
+        match follow(&names, value.bytes(idx), depth)? {
+            Some(value) => builder.append(&names, value)?,
             None => builder.append_null(),
         }
     }
@@ -294,10 +299,10 @@ impl Builder {
 }
 
 impl Append for Builder {
-    fn append(&mut self, ids: &[usize], value: &[u8]) -> Option<()> {
+    fn append(&mut self, names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         match self {
-            Self::Utf8(builder) => builder.append(ids, value),
-            Self::Int64(builder) => builder.append(ids, value),
+            Self::Utf8(builder) => builder.append(names, value),
+            Self::Int64(builder) => builder.append(names, value),
             Self::Struct {
                 fields: builders,
                 validity,
@@ -307,11 +312,11 @@ impl Append for Builder {
                 for (name, builder) in builders.iter_mut() {
                     // Every field of a value that is not an object is null, as is the struct.
                     let field = match &object {
-                        Some(object) => object.field_with_id(ids[*name])?,
+                        Some(object) => object.field(names, *name)?,
                         None => None,
                     };
                     match field {
-                        Some(field) => builder.append(ids, field)?,
+                        Some(field) => builder.append(names, field)?,
                         None => builder.append_null(),
                     }
                 }
@@ -327,7 +332,7 @@ impl Append for Builder {
                 let len = list.as_ref().map_or(0, |list| list.len);
                 for idx in 0..len {
                     let element = list.as_ref().and_then(|list| list.element(idx))?;
-                    elements.append(ids, element)?;
+                    elements.append(names, element)?;
                 }
                 let end = offsets.last().copied().unwrap_or_default();
                 offsets.push(end + u64::try_from(len).ok()?);
@@ -408,7 +413,7 @@ impl Utf8Builder {
 
 impl Append for Utf8Builder {
     #[inline]
-    fn append(&mut self, _ids: &[usize], value: &[u8]) -> Option<()> {
+    fn append(&mut self, _names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         let header = *value.first()?;
         let payload = &value[1..];
         let string = match (header & BASIC_TYPE_MASK, header >> 2) {
@@ -463,7 +468,7 @@ impl Int64Builder {
 
 impl Append for Int64Builder {
     #[inline]
-    fn append(&mut self, _ids: &[usize], value: &[u8]) -> Option<()> {
+    fn append(&mut self, _names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         let header = *value.first()?;
         let payload = &value[1..];
         let integer = match (header & BASIC_TYPE_MASK, header >> 2) {
@@ -491,22 +496,32 @@ fn utf8(bytes: &[u8]) -> Option<&str> {
 /// An id that is not in any dictionary: the ids of an object are at most four bytes wide.
 const ABSENT: usize = usize::MAX;
 
+/// The names of a path in the dictionary of one row.
+struct Names<'c, 'm> {
+    names: &'c [FieldName],
+    /// The dictionary id of each name. [`ABSENT`] is the id of a name that the dictionary does
+    /// not hold.
+    ids: &'c [usize],
+    metadata: Metadata<'m>,
+}
+
 /// The dictionary id of each of a list of names, for the metadata of the rows seen most recently.
 ///
 /// Few rows have a metadata of their own: the rows of a table share a handful of shapes, and
 /// the metadata child is dictionary encoded, so that rows with the same metadata have the same
-/// view. Resolving the names once for each view turns the lookup in every object from a binary
-/// search over names into a scan for an id.
-struct FieldCache<'a> {
+/// view. Resolving the names once for each view lets the search in every object compare ids
+/// before it compares names.
+struct FieldCache<'a, 'm> {
     names: &'a [FieldName],
-    /// The view of each metadata the cache holds, with the start of its ids in `ids`.
-    views: Vec<(u128, usize)>,
+    /// The view of each metadata the cache holds, with its dictionary and the start of its ids in
+    /// `ids`.
+    views: Vec<(u128, Metadata<'m>, usize)>,
     /// The ids of the names, one run of `names.len()` ids for each entry of `views`. [`ABSENT`]
     /// is the id of a name that the dictionary does not hold.
     ids: Vec<usize>,
 }
 
-impl<'a> FieldCache<'a> {
+impl<'a, 'm> FieldCache<'a, 'm> {
     /// The number of metadata views the cache holds before it starts again.
     const CAPACITY: usize = 16;
 
@@ -522,27 +537,32 @@ impl<'a> FieldCache<'a> {
     ///
     /// Returns `None` if the metadata does not decode, or if its dictionary holds one of the
     /// names more than once, which leaves the extraction to the general kernel.
-    fn resolve(&mut self, metadata: &ResolvedViews<'_>, idx: usize) -> Option<&[usize]> {
+    fn resolve(&mut self, metadata: &ResolvedViews<'m>, idx: usize) -> Option<Names<'_, 'm>> {
         let view = metadata.views()[idx].as_u128();
         let len = self.names.len();
 
-        let start = match self.views.iter().find(|(cached, _)| *cached == view) {
-            Some(&(_, start)) => start,
+        let (dictionary, start) = match self.views.iter().find(|(cached, ..)| *cached == view) {
+            Some(&(_, dictionary, start)) => (dictionary, start),
             None => {
                 if self.views.len() == Self::CAPACITY {
                     self.views.clear();
                     self.ids.clear();
                 }
 
+                let dictionary = Metadata::new(metadata.bytes(idx))?;
                 let start = self.ids.len();
                 self.ids.resize(start + len, ABSENT);
-                fill(self.names, &mut self.ids[start..], metadata.bytes(idx))?;
-                self.views.push((view, start));
-                start
+                fill(self.names, &mut self.ids[start..], &dictionary)?;
+                self.views.push((view, dictionary, start));
+                (dictionary, start)
             }
         };
 
-        Some(&self.ids[start..start + len])
+        Some(Names {
+            names: self.names,
+            ids: &self.ids[start..start + len],
+            metadata: dictionary,
+        })
     }
 }
 
@@ -550,9 +570,7 @@ impl<'a> FieldCache<'a> {
 ///
 /// Returns `None` if the metadata does not decode, or if its dictionary holds one of the names
 /// more than once.
-fn fill(names: &[FieldName], ids: &mut [usize], metadata: &[u8]) -> Option<()> {
-    let metadata = Metadata::new(metadata)?;
-
+fn fill(names: &[FieldName], ids: &mut [usize], metadata: &Metadata<'_>) -> Option<()> {
     // Every row of a table without a dictionary over its metadata misses the cache, so this loop
     // is hot. Each offset is read once, and the bytes of a name are compared only with names of
     // the same length.
@@ -640,10 +658,23 @@ impl<'a> Metadata<'a> {
             names: bytes.get(names_start..)?,
         })
     }
+
+    /// The name with dictionary id `id`, or `None` if the dictionary does not hold it.
+    #[inline]
+    fn name(&self, id: usize) -> Option<&'a [u8]> {
+        let offset = |idx: usize| {
+            read_uint(
+                self.offsets.get(idx * self.offset_size..)?,
+                self.offset_size,
+            )
+        };
+        self.names.get(offset(id)?..offset(id.checked_add(1)?)?)
+    }
 }
 
 /// An object value: its field ids, sorted by field name, and the offsets of the field values.
 struct Object<'a> {
+    len: usize,
     id_size: usize,
     offset_size: usize,
     ids: &'a [u8],
@@ -668,6 +699,7 @@ impl<'a> Object<'a> {
         let offsets_start = ids_start + len * id_size;
         let values_start = offsets_start + (len + 1) * offset_size;
         Some(Some(Self {
+            len,
             id_size,
             offset_size,
             ids: value.get(ids_start..offsets_start)?,
@@ -676,30 +708,49 @@ impl<'a> Object<'a> {
         }))
     }
 
-    /// The value of the field whose name has dictionary id `id`, or `Some(None)` if the object
-    /// has no such field.
+    /// The value of the field with name `name` of `names`, or `Some(None)` if the object has no
+    /// such field.
+    ///
+    /// Searches the fields by name in halves, as Arrow does, so that an object whose fields are
+    /// not sorted by name reads as it reads in Arrow. Two ids name the same field only if they are
+    /// equal: [`fill`] gives up on a dictionary that holds a name of the path twice.
     #[inline]
-    fn field_with_id(&self, id: usize) -> Option<Option<&'a [u8]>> {
-        let position = if self.id_size == 1 {
-            self.ids.iter().position(|&field| usize::from(field) == id)
-        } else {
-            let mut position = None;
-            for (idx, field) in self.ids.chunks_exact(self.id_size).enumerate() {
-                if read_uint(field, self.id_size)? == id {
-                    position = Some(idx);
-                    break;
-                }
-            }
-            position
-        };
-        let Some(position) = position else {
+    fn field(&self, names: &Names<'_, '_>, name: usize) -> Option<Option<&'a [u8]>> {
+        let id = names.ids[name];
+        if id == ABSENT {
             return Some(None);
-        };
-        let offset = read_uint(
-            self.offsets.get(position * self.offset_size..)?,
-            self.offset_size,
-        )?;
-        Some(Some(self.values.get(offset..)?))
+        }
+        let name = names.names[name].as_ref().as_bytes();
+
+        let (mut start, mut end) = (0, self.len);
+        while start < end {
+            let mid = start + (end - start) / 2;
+            let field = read_uint(self.ids.get(mid * self.id_size..)?, self.id_size)?;
+            let ordering = if field == id {
+                Ordering::Equal
+            } else {
+                let field = names.metadata.name(field)?;
+                // Most names differ in their first byte, which saves a call to compare the rest.
+                field
+                    .first()
+                    .cmp(&name.first())
+                    .then_with(|| field.cmp(name))
+            };
+
+            match ordering {
+                Ordering::Equal => {
+                    let offset = read_uint(
+                        self.offsets.get(mid * self.offset_size..)?,
+                        self.offset_size,
+                    )?;
+                    return Some(Some(self.values.get(offset..)?));
+                }
+                Ordering::Greater => end = mid,
+                Ordering::Less => start = mid + 1,
+            }
+        }
+
+        Some(None)
     }
 }
 
@@ -751,7 +802,10 @@ mod tests {
     use std::sync::LazyLock;
 
     use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::BinaryViewArray;
     use arrow_array::StringArray;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
     use parquet_variant::VariantBuilderExt;
     use parquet_variant::VariantPath as PqVariantPath;
     use parquet_variant_compute::GetOptions;
@@ -1193,6 +1247,44 @@ mod tests {
             &mut ctx
         );
         assert_arrays_eq!(b, PrimitiveArray::from_option_iter([Some(7i64)]), &mut ctx);
+        Ok(())
+    }
+
+    /// An object whose fields are not sorted by name reads as it reads in Arrow, which searches the
+    /// fields by name in halves. The fields of `{"c": 1, "a": 2, "b": 3}` are in that order, so
+    /// the search does not find "c".
+    #[rstest]
+    #[case::first("a")]
+    #[case::middle("b")]
+    #[case::out_of_order("c")]
+    fn reads_fields_not_sorted_by_name_as_arrow_does(#[case] path: &str) -> VortexResult<()> {
+        let metadata: &[u8] = &[0x01, 3, 0, 1, 2, 3, b'a', b'b', b'c'];
+        // The header, the field ids of "c", "a" and "b", the field offsets, and three integers.
+        let value = [
+            &[OBJECT, 3][..],
+            &[2, 0, 1],
+            &[0, 2, 4, 6],
+            &[INT8 << 2, 1, INT8 << 2, 2, INT8 << 2, 3],
+        ]
+        .concat();
+        let storage = arrow_array::StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+            ]
+            .into(),
+            vec![
+                Arc::new(BinaryViewArray::from_iter_values([metadata])),
+                Arc::new(BinaryViewArray::from_iter_values([value.as_slice()])),
+            ],
+            None,
+        )?;
+
+        let (actual, expected) =
+            extract_both_variant(&ArrowVariantArray::try_new(&storage)?, path, &int64())?;
+
+        let actual = actual.ok_or_else(|| vortex_err!("{path} must be extracted in place"))?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
