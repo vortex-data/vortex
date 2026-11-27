@@ -66,9 +66,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-pub(super) fn variant_object(
-    fields: impl IntoIterator<Item = (&'static str, Scalar)>,
-) -> Scalar {
+pub(super) fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
     let fields = fields.into_iter().collect::<Vec<_>>();
     let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
     let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
@@ -810,7 +808,7 @@ fn variant_get_untyped_merges_shredded_leaf_values(
 #[rstest]
 #[case::list(false)]
 #[case::fixed_size_list(true)]
-fn variant_get_untyped_list_falls_back_to_core(#[case] fixed_size: bool) -> VortexResult<()> {
+fn variant_get_untyped_list_reads_shredded_values(#[case] fixed_size: bool) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let row0_list = Scalar::list(
         DType::Variant(Nullability::NonNullable),
@@ -828,10 +826,7 @@ fn variant_get_untyped_list_falls_back_to_core(#[case] fixed_size: bool) -> Vort
         ],
         Nullability::NonNullable,
     );
-    let core_storage = variant_rows([
-        Scalar::variant(row0_list.clone()),
-        Scalar::variant(row1_list.clone()),
-    ])?;
+    let core_storage = variant_rows([Scalar::variant(row0_list), Scalar::variant(row1_list)])?;
     let shredded_items = if fixed_size {
         FixedSizeListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
@@ -851,12 +846,25 @@ fn variant_get_untyped_list_falls_back_to_core(#[case] fixed_size: bool) -> Vort
     };
     let variant = VariantArray::try_new(core_storage, Some(shredded_items))?.into_array();
 
+    let shredded_list = |values: [i32; 2]| {
+        Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            values
+                .map(|value| Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)))
+                .to_vec(),
+            Nullability::NonNullable,
+        )
+    };
+
     let expr = variant_get(root(), VariantPath::root(), None);
     let result = variant.apply(&expr)?;
 
     assert_arrays_eq!(
         result,
-        variant_rows([Scalar::variant(row0_list), Scalar::variant(row1_list)])?,
+        variant_rows([
+            Scalar::variant(shredded_list([1, 2])),
+            Scalar::variant(shredded_list([3, 4])),
+        ])?,
         &mut ctx
     );
     Ok(())
@@ -952,6 +960,14 @@ fn variant_get_unwraps_nested_variant_core_storage() -> VortexResult<()> {
         &mut ctx
     );
     Ok(())
+}
+
+fn variant_list(elements: impl IntoIterator<Item = Scalar>) -> Scalar {
+    Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        elements.into_iter().map(Scalar::variant).collect(),
+        Nullability::NonNullable,
+    )
 }
 
 #[test]
@@ -1086,14 +1102,6 @@ fn variant_get_fixed_size_list_preserves_variant_nulls() -> VortexResult<()> {
         assert_eq!(elems[1].as_variant().is_variant_null(), Some(true));
     }
     Ok(())
-}
-
-fn variant_list(elements: impl IntoIterator<Item = Scalar>) -> Scalar {
-    Scalar::list(
-        DType::Variant(Nullability::NonNullable),
-        elements.into_iter().map(Scalar::variant).collect(),
-        Nullability::NonNullable,
-    )
 }
 
 /// The lazy shapes over a constant in [`variant_get_extracts_from_lazy_constants`].
