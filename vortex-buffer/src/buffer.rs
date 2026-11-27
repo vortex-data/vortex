@@ -1437,10 +1437,9 @@ mod test {
         assert_eq!(sliced.as_slice(), &[20, 30]);
         drop(sliced);
 
-        // An empty slice returns an unbacked buffer so the original remains uniquely owned.
+        // An empty slice does not retain a reference to the backing, so `buf` stays uniquely owned.
         let empty = buf.slice(2..2);
         assert!(empty.is_empty());
-        assert!(empty.backing.is_none());
         assert!(buf.try_into_mut().is_ok());
     }
 
@@ -1510,12 +1509,10 @@ mod test {
 
         let empty = Buffer::<u32>::from_bytes_aligned(empty_aligned, Alignment::new(16));
         assert!(empty.is_empty());
-        assert!(empty.backing.is_none());
         assert_eq!(empty.alignment(), Alignment::new(16));
 
         let empty_u8 = ByteBuffer::from_bytes_aligned(Bytes::new(), Alignment::none());
         assert!(empty_u8.is_empty());
-        assert!(empty_u8.backing.is_none());
     }
 
     #[test]
@@ -1637,12 +1634,12 @@ mod test {
     fn shared_owned_try_into_mut_returns_err_preserving_backing() {
         let buf = buffer![1u32, 2, 3];
         let clone = buf.clone();
-        let backing_ptr = Arc::as_ptr(buf.backing.as_ref().unwrap());
+        let ptr = buf.as_ptr();
 
         let Err(returned) = buf.try_into_mut() else {
             panic!("shared buffer must not become mutable")
         };
-        assert_eq!(Arc::as_ptr(returned.backing.as_ref().unwrap()), backing_ptr);
+        assert_eq!(returned.as_ptr(), ptr);
         assert_eq!(returned.as_slice(), clone.as_slice());
     }
 

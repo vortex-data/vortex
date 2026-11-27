@@ -120,7 +120,18 @@ mod tests {
         let min = timer.quantile(0.0).unwrap();
         let median = timer.quantile(0.5).unwrap();
         let max = timer.quantile(1.0).unwrap();
-        assert!(min > Duration::ZERO && min <= median && median <= max);
+        assert!(
+            (Duration::from_micros(500)..=Duration::from_micros(1500)).contains(&min),
+            "unexpected min: {min:?}"
+        );
+        assert!(
+            (Duration::from_millis(45)..=Duration::from_millis(55)).contains(&median),
+            "unexpected median: {median:?}"
+        );
+        assert!(
+            (Duration::from_millis(95)..=Duration::from_millis(105)).contains(&max),
+            "unexpected max: {max:?}"
+        );
     }
 
     #[test]

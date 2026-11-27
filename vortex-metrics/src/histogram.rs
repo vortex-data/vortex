@@ -91,7 +91,12 @@ mod tests {
         let min = histogram.quantile(0.0).unwrap();
         let median = histogram.quantile(0.5).unwrap();
         let max = histogram.quantile(1.0).unwrap();
-        assert!(min > 0.0 && min <= median && median <= max);
+        assert!((0.5..=1.5).contains(&min), "unexpected min: {min}");
+        assert!(
+            (45.0..=55.0).contains(&median),
+            "unexpected median: {median}"
+        );
+        assert!((95.0..=105.0).contains(&max), "unexpected max: {max}");
     }
 
     #[test]

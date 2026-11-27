@@ -210,10 +210,16 @@ fn fixed_slots_reordered_strips_slot_attrs_and_orders_storage() {
     let Fields::Named(view_fields) = &view.fields else {
         panic!("expected named view fields");
     };
-    let view_by_name: Vec<(&str, bool, bool)> = view_fields
+    let view_by_name: Vec<(&str, &str, bool)> = view_fields
         .named
         .iter()
         .map(|f| {
+            let vis = match &f.vis {
+                Visibility::Public(_) => "pub",
+                Visibility::Restricted(r) if r.path.is_ident("crate") => "pub(crate)",
+                Visibility::Restricted(_) => "pub(restricted)",
+                Visibility::Inherited => "private",
+            };
             (
                 match f.ident.as_ref().unwrap().to_string().as_str() {
                     "patch_values" => "patch_values",
@@ -221,7 +227,7 @@ fn fixed_slots_reordered_strips_slot_attrs_and_orders_storage() {
                     "lane_offsets" => "lane_offsets",
                     _ => "other",
                 },
-                matches!(f.vis, Visibility::Public(_)),
+                vis,
                 is_ref_array_ref(&f.ty),
             )
         })
@@ -229,9 +235,9 @@ fn fixed_slots_reordered_strips_slot_attrs_and_orders_storage() {
     assert_eq!(
         view_by_name,
         vec![
-            ("patch_values", false, false),
-            ("inner", true, true),
-            ("lane_offsets", true, false),
+            ("patch_values", "pub(crate)", false),
+            ("inner", "pub", true),
+            ("lane_offsets", "pub", false),
         ]
     );
     assert!(is_option_ref_array_ref(&view_fields.named[0].ty));
