@@ -437,28 +437,31 @@ mod tests {
     #[test]
     fn test_float_stats_nan_and_signed_zero_runs() {
         let mut ctx = SESSION.create_execution_ctx();
-        let opts = GenerateStatsOptions {
-            count_distinct_values: true,
-        };
-
-        // Single NaN and all-NaN arrays must count 1 run (average_run_length >= 1, never 0).
         let single_nan = PrimitiveArray::from_iter([f32::NAN]);
-        let stats = FloatStats::generate_opts(&single_nan, opts, &mut ctx);
-        assert_eq!(stats.run_count(), 1);
-        assert_eq!(stats.average_run_length(), 1);
-        assert_eq!(stats.distinct_count(), Some(1));
-
         let leading_nan = PrimitiveArray::from_iter([f64::NAN, f64::NAN, 1.0, 2.0]);
-        let stats = FloatStats::generate_opts(&leading_nan, opts, &mut ctx);
-        assert_eq!(stats.run_count(), 3);
-        assert_eq!(stats.average_run_length(), 1);
-        assert_eq!(stats.distinct_count(), Some(3));
-
-        // +0.0 and -0.0 have distinct bit patterns and must count as separate runs.
         let signed_zeros = PrimitiveArray::from_iter([0.0f64, -0.0, 0.0, -0.0]);
-        let stats = FloatStats::generate_opts(&signed_zeros, opts, &mut ctx);
-        assert_eq!(stats.run_count(), 4);
-        assert_eq!(stats.average_run_length(), 1);
-        assert_eq!(stats.distinct_count(), Some(2));
+
+        for count_distinct_values in [false, true] {
+            let opts = GenerateStatsOptions {
+                count_distinct_values,
+            };
+
+            // Single NaN and all-NaN arrays must count 1 run (average_run_length >= 1, never 0).
+            let stats = FloatStats::generate_opts(&single_nan, opts, &mut ctx);
+            assert_eq!(stats.run_count(), 1);
+            assert_eq!(stats.average_run_length(), 1);
+            assert_eq!(stats.distinct_count(), count_distinct_values.then_some(1));
+
+            let stats = FloatStats::generate_opts(&leading_nan, opts, &mut ctx);
+            assert_eq!(stats.run_count(), 3);
+            assert_eq!(stats.average_run_length(), 1);
+            assert_eq!(stats.distinct_count(), count_distinct_values.then_some(3));
+
+            // +0.0 and -0.0 have distinct bit patterns and must count as separate runs.
+            let stats = FloatStats::generate_opts(&signed_zeros, opts, &mut ctx);
+            assert_eq!(stats.run_count(), 4);
+            assert_eq!(stats.average_run_length(), 1);
+            assert_eq!(stats.distinct_count(), count_distinct_values.then_some(2));
+        }
     }
 }
