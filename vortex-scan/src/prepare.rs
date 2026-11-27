@@ -23,8 +23,8 @@ use crate::execution::ROW_BLOCK_SIZE;
 pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
+use crate::execution::identity_rows_per_chunk;
 use crate::execution::io::segment_ranges;
-use crate::execution::rows_per_chunk;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
@@ -174,12 +174,15 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
-        } else if identity {
-            rows_per_chunk(row_count, &file.locations)
+        let chunk_rows = if identity {
+            identity_rows_per_chunk(
+                row_count,
+                &file.locations,
+                projection.dtype(),
+                filtered_chunk_rows,
+            )
         } else {
-            MAX_ROWS_PER_CHUNK
+            filtered_chunk_rows.unwrap_or(MAX_ROWS_PER_CHUNK)
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,

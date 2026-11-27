@@ -127,6 +127,7 @@ enum NativeScan {
         file: Arc<VortexFile>,
         index: Arc<IndexRows<IvfIndex>>,
         search: Option<Search>,
+        min_price: Option<i64>,
         probes: usize,
     },
     Lance(Arc<dyn LancePlan>),
@@ -143,6 +144,7 @@ impl NativeScan {
                 file,
                 index,
                 search,
+                min_price,
                 probes,
             } => {
                 let session = file.session();
@@ -159,7 +161,7 @@ impl NativeScan {
                     scan().with_projection(columns)
                 };
                 if let Some(search) = search {
-                    let hits = if let Some(floor) = search.min_price {
+                    let hits = if let Some(floor) = *min_price {
                         let dtype = file.dtype();
                         let mut eligible = ScanDriver::new(session.handle(), 0, true).run(
                             scan()
@@ -190,6 +192,10 @@ impl NativeScan {
                     let mut rows: Vec<_> = hits.into_iter().map(|hit| hit.row).collect();
                     rows.sort_unstable();
                     read = read.with_row_indices(StrictSortedBuffer::try_new(Buffer::from(rows))?);
+                } else if let Some(floor) = *min_price {
+                    read = read.with_some_filter(Some(
+                        gt_eq(col("price"), lit(floor)).bind(file.dtype())?,
+                    ));
                 }
                 // Full scans can stream completed chunks in any order.
                 // An indexed take fetches only the candidate rows in a single small read.
@@ -282,10 +288,12 @@ impl TableProvider for RecipeTable {
         &self,
         filters: &[&Expr],
     ) -> Result<Vec<TableProviderFilterPushDown>> {
+        let can_prefilter = self.push_price_filter
+            || (self.search.is_none() && matches!(self.backend, Backend::Vortex { .. }));
         Ok(filters
             .iter()
             .map(|filter| {
-                if self.push_price_filter && price_floor(filter).is_some() {
+                if can_prefilter && price_floor(filter).is_some() {
                     TableProviderFilterPushDown::Exact
                 } else {
                     TableProviderFilterPushDown::Unsupported
@@ -301,20 +309,18 @@ impl TableProvider for RecipeTable {
         filters: &[Expr],
         _: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let mut search = self.search.clone();
-        if let Some(search) = search.as_mut() {
-            search.min_price = search
-                .min_price
-                .into_iter()
-                .chain(filters.iter().filter_map(price_floor))
-                .max();
-        }
-        let min_price = search.as_ref().and_then(|s| s.min_price);
+        let search = self.search.clone();
+        let min_price = filters
+            .iter()
+            .filter_map(price_floor)
+            .chain(search.as_ref().and_then(|s| s.min_price))
+            .max();
         let source = match &self.backend {
             Backend::Vortex { file, index } => NativeScan::Vortex {
                 file: Arc::clone(file),
                 index: Arc::clone(index),
                 search,
+                min_price,
                 probes: self.probes,
             },
             Backend::Lance(dataset) => {
@@ -329,7 +335,7 @@ impl TableProvider for RecipeTable {
                         )?
                         .distance_metric(MetricType::Cosine)
                         .nprobes(self.probes);
-                        if let Some(floor) = search.min_price {
+                        if let Some(floor) = min_price {
                             scan.filter(&format!("price >= {floor}"))?.prefilter(true);
                         }
                     }

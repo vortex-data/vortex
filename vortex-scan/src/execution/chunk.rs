@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
@@ -43,6 +44,30 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
     let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
     blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+}
+
+/// Use the file byte budget for wide filtered identity scans as well as unfiltered reads.
+/// Small and variable-width filtered projections retain the filter planner's chunk size.
+pub(crate) fn identity_rows_per_chunk(
+    row_count: u64,
+    locations: &[SegmentLocation],
+    dtype: &DType,
+    filtered_rows: Option<usize>,
+) -> usize {
+    let Some(filtered_rows) = filtered_rows else {
+        return rows_per_chunk(row_count, locations);
+    };
+    if row_count > MAX_ROWS_PER_CHUNK as u64
+        && dtype
+            .element_size()
+            .is_some_and(|bytes| bytes > TARGET_BYTES_PER_CHUNK as usize / MAX_ROWS_PER_CHUNK)
+    {
+        let byte_rows = rows_per_chunk(row_count, locations);
+        if byte_rows < MAX_ROWS_PER_CHUNK {
+            return filtered_rows.min(byte_rows);
+        }
+    }
+    filtered_rows
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.

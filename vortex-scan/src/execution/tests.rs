@@ -324,6 +324,31 @@ fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: us
 }
 
 #[test]
+fn filtered_identity_chunk_budget() {
+    use vortex_array::dtype::PType;
+    let scalar = DType::Primitive(PType::F32, false.into());
+    let vector = DType::FixedSizeList(Arc::new(scalar.clone()), 128, false.into());
+    let locations = [SegmentLocation {
+        offset: 0,
+        length: 384_000_000,
+        alignment: Alignment::none(),
+    }];
+    let filtered = Some(FILTERED_ROWS_PER_CHUNK);
+    assert_eq!(
+        identity_rows_per_chunk(1_000_000, &locations, &vector, filtered),
+        16_384
+    );
+    assert_eq!(
+        identity_rows_per_chunk(1_000_000, &locations, &scalar, filtered),
+        FILTERED_ROWS_PER_CHUNK
+    );
+    assert_eq!(
+        identity_rows_per_chunk(1_000_000, &[], &vector, filtered),
+        FILTERED_ROWS_PER_CHUNK
+    );
+}
+
+#[test]
 fn smaller_chunks_keep_file_alignment() {
     assert_eq!(
         row_chunks(7500..33_000, 16_384),
