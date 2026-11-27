@@ -722,18 +722,20 @@ fn execute_sparse_primitives<T: NativePType>(
     let offset = patches.offset();
     let validity = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
         let indices = indices.as_slice::<I>();
-        let rows = indices.iter().map(|&index| {
-            let index: usize = index.as_();
-            index - offset
-        });
         let dst = output.as_mut_slice();
-        for (row, &value) in rows.clone().zip(source) {
+        let rows = indices.iter().zip(source).map(|(&index, &value)| {
+            let index: usize = index.as_();
+            let row = index - offset;
             dst[row] = value;
-        }
-        if valid_count == len {
-            Validity::from(fill_value.dtype().nullability())
-        } else if valid_count == 0 {
-            Validity::AllInvalid
+            row
+        });
+        if valid_count == len || valid_count == 0 {
+            rows.for_each(|_| ());
+            if valid_count == len {
+                Validity::from(fill_value.dtype().nullability())
+            } else {
+                Validity::AllInvalid
+            }
         } else {
             let fill_valid = fill.is_some();
             let bits = if mask.all_true() || mask.all_false() {

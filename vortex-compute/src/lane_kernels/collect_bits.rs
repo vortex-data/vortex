@@ -9,7 +9,6 @@ use vortex_buffer::BufferMut;
 
 use crate::lane_kernels::IndexedSourceExt;
 use crate::lane_kernels::LaneZip;
-use crate::lane_kernels::low_bits_mask;
 
 /// Freeze `len` bits packed into `words` (LSB-first, 64 lanes per word) into a [`BitBuffer`].
 pub fn bit_buffer_from_words(words: BufferMut<u64>, len: usize) -> BitBuffer {
@@ -31,25 +30,27 @@ pub fn collect_sparse_bits(
     exceptions: impl IntoIterator<Item = usize>,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
-    let mut words = BufferMut::full_in(
-        if fill { u64::MAX } else { 0 },
-        len.div_ceil(64),
-        allocator.clone(),
-    );
-    let dst = words.as_mut_slice();
-    for index in exceptions {
-        assert!(index < len, "bit index {index} exceeds length {len}");
-        let bit = 1 << (index % 64);
-        if fill {
-            dst[index / 64] &= !bit;
-        } else {
-            dst[index / 64] |= bit;
+    let mut bytes = if fill {
+        BufferMut::full_in(u8::MAX, len.div_ceil(8), allocator.clone())
+    } else {
+        BufferMut::<u8>::zeroed_in(len.div_ceil(8), allocator.clone())
+    };
+    let dst = bytes.as_mut_slice();
+    if fill {
+        for index in exceptions {
+            assert!(index < len, "bit index {index} exceeds length {len}");
+            dst[index / 8] &= !(1 << (index % 8));
+        }
+        if !len.is_multiple_of(8) {
+            dst[len / 8] &= (1 << (len % 8)) - 1;
+        }
+    } else {
+        for index in exceptions {
+            assert!(index < len, "bit index {index} exceeds length {len}");
+            dst[index / 8] |= 1 << (index % 8);
         }
     }
-    if fill && !len.is_multiple_of(64) {
-        dst[len / 64] &= low_bits_mask(len % 64);
-    }
-    bit_buffer_from_words(words, len)
+    BitBuffer::new(bytes.freeze(), len)
 }
 
 /// Bit-pack the predicate `f(values[i])` over a slice into a [`BitBuffer`].
