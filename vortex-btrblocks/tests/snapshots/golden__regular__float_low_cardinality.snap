@@ -1,6 +1,5 @@
 ---
 source: vortex-btrblocks/tests/golden.rs
-assertion_line: 132
 expression: rendered
 ---
 input: f64, len=16384, nbytes=131072
