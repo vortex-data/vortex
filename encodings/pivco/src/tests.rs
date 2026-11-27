@@ -1437,6 +1437,25 @@ fn estimate_compressed_bits_tracks_modes_and_validates_inputs() -> VortexResult<
     );
     assert!(bits_op > 0);
 
+    // Cross-check estimator against real `Pivco::encode_with_options` payload sizes.
+    let mut ctx = SESSION.create_execution_ctx();
+    let real_prim = make_skewed_u64(total, 7);
+    let mut real_counts = [0u64; MAX_SYMS];
+    for &v in real_prim.as_slice::<u64>() {
+        let (sym, _) = crate::pow2_bin::pow2_sym_and_ebits(v);
+        real_counts[sym] += 1;
+    }
+    for opts in [PivcoOptions::ph(), PivcoOptions::pha()] {
+        let (est_bits, _) = estimate_compressed_bits(&real_counts, total, 4_096, opts)?;
+        let encoded = Pivco::encode_with_options(&real_prim, opts, &mut ctx)?;
+        let actual_payload_bits = (encoded.tree_payload().len() + encoded.raw_bits().len()) * 8;
+        let diff = est_bits.abs_diff(actual_payload_bits);
+        assert!(
+            diff * 100 <= actual_payload_bits * 15,
+            "estimate ({est_bits} bits) diverged from actual payload ({actual_payload_bits} bits) for {opts:?}"
+        );
+    }
+
     // Null-fill: counts summing to < total_valid fills into best exact symbol `0..32`
     let (bits_with_nulls, _) =
         estimate_compressed_bits(&skewed, total + 1_000, 4_096, PivcoOptions::pha())?;
