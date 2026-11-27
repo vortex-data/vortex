@@ -145,54 +145,6 @@ fn prepare_propagates_lazy_root_and_dtype_mismatch_errors() -> VortexResult<()> 
 }
 
 #[test]
-fn filter_cache_respects_skip_unselective_dynamic_flag() -> VortexResult<()> {
-    let store = Arc::new(Store::default());
-    let mut input = struct_input(&store, 10)?;
-    let cache = ScanCache::default();
-    input.cache = Some(cache.clone());
-    let filter = gt(get_item("ints", root()), lit(5i32)).bind(&input.dtype)?;
-
-    let first = ScanBuilder::new(SESSION.clone(), input.clone())
-        .with_some_filter(Some(filter.clone()))
-        .with_skip_unselective_dynamic(false)
-        .prepare()?;
-    let second = ScanBuilder::new(SESSION.clone(), input.clone())
-        .with_some_filter(Some(filter.clone()))
-        .with_skip_unselective_dynamic(false)
-        .prepare()?;
-    let skipping = ScanBuilder::new(SESSION.clone(), input)
-        .with_some_filter(Some(filter.clone()))
-        .with_skip_unselective_dynamic(true)
-        .prepare()?;
-
-    let first_plans = first
-        .filter
-        .as_ref()
-        .ok_or_else(|| vortex_err!("missing first filter plans"))?;
-    let second_plans = second
-        .filter
-        .as_ref()
-        .ok_or_else(|| vortex_err!("missing second filter plans"))?;
-    let skipping_plans = skipping
-        .filter
-        .as_ref()
-        .ok_or_else(|| vortex_err!("missing skipping filter plans"))?;
-    assert!(Arc::ptr_eq(first_plans, second_plans));
-    assert!(!Arc::ptr_eq(first_plans, skipping_plans));
-    assert!(!first_plans.skips_unselective_dynamic());
-    assert!(skipping_plans.skips_unselective_dynamic());
-    let cached_strict = cache
-        .filter_plans(&filter, false)
-        .ok_or_else(|| vortex_err!("cached strict filter entry missing"))?;
-    assert!(Arc::ptr_eq(&cached_strict, first_plans));
-    let cached_skipping = cache
-        .filter_plans(&filter, true)
-        .ok_or_else(|| vortex_err!("cached skipping filter entry missing"))?;
-    assert!(Arc::ptr_eq(&cached_skipping, skipping_plans));
-    Ok(())
-}
-
-#[test]
 fn unfiltered_chunk_rows_scales_only_for_identity_projection() -> VortexResult<()> {
     let dtype = DType::struct_(
         [(

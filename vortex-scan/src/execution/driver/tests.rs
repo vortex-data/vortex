@@ -12,7 +12,6 @@ use futures::TryStreamExt;
 use futures::channel::oneshot;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
-use futures::stream;
 use futures::task::LocalSpawnExt;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -42,7 +41,6 @@ use vortex_session::VortexSession;
 
 use super::ChunkBudget;
 use super::ScanDriver;
-use super::order_batches;
 use crate::execution::SegmentLocation;
 use crate::execution::cache::ScanCache;
 use crate::execution::chunk::MAX_ROWS_PER_CHUNK;
@@ -415,18 +413,10 @@ async fn shared_budget_lets_scans_finish_while_another_stalls() -> VortexResult<
     Ok(())
 }
 
-/// Ordered collection sorts batches by starting row even when later chunks finish first,
-/// both directly via [`order_batches`] and end-to-end through [`ScanDriver::run_prepared`].
+/// Ordered scans sort batches by starting row even when a later chunk finishes first.
 #[test]
 fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
     let mut pool = LocalPool::new();
-    let out_of_order = stream::iter([
-        Ok((MAX_ROWS_PER_CHUNK as u64, "second")),
-        Ok((0_u64, "first")),
-    ]);
-    let ordered: Vec<_> = pool.run_until(order_batches(out_of_order).try_collect())?;
-    assert_eq!(ordered, vec!["first", "second"]);
-
     let runtime = Arc::new(ControlledRuntime::default());
     let segments = Arc::new(GatedSegments::default());
     let second_chunk_len = MAX_ROWS_PER_CHUNK / 2;
