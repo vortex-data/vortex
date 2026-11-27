@@ -6,6 +6,7 @@ use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::select::select_codes;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -38,11 +39,7 @@ impl SliceReduce for Dict {
         };
 
         // TODO(joe): if the range is size 1 replace with a constant array
-        // SAFETY: slicing the codes preserves invariants.
-        let array =
-            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() };
-
-        Ok(Some(array))
+        Ok(Some(select_codes(array, sliced_code)?))
     }
 }
 

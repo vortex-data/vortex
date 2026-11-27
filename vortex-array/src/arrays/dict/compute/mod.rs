@@ -10,8 +10,10 @@ pub(crate) mod is_sorted;
 mod mask;
 pub(crate) mod min_max;
 pub(crate) mod rules;
+mod select;
 mod slice;
 
+use select::select_codes;
 use vortex_error::VortexResult;
 
 use super::Dict;
@@ -19,7 +21,6 @@ use super::DictArray;
 use super::TakeExecute;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::dict::DictArraySlotsExt;
 
@@ -31,12 +32,7 @@ impl TakeExecute for Dict {
     ) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().take(indices.clone())?;
 
-        // SAFETY: Selection preserves the integer code type and non-null code bounds, so every code
-        // indexes the unchanged values. `new_unchecked` resets `all_values_referenced` because
-        // selection can remove a value's last reference.
-        let taken = unsafe { DictArray::new_unchecked(codes, array.values().clone()) };
-
-        Ok(Some(taken.into_array()))
+        Ok(Some(select_codes(array, codes)?))
     }
 }
 

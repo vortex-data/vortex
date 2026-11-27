@@ -4,14 +4,13 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use super::select::select_codes;
 use super::slice::inherit_selection_stats;
 use super::slice::slice_constant_code;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::Dict;
-use crate::arrays::DictArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 
@@ -24,12 +23,7 @@ impl FilterReduce for Dict {
         let codes = array.codes().filter(mask.clone())?;
         inherit_selection_stats(array.codes(), &codes);
 
-        // SAFETY: Selection preserves the integer code type and non-null code bounds, so every code
-        // indexes the unchanged values. `new_unchecked` resets `all_values_referenced` because
-        // selection can remove a value's last reference.
-        let filtered = unsafe { DictArray::new_unchecked(codes, array.values().clone()) };
-
-        Ok(Some(filtered.into_array()))
+        Ok(Some(select_codes(array, codes)?))
     }
 }
 
