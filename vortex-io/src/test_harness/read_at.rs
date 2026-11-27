@@ -31,17 +31,15 @@ use crate::test_harness::DeterministicRng;
 
 /// Identifier for an in-flight read registered with [`SimulatedReadAt`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PendingReadId(pub usize);
+pub(crate) struct PendingReadId(pub(crate) usize);
 
 /// Fault injected into matching reads on a [`SimulatedReadAt`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReadFault {
+pub(crate) enum ReadFault {
     /// Fail the next `remaining` matching reads with `message`, then succeed.
     TransientError { remaining: usize, message: String },
     /// Fail every matching read with `message`.
     FatalError { message: String },
-    /// Return a truncated buffer of at most `max_len` bytes.
-    ShortRead { max_len: usize },
 }
 
 struct PendingEntry {
@@ -60,7 +58,6 @@ struct SimReadState {
     global_faults: VecDeque<ReadFault>,
     in_flight: usize,
     max_in_flight: usize,
-    cancelled_reads: usize,
     batch_sizes: Vec<usize>,
 }
 
@@ -100,7 +97,7 @@ fn consume_fault(queue: &mut VecDeque<ReadFault>) -> Option<ReadFault> {
                 }
                 return Some(ReadFault::FatalError { message: msg });
             }
-            ReadFault::FatalError { .. } | ReadFault::ShortRead { .. } => {
+            ReadFault::FatalError { .. } => {
                 return Some(front.clone());
             }
         }
@@ -126,25 +123,6 @@ impl SimReadInner {
             Some(ReadFault::FatalError { message })
             | Some(ReadFault::TransientError { message, .. }) => {
                 vortex_bail!("{message}");
-            }
-            Some(ReadFault::ShortRead { max_len }) => {
-                let start = usize::try_from(request.offset)
-                    .vortex_expect("simulated read offset fits in usize");
-                let actual_len = request.length.min(max_len);
-                let end = start.saturating_add(actual_len).min(self.data.len());
-                if start > self.data.len() {
-                    vortex_bail!(
-                        "Requested range {}..{} out of bounds for buffer of length {}",
-                        start,
-                        start.saturating_add(request.length),
-                        self.data.len()
-                    );
-                }
-                Ok(BufferHandle::new_host(
-                    self.data
-                        .slice_unaligned(start..end)
-                        .aligned(request.alignment),
-                ))
             }
             None => {
                 let start = usize::try_from(request.offset)
@@ -184,7 +162,6 @@ impl Drop for GatedDropGuard {
         let mut state = self.inner.state.lock();
         if state.pending.remove(&self.id).is_some() {
             state.in_flight -= 1;
-            state.cancelled_reads += 1;
         }
     }
 }
@@ -199,7 +176,6 @@ impl Drop for UngatedDropGuard {
         let mut state = self.inner.state.lock();
         if state.active_ungated.remove(&self.id).is_some() {
             state.in_flight -= 1;
-            state.cancelled_reads += 1;
         }
     }
 }
@@ -241,25 +217,25 @@ impl Future for PollDelay {
 }
 
 /// Deterministic, controllable [`VortexReadAt`] for testing concurrency, out-of-order completion,
-/// fault injection, short reads, and cancellation without sleeps.
+/// and fault injection without sleeps.
 ///
 /// Configure builder options (`with_*`) before cloning; cloning shares the same backing state and
 /// controller handle.
 #[derive(Clone)]
-pub struct SimulatedReadAt {
+pub(crate) struct SimulatedReadAt {
     inner: Arc<SimReadInner>,
 }
 
 impl SimulatedReadAt {
     /// Creates an ungated [`SimulatedReadAt`] backed by `data` with concurrency 4.
-    pub fn new(data: impl Into<ByteBuffer>) -> Self {
+    pub(crate) fn new(data: impl Into<ByteBuffer>) -> Self {
         Self::build(data.into(), false)
     }
 
     /// Creates a gated [`SimulatedReadAt`] where every `read_at` pauses until explicitly
     /// completed via controller methods such as [`complete`](Self::complete) or
     /// [`complete_all`](Self::complete_all).
-    pub fn gated(data: impl Into<ByteBuffer>) -> Self {
+    pub(crate) fn gated(data: impl Into<ByteBuffer>) -> Self {
         Self::build(data.into(), true)
     }
 
@@ -281,7 +257,6 @@ impl SimulatedReadAt {
                     global_faults: VecDeque::new(),
                     in_flight: 0,
                     max_in_flight: 0,
-                    cancelled_reads: 0,
                     batch_sizes: Vec::new(),
                 }),
             }),
@@ -295,7 +270,7 @@ impl SimulatedReadAt {
 
     /// Configures the URI reported by [`VortexReadAt::uri`]. Must be called before cloning.
     #[must_use]
-    pub fn with_uri(mut self, uri: impl Into<Arc<str>>) -> Self {
+    pub(crate) fn with_uri(mut self, uri: impl Into<Arc<str>>) -> Self {
         self.inner_mut().uri = Some(uri.into());
         self
     }
@@ -303,7 +278,7 @@ impl SimulatedReadAt {
     /// Configures the concurrency limit reported by [`VortexReadAt::concurrency`]. Must be called
     /// before cloning.
     #[must_use]
-    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+    pub(crate) fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.inner_mut().concurrency = concurrency;
         self
     }
@@ -311,16 +286,8 @@ impl SimulatedReadAt {
     /// Configures the coalescing settings reported by [`VortexReadAt::coalesce_config`]. Must be
     /// called before cloning.
     #[must_use]
-    pub fn with_coalesce_config(mut self, config: CoalesceConfig) -> Self {
+    pub(crate) fn with_coalesce_config(mut self, config: CoalesceConfig) -> Self {
         self.inner_mut().coalesce_config = Some(config);
-        self
-    }
-
-    /// Seeds deterministic ordering used by [`complete_all`](Self::complete_all). Must be called
-    /// before cloning.
-    #[must_use]
-    pub fn with_seed(mut self, seed: u64) -> Self {
-        self.inner_mut().state.get_mut().rng = Some(DeterministicRng::new(seed));
         self
     }
 
@@ -328,7 +295,7 @@ impl SimulatedReadAt {
     /// in `0..=max_pending_polls` so concurrent reads complete out of order deterministically
     /// without using timers or sleeps. Must be called before cloning.
     #[must_use]
-    pub fn with_seeded_poll_delays(mut self, seed: u64, max_pending_polls: usize) -> Self {
+    pub(crate) fn with_seeded_poll_delays(mut self, seed: u64, max_pending_polls: usize) -> Self {
         let state = self.inner_mut().state.get_mut();
         state.rng = Some(DeterministicRng::new(seed));
         state.poll_delay_max = max_pending_polls;
@@ -336,7 +303,7 @@ impl SimulatedReadAt {
     }
 
     /// Injects a fault for reads starting at `offset`.
-    pub fn inject_fault_for_offset(&self, offset: u64, fault: ReadFault) {
+    pub(crate) fn inject_fault_for_offset(&self, offset: u64, fault: ReadFault) {
         self.inner
             .state
             .lock()
@@ -347,12 +314,12 @@ impl SimulatedReadAt {
     }
 
     /// Injects a fault that applies to all reads (after any offset-specific faults).
-    pub fn inject_fault_for_all(&self, fault: ReadFault) {
+    pub(crate) fn inject_fault_for_all(&self, fault: ReadFault) {
         self.inner.state.lock().global_faults.push_back(fault);
     }
 
     /// Completes a specific gated read using the backing buffer (and any injected fault).
-    pub fn complete(&self, id: PendingReadId) -> bool {
+    pub(crate) fn complete(&self, id: PendingReadId) -> bool {
         let entry = {
             let mut state = self.inner.state.lock();
             let Some(entry) = state.pending.remove(&id) else {
@@ -372,23 +339,8 @@ impl SimulatedReadAt {
         }
     }
 
-    /// Completes a specific gated read with an explicit result.
-    pub fn complete_with(&self, id: PendingReadId, result: VortexResult<BufferHandle>) -> bool {
-        let sender = {
-            let mut state = self.inner.state.lock();
-            let Some(entry) = state.pending.remove(&id) else {
-                return false;
-            };
-            state.in_flight -= 1;
-            entry.sender
-        };
-
-        drop(sender.send(result));
-        true
-    }
-
     /// Completes the oldest pending read at `offset`, returning its id if found.
-    pub fn complete_offset(&self, offset: u64) -> Option<PendingReadId> {
+    pub(crate) fn complete_offset(&self, offset: u64) -> Option<PendingReadId> {
         let id = {
             let state = self.inner.state.lock();
             state
@@ -401,36 +353,16 @@ impl SimulatedReadAt {
     }
 
     /// Completes the oldest pending read (FIFO).
-    pub fn complete_next(&self) -> Option<PendingReadId> {
+    pub(crate) fn complete_next(&self) -> Option<PendingReadId> {
         let id = self.inner.state.lock().pending.keys().next().copied()?;
         self.complete(id).then_some(id)
     }
 
-    /// Completes the newest pending read (LIFO).
-    pub fn complete_last(&self) -> Option<PendingReadId> {
-        let id = self
-            .inner
-            .state
-            .lock()
-            .pending
-            .keys()
-            .next_back()
-            .copied()?;
-        self.complete(id).then_some(id)
-    }
-
-    /// Completes all currently pending reads (in seeded order if seeded, otherwise FIFO).
-    pub fn complete_all(&self) -> usize {
-        let mut ids: Vec<PendingReadId> = {
-            let mut state = self.inner.state.lock();
-            let mut ids: Vec<_> = state.pending.keys().copied().collect();
-            if let Some(rng) = state.rng.as_mut() {
-                rng.shuffle(&mut ids);
-            }
-            ids
-        };
+    /// Completes all currently pending reads in FIFO order.
+    pub(crate) fn complete_all(&self) -> usize {
+        let ids: Vec<PendingReadId> = self.inner.state.lock().pending.keys().copied().collect();
         let mut count = 0;
-        for id in ids.drain(..) {
+        for id in ids {
             if self.complete(id) {
                 count += 1;
             }
@@ -439,12 +371,12 @@ impl SimulatedReadAt {
     }
 
     /// Lists all currently pending gated read ids in registration order.
-    pub fn pending_ids(&self) -> Vec<PendingReadId> {
+    pub(crate) fn pending_ids(&self) -> Vec<PendingReadId> {
         self.inner.state.lock().pending.keys().copied().collect()
     }
 
     /// Number of currently paused gated reads.
-    pub fn pending_count(&self) -> usize {
+    pub(crate) fn pending_count(&self) -> usize {
         self.inner.state.lock().pending.len()
     }
 
@@ -454,23 +386,18 @@ impl SimulatedReadAt {
     /// Note that the default [`VortexReadAt::read_ranges`] creates all per-range futures in a
     /// batch up front before polling them via `buffer_unordered`, so this reflects issued futures
     /// rather than only polled futures.
-    pub fn in_flight_count(&self) -> usize {
+    pub(crate) fn in_flight_count(&self) -> usize {
         self.inner.state.lock().in_flight
     }
 
     /// High-water mark of concurrently issued, unfinished `read_at` futures (see
     /// [`in_flight_count`](Self::in_flight_count)).
-    pub fn max_in_flight(&self) -> usize {
+    pub(crate) fn max_in_flight(&self) -> usize {
         self.inner.state.lock().max_in_flight
     }
 
-    /// Number of reads whose futures were dropped before completing.
-    pub fn cancelled_reads(&self) -> usize {
-        self.inner.state.lock().cancelled_reads
-    }
-
     /// Recorded batch lengths passed to [`VortexReadAt::read_ranges`].
-    pub fn read_ranges_batch_sizes(&self) -> Vec<usize> {
+    pub(crate) fn read_ranges_batch_sizes(&self) -> Vec<usize> {
         self.inner.state.lock().batch_sizes.clone()
     }
 }
@@ -573,41 +500,7 @@ mod tests {
     use crate::test_harness::SimulatedExecutor;
 
     #[test]
-    fn test_gated_out_of_order_and_cancellation() -> VortexResult<()> {
-        let exec = SimulatedExecutor::new();
-        let sim =
-            SimulatedReadAt::gated(ByteBuffer::from(b"abcdefgh".to_vec())).with_concurrency(3);
-
-        let f0 = sim.read_at(0, 2, Alignment::none());
-        let f1 = sim.read_at(2, 2, Alignment::none());
-        let f2 = sim.read_at(4, 2, Alignment::none());
-
-        assert_eq!(sim.in_flight_count(), 3);
-        assert_eq!(sim.max_in_flight(), 3);
-        assert_eq!(sim.pending_count(), 3);
-
-        // Drop the middle read before first poll and verify eager cancellation tracking.
-        drop(f1);
-        assert_eq!(sim.cancelled_reads(), 1);
-        assert_eq!(sim.in_flight_count(), 2);
-
-        // Complete the newest remaining read first (out of order).
-        let last_id = sim.complete_last().vortex_expect("pending read exists");
-        assert_eq!(last_id, PendingReadId(2));
-        let buf2 = exec.drive(f2)?;
-        assert_eq!(exec.drive(buf2.to_host()).as_ref(), b"ef");
-
-        let first_id = sim.complete_next().vortex_expect("pending read exists");
-        assert_eq!(first_id, PendingReadId(0));
-        let buf0 = exec.drive(f0)?;
-        assert_eq!(exec.drive(buf0.to_host()).as_ref(), b"ab");
-
-        assert_eq!(sim.in_flight_count(), 0);
-        Ok(())
-    }
-
-    #[test]
-    fn test_fault_injection_transient_fatal_and_short_read() -> VortexResult<()> {
+    fn test_fault_injection_transient_and_fatal() -> VortexResult<()> {
         let exec = SimulatedExecutor::new();
         let sim = SimulatedReadAt::new(ByteBuffer::from(b"0123456789".to_vec()));
 
@@ -624,7 +517,6 @@ mod tests {
                 message: "fatal boom".to_string(),
             },
         );
-        sim.inject_fault_for_offset(6, ReadFault::ShortRead { max_len: 2 });
 
         let err = exec
             .drive(sim.read_at(0, 4, Alignment::none()))
@@ -642,17 +534,13 @@ mod tests {
                 .expect_err("fatal fault must persist");
             assert!(err.to_string().contains("fatal boom"), "{err}");
         }
-
-        // Short read returns truncated slice.
-        let short = exec.drive(sim.read_at(6, 4, Alignment::none()))?;
-        assert_eq!(exec.drive(short.to_host()).as_ref(), b"67");
         Ok(())
     }
 
     #[test]
     fn test_seeded_poll_delays_produce_deterministic_order() -> VortexResult<()> {
         let run = |seed: u64| -> VortexResult<Vec<u64>> {
-            let exec = SimulatedExecutor::with_seed(seed);
+            let exec = SimulatedExecutor::new();
             let sim = SimulatedReadAt::new(ByteBuffer::from(vec![0u8; 32]))
                 .with_concurrency(8)
                 .with_seeded_poll_delays(seed, 5);

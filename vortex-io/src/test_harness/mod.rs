@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Deterministic simulation test harness for `vortex-io` and downstream crates.
-//!
-//! Exposed under `#[cfg(any(test, feature = "_test-harness"))]`; not part of the public API.
+//! Deterministic simulation test harness for `vortex-io` unit tests.
 
 mod executor;
 mod read_at;
 
-pub use executor::SimulatedExecutor;
-pub use read_at::PendingReadId;
-pub use read_at::ReadFault;
-pub use read_at::SimulatedReadAt;
+pub(crate) use executor::SimulatedExecutor;
+pub(crate) use read_at::PendingReadId;
+pub(crate) use read_at::ReadFault;
+pub(crate) use read_at::SimulatedReadAt;
 use vortex_error::VortexExpect;
 
 /// Lightweight, dependency-free SplitMix64 PRNG for deterministic test scheduling.
@@ -37,12 +35,5 @@ impl DeterministicRng {
         debug_assert!(bound > 0);
         let bound_u64 = u64::try_from(bound).vortex_expect("usize fits in u64");
         usize::try_from(self.next_u64() % bound_u64).vortex_expect("modulo result fits in usize")
-    }
-
-    pub(crate) fn shuffle<T>(&mut self, slice: &mut [T]) {
-        for i in (1..slice.len()).rev() {
-            let j = self.next_usize(i + 1);
-            slice.swap(i, j);
-        }
     }
 }

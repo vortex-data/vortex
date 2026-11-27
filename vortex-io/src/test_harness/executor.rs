@@ -26,7 +26,6 @@ use crate::runtime::AbortHandleRef;
 use crate::runtime::BlockingRuntime;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
-use crate::test_harness::DeterministicRng;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct TaskId(usize);
@@ -51,16 +50,14 @@ struct ExecutorState {
     next_id: usize,
     tasks: BTreeMap<TaskId, TaskSlot>,
     ready: VecDeque<TaskId>,
-    rng: Option<DeterministicRng>,
 }
 
 impl ExecutorState {
-    fn new(rng: Option<DeterministicRng>) -> Self {
+    fn new() -> Self {
         Self {
             next_id: 0,
             tasks: BTreeMap::new(),
             ready: VecDeque::new(),
-            rng,
         }
     }
 
@@ -73,15 +70,7 @@ impl ExecutorState {
     }
 
     fn pop_next_ready(&mut self) -> Option<(TaskId, SimTask)> {
-        while !self.ready.is_empty() {
-            let id = match self.rng.as_mut() {
-                Some(rng) => {
-                    let idx = rng.next_usize(self.ready.len());
-                    self.ready.swap_remove_back(idx)
-                }
-                None => self.ready.pop_front(),
-            }?;
-
+        while let Some(id) = self.ready.pop_front() {
             let Some(slot) = self.tasks.get_mut(&id) else {
                 continue;
             };
@@ -283,12 +272,9 @@ impl Wake for RootWaker {
     }
 }
 
-/// Deterministic, single-threaded, manual-stepping executor for testing async workflows
+/// Deterministic, single-threaded, manual-stepping FIFO executor for testing async workflows
 /// without wall-clock sleeps or OS thread scheduling nondeterminism.
-///
-/// Supports both FIFO task polling ([`SimulatedExecutor::new`]) and seeded deterministic
-/// scheduling ([`SimulatedExecutor::with_seed`]).
-pub struct SimulatedExecutor {
+pub(crate) struct SimulatedExecutor {
     inner: Arc<SimExecutorInner>,
     adapter: Arc<dyn Executor>,
 }
@@ -301,20 +287,9 @@ impl Default for SimulatedExecutor {
 
 impl SimulatedExecutor {
     /// Creates a deterministic FIFO executor.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let inner = Arc::new(SimExecutorInner {
-            state: Mutex::new(ExecutorState::new(None)),
-        });
-        let adapter: Arc<dyn Executor> = Arc::new(ExecutorAdapter {
-            inner: Arc::clone(&inner),
-        });
-        Self { inner, adapter }
-    }
-
-    /// Creates a deterministic executor that picks among ready tasks using a seeded PRNG.
-    pub fn with_seed(seed: u64) -> Self {
-        let inner = Arc::new(SimExecutorInner {
-            state: Mutex::new(ExecutorState::new(Some(DeterministicRng::new(seed)))),
+            state: Mutex::new(ExecutorState::new()),
         });
         let adapter: Arc<dyn Executor> = Arc::new(ExecutorAdapter {
             inner: Arc::clone(&inner),
@@ -324,19 +299,14 @@ impl SimulatedExecutor {
 
     /// Returns a Vortex runtime [`Handle`] targeting this simulated executor.
     #[expect(clippy::same_name_method)]
-    pub fn handle(&self) -> Handle {
+    pub(crate) fn handle(&self) -> Handle {
         Handle::new(Arc::downgrade(&self.adapter))
     }
 
-    /// Polls or executes a single ready task. Returns `false` if no tasks are currently runnable.
-    pub fn step(&self) -> bool {
-        self.inner.step()
-    }
-
     /// Drives all ready tasks until no runnable tasks remain, returning the number of steps run.
-    pub fn run_until_stalled(&self) -> usize {
+    pub(crate) fn run_until_stalled(&self) -> usize {
         let mut steps = 0;
-        while self.step() {
+        while self.inner.step() {
             steps += 1;
         }
         steps
@@ -348,50 +318,33 @@ impl SimulatedExecutor {
     /// task is runnable before `fut` resolves. Because `SimulatedExecutor` does not park on OS
     /// events, this also panics when forward progress depends on another OS thread (such as real
     /// asynchronous OS I/O or a Tokio runtime driving a future on a separate thread).
-    pub fn drive<F: Future>(&self, fut: F) -> F::Output {
+    pub(crate) fn drive<F: Future>(&self, fut: F) -> F::Output {
         let mut fut = pin!(fut);
         let root_woken = Arc::new(AtomicBool::new(true));
         let waker = Waker::from(Arc::new(RootWaker {
             woken: Arc::clone(&root_woken),
         }));
         let mut cx = Context::from_waker(&waker);
-        let mut first_poll = true;
 
         loop {
-            let prefer_spawned = !first_poll && {
-                let mut state = self.inner.state.lock();
-                !state.ready.is_empty()
-                    && state.rng.as_mut().is_some_and(|rng| rng.next_usize(2) == 0)
-            };
-
-            if prefer_spawned && self.step() {
-                continue;
+            if root_woken.swap(false, Ordering::AcqRel)
+                && let Poll::Ready(output) = fut.as_mut().poll(&mut cx)
+            {
+                return output;
             }
 
-            if root_woken.swap(false, Ordering::AcqRel) {
-                first_poll = false;
-                if let Poll::Ready(output) = fut.as_mut().poll(&mut cx) {
-                    return output;
-                }
-            }
-
-            if !self.step() && !root_woken.load(Ordering::Acquire) {
+            if !self.inner.step() && !root_woken.load(Ordering::Acquire) {
+                let pending = self.inner.state.lock().tasks.len();
                 vortex_panic!(
-                    "SimulatedExecutor stalled before root future completed ({} pending tasks)",
-                    self.pending_task_count()
+                    "SimulatedExecutor stalled before root future completed ({pending} pending tasks)"
                 );
             }
         }
     }
-
-    /// Number of tasks that have been spawned and have not yet completed or been aborted.
-    pub fn pending_task_count(&self) -> usize {
-        self.inner.state.lock().tasks.len()
-    }
 }
 
 /// Iterator adapter driving a stream on a [`SimulatedExecutor`].
-pub struct SimulatedIterator<'a, T> {
+pub(crate) struct SimulatedIterator<'a, T> {
     executor: SimulatedExecutor,
     stream: BoxStream<'a, T>,
 }
@@ -435,133 +388,9 @@ impl BlockingRuntime for SimulatedExecutor {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
     use futures::channel::oneshot;
-    use futures::stream;
-    use parking_lot::Mutex;
 
     use super::*;
-
-    struct DropFlag(Arc<AtomicBool>);
-    impl Drop for DropFlag {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
-    #[test]
-    fn test_fifo_step_and_run_until_stalled() {
-        let exec = SimulatedExecutor::new();
-        let order = Arc::new(Mutex::new(Vec::new()));
-
-        let mut tasks = Vec::new();
-        for i in 0..3 {
-            let order = Arc::clone(&order);
-            tasks.push(exec.handle().spawn(async move {
-                order.lock().push(i);
-            }));
-        }
-
-        assert_eq!(exec.pending_task_count(), 3);
-        assert!(exec.step());
-        assert_eq!(*order.lock(), vec![0]);
-
-        let remaining = exec.run_until_stalled();
-        assert_eq!(remaining, 2);
-        assert_eq!(*order.lock(), vec![0, 1, 2]);
-        assert_eq!(exec.pending_task_count(), 0);
-        drop(tasks);
-    }
-
-    #[test]
-    fn test_seeded_scheduling_is_deterministic() {
-        let run = |seed: u64| {
-            let exec = SimulatedExecutor::with_seed(seed);
-            let order = Arc::new(Mutex::new(Vec::new()));
-            let mut tasks = Vec::new();
-            for i in 0..8 {
-                let order = Arc::clone(&order);
-                tasks.push(exec.handle().spawn(async move {
-                    order.lock().push(i);
-                }));
-            }
-            exec.run_until_stalled();
-            drop(tasks);
-            order.lock().clone()
-        };
-
-        assert_eq!(run(42), run(42));
-        assert_ne!(run(42), run(43));
-    }
-
-    #[test]
-    fn test_abort_drops_pending_future_and_sync_tasks() {
-        let exec = SimulatedExecutor::new();
-        let dropped = Arc::new(AtomicBool::new(false));
-        let flag = DropFlag(Arc::clone(&dropped));
-        let (_tx, rx) = oneshot::channel::<()>();
-
-        let async_task = exec.handle().spawn(async move {
-            let _guard = flag;
-            let _ = rx.await;
-        });
-        assert_eq!(exec.run_until_stalled(), 1);
-        assert!(!dropped.load(Ordering::SeqCst));
-
-        drop(async_task);
-        assert!(dropped.load(Ordering::SeqCst));
-        assert_eq!(exec.pending_task_count(), 0);
-
-        let ran = Arc::new(AtomicUsize::new(0));
-        let ran_clone = Arc::clone(&ran);
-        let cpu_task = exec.handle().spawn_cpu(move || {
-            ran_clone.fetch_add(1, Ordering::SeqCst);
-        });
-        drop(cpu_task);
-        exec.run_until_stalled();
-        assert_eq!(ran.load(Ordering::SeqCst), 0);
-    }
-
-    #[test]
-    fn test_detached_task_runs_to_completion_after_gate_opens() {
-        let exec = SimulatedExecutor::new();
-        let (gate_tx, gate_rx) = oneshot::channel::<()>();
-        let done = Arc::new(AtomicBool::new(false));
-        let done_clone = Arc::clone(&done);
-
-        exec.handle()
-            .spawn(async move {
-                let _ = gate_rx.await;
-                done_clone.store(true, Ordering::SeqCst);
-            })
-            .detach();
-
-        exec.run_until_stalled();
-        assert!(!done.load(Ordering::SeqCst));
-
-        assert!(gate_tx.send(()).is_ok());
-        exec.run_until_stalled();
-        assert!(done.load(Ordering::SeqCst));
-        assert_eq!(exec.pending_task_count(), 0);
-    }
-
-    #[test]
-    fn test_blocking_runtime_block_on_and_stream() {
-        let exec = SimulatedExecutor::new();
-        let value = exec.block_on(async {
-            let a = exec.handle().spawn_cpu(|| 20).await;
-            let b = exec.handle().spawn_blocking(|| 22).await;
-            a + b
-        });
-        assert_eq!(value, 42);
-
-        let items: Vec<_> = exec.block_on_stream(stream::iter([1, 2, 3])).collect();
-        assert_eq!(items, vec![1, 2, 3]);
-    }
 
     #[test]
     #[should_panic(expected = "SimulatedExecutor stalled")]
