@@ -102,7 +102,7 @@ void duckdb_vector_flatten(duckdb_vector vector) {
 }
 
 extern "C" void duckdb_vx_vector_set_size(duckdb_vector ffi_vector, idx_t size) {
-    FlatVector::SetSize(*reinterpret_cast<Vector *>(ffi_vector), size);
+    reinterpret_cast<Vector *>(ffi_vector)->BufferMutable().SetVectorSize(size);
 }
 
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {

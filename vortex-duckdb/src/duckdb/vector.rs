@@ -122,18 +122,15 @@ impl VectorRef {
     }
 
     /// Sets the logical element count of the vector (and any nested struct/array children) via
-    /// `FlatVector::SetSize`.
+    /// `VectorBuffer::SetVectorSize`.
     ///
     /// # Safety
     ///
-    /// `FlatVector::SetSize` throws an uncaught C++ `duckdb::InternalException` across the
-    /// `extern "C"` boundary if preconditions are violated:
-    ///
-    /// - If `size > 0`, the vector buffer must not be null.
-    /// - Flat vectors (including nested struct/array children) must have capacity >= `size`
-    ///   (or `size * array_size` for array children).
-    /// - Non-flat, non-constant vectors (e.g. dictionary or sequence) must already have size
-    ///   equal to `size`.
+    /// - The vector buffer must not be null.
+    /// - `VectorBuffer::SetVectorSize` throws an uncaught C++ `duckdb::InternalException` across
+    ///   the `extern "C"` boundary if flat vectors (including nested struct/array children) have
+    ///   capacity < `size` (or `size * array_size` for array children), or if non-flat,
+    ///   non-constant vectors (e.g. dictionary or sequence) do not already have size `size`.
     pub(crate) unsafe fn set_size(&mut self, size: usize) {
         unsafe { cpp::duckdb_vx_vector_set_size(self.as_ptr(), size as idx_t) }
     }
