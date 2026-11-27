@@ -66,9 +66,12 @@ use crate::ChildDecision;
 use crate::ChildPolicy;
 use crate::ChildRequest;
 use crate::SESSION;
+use crate::Scheme;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::integer::BitPackingScheme;
+#[cfg(feature = "pco")]
+use crate::schemes::integer::PcoScheme as IntPcoScheme;
 use crate::schemes::integer::RunEndScheme;
 
 #[track_caller]
@@ -403,26 +406,30 @@ fn test_cuda_binary_zstd_follows_editions(
 }
 
 static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
+static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
-/// A scheme that stores its input's validity compresses it before encoding.
-#[test]
-fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
+/// A scheme that stores its input's validity registers it, so it is compressed.
+#[rstest]
+#[case::bitpacking_v1(&BITPACKING_V1)]
+#[case::bitpacking_v2(&BITPACKING_V2)]
+#[cfg_attr(feature = "pco", case::pco(&IntPcoScheme))]
+fn test_integer_scheme_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+) -> VortexResult<()> {
     let input = PrimitiveArray::from_option_iter(
         (0..100_000i32).map(|i| (!(1000..2000).contains(&i)).then_some(i % 100)),
     )
     .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&BITPACKING_V1)
+        .with_new_scheme(scheme)
         .with_new_scheme(&BoolRunEndScheme)
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
 
-    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
     Ok(())
 }
-
-static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
 #[rstest]
 #[case::saves_one_bit(64, false)]

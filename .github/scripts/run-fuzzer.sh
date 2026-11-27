@@ -6,6 +6,7 @@ set -euo pipefail
 
 # The workflow accepts space-separated KEY=VALUE pairs.
 read -r -a FUZZ_ENV <<< "$EXTRA_ENV"
+read -r -a FUZZ_FLAGS <<< "${EXTRA_FLAGS:-}"
 
 CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
 CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
@@ -61,7 +62,7 @@ start_fuzzer() {
     timeout --signal=INT --kill-after=60 "$((budget + 480))" \
     "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
     "${FORK_FLAGS[@]}" "-max_total_time=$budget" "-rss_limit_mb=${RSS_LIMIT_MB:-2048}" \
-    -print_final_stats=1 \
+    -print_final_stats=1 "${FUZZ_FLAGS[@]}" \
     -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
     "$@" > >(tee -a fuzz_output.log) 2>&1 &
   FUZZ_PID=$!

@@ -8,12 +8,16 @@ use vortex_array::ArraySlots;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::bool::BoolSlots;
 use vortex_array::arrays::decimal::DecimalSlots;
 use vortex_array::arrays::list::ListArrayExt;
@@ -36,6 +40,22 @@ pub(super) mod root_list_children {
     pub const OFFSETS: usize = 1;
     /// ListView sizes child.
     pub const SIZES: usize = 2;
+}
+
+/// The slot holding the validity of a bool, primitive, decimal or `VarBinView` leaf, or `None`
+/// for any other array.
+pub(crate) fn leaf_validity_slot(array: &ArrayRef) -> Option<usize> {
+    if array.is::<Bool>() {
+        Some(BoolSlots::VALIDITY_CHILD)
+    } else if array.is::<Primitive>() {
+        Some(PrimitiveSlots::VALIDITY_CHILD)
+    } else if array.is::<Decimal>() {
+        Some(DecimalSlots::VALIDITY_CHILD)
+    } else if array.is::<VarBinView>() {
+        Some(VarBinViewSlots::VALIDITY_CHILD)
+    } else {
+        None
+    }
 }
 
 impl CascadingCompressor {

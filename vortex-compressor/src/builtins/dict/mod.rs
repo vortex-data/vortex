@@ -27,6 +27,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::UnsignedPType;
@@ -36,6 +38,10 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::scheme::Child;
+use crate::scheme::Encoded;
+use crate::scheme::Scheme;
 
 /// Encodes a primitive array into a [`DictArray`] from precomputed `(value, count)` pairs,
 /// ordering dictionary values by descending occurrence count and breaking ties with
@@ -133,4 +139,28 @@ where
     }
 
     output.freeze()
+}
+
+/// Registers the values of `dict` as child 0 of `scheme` and its codes as child 1.
+///
+/// The codes carry the validity. Every dictionary encoder already hands back the narrowest codes
+/// that can address its dictionary, so they are compressed as they are.
+fn dictionary_encoded(scheme: &dyn Scheme, dict: &DictArray) -> Encoded {
+    let all_values_referenced = dict.has_all_values_referenced();
+    Encoded::new(
+        vec![
+            Child::new(scheme, 0, dict.values().clone()),
+            Child::new(scheme, 1, dict.codes().clone()),
+        ],
+        Vec::new(),
+        move |children, _| {
+            let [values, codes] = children.compressed()?;
+            // SAFETY: compressing codes or values does not alter the invariants.
+            Ok(unsafe {
+                DictArray::new_unchecked(codes, values)
+                    .set_all_values_referenced(all_values_referenced)
+                    .into_array()
+            })
+        },
+    )
 }
