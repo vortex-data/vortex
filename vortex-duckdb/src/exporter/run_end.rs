@@ -32,12 +32,20 @@ use crate::exporter::cache::ConversionCache;
 use crate::exporter::cached_values_dict;
 use crate::exporter::canonical;
 
+/// Multi-run export strategy for [`RunEndExporter`].
+enum MultiRunExport {
+    Dictionary(ReusableDict),
+    /// DuckDB does not support dictionary-encoded struct vectors, so multi-run struct batches
+    /// slice and canonicalize only the requested range.
+    CanonicalSlice(ArrayRef),
+}
+
 /// Keeps the values dictionary cached while generating selections for each requested batch.
 struct RunEndExporter<E: IntegerPType> {
     ends: PrimitiveArray,
     ends_type: PhantomData<E>,
     values: ArrayRef,
-    values_dict: ReusableDict,
+    multi_run: MultiRunExport,
     /// Added to request offsets because sliced run ends retain their source coordinates.
     run_end_offset: usize,
 }
@@ -52,9 +60,8 @@ pub(crate) fn new_exporter_with_flatten(
         return canonical::new_exporter(Canonical::empty(array.dtype()).into_array(), cache, ctx);
     }
 
-    // Canonicalize directly to avoid building a dictionary that DuckDB would immediately flatten
-    // or reject (DuckDB does not support dictionary-encoded struct vectors).
-    if flatten || array.dtype().is_struct() {
+    // Canonicalize directly to avoid building a dictionary that DuckDB would immediately flatten.
+    if flatten {
         return canonical::new_exporter(array.into_array(), cache, ctx);
     }
 
@@ -62,14 +69,18 @@ pub(crate) fn new_exporter_with_flatten(
     let ends = array.ends().clone();
     let values = array.values().clone();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
-    let values_dict = cached_values_dict(values.clone(), cache, ctx)?;
+    let multi_run = if values.dtype().is_struct() {
+        MultiRunExport::CanonicalSlice(array.into_array())
+    } else {
+        MultiRunExport::Dictionary(cached_values_dict(values.clone(), cache, ctx)?)
+    };
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
             ends,
             ends_type: PhantomData::<E>,
             values,
-            values_dict,
+            multi_run,
             run_end_offset: offset,
         }))
     })
@@ -120,7 +131,12 @@ impl<E: IntegerPType> RunEndExporter<E> {
 
 impl<E: IntegerPType> DictionaryParts for RunEndExporter<E> {
     fn values(&self) -> &ReusableDict {
-        &self.values_dict
+        match &self.multi_run {
+            MultiRunExport::Dictionary(dict) => dict,
+            MultiRunExport::CanonicalSlice(_) => {
+                unreachable!("as_dictionary only returns Some for Dictionary multi-run exporters")
+            }
+        }
     }
 
     fn values_key(&self) -> usize {
@@ -140,7 +156,7 @@ impl<E: IntegerPType> DictionaryParts for RunEndExporter<E> {
 
 impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
     fn as_dictionary(&self) -> Option<&dyn DictionaryParts> {
-        Some(self)
+        matches!(self.multi_run, MultiRunExport::Dictionary(_)).then_some(self)
     }
 
     fn export(
@@ -154,10 +170,10 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
             return Ok(());
         }
 
-        let offset = self.run_end_offset + offset;
-        let first_run = self.first_run(offset);
+        let abs_offset = self.run_end_offset + offset;
+        let first_run = self.first_run(abs_offset);
         let end =
-            E::from_usize(offset + len).vortex_expect("the request end fits the run-end type");
+            E::from_usize(abs_offset + len).vortex_expect("the request end fits the run-end type");
 
         // The request end is exclusive, so equality still leaves every row inside this run.
         if end <= self.ends.as_slice::<E>()[first_run] {
@@ -167,12 +183,22 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
             return Ok(());
         }
 
-        let mut selection = SelectionVector::with_capacity(len);
-        // SAFETY: the selection has capacity for `len` entries. The validated run ends cover the
-        // requested range, and write_run_codes fills every entry before DuckDB reads the selection.
-        let codes = unsafe { selection.as_slice_mut(len) };
-        self.write_run_codes(offset, first_run, codes);
-        vector.reuse_dictionary(&self.values_dict, &selection, len)?;
+        match &self.multi_run {
+            MultiRunExport::Dictionary(values_dict) => {
+                let mut selection = SelectionVector::with_capacity(len);
+                // SAFETY: the selection has capacity for `len` entries. The validated run ends
+                // cover the requested range, and write_run_codes fills every entry before DuckDB
+                // reads the selection.
+                let codes = unsafe { selection.as_slice_mut(len) };
+                self.write_run_codes(abs_offset, first_run, codes);
+                vector.reuse_dictionary(values_dict, &selection, len)?;
+            }
+            MultiRunExport::CanonicalSlice(array) => {
+                let slice = array.slice(offset..offset + len)?;
+                let exporter = canonical::new_exporter(slice, &ConversionCache::default(), ctx)?;
+                exporter.export(0, len, vector, ctx)?;
+            }
+        }
 
         Ok(())
     }
@@ -338,25 +364,36 @@ mod tests {
     }
 
     #[test]
-    fn run_end_of_struct_flattens_instead_of_dictionary() -> VortexResult<()> {
+    fn run_end_of_struct_keeps_single_run_constant_and_flattens_multi_run() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values =
             StructArray::from_fields(&[("a", buffer![10i32, 20].into_array())])?.into_array();
-        let field = RunEnd::try_new(buffer![2u32, 5].into_array(), values, &mut ctx)?.into_array();
-        let table = StructArray::from_fields(&[("s", field)])?;
+        let array =
+            RunEnd::try_new_offset_length(buffer![3u32, 7].into_array(), values, 1, 5, &mut ctx)?
+                .into_array();
 
+        let exporter = new_array_exporter(array, &ConversionCache::default(), &mut ctx)?;
         let struct_type = LogicalType::struct_type([LogicalType::int32()], [c"a".to_owned()])?;
         let mut chunk = DataChunk::new([struct_type]);
-        let mut exporter = ArrayExporter::try_new(&table, &ConversionCache::default(), ctx)?;
 
-        assert!(exporter.export(&mut chunk, None)?);
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- FLAT STRUCT(a INTEGER): 5 = [ {'a': 10}, {'a': 10}, {'a': 20}, {'a': 20}, {'a': 20}]
-"#
-        );
-        assert!(!exporter.export(&mut chunk, None)?);
+        for (offset, len, expected) in [
+            (0, 2, "- CONSTANT STRUCT(a INTEGER): 2 = [ {'a': 10}]"),
+            (
+                1,
+                3,
+                "- FLAT STRUCT(a INTEGER): 3 = [ {'a': 10}, {'a': 20}, {'a': 20}]",
+            ),
+            (2, 3, "- CONSTANT STRUCT(a INTEGER): 3 = [ {'a': 20}]"),
+        ] {
+            chunk.reset();
+            exporter.export(offset, len, chunk.get_vector_mut(0), &mut ctx)?;
+            chunk.set_len(len);
+            assert_eq!(
+                String::try_from(&*chunk)?,
+                format!("Chunk - [1 Columns]\n{expected}\n")
+            );
+        }
+
         Ok(())
     }
 }
