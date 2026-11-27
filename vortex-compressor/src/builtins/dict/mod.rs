@@ -27,6 +27,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::UnsignedPType;
@@ -36,6 +38,10 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::scheme::Child;
+use crate::scheme::Encoded;
+use crate::scheme::Scheme;
 
 /// Encodes a primitive array into a [`DictArray`] from precomputed `(value, count)` pairs,
 /// ordering dictionary values by descending occurrence count and breaking ties with
@@ -135,6 +141,30 @@ where
     output.freeze()
 }
 
+/// Registers the values of `dict` as child 0 of `scheme` and its codes as child 1.
+///
+/// The codes carry the validity. Every dictionary encoder already hands back the narrowest codes
+/// that can address its dictionary, so they are compressed as they are.
+fn dictionary_encoded(scheme: &dyn Scheme, dict: &DictArray) -> Encoded {
+    let all_values_referenced = dict.has_all_values_referenced();
+    Encoded::new(
+        vec![
+            Child::new(scheme, 0, dict.values().clone()),
+            Child::new(scheme, 1, dict.codes().clone()),
+        ],
+        Vec::new(),
+        move |children, _| {
+            let [values, codes] = children.compressed()?;
+            // SAFETY: compressing codes or values does not alter the invariants.
+            Ok(unsafe {
+                DictArray::new_unchecked(codes, values)
+                    .set_all_values_referenced(all_values_referenced)
+                    .into_array()
+            })
+        },
+    )
+}
+
 /// FastLanes bit-packing aligns packed buffers to 1024-element blocks.
 pub(super) const FASTLANES_BLOCK_LEN: u64 = 1024;
 
@@ -223,16 +253,18 @@ pub(super) fn estimate_codes_bits(
     let max_bw = u64::from(max_bw_u32);
     let packed_len = array_len.next_multiple_of(FASTLANES_BLOCK_LEN);
     // Match `BitPacking::find_best_bit_width`: each exception stores a code value plus a u32 index.
-    let bits_per_exception = ptype_bits + u64::from(u32::BITS);
+    let bytes_per_exception = ptype_bits / 8 + u64::from(u32::BITS / 8);
+    let bits_per_exception = bytes_per_exception * 8;
 
     let mut best_bits = uncompressed_bits;
 
     match histogram {
         Some(hist) => {
             // Mirror `BitPackingScheme::compress_global`: `find_best_bit_width` first picks the
-            // cheapest bit width over `0..=max_bw`, and `should_pack` then rejects widths that
-            // save fewer than `BITPACKING_MIN_BITS_SAVED` bits (falling back to uncompressed).
-            // Null slots are encoded as code `0`, so they never become bit-packing exceptions.
+            // cheapest bit width over `0..=max_bw` using byte-rounded packed size, and
+            // `should_pack` then rejects widths that save fewer than `BITPACKING_MIN_BITS_SAVED`
+            // bits (falling back to uncompressed). Null slots are encoded as code `0`, so they
+            // never become bit-packing exceptions.
             let mut packed_valid = 0u64;
             let mut chosen_bw = 0u64;
             let mut chosen_exceptions = value_count;
@@ -243,7 +275,8 @@ pub(super) fn estimate_codes_bits(
                 let exceptions = value_count.saturating_sub(packed_valid);
                 let selection_cost = array_len
                     .saturating_mul(bw)
-                    .saturating_add(exceptions.saturating_mul(bits_per_exception));
+                    .div_ceil(8)
+                    .saturating_add(exceptions.saturating_mul(bytes_per_exception));
                 if selection_cost < best_selection_cost {
                     best_selection_cost = selection_cost;
                     chosen_bw = bw;

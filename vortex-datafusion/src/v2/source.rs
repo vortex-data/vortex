@@ -87,6 +87,7 @@ use datafusion_common::Statistics;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision as DFPrecision;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::OpenArgs;
@@ -100,6 +101,7 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::reassign_expr_columns;
+use datafusion_physical_expr_common::physical_expr::is_volatile;
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_expr_common::sort_expr::PhysicalSortExpr;
 use datafusion_physical_plan::DisplayFormatType;
@@ -340,6 +342,7 @@ impl VortexDataSourceBuilder {
             initial_schema: Arc::clone(&arrow_schema),
             initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
+            applied_projection: None,
             projected_projection: projection.clone(),
             projected_schema: Arc::clone(&arrow_schema),
             projected_statistics: statistics.clone(),
@@ -412,6 +415,8 @@ pub struct VortexDataSource {
     /// Column statistics for the initial projection columns.
     #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
+    /// Composed DataFusion projection swapped into this source over `initial_schema`.
+    applied_projection: Option<ProjectionExprs>,
 
     // --- Phase 2: Projected (pushed into the Vortex scan) ---
     /// The Vortex projection expression sent in the [`ScanRequest`].
@@ -859,8 +864,9 @@ impl DataSource for VortexDataSource {
         self.limit
     }
 
-    // Note that we're explicitly "swapping" the projection. That means everything we do must
-    // be computed over the original input schema, rather than the projected output schema.
+    // Incoming projections sit above the current output schema (`leftover_schema`), so repeated
+    // swaps compose on top of any previously applied projection before re-splitting over
+    // `initial_schema`.
     fn try_swapping_with_projection(
         &self,
         projection: &ProjectionExprs,
@@ -871,8 +877,25 @@ impl DataSource for VortexDataSource {
         );
 
         let converter = &self.expression_converter;
+        let projected_schema = projection.project_schema(self.leftover_schema.as_ref())?;
+        let combined_projection = match &self.applied_projection {
+            Some(existing) => {
+                if !can_merge_projection(existing, projection)? {
+                    return Ok(None);
+                }
+                match existing.try_merge(projection) {
+                    Ok(merged) => merged,
+                    Err(err) => {
+                        tracing::debug!(
+                            "VortexScanSource: failed to merge projection {projection}: {err}"
+                        );
+                        return Ok(None);
+                    }
+                }
+            }
+            None => projection.clone(),
+        };
         let input_schema = self.initial_schema.as_ref();
-        let projected_schema = projection.project_schema(input_schema)?;
 
         // Use the shared ExpressionConverter to split the projection into a Vortex
         // scan_projection and a leftover DataFusion projection for expressions that
@@ -881,7 +904,11 @@ impl DataSource for VortexDataSource {
             scan_projection,
             scan_reference_schema,
             leftover_projection,
-        } = converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
+        } = converter.split_projection(
+            combined_projection.clone(),
+            input_schema,
+            &projected_schema,
+        )?;
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.
@@ -904,7 +931,9 @@ impl DataSource for VortexDataSource {
         let final_schema = Arc::new(projected_schema);
 
         let mut this = self.clone();
-        this.output_ordering = project_output_ordering(self.initial_ordering.as_ref(), projection);
+        this.output_ordering =
+            project_output_ordering(self.initial_ordering.as_ref(), &combined_projection);
+        this.applied_projection = Some(combined_projection);
         this.projected_projection = scan_projection;
         this.projected_schema = Arc::clone(&scan_output_schema);
         this.projected_statistics =
@@ -988,6 +1017,28 @@ impl DataSource for VortexDataSource {
             f,
         )
     }
+}
+
+/// Mirrors DataFusion's projection-collapse guard and also rejects volatile expressions: do not
+/// inline an inner expression referenced more than once by the outer projection if it is volatile
+/// or does not push to leaves, which would duplicate volatile or expensive work.
+fn can_merge_projection(existing: &ProjectionExprs, incoming: &ProjectionExprs) -> DFResult<bool> {
+    let existing_exprs = existing.as_ref();
+    let mut ref_counts = vec![0usize; existing_exprs.len()];
+    for proj_expr in incoming.as_ref() {
+        proj_expr.expr.apply(|expr| {
+            if let Some(column) = expr.downcast_ref::<Column>()
+                && let Some(count) = ref_counts.get_mut(column.index())
+            {
+                *count += 1;
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+    }
+    Ok(!ref_counts.into_iter().enumerate().any(|(index, count)| {
+        let expr = &existing_exprs[index].expr;
+        count > 1 && (is_volatile(expr) || !expr.placement().should_push_to_leaves())
+    }))
 }
 
 fn project_output_ordering(
@@ -1461,6 +1512,20 @@ mod tests {
         assert_eq!(
             ordering[0].expr.as_ref(),
             &Column::new("renamed", 0) as &dyn PhysicalExpr
+        );
+        let projected_again = projected
+            .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+                Arc::new(Column::new("renamed", 0)),
+                "final_name",
+            )]))?
+            .expect("second projection supported");
+        let second_properties = projected_again.eq_properties();
+        let second_ordering = second_properties
+            .output_ordering()
+            .expect("second identity preserves ordering");
+        assert_eq!(
+            second_ordering[0].expr.as_ref(),
+            &Column::new("final_name", 0) as &dyn PhysicalExpr
         );
         let computed = source
             .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(

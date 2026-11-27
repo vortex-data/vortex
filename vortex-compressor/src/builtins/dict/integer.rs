@@ -13,25 +13,23 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::dict::DictArrayExt;
-use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::IntegerPType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::dictionary_encoded;
 use crate::CascadingCompressor;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
+use crate::scheme::Encoded;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
-use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 use crate::stats::IntegerErasedStats;
@@ -131,33 +129,27 @@ impl Scheme for IntDictScheme {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(before as f64 / after as f64))
     }
 
-    fn compress(
+    /// Children: values=0, codes=1. The codes carry the validity.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let stats = data.integer_stats(exec_ctx);
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
+        Ok(dictionary_encoded(self, &dict))
+    }
 
-        // Values = child 0.
-        let compressed_values =
-            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
-
-        // Codes = child 1. `dictionary_encode` already sizes the codes from the dictionary
-        // length, so there is nothing left to narrow here.
-        let compressed_codes =
-            compressor.compress_child(dict.codes(), &compress_ctx, self.id(), 1, exec_ctx)?;
-
-        // SAFETY: compressing codes does not change their values.
-        unsafe {
-            Ok(
-                DictArray::new_unchecked(compressed_codes, compressed_values)
-                    .set_all_values_referenced(dict.has_all_values_referenced())
-                    .into_array(),
-            )
-        }
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
@@ -371,21 +363,25 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[case(1, 0)]
-    #[case(2, 1)]
-    #[case(3, 2)]
-    #[case(4, 2)]
-    #[case(5, 3)]
-    #[case(256, 8)]
-    #[case(257, 9)]
-    #[case(65_536, 16)]
-    #[case(65_537, 17)]
-    fn min_code_bit_width_handles_power_of_two_boundaries(
-        #[case] distinct: u32,
-        #[case] expected_bw: u32,
-    ) {
-        assert_eq!(min_code_bit_width(distinct), expected_bw);
+    #[test]
+    fn min_code_bit_width_handles_power_of_two_boundaries() {
+        for (distinct, expected_bw) in [
+            (1, 0),
+            (2, 1),
+            (3, 2),
+            (4, 2),
+            (5, 3),
+            (256, 8),
+            (257, 9),
+            (65_536, 16),
+            (65_537, 17),
+        ] {
+            assert_eq!(
+                min_code_bit_width(distinct),
+                expected_bw,
+                "distinct={distinct}"
+            );
+        }
     }
 
     #[test]

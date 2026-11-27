@@ -29,7 +29,9 @@ use vortex_fastlanes::FL_CHUNK_SIZE;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
@@ -215,41 +217,40 @@ impl Scheme for DeltaScheme {
         )))
     }
 
-    fn compress(
+    /// Children: bases=0, deltas=1. Delta stores the input's validity, which is registered.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let primitive = compressor
-            .with_compressed_validity(data.array(), exec_ctx)?
-            .execute::<PrimitiveArray>(exec_ctx)?;
+    ) -> VortexResult<Encoded> {
+        let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let len = primitive.len();
         let (bases, deltas) = vortex_fastlanes::delta_compress(&primitive, exec_ctx)?;
 
-        let compressed_bases = compressor.compress_child(
-            &bases.into_array(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-        let compressed_deltas = compressor.compress_child(
-            &deltas.into_array(),
-            &compress_ctx,
-            self.id(),
-            1,
-            exec_ctx,
-        )?;
-
-        Delta::try_new(
-            compressed_bases,
-            compressed_deltas,
-            primitive.validity()?,
-            0,
-            len,
+        Ok(Encoded::new(
+            vec![
+                Child::new(self, 0, bases.into_array()),
+                Child::new(self, 1, deltas.into_array()),
+            ],
+            Vec::new(),
+            move |children, _| {
+                let [bases, deltas] = children.compressed()?;
+                Delta::try_new(bases, deltas, children.validity()?, 0, len)
+                    .map(IntoArray::into_array)
+            },
         )
-        .map(IntoArray::into_array)
+        .with_validity(primitive.validity()?))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
