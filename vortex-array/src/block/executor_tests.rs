@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
-use smallvec::smallvec;
 use rstest::rstest;
+use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
