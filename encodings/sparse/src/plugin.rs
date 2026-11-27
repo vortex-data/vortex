@@ -100,7 +100,12 @@ fn deserialize(
     let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
     let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-    vortex_ensure_eq!(children.len(), 2, "SparseArray expects 2 children");
+    let offsets_dtype = metadata.patches.chunk_offsets_dtype()?;
+    vortex_ensure_eq!(
+        children.len(),
+        2 + usize::from(offsets_dtype.is_some()),
+        "Unexpected Sparse child count"
+    );
 
     let patch_indices = children.get(
         0,
@@ -109,12 +114,21 @@ fn deserialize(
     )?;
     let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-    let patches = Patches::new(
+    let chunk_offsets = offsets_dtype
+        .map(|dtype| {
+            children.get(
+                2,
+                &dtype,
+                usize::try_from(metadata.patches.chunk_offsets_len())?,
+            )
+        })
+        .transpose()?;
+    let patches = Patches::from_metadata(
         len,
-        metadata.patches.offset()?,
+        &metadata.patches,
         patch_indices,
         patch_values,
-        None,
+        chunk_offsets,
         &mut session.create_execution_ctx(),
     )?;
     if externalize && dtype.is_int() {
@@ -144,6 +158,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::buffer::BufferHandle;
+    use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -172,37 +187,40 @@ mod tests {
                 false,
             ),
         ] {
-            let array = Sparse::try_new(
-                PrimitiveArray::from_iter([1u32, 3]).into_array(),
-                values,
-                5,
-                fill,
-                &mut ctx,
-            )?
-            .into_array();
-            let serialized = Sparse.serialize(&array, &session)?.unwrap();
-            let buffers = array
-                .buffers()
-                .into_iter()
-                .map(BufferHandle::new_host)
-                .collect::<Vec<_>>();
-            let children = array.children();
-            for externalize in [false, true] {
-                let decoded = deserialize(
-                    ArrayDeserialization::new(
-                        ArrayPlugin::id(&Sparse),
-                        array.dtype(),
-                        array.len(),
-                        &serialized.metadata,
-                        &buffers,
-                        &children,
-                    ),
-                    &session,
-                    externalize,
+            for offsets in [None, Some(PrimitiveArray::from_iter([0u32]).into_array())] {
+                let patches = Patches::new(
+                    5,
+                    0,
+                    PrimitiveArray::from_iter([1u32, 3]).into_array(),
+                    values.clone(),
+                    offsets,
+                    &mut ctx,
                 )?;
-                assert_eq!(decoded.is::<Patched>(), externalize && integer);
-                assert_eq!(decoded.is::<Sparse>(), !(externalize && integer));
-                assert_arrays_eq!(decoded, array, &mut ctx);
+                let array = Sparse::try_new_from_patches(patches, fill.clone())?.into_array();
+                let serialized = Sparse.serialize(&array, &session)?.unwrap();
+                let buffers = array
+                    .buffers()
+                    .into_iter()
+                    .map(BufferHandle::new_host)
+                    .collect::<Vec<_>>();
+                let children = array.children();
+                for externalize in [false, true] {
+                    let decoded = deserialize(
+                        ArrayDeserialization::new(
+                            ArrayPlugin::id(&Sparse),
+                            array.dtype(),
+                            array.len(),
+                            &serialized.metadata,
+                            &buffers,
+                            &children,
+                        ),
+                        &session,
+                        externalize,
+                    )?;
+                    assert_eq!(decoded.is::<Patched>(), externalize && integer);
+                    assert_eq!(decoded.is::<Sparse>(), !(externalize && integer));
+                    assert_arrays_eq!(decoded, array, &mut ctx);
+                }
             }
         }
         Ok(())
