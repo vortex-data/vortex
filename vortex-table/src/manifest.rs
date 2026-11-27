@@ -29,6 +29,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
+use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::v2::ScanDriver;
 use vortex_io::VortexReadAt;
@@ -77,6 +78,25 @@ impl ManifestEntry {
             row_count: file.row_count(),
             footer_offset,
         })
+    }
+
+    /// Opens the file, fetching its footer in one read: the reader is told exactly how much of
+    /// the tail to read, so it never reads a guessed tail and then again.
+    pub async fn open(
+        &self,
+        session: &VortexSession,
+        read: Arc<dyn VortexReadAt>,
+    ) -> VortexResult<VortexFile> {
+        session
+            .open_options()
+            .with_file_size(self.byte_size)
+            .with_initial_read_size(usize::try_from(
+                self.byte_size
+                    .checked_sub(self.footer_offset)
+                    .ok_or_else(|| vortex_err!("{}: footer offset is past the end", self.path))?,
+            )?)
+            .open(read)
+            .await
     }
 }
 

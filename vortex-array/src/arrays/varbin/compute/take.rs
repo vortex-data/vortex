@@ -822,12 +822,18 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbin::VarBinArraySlotsExt;
     use crate::arrays::varbin::compute::take::PrimitiveArray;
+    use crate::arrays::varbin::compute::take::take_varbin;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -967,5 +973,298 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         assert_arrays_eq!(taken, expected, &mut ctx);
+    }
+
+    fn varbin_with_offset_ptype(
+        values: &[Option<&str>],
+        offset_ptype: PType,
+        nullability: Nullability,
+        ctx: &mut crate::ExecutionCtx,
+    ) -> VortexResult<VarBinArray> {
+        let mut bytes = Vec::new();
+        let mut raw_offsets = Vec::with_capacity(values.len() + 1);
+        raw_offsets.push(0u64);
+        let mut valid_bits = Vec::with_capacity(values.len());
+        for value in values {
+            match value {
+                Some(s) => {
+                    bytes.extend_from_slice(s.as_bytes());
+                    valid_bits.push(true);
+                }
+                None => valid_bits.push(false),
+            }
+            raw_offsets.push(bytes.len() as u64);
+        }
+        let offsets = PrimitiveArray::from_iter(raw_offsets)
+            .into_array()
+            .cast(DType::Primitive(offset_ptype, Nullability::NonNullable))?;
+        let validity = match nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::from_iter(valid_bits),
+        };
+        Ok(VarBinArray::new(
+            offsets,
+            ByteBuffer::copy_from(bytes),
+            DType::Utf8(nullability),
+            validity,
+            ctx,
+        ))
+    }
+
+    #[rstest]
+    #[case::u8_offsets(PType::U8, PType::U32)]
+    #[case::u16_offsets(PType::U16, PType::U32)]
+    #[case::i32_offsets(PType::I32, PType::I32)]
+    #[case::u32_offsets(PType::U32, PType::U32)]
+    #[case::i64_offsets(PType::I64, PType::I64)]
+    #[case::u64_offsets(PType::U64, PType::U64)]
+    fn test_take_varbin_direct_offsets_and_indices(
+        #[case] offset_ptype: PType,
+        #[case] expected_out_offset_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = [
+            Some("alpha"),
+            Some(""),
+            Some("a much longer string value!"),
+            Some("delta"),
+            Some("epsilon"),
+        ];
+        let array =
+            varbin_with_offset_ptype(&values, offset_ptype, Nullability::NonNullable, &mut ctx)?;
+
+        // Out-of-order, repeated, and empty-string indices across integer widths.
+        for indices in [
+            buffer![4u8, 1, 2, 2, 0].into_array(),
+            buffer![4u16, 1, 2, 2, 0].into_array(),
+            buffer![4u32, 1, 2, 2, 0].into_array(),
+            buffer![4u64, 1, 2, 2, 0].into_array(),
+            buffer![4i32, 1, 2, 2, 0].into_array(),
+        ] {
+            let taken = take_varbin(array.as_view(), &indices, &mut ctx)?;
+            assert_eq!(
+                taken.offsets().dtype(),
+                &DType::Primitive(expected_out_offset_ptype, Nullability::NonNullable)
+            );
+            assert_arrays_eq!(
+                taken,
+                VarBinViewArray::from_iter_str([
+                    "epsilon",
+                    "",
+                    "a much longer string value!",
+                    "a much longer string value!",
+                    "alpha",
+                ]),
+                &mut ctx
+            );
+        }
+
+        // Empty indices.
+        let empty_indices = PrimitiveArray::empty::<u32>(Nullability::NonNullable).into_array();
+        let taken_empty = take_varbin(array.as_view(), &empty_indices, &mut ctx)?;
+        assert_arrays_eq!(
+            taken_empty,
+            VarBinViewArray::from_iter_str(iter::empty::<&str>()),
+            &mut ctx
+        );
+
+        // Nullable indices on non-nullable VarBinArray.
+        let nullable_indices =
+            PrimitiveArray::from_option_iter([Some(2u32), None, Some(1), Some(0), None])
+                .into_array();
+        let taken_nullable = take_varbin(array.as_view(), &nullable_indices, &mut ctx)?;
+        assert_eq!(
+            taken_nullable.offsets().dtype(),
+            &DType::Primitive(expected_out_offset_ptype, Nullability::NonNullable)
+        );
+        assert_arrays_eq!(
+            taken_nullable,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("a much longer string value!"),
+                None,
+                Some(""),
+                Some("alpha"),
+                None,
+            ]),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::i32_offsets(PType::I32, PType::I32)]
+    #[case::u32_offsets(PType::U32, PType::U32)]
+    #[case::u64_offsets(PType::U64, PType::U64)]
+    fn test_take_varbin_direct_nullable_arrays(
+        #[case] offset_ptype: PType,
+        #[case] expected_out_offset_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = [
+            Some("zero"),
+            None,
+            Some("two_long_string_value"),
+            Some(""),
+            None,
+            Some("five"),
+        ];
+        let array =
+            varbin_with_offset_ptype(&values, offset_ptype, Nullability::Nullable, &mut ctx)?;
+
+        // Non-nullable indices hitting both valid and null slots.
+        let non_null_indices = buffer![5u32, 1, 2, 4, 3, 0].into_array();
+        let taken = take_varbin(array.as_view(), &non_null_indices, &mut ctx)?;
+        assert_eq!(
+            taken.offsets().dtype(),
+            &DType::Primitive(expected_out_offset_ptype, Nullability::NonNullable)
+        );
+        assert_arrays_eq!(
+            taken,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("five"),
+                None,
+                Some("two_long_string_value"),
+                None,
+                Some(""),
+                Some("zero"),
+            ]),
+            &mut ctx
+        );
+
+        // Nullable indices combined with nullable array values.
+        let nullable_indices =
+            PrimitiveArray::from_option_iter([None, Some(0u64), Some(1), Some(2), None, Some(4)])
+                .into_array();
+        let taken_both = take_varbin(array.as_view(), &nullable_indices, &mut ctx)?;
+        assert_arrays_eq!(
+            taken_both,
+            VarBinViewArray::from_iter_nullable_str([
+                None,
+                Some("zero"),
+                None,
+                Some("two_long_string_value"),
+                None,
+                None,
+            ]),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::u8_offsets(PType::U8, PType::U32)]
+    #[case::u16_offsets(PType::U16, PType::U32)]
+    #[case::i32_offsets(PType::I32, PType::I32)]
+    #[case::u32_offsets(PType::U32, PType::U32)]
+    #[case::u64_offsets(PType::U64, PType::U64)]
+    fn test_take_varbin_contiguous_runs(
+        #[case] offset_ptype: PType,
+        #[case] expected_out_offset_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = [
+            Some("r0"),
+            None,
+            Some("r2_long_string"),
+            Some("r3"),
+            Some(""),
+            Some("r5_another_long"),
+            None,
+            Some("r7"),
+        ];
+        let array =
+            varbin_with_offset_ptype(&values, offset_ptype, Nullability::Nullable, &mut ctx)?;
+
+        // Variable-length contiguous runs including a zero-length run and repeated runs.
+        let starts: ArrayRef = buffer![1u32, 4, 2, 0].into_array();
+        let lengths: ArrayRef = buffer![3u16, 0, 2, 2].into_array();
+        let multipliers = ConstantArray::new(1u64, 4).into_array();
+        let variable_indices =
+            PiecewiseSequenceArray::try_new(starts, lengths, multipliers, 7)?.into_array();
+
+        let taken_var = take_varbin(array.as_view(), &variable_indices, &mut ctx)?;
+        assert_eq!(
+            taken_var.offsets().dtype(),
+            &DType::Primitive(expected_out_offset_ptype, Nullability::NonNullable)
+        );
+        assert_arrays_eq!(
+            taken_var,
+            VarBinViewArray::from_iter_nullable_str([
+                None,
+                Some("r2_long_string"),
+                Some("r3"),
+                Some("r2_long_string"),
+                Some("r3"),
+                Some("r0"),
+                None,
+            ]),
+            &mut ctx
+        );
+
+        // Constant-length contiguous runs.
+        let const_starts = buffer![5u64, 0, 2].into_array();
+        let const_lengths = ConstantArray::new(2u32, 3).into_array();
+        let const_multipliers = ConstantArray::new(1u64, 3).into_array();
+        let const_indices =
+            PiecewiseSequenceArray::try_new(const_starts, const_lengths, const_multipliers, 6)?
+                .into_array();
+
+        let taken_const = take_varbin(array.as_view(), &const_indices, &mut ctx)?;
+        assert_eq!(
+            taken_const.offsets().dtype(),
+            &DType::Primitive(expected_out_offset_ptype, Nullability::NonNullable)
+        );
+        assert_arrays_eq!(
+            taken_const,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("r5_another_long"),
+                None,
+                Some("r0"),
+                None,
+                Some("r2_long_string"),
+                Some("r3"),
+            ]),
+            &mut ctx
+        );
+
+        // Constant-length zero runs.
+        let zero_indices = PiecewiseSequenceArray::try_new(
+            buffer![0u32, 3].into_array(),
+            ConstantArray::new(0u32, 2).into_array(),
+            ConstantArray::new(1u64, 2).into_array(),
+            0,
+        )?
+        .into_array();
+        let taken_zero = take_varbin(array.as_view(), &zero_indices, &mut ctx)?;
+        assert_arrays_eq!(
+            taken_zero,
+            VarBinViewArray::from_iter_nullable_str(iter::empty::<Option<&str>>()),
+            &mut ctx
+        );
+
+        // Non-contiguous PiecewiseSequence (multiplier != 1) falls back cleanly to general take_varbin.
+        let strided_indices = PiecewiseSequenceArray::try_new(
+            buffer![0u64, 1].into_array(),
+            buffer![3u64, 2].into_array(),
+            buffer![2u64, 3].into_array(),
+            5,
+        )?
+        .into_array();
+        let taken_strided = take_varbin(array.as_view(), &strided_indices, &mut ctx)?;
+        assert_arrays_eq!(
+            taken_strided,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("r0"),
+                Some("r2_long_string"),
+                Some(""),
+                None,
+                Some(""),
+            ]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 }

@@ -238,6 +238,7 @@ mod tests {
 
         let sql = ListContainsOptions {
             sql_null_semantics: true,
+            ..Default::default()
         };
         let result = array
             .apply(&list_contains_opts(lit(set), root(), sql))
@@ -300,7 +301,10 @@ mod tests {
         let expr = list_contains_opts(
             lit(list_scalar),
             root(),
-            ListContainsOptions { sql_null_semantics },
+            ListContainsOptions {
+                sql_null_semantics,
+                ..Default::default()
+            },
         )
         .bind(seq.dtype())?
         .optimize_recursive()?;

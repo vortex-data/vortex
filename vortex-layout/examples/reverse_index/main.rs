@@ -176,7 +176,11 @@ impl IndexVTable for ReverseIndex {
         _options: &(),
     ) -> VortexResult<Option<IndexQueryPlan<Scalar>>> {
         // Only `<column> == <literal>`.
-        if !expr.is::<Compare>() || *expr.as_::<Compare>() != CompareOperator::Eq {
+        if !expr.is::<Compare>() {
+            return Ok(None);
+        }
+        let options = expr.as_::<Compare>();
+        if options.operator() != CompareOperator::Eq {
             return Ok(None);
         }
         if !expr.child(0).is_root() || !expr.child(1).is::<Literal>() {
@@ -192,6 +196,14 @@ impl IndexVTable for ReverseIndex {
         if target.is_null() {
             // Null literal: `column == NULL` never matches under normal equality, and this index
             // does not model that, so decline rather than claim it incorrectly.
+            return Ok(None);
+        }
+        // The index looks up the bits of a value, so it only answers total-order equality. A
+        // float comparison in a mode where `-0.0 = +0.0` or where `NaN` values are equal declines.
+        if !options
+            .compare_mode()
+            .agrees_with_total_order(CompareOperator::Eq, dtype, Some(target))
+        {
             return Ok(None);
         }
         let target = target.clone();

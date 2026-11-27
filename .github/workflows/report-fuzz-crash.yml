@@ -9,9 +9,6 @@ on:
       fuzz_name:
         required: false
         type: string
-      crash_file:
-        required: true
-        type: string
       artifact_url:
         required: true
         type: string
@@ -34,6 +31,9 @@ on:
       issue_created:
         description: "Whether this run created a new issue, rather than matching an existing one"
         value: ${{ jobs.report.outputs.issue_created }}
+      fix_issue_number:
+        description: "An issue that needs a fix attempt, or empty if no reported issue needs one"
+        value: ${{ jobs.report.outputs.fix_issue_number }}
     secrets:
       gh_token:
         required: true
@@ -48,6 +48,7 @@ jobs:
     outputs:
       issue_number: ${{ steps.report.outputs.issue_number }}
       issue_created: ${{ steps.report.outputs.issue_created }}
+      fix_issue_number: ${{ steps.report.outputs.fix_issue_number }}
 
     steps:
       - name: Checkout repository
@@ -68,57 +69,24 @@ jobs:
       - name: Install Python dependencies
         run: pip install -e .github/scripts
 
-      - name: Extract crash info
-        id: extract
-        run: |
-          python3 -m fuzz_report extract \
-            logs/fuzz_output.log \
-            --crash-dir crash_artifacts \
-            --crash-name "${{ inputs.crash_file }}" \
-            -o crash_info.json
-
-          # Validate that extraction found a real crash.
-          error_variant=$(jq -r '.error_variant' crash_info.json)
-          panic_message=$(jq -r '.panic_message' crash_info.json)
-          echo "error_variant=$error_variant"
-          echo "panic_message=$panic_message"
-          if [ "$error_variant" = "unknown" ] && [ "$panic_message" = "unknown" ]; then
-            echo "::notice::No crash info found in fuzzer output — nothing to report."
-            echo "crash_found=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "crash_found=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Skip if no crash found
-        if: steps.extract.outputs.crash_found != 'true'
-        run: |
-          echo "No parseable crash in fuzzer output — skipping remaining steps."
-          exit 1
-
-      - name: Fetch existing fuzzer issues
+      - name: Create or comment on issues
+        id: report
         env:
           GH_TOKEN: ${{ secrets.gh_token }}
-        run: |
-          gh issue list \
-            --repo "${{ github.repository }}" \
-            --label fuzzer \
-            --state open \
-            --json number,title,body,url \
-            --limit 100 > fuzzer_issues.json
-
-      - name: Check for duplicates
-        id: dedup
-        run: |
-          python3 -m fuzz_report check-duplicate \
-            crash_info.json \
-            fuzzer_issues.json \
-            -o dedup_result.json
+          REPO: ${{ github.repository }}
+          FUZZ_TARGET: ${{ inputs.fuzz_target }}
+          FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
+          BRANCH: ${{ inputs.branch }}
+          COMMIT: ${{ inputs.commit }}
+          ARTIFACT_URL: ${{ inputs.artifact_url }}
+        run: .github/scripts/report-fuzz-crashes.sh
 
       - name: Claude analysis (optional)
         id: claude_analysis
-        if: |
-          steps.dedup.outputs.duplicate != 'true' ||
-          steps.dedup.outputs.confidence != 'exact'
+        # The CI federation rule trusts only the default branch.
+        if: >-
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          steps.report.outputs.issue_created == 'true'
         continue-on-error: true
         uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc  # v1.0.276
         with:
@@ -130,7 +98,7 @@ jobs:
           github_token: ${{ secrets.gh_token }}
           show_full_output: true
           prompt: |
-            `crash_info.json` has the fields extracted from a fuzzer crash: panic_location,
+            `new_crash_info.json` has the fields extracted from a fuzzer crash: panic_location,
             crash_location, panic_message, error_variant, stack_frames, stack_trace_raw
             and debug_output. If you need more context, read the start of
             `logs/fuzz_output.log`. The file can be very large, so read only the first
@@ -142,8 +110,8 @@ jobs:
             Write a short root cause analysis to `claude_analysis.txt`. Tell what the
             crash is, with its error type and location, and why it probably occurs.
             Say whether the library or the fuzz harness under `fuzz/` looks at fault.
-            If a fix direction is clear, include it. The text goes into a section of a
-            GitHub issue template, so write only plain prose, without headers or other
+            If a fix direction is clear, include it. The text goes into a comment on a
+            GitHub issue, so write only plain prose, without headers or other
             Markdown.
           claude_args: |
             --model claude-opus-5-5
@@ -152,22 +120,14 @@ jobs:
             --max-turns 20
             --allowedTools "Read,Write,Grep,Glob,Bash(cat:*),Bash(jq:*),Bash(head:*),Bash(xxd:*)"
 
-      - name: Create or comment on issue
-        id: report
+      - name: Post Claude analysis
+        if: hashFiles('claude_analysis.txt') != ''
         env:
           GH_TOKEN: ${{ secrets.gh_token }}
-        run: |
-          python3 -m fuzz_report report \
-            crash_info.json \
-            --repo "${{ github.repository }}" \
-            --dedup-result dedup_result.json \
-            --claude-analysis claude_analysis.txt \
-            -v "FUZZ_TARGET=${{ inputs.fuzz_target }}" \
-            -v "FUZZ_NAME=${{ inputs.fuzz_name || inputs.fuzz_target }}" \
-            -v "CRASH_FILE=${{ inputs.crash_file }}" \
-            -v "BRANCH=${{ inputs.branch }}" \
-            -v "COMMIT=${{ inputs.commit }}" \
-            -v "ARTIFACT_URL=${{ inputs.artifact_url }}"
+          ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
+        run: >-
+          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}"
+          --body-file claude_analysis.txt
 
       - name: Alert incident.io on validation failure
         if: failure() && steps.report.outputs.validation_failed == 'true'
