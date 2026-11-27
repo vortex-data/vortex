@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::ready;
+use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -8,6 +10,7 @@ use std::task::Poll;
 
 use async_channel::SendError;
 use async_channel::Sender;
+use async_channel::TrySendError;
 use async_channel::bounded;
 use async_stream::stream;
 use async_stream::try_stream;
@@ -450,45 +453,77 @@ impl DictChunkLabeler {
 
 type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
+type PendingCodesSend = BoxFuture<'static, Result<(), SendError<SequencedChunk>>>;
+type DictionaryRun = (SendableSequentialStream, BoxFuture<'static, SequencedChunk>);
+
+enum TransformerState {
+    Idle,
+    Active {
+        codes_tx: Sender<SequencedChunk>,
+        codes_err_tx: oneshot::Sender<VortexError>,
+        values_tx: oneshot::Sender<SequencedChunk>,
+        pending_send: Option<PendingCodesSend>,
+    },
+    /// The active group's codes receiver was dropped; discard remaining codes until `Values`
+    /// closes the group so they do not start a bogus new dictionary group.
+    Discarding,
+    Done,
+}
+
 struct DictionaryTransformer {
     input: DictionaryStream,
-    active_codes_tx: Option<Sender<SequencedChunk>>,
-    active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
-    pending_send: Option<BoxFuture<'static, Result<(), SendError<SequencedChunk>>>>,
+    state: TransformerState,
 }
 
 impl DictionaryTransformer {
     fn new(input: DictionaryStream) -> Self {
         Self {
             input,
-            active_codes_tx: None,
-            active_values_tx: None,
-            pending_send: None,
+            state: TransformerState::Idle,
         }
+    }
+
+    fn enter_discarding(&mut self) {
+        if let TransformerState::Active { values_tx, .. } =
+            mem::replace(&mut self.state, TransformerState::Discarding)
+        {
+            drop(values_tx.send(Err(vortex_err!("codes receiver dropped"))));
+        }
+    }
+
+    fn fail_and_finish(&mut self, err: VortexError) -> Poll<Option<VortexResult<DictionaryRun>>> {
+        if let TransformerState::Active {
+            codes_err_tx,
+            values_tx,
+            ..
+        } = mem::replace(&mut self.state, TransformerState::Done)
+        {
+            drop(codes_err_tx.send(err.clone()));
+            drop(values_tx.send(Err(err.clone())));
+        }
+        Poll::Ready(Some(Err(err)))
     }
 }
 
 impl Stream for DictionaryTransformer {
-    type Item = VortexResult<(SendableSequentialStream, BoxFuture<'static, SequencedChunk>)>;
+    type Item = VortexResult<DictionaryRun>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if matches!(self.state, TransformerState::Done) {
+            return Poll::Ready(None);
+        }
+
         loop {
-            // First, try to complete any pending send
-            if let Some(mut send_fut) = self.pending_send.take() {
+            if let TransformerState::Active { pending_send, .. } = &mut self.state
+                && let Some(mut send_fut) = pending_send.take()
+            {
                 match send_fut.poll_unpin(cx) {
-                    Poll::Ready(Ok(())) => {
-                        // Send completed, continue processing
-                    }
+                    Poll::Ready(Ok(())) => {}
                     Poll::Ready(Err(_)) => {
-                        // Receiver dropped, close this group
-                        self.active_codes_tx = None;
-                        if let Some(values_tx) = self.active_values_tx.take() {
-                            drop(values_tx.send(Err(vortex_err!("values receiver dropped"))));
-                        }
+                        self.enter_discarding();
                     }
                     Poll::Pending => {
-                        // Still pending, save it and return
-                        self.pending_send = Some(send_fut);
+                        *pending_send = Some(send_fut);
                         return Poll::Pending;
                     }
                 }
@@ -499,28 +534,34 @@ impl Stream for DictionaryTransformer {
                     seq_id,
                     codes,
                     codes_ptype,
-                }))) => {
-                    if self.active_codes_tx.is_none() {
-                        // Start a new group
+                }))) => match &mut self.state {
+                    TransformerState::Idle => {
                         let (codes_tx, codes_rx) = bounded::<SequencedChunk>(1);
+                        let (codes_err_tx, codes_err_rx) = oneshot::channel::<VortexError>();
                         let (values_tx, values_rx) = oneshot::channel();
 
-                        self.active_codes_tx = Some(codes_tx.clone());
-                        self.active_values_tx = Some(values_tx);
+                        codes_tx.try_send(Ok((seq_id, codes))).ok().vortex_expect(
+                            "fresh bounded(1) channel with live receiver cannot fail",
+                        );
 
-                        // Use passed codes_ptype instead of getting from array
+                        self.state = TransformerState::Active {
+                            codes_tx,
+                            codes_err_tx,
+                            values_tx,
+                            pending_send: None,
+                        };
+
                         let codes_dtype = DType::Primitive(codes_ptype, Nullability::NonNullable);
-
-                        // Send first codes.
-                        self.pending_send =
-                            Some(Box::pin(
-                                async move { codes_tx.send(Ok((seq_id, codes))).await },
-                            ));
-
-                        // Create output streams.
-                        let codes_stream =
-                            SequentialStreamAdapter::new(codes_dtype, codes_rx.boxed()).sendable();
-
+                        // Chain a oneshot error tail after `codes_rx` so mid-group errors and
+                        // incomplete-group EOFs still reach the codes consumer without blocking
+                        // when the bounded(1) channel is full.
+                        let codes_err_tail =
+                            once(async move { codes_err_rx.await.ok().map(Err) }).filter_map(ready);
+                        let codes_stream = SequentialStreamAdapter::new(
+                            codes_dtype,
+                            codes_rx.chain(codes_err_tail).boxed(),
+                        )
+                        .sendable();
                         let values_future = async move {
                             values_rx
                                 .await
@@ -531,37 +572,50 @@ impl Stream for DictionaryTransformer {
 
                         return Poll::Ready(Some(Ok((codes_stream, values_future))));
                     }
-
-                    // Continue streaming codes to existing group
-                    if let Some(tx) = &self.active_codes_tx {
-                        let tx = tx.clone();
-                        self.pending_send =
-                            Some(Box::pin(async move { tx.send(Ok((seq_id, codes))).await }));
-                    }
-                }
+                    TransformerState::Active {
+                        codes_tx,
+                        pending_send,
+                        ..
+                    } => match codes_tx.try_send(Ok((seq_id, codes))) {
+                        Ok(()) => {}
+                        Err(TrySendError::Full(chunk)) => {
+                            let tx = codes_tx.clone();
+                            *pending_send = Some(Box::pin(async move { tx.send(chunk).await }));
+                        }
+                        Err(TrySendError::Closed(_)) => {
+                            self.enter_discarding();
+                        }
+                    },
+                    TransformerState::Discarding => {}
+                    TransformerState::Done => unreachable!("checked before loop"),
+                },
                 Poll::Ready(Some(Ok(DictionaryChunk::Values(values)))) => {
-                    // Complete the current group
-                    if let Some(values_tx) = self.active_values_tx.take() {
-                        drop(values_tx.send(Ok(values)));
+                    match mem::replace(&mut self.state, TransformerState::Idle) {
+                        TransformerState::Active { values_tx, .. } => {
+                            drop(values_tx.send(Ok(values)));
+                        }
+                        TransformerState::Discarding => {}
+                        TransformerState::Idle => {
+                            return self.fail_and_finish(vortex_err!(
+                                "Unexpected dictionary values without active group"
+                            ));
+                        }
+                        TransformerState::Done => unreachable!("checked before loop"),
                     }
-                    self.active_codes_tx = None; // Close codes stream
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    self.active_codes_tx = None;
-                    if let Some(values_tx) = self.active_values_tx.take() {
-                        drop(values_tx.send(Err(e)));
+                    return self.fail_and_finish(e);
+                }
+                Poll::Ready(None) => match self.state {
+                    TransformerState::Active { .. } | TransformerState::Discarding => {
+                        return self.fail_and_finish(vortex_err!("Incomplete dictionary group"));
+                    }
+                    TransformerState::Idle => {
+                        self.state = TransformerState::Done;
                         return Poll::Ready(None);
                     }
-                    return Poll::Ready(Some(Err(e)));
-                }
-                Poll::Ready(None) => {
-                    // Handle any incomplete group
-                    if let Some(values_tx) = self.active_values_tx.take() {
-                        drop(values_tx.send(Err(vortex_err!("Incomplete dictionary group"))));
-                    }
-                    self.active_codes_tx = None;
-                    return Poll::Ready(None);
-                }
+                    TransformerState::Done => unreachable!("checked before loop"),
+                },
                 Poll::Pending => return Poll::Pending,
             }
         }
@@ -705,6 +759,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use futures::StreamExt;
+    use futures::TryStreamExt;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
@@ -732,6 +787,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -1168,6 +1224,307 @@ mod tests {
         expected_raw.extend(iter::repeat_n("mid", 5));
         expected_raw.extend(iter::repeat_n("hot", 26));
         assert_arrays_eq!(actual, VarBinArray::from(expected_raw), &mut ctx);
+        Ok(())
+    }
+
+    fn codes_chunk(seq_id: SequenceId, codes: &[u8]) -> VortexResult<DictionaryChunk> {
+        Ok(DictionaryChunk::Codes {
+            seq_id,
+            codes: PrimitiveArray::from_iter(codes.iter().copied()).into_array(),
+            codes_ptype: PType::U8,
+        })
+    }
+
+    fn values_chunk(seq_id: SequenceId, values: &[i32]) -> VortexResult<DictionaryChunk> {
+        Ok(DictionaryChunk::Values((
+            seq_id,
+            PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+        )))
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_first_chunk_available_without_repoll() -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let chunks = vec![
+            codes_chunk(seq.advance(), &[0, 1]),
+            values_chunk(seq.advance(), &[10, 20]),
+        ];
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let (mut codes_stream, _values_fut) =
+            transformer.next().await.expect("expected first group")?;
+
+        // First codes chunk is already buffered before polling `transformer` again.
+        let (_, first_chunk) = codes_stream
+            .next()
+            .await
+            .expect("expected first codes chunk")?;
+        assert_arrays_eq!(
+            first_chunk,
+            buffer![0u8, 1],
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_backpressure_and_concurrent_streaming() -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let chunks = vec![
+            codes_chunk(seq.advance(), &[0, 1]),
+            codes_chunk(seq.advance(), &[1, 0]),
+            values_chunk(seq.advance(), &[10, 20]),
+            codes_chunk(seq.advance(), &[0]),
+            codes_chunk(seq.advance(), &[0, 0]),
+            values_chunk(seq.advance(), &[30]),
+        ];
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let (mut codes1, values1) = transformer.next().await.expect("expected first group")?;
+
+        // `bounded(1)` is full with the first chunk, so polling again applies backpressure.
+        assert!(futures::poll!(transformer.next()).is_pending());
+
+        let (_, chunk1) = codes1.next().await.expect("expected first codes chunk")?;
+
+        // Draining the first slot unblocks chunk 2, completes group 1, and yields group 2.
+        let (codes2, values2) = transformer.next().await.expect("expected second group")?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(chunk1, buffer![0u8, 1], &mut ctx);
+        let rest1: Vec<_> = codes1.try_collect().await?;
+        assert_eq!(rest1.len(), 1);
+        assert_arrays_eq!(rest1[0].1.clone(), buffer![1u8, 0], &mut ctx);
+        let (_, vals1) = values1.await?;
+        assert_arrays_eq!(vals1, buffer![10i32, 20], &mut ctx);
+
+        // Drive group 2 concurrently with `transformer`.
+        let (codes2_chunks, (_, vals2), ()) =
+            futures::try_join!(codes2.try_collect::<Vec<_>>(), values2, async {
+                assert!(transformer.next().await.is_none());
+                Ok(())
+            },)?;
+        assert_eq!(codes2_chunks.len(), 2);
+        assert_arrays_eq!(codes2_chunks[0].1.clone(), buffer![0u8], &mut ctx);
+        assert_arrays_eq!(codes2_chunks[1].1.clone(), buffer![0u8, 0], &mut ctx);
+        assert_arrays_eq!(vals2, buffer![30i32], &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::both_alive(false, false)]
+    #[case::values_dropped(false, true)]
+    #[case::codes_dropped(true, false)]
+    #[case::both_dropped(true, true)]
+    #[tokio::test]
+    async fn test_dict_transformer_mid_group_error_propagates(
+        #[case] drop_codes: bool,
+        #[case] drop_values: bool,
+    ) -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let chunks = vec![
+            codes_chunk(seq.advance(), &[0, 1]),
+            Err(vortex_err!("upstream boom")),
+        ];
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let (codes_stream, values_fut) =
+            transformer.next().await.expect("expected active group")?;
+
+        let codes_stream = (!drop_codes).then_some(codes_stream);
+        let values_fut = (!drop_values).then_some(values_fut);
+
+        // `bounded(1)` is still full with the first chunk; error must still deliver without blocking.
+        let outer_err = transformer
+            .next()
+            .await
+            .expect("outer stream must yield upstream error")
+            .err()
+            .expect("expected upstream error on outer stream");
+        assert!(
+            outer_err.to_string().contains("upstream boom"),
+            "unexpected outer error: {outer_err}"
+        );
+        assert!(transformer.next().await.is_none());
+
+        if let Some(mut codes_stream) = codes_stream {
+            let (_, first) = codes_stream.next().await.expect("expected first chunk")?;
+            assert_arrays_eq!(first, buffer![0u8, 1], &mut SESSION.create_execution_ctx());
+
+            let codes_err = codes_stream
+                .next()
+                .await
+                .expect("codes stream must see upstream error, not clean EOF")
+                .expect_err("expected upstream error on codes stream");
+            assert!(
+                codes_err.to_string().contains("upstream boom"),
+                "unexpected codes error: {codes_err}"
+            );
+            assert!(codes_stream.next().await.is_none());
+        }
+
+        if let Some(values_fut) = values_fut {
+            let values_err = values_fut
+                .await
+                .expect_err("expected upstream error on values future");
+            assert!(
+                values_err.to_string().contains("upstream boom"),
+                "unexpected values error: {values_err}"
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::drop_before_next_codes(false)]
+    #[case::drop_while_pending_send(true)]
+    #[tokio::test]
+    async fn test_dict_transformer_dropped_codes_receiver_skips_rest_of_group(
+        #[case] drop_while_pending: bool,
+    ) -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let chunks = vec![
+            codes_chunk(seq.advance(), &[0]),
+            codes_chunk(seq.advance(), &[1]),
+            codes_chunk(seq.advance(), &[2]),
+            values_chunk(seq.advance(), &[10, 20, 30]),
+            codes_chunk(seq.advance(), &[0, 1]),
+            values_chunk(seq.advance(), &[40, 50]),
+        ];
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let (codes1, values1) = transformer.next().await.expect("expected first group")?;
+        if drop_while_pending {
+            assert!(futures::poll!(transformer.next()).is_pending());
+        }
+        drop(codes1);
+
+        // Remaining codes for group 1 are discarded until Values closes it; no bogus group starts.
+        let (codes2, values2) = transformer.next().await.expect("expected second group")?;
+        assert!(transformer.next().await.is_none());
+
+        let values1_err = values1
+            .await
+            .expect_err("dropped codes receiver must fail group 1 values");
+        assert!(
+            values1_err.to_string().contains("codes receiver dropped"),
+            "unexpected values1 error: {values1_err}"
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes2_chunks: Vec<_> = codes2.try_collect().await?;
+        assert_eq!(codes2_chunks.len(), 1);
+        assert_arrays_eq!(codes2_chunks[0].1.clone(), buffer![0u8, 1], &mut ctx);
+        let (_, vals2) = values2.await?;
+        assert_arrays_eq!(vals2, buffer![40i32, 50], &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::upstream_error(Some("discarding boom"), "discarding boom")]
+    #[case::incomplete_eof(None, "Incomplete dictionary group")]
+    #[tokio::test]
+    async fn test_dict_transformer_discarding_terminal_event_errors(
+        #[case] terminal_err: Option<&str>,
+        #[case] expected_msg: &str,
+    ) -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let mut chunks = vec![
+            codes_chunk(seq.advance(), &[0]),
+            codes_chunk(seq.advance(), &[1]),
+        ];
+        if let Some(msg) = terminal_err {
+            chunks.push(Err(vortex_err!("{msg}")));
+        }
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let (codes1, values1) = transformer.next().await.expect("expected first group")?;
+        drop(codes1);
+
+        let err = transformer
+            .next()
+            .await
+            .expect("expected terminal error while discarding")
+            .err()
+            .expect("expected error while discarding");
+        assert!(
+            err.to_string().contains(expected_msg),
+            "unexpected error: {err}"
+        );
+        assert!(transformer.next().await.is_none());
+        assert!(values1.await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_orphan_values_errors() -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let chunks = vec![values_chunk(seq.advance(), &[10, 20])];
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let err = transformer
+            .next()
+            .await
+            .expect("expected error on orphan values")
+            .err()
+            .expect("expected error on orphan values");
+        assert!(
+            err.to_string()
+                .contains("Unexpected dictionary values without active group"),
+            "unexpected error: {err}"
+        );
+        assert!(transformer.next().await.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_incomplete_group_errors_all_consumers() -> VortexResult<()> {
+        let mut seq = SequenceId::root();
+        let chunks = vec![codes_chunk(seq.advance(), &[0, 1])];
+
+        let mut transformer = DictionaryTransformer::new(futures::stream::iter(chunks).boxed());
+        let (mut codes_stream, values_fut) =
+            transformer.next().await.expect("expected active group")?;
+
+        // `bounded(1)` is still full with the first chunk; EOF error must still deliver.
+        let outer_err = transformer
+            .next()
+            .await
+            .expect("expected incomplete group error")
+            .err()
+            .expect("expected incomplete group error on outer stream");
+        assert!(
+            outer_err
+                .to_string()
+                .contains("Incomplete dictionary group"),
+            "unexpected outer error: {outer_err}"
+        );
+        assert!(transformer.next().await.is_none());
+
+        let (_, first) = codes_stream.next().await.expect("expected first chunk")?;
+        assert_arrays_eq!(first, buffer![0u8, 1], &mut SESSION.create_execution_ctx());
+        let codes_err = codes_stream
+            .next()
+            .await
+            .expect("expected incomplete group error on codes stream")
+            .expect_err("expected incomplete group error on codes stream");
+        assert!(
+            codes_err
+                .to_string()
+                .contains("Incomplete dictionary group"),
+            "unexpected codes error: {codes_err}"
+        );
+        assert!(codes_stream.next().await.is_none());
+
+        let values_err = values_fut
+            .await
+            .expect_err("expected incomplete group error on values future");
+        assert!(
+            values_err
+                .to_string()
+                .contains("Incomplete dictionary group"),
+            "unexpected values error: {values_err}"
+        );
         Ok(())
     }
 }
