@@ -5,12 +5,16 @@ on:
     workflows: ["Fuzz Build"]
     types: [completed]
   workflow_dispatch: { }
+  # TEMPORARY: one CI run on the PR that adds this fuzzer. Revert before merging.
+  pull_request:
+    paths: [.github/workflows/fuzz-file-io-v2.yml]
 
 jobs:
   fuzz:
     name: "IO Fuzz (scan v2)"
     if: >-
       github.event_name == 'workflow_dispatch'
+      || github.event_name == 'pull_request'
       || github.event.workflow_run.conclusion == 'success'
     permissions:
       actions: read
@@ -22,7 +26,8 @@ jobs:
     with:
       fuzz_target: file_io_v2
       jobs: 4
-      max_time: 9000
+      max_time: ${{ github.event_name == 'pull_request' && 1800 || 9000 }}
+      report: ${{ github.event_name != 'pull_request' }}
       cycle_hours: 3
       fuzzer_artifact: ${{ github.event.workflow_run.id && format('cpu-fuzzers-{0}-{1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) || '' }}
       fuzzer_run_id: ${{ github.event.workflow_run.id || '' }}
