@@ -181,10 +181,14 @@ fn filter_cache_respects_skip_unselective_dynamic_flag() -> VortexResult<()> {
     assert!(!Arc::ptr_eq(first_plans, skipping_plans));
     assert!(!first_plans.skips_unselective_dynamic());
     assert!(skipping_plans.skips_unselective_dynamic());
-    let cached = cache
-        .filter_plans(&filter)
-        .ok_or_else(|| vortex_err!("cached filter entry missing"))?;
-    assert!(!cached.skips_unselective_dynamic());
+    let cached_strict = cache
+        .filter_plans(&filter, false)
+        .ok_or_else(|| vortex_err!("cached strict filter entry missing"))?;
+    assert!(Arc::ptr_eq(&cached_strict, first_plans));
+    let cached_skipping = cache
+        .filter_plans(&filter, true)
+        .ok_or_else(|| vortex_err!("cached skipping filter entry missing"))?;
+    assert!(Arc::ptr_eq(&cached_skipping, skipping_plans));
     Ok(())
 }
 
