@@ -529,4 +529,14 @@ mod tests {
         let validity = BitBuffer::collect_bool(403, |i| i != 200);
         let _taken = take_bits(view, &indices, Some(validity.as_view()));
     }
+
+    #[test]
+    #[should_panic(expected = "take index out of bounds")]
+    fn small_bitmap_out_of_bounds_in_tail() {
+        let bits = BitBuffer::collect_bool(100, |i| i % 3 == 0);
+        let mut indices = [0u16; 9];
+        indices[8] = 120;
+        let validity = BitBuffer::new_set(9);
+        let _taken = take_bits(bits.as_view(), &indices, Some(validity.as_view()));
+    }
 }
