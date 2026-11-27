@@ -8,7 +8,6 @@
 //! VPERMI2B with AVX-512 VBMI, or a TBL and a TBX on NEON. Four of these lookups and three selects
 //! find the byte of 64 u16 indices.
 
-use std::array;
 use std::slice::from_raw_parts;
 
 use fearless_simd::Level;
@@ -98,24 +97,50 @@ fn select_bits<S: Simd>(simd: S, bytes: u8x64<S>, bit_index: u8x64<S>) -> u64 {
     (bytes & mask).simd_eq(mask).to_bitmask()
 }
 
-#[simd]
 fn take_u8<S: Simd>(simd: S, table: &[u8; 32], indices: &[u8]) -> BitBuffer {
-    let (low, high) = block_tables(simd, table);
-
-    collect_words(indices, |chunk| {
-        let indices = u8x64::from_slice(simd, chunk);
-        let bytes = lookup_32(simd, low, high, indices >> 3);
-        select_bits(simd, bytes, indices)
+    collect_words(indices, |chunks, words| {
+        take_u8_words(simd, table, chunks, words)
     })
 }
 
+/// Writes the bits of each chunk of 64 indices to a word. The loop has no closure, so all of it
+/// runs with the target features of `S`.
 #[simd]
+fn take_u8_words<S: Simd>(simd: S, table: &[u8; 32], chunks: &[[u8; 64]], words: &mut [u64]) {
+    let (low, high) = block_tables(simd, table);
+
+    for (word, chunk) in words.iter_mut().zip(chunks) {
+        let indices = u8x64::from_slice(simd, chunk);
+        let bytes = lookup_32(simd, low, high, indices >> 3);
+        *word = select_bits(simd, bytes, indices);
+    }
+}
+
 fn take_u16<S: Simd>(simd: S, table: &[u8; 512], indices: &[u16]) -> BitBuffer {
-    let tables: [u8x64<S>; 8] =
-        array::from_fn(|i| u8x64::from_slice(simd, &table[i * 64..(i + 1) * 64]));
+    collect_words(indices, |chunks, words| {
+        take_u16_words(simd, table, chunks, words)
+    })
+}
+
+/// Writes the bits of each chunk of 64 indices to a word. The loop has no closure, so all of it
+/// runs with the target features of `S`.
+#[simd]
+fn take_u16_words<S: Simd>(simd: S, table: &[u8; 512], chunks: &[[u16; 64]], words: &mut [u64]) {
+    let (tables, _) = table.as_chunks::<64>();
+    let load = |i: usize| u8x64::from_slice(simd, &tables[i]);
+    let tables = [
+        load(0),
+        load(1),
+        load(2),
+        load(3),
+        load(4),
+        load(5),
+        load(6),
+        load(7),
+    ];
     let zero = u8x64::splat(simd, 0);
 
-    collect_words(indices, |chunk| {
+    for (word, chunk) in words.iter_mut().zip(chunks) {
         let (first, second) = chunk.split_at(32);
         let first = u16x32::from_slice(simd, first);
         let second = u16x32::from_slice(simd, second);
@@ -127,12 +152,14 @@ fn take_u16<S: Simd>(simd: S, table: &[u8; 512], indices: &[u16]) -> BitBuffer {
         let bit_7 = byte_index.simd_ge(u8x64::splat(simd, 0x80));
         let bit_8 = simd.narrow_u16x32(first >> 11, second >> 11).simd_gt(zero);
 
-        let pairs: [u8x64<S>; 4] =
-            array::from_fn(|i| tables[2 * i].concat_swizzle_dyn(tables[2 * i + 1], pair_index));
-        let low_half = bit_7.select(pairs[1], pairs[0]);
-        let high_half = bit_7.select(pairs[3], pairs[2]);
+        let pair_0 = tables[0].concat_swizzle_dyn(tables[1], pair_index);
+        let pair_1 = tables[2].concat_swizzle_dyn(tables[3], pair_index);
+        let pair_2 = tables[4].concat_swizzle_dyn(tables[5], pair_index);
+        let pair_3 = tables[6].concat_swizzle_dyn(tables[7], pair_index);
+        let low_half = bit_7.select(pair_1, pair_0);
+        let high_half = bit_7.select(pair_3, pair_2);
         let bytes = bit_8.select(high_half, low_half);
 
-        select_bits(simd, bytes, simd.narrow_u16x32(first, second))
-    })
+        *word = select_bits(simd, bytes, simd.narrow_u16x32(first, second));
+    }
 }

@@ -282,30 +282,30 @@ fn padded_table<const N: usize>(bits: BitBufferView<'_>) -> [u8; N] {
     table
 }
 
-/// Packs the bits that `kernel` returns for each 64 indices into a buffer.
+/// Packs the bits that `fill` writes, one word for each chunk of 64 indices, into a buffer.
 ///
-/// The last chunk is padded with zeros, so index 0 must be valid. The bits of the padding are
-/// cleared, so the bits after `len` are zero, as with the other producers.
+/// `fill` gets the whole chunks first, then the last chunk padded with zeros, so index 0 must be
+/// valid. The bits of the padding are cleared, so the bits after `len` are zero, as with the other
+/// producers. `fill` takes a slice of chunks, so a SIMD kernel loops over them in one call.
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[inline]
 fn collect_words<T: Copy + Default>(
     indices: &[T],
-    mut kernel: impl FnMut(&[T; 64]) -> u64,
+    mut fill: impl FnMut(&[[T; 64]], &mut [u64]),
 ) -> BitBuffer {
     let allocator = BufferAllocatorRef::statically_allocated();
     BitBufferMut::collect_words_in(indices.len(), allocator, |words| {
         let (chunks, tail) = indices.as_chunks::<64>();
-        for (word, chunk) in words.iter_mut().zip(chunks) {
-            *word = kernel(chunk);
-        }
+        let (words, tail_word) = words.split_at_mut(chunks.len());
+        fill(chunks, words);
 
         if !tail.is_empty() {
             let mut padded = [T::default(); 64];
             padded[..tail.len()].copy_from_slice(tail);
+            fill(&[padded], tail_word);
 
             // The tail holds fewer than 64 indices, so the shift does not overflow.
-            let tail_mask = (1u64 << tail.len()) - 1;
-            words[chunks.len()] = kernel(&padded) & tail_mask;
+            tail_word[0] &= (1u64 << tail.len()) - 1;
         }
     })
     .freeze()

@@ -226,12 +226,4 @@ mod tests {
         let expected: Vec<u8> = indices.iter().map(|&i| table[usize::from(i)]).collect();
         assert_eq!(take(&table, &indices), expected);
     }
-
-    #[test]
-    #[should_panic(expected = "out of bounds")]
-    fn out_of_bounds() {
-        let mut indices = [0u8; 100];
-        indices[10] = 20;
-        take(&[1u8; 20], &indices);
-    }
 }

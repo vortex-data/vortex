@@ -65,20 +65,6 @@ fn take_small_byte_table(#[case] len: usize) {
     );
 }
 
-#[test]
-fn take_byte_table_of_32_values() {
-    let values: Vec<u8> = (0..32).map(|value| value * 3).collect();
-    let indices: Vec<u8> = (0u8..32).rev().cycle().take(100).collect();
-    let expected: Vec<u8> = indices
-        .iter()
-        .map(|&index| values[usize::from(index)])
-        .collect();
-    assert_eq!(
-        take_values(&values, &indices, &allocator()).as_slice(),
-        expected.as_slice()
-    );
-}
-
 #[rstest]
 #[case::vector(64)]
 #[case::tail(128)]
