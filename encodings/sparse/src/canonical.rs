@@ -58,12 +58,12 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::buffer;
 use vortex_buffer::buffer_mut;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -297,7 +297,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
         return Ok(ConstantArray::new(fill_value, len).into_array());
     }
 
-    // Patches are already resolved (offset subtracted) by SparseParts::resolve_patches().
+    // The primitive decoder subtracts the logical offset as it writes. Other decoders receive slice-relative indices.
     Ok(match &dtype {
         DType::Null => {
             assert!(fill_value.is_null());
@@ -697,29 +697,88 @@ fn execute_sparse_bools(
     Ok(bools.patch(patches, ctx)?.into_array())
 }
 
-fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+fn execute_sparse_primitives<T: NativePType>(
     patches: &Patches,
     fill_value: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (primitive_fill, validity) = if fill_value.is_null() {
-        (T::default(), Validity::AllInvalid)
-    } else {
-        (
-            fill_value
-                .try_into()
-                .vortex_expect("Fill value must convert to target T"),
-            if patches.dtype().nullability() == Nullability::NonNullable {
-                Validity::NonNullable
-            } else {
-                Validity::AllValid
-            },
-        )
+    let indices = patches.indices().as_::<Primitive>();
+    let values = patches.values().as_::<Primitive>();
+    let mask = values.validity()?.execute_mask(values.len(), ctx)?;
+    let fill = fill_value.as_primitive().typed_value::<T>();
+    let len = patches.array_len();
+    let valid_count = mask.true_count()
+        + if fill.is_some() {
+            len - values.len()
+        } else {
+            0
+        };
+    let allocator = ctx.allocator().clone();
+    let mut output = match fill {
+        Some(value) => BufferMut::full_in(value, len, allocator),
+        None => BufferMut::zeroed_in(len, allocator),
     };
+    let mut validity =
+        (valid_count != 0 && valid_count != len).then(|| BitBufferMut::full(fill.is_some(), len));
+    let source = values.as_slice::<T>();
+    let offset = patches.offset();
+    match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        scatter_patches(
+            output.as_mut_slice(),
+            validity.as_mut(),
+            indices.as_slice::<I>(),
+            offset,
+            source,
+            &mask,
+        );
+    });
+    let validity = match validity {
+        Some(bits) => Validity::Array(BoolArray::from(bits.freeze()).into_array()),
+        None if valid_count == len => Validity::from(fill_value.dtype().nullability()),
+        None => Validity::AllInvalid,
+    };
+    Ok(PrimitiveArray::new(output.freeze(), validity).into_array())
+}
 
-    let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
-
-    Ok(parray.patch(patches, ctx)?.into_array())
+/// Write each patch value into `output` at its row, and its validity into `validity` if the
+/// output has a bitmap.
+fn scatter_patches<T: Copy, I: AsPrimitive<usize>>(
+    output: &mut [T],
+    validity: Option<&mut BitBufferMut>,
+    indices: &[I],
+    offset: usize,
+    source: &[T],
+    mask: &Mask,
+) {
+    let rows = indices.iter().map(|&index| {
+        let index: usize = index.as_();
+        index - offset
+    });
+    let Some(bits) = validity else {
+        for (row, &value) in rows.zip(source) {
+            output[row] = value;
+        }
+        return;
+    };
+    // The output bitmap was allocated with bit offset zero.
+    let bytes = bits.as_mut_slice();
+    if mask.all_true() {
+        for (row, &value) in rows.zip(source) {
+            output[row] = value;
+            bytes[row / 8] |= 1 << (row % 8);
+        }
+    } else {
+        for ((row, &value), valid) in rows.zip(source).zip(mask.iter()) {
+            output[row] = value;
+            let bit = 1 << (row % 8);
+            let byte = &mut bytes[row / 8];
+            if valid {
+                *byte |= bit;
+            } else {
+                *byte &= !bit;
+            }
+        }
+    }
 }
 
 fn execute_sparse_struct(
@@ -950,12 +1009,11 @@ mod test {
     #[case(Some(0i32))]
     #[case(Some(-1i32))]
     #[case(None)]
-    fn test_sparse_primitive(#[case] fill_value: Option<i32>) {
+    fn test_sparse_primitive(#[case] fill_value: Option<i32>) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let indices = buffer![0u64, 1, 7].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(1)]).into_array();
-        let sparse_ints =
-            Sparse::try_new(indices, values, 10, Scalar::from(fill_value), &mut ctx).unwrap();
+        let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value), &mut ctx)?;
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
         let expected = PrimitiveArray::from_option_iter([
@@ -972,6 +1030,11 @@ mod test {
         ]);
 
         assert_arrays_eq!(&sparse_ints, &expected, &mut ctx);
+        let sliced = sparse_ints
+            .slice(1..9)?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(sliced, expected.slice(1..9)?, &mut ctx);
+        Ok(())
     }
 
     #[test]
