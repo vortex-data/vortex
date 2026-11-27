@@ -31,7 +31,6 @@ void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t st
 
 void duckdb_vector_flatten(duckdb_vector vector);
 
-// Resize a vector (and any nested struct/array children) to `count` and flatten it into a flat vector.
 void duckdb_vx_vector_flatten_with_count(duckdb_vector ffi_vector, idx_t count);
 
 duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index);
