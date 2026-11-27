@@ -11358,6 +11358,7 @@ dependencies = [
  "tracing",
  "vortex-bench-support",
  "vortex-error",
+ "vortex-macros",
 ]
 
 [[package]]
@@ -12083,6 +12084,13 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
+]
+
+[[package]]
+name = "vortex-macros"
+version = "0.1.0"
+dependencies = [
+ "quote",
 ]
 
 [[package]]

@@ -10,9 +10,6 @@ mod small_table;
 #[cfg(test)]
 mod tests;
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-use std::sync::LazyLock;
-
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
@@ -42,9 +39,6 @@ use crate::dtype::UnsignedPType;
 use crate::dtype::half::f16;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
-
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-static HAS_AVX2: LazyLock<bool> = LazyLock::new(|| is_x86_feature_detected!("avx2"));
 
 impl<V: FixedWidthArray> TakeExecute for V {
     fn take(
@@ -98,9 +92,9 @@ fn take_values_fallback<T: FixedWidthTakeValue, I: UnsignedPType>(
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-    if *HAS_AVX2 {
-        // SAFETY: AVX2 was detected above and `FixedWidthTakeValue` guarantees an initialized byte
-        // representation. The AVX2 dispatcher retains Primitive's existing scalar fallbacks and
+    if vortex_buffer::is_x86_64_v3_detected() {
+        // SAFETY: x86-64-v3 was detected above and `FixedWidthTakeValue` guarantees an initialized
+        // byte representation. The AVX2 dispatcher retains Primitive's existing scalar fallbacks and
         // out-of-bounds behavior for every value width.
         return unsafe { avx2::take_avx2(values, indices, allocator) };
     }

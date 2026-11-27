@@ -41,6 +41,7 @@ use super::Kernel;
 use super::bulk_copy;
 use super::generic::compress_generic_8;
 use super::generic::compress_generic_16;
+use crate::is_x86_64_v3_detected;
 
 /// Choose the widest available kernel above its benchmarked density crossover.
 ///
@@ -53,10 +54,10 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(density: f64) -> Option<Ker
         4 if avx512f() => (compress_avx512_epi32::<IN_PLACE> as Kernel, 0.25),
         8 if avx512f() => (compress_avx512_epi64::<IN_PLACE> as Kernel, 0.30),
         // AVX-512F without VBMI2 (e.g. Skylake-X) falls through to these too.
-        1 if avx2() => (compress_generic_8::<IN_PLACE> as Kernel, 0.15),
-        2 if avx2() => (compress_generic_16::<IN_PLACE> as Kernel, 0.25),
-        4 if avx2() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
-        8 if avx2() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
+        1 if is_x86_64_v3_detected() => (compress_generic_8::<IN_PLACE> as Kernel, 0.15),
+        2 if is_x86_64_v3_detected() => (compress_generic_16::<IN_PLACE> as Kernel, 0.25),
+        4 if is_x86_64_v3_detected() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
+        8 if is_x86_64_v3_detected() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
         _ => return None,
     };
 
@@ -72,10 +73,6 @@ fn avx512_vbmi2() -> bool {
         && is_x86_feature_detected!("avx512bw")
         && is_x86_feature_detected!("avx512vbmi2")
         && is_x86_feature_detected!("popcnt")
-}
-
-fn avx2() -> bool {
-    is_x86_feature_detected!("avx2") && is_x86_feature_detected!("popcnt")
 }
 
 /// Generate an AVX-512 kernel for one element width.
@@ -326,14 +323,14 @@ macro_rules! avx2_compress_kernel {
     ) => {
         /// # Safety
         ///
-        /// The CPU must support AVX2 and the pointer contract of
+        /// The CPU must support x86-64-v3 and the pointer contract of
         /// [`compress`](super::compress) /
         /// [`compress_in_place`](super::compress_in_place) must hold.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate submask narrowing"
         )]
-        #[target_feature(enable = "avx2,popcnt")]
+        #[crate::target_cpu_v3]
         #[inline]
         unsafe fn $word_fn<const IN_PLACE: bool>(
             src: *const u8,
@@ -410,10 +407,10 @@ macro_rules! avx2_compress_kernel {
 
         /// # Safety
         ///
-        /// The CPU must support AVX2 and the pointer contract of
+        /// The CPU must support x86-64-v3 and the pointer contract of
         /// [`compress`](super::compress) /
         /// [`compress_in_place`](super::compress_in_place) must hold.
-        #[target_feature(enable = "avx2,popcnt")]
+        #[crate::target_cpu_v3]
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,

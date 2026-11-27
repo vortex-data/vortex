@@ -43,7 +43,7 @@ fn main() {
     // included in any benchmark iteration.
     #[cfg(target_arch = "x86_64")]
     {
-        let _ = is_x86_feature_detected!("avx2");
+        let _ = vortex_buffer::is_x86_64_v3_detected();
         let _ = is_x86_feature_detected!("avx512f");
         let _ = is_x86_feature_detected!("avx512bw");
     }
@@ -162,12 +162,12 @@ fn words_gather_sse2(bencher: Bencher, len: usize) {
 #[cfg(not(codspeed))]
 #[divan::bench(args = GATHER_INPUT_SIZE)]
 fn words_gather_avx2(bencher: Bencher, len: usize) {
-    if !is_x86_feature_detected!("avx2") {
+    if !vortex_buffer::is_x86_64_v3_detected() {
         return;
     }
     bench_words_gather(bencher, len, |words, len, bools| {
-        // SAFETY: runtime detection guarantees AVX2; indices passed are `0..len`.
-        unsafe { vortex_buffer::collect_bool_words_avx2(words, len, |i| *bools.get_unchecked(i)) }
+        // SAFETY: runtime detection guarantees x86-64-v3; indices passed are `0..len`.
+        unsafe { vortex_buffer::collect_bool_words_v3(words, len, |i| *bools.get_unchecked(i)) }
     });
 }
 

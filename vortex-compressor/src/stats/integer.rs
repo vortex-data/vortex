@@ -17,6 +17,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::stats::Precision;
 use vortex_array::stats::Stat;
 use vortex_array::stats::StatsProvider;
+use vortex_buffer::X86_64_V3;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -833,17 +834,16 @@ impl<T: PrimInt> Bounds<T> {
     /// groups and loads them one by one: 16-bit values use a whole chunk, and so do 32-bit values
     /// with 256-bit vectors. On NEON, 32 lanes of 32-bit values are twice as fast as 16. Without
     /// 64-bit vector compares in the baseline instruction set, 64-bit values use only a few lanes.
-    /// `size_of` and `cfg!` are constants, so the dispatch folds.
+    /// The element width and target tier are compile-time constants, so the dispatch folds.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     fn fold_valid<const MASKED: bool>(&mut self, values: &[T; CHUNK], valid: u64) {
-        let avx2 = cfg!(target_feature = "avx2");
         match size_of::<T>() {
             1 => self.lanes::<32, MASKED>(values, valid),
             2 => self.lanes::<CHUNK, MASKED>(values, valid),
-            4 if avx2 => self.lanes::<CHUNK, MASKED>(values, valid),
+            4 if X86_64_V3 => self.lanes::<CHUNK, MASKED>(values, valid),
             4 => self.lanes::<32, MASKED>(values, valid),
-            _ if avx2 => self.lanes::<8, MASKED>(values, valid),
+            _ if X86_64_V3 => self.lanes::<8, MASKED>(values, valid),
             _ => self.lanes::<4, MASKED>(values, valid),
         }
     }

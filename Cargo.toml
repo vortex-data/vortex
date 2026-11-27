@@ -1,6 +1,7 @@
 [workspace]
 members = [
     # Core crates in dependency order
+    "vortex-macros",
     "vortex-array-macros",
     "vortex-error",
     "vortex-buffer",
@@ -163,7 +164,7 @@ divan = { package = "codspeed-divan-compat", version = "6.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
 fastlanes = { version = "0.8.3", features = ["runtime"] }
-fearless_simd = "1.0.0"
+fearless_simd = "1.2.0"
 fearless_simd_macros = "0.1.0"
 flatbuffers = "25.2.10"
 fsst-rs = "0.7.0"
@@ -327,6 +328,7 @@ vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false 
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
+vortex-macros = { version = "0.1.0", path = "./vortex-macros" }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
 vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }

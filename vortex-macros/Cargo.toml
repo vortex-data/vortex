@@ -1,0 +1,22 @@
+[package]
+name = "vortex-macros"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Shared procedural macros for Vortex"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = { workspace = true }

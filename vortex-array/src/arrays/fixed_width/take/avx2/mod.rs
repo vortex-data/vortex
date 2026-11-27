@@ -3,8 +3,7 @@
 
 //! An AVX2 implementation of take operation using gather instructions.
 //!
-//! Only enabled for x86_64 hosts and it is gated at runtime behind feature detection to
-//! ensure AVX2 instructions are available.
+//! Gated at runtime on x86-64-v3 support.
 
 #![cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 
@@ -42,8 +41,8 @@ use crate::match_each_unsigned_integer_ptype;
 ///
 /// # Safety
 ///
-/// The caller must ensure the `avx2` feature is enabled.
-#[target_feature(enable = "avx2")]
+/// The caller must ensure the CPU supports x86-64-v3.
+#[vortex_buffer::target_cpu_v3]
 pub(super) unsafe fn take_avx2<V: FixedWidthTakeValue, I: UnsignedPType>(
     buffer: &[V],
     indices: &[I],

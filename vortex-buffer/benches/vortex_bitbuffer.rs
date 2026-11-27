@@ -17,7 +17,7 @@ fn main() {
     // included in any benchmark iteration.
     #[cfg(target_arch = "x86_64")]
     {
-        let _ = is_x86_feature_detected!("avx2");
+        let _ = vortex_buffer::is_x86_64_v3_detected();
         let _ = is_x86_feature_detected!("avx512f");
         let _ = is_x86_feature_detected!("avx512vpopcntdq");
     }

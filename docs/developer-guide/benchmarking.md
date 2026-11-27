@@ -145,8 +145,8 @@ defines the measurement jobs. Rust CPU benchmarks use two instruments:
 - [CPU simulation](https://codspeed.io/docs/instruments/cpu) runs benchmarks without
   `#[vortex_bench_support::cpu_features]`. It estimates cycles from one execution's instruction
   trace, including cache and memory access costs. Divan's sampling settings have no effect.
-- [Walltime](https://codspeed.io/docs/instruments/walltime) runs CPU feature variants on dedicated
-  AVX2, AVX-512, and NEON machines. It measures elapsed time, so sampling and machine state matter.
+- [Walltime](https://codspeed.io/docs/instruments/walltime) runs x86-64-v3, AVX-512, and NEON
+  variants on dedicated machines. It measures elapsed time, so sampling and machine state matter.
 
 ### Give short benchmarks enough measured work
 

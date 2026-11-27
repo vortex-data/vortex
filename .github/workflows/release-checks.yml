@@ -374,12 +374,12 @@ jobs:
 
   # Runs the crates with hand-written SIMD kernels on EC2 instance families chosen for
   # their CPU features, so that every runtime-dispatched kernel tier is exercised:
-  #   c6a (AMD Zen 3): AVX2 and BMI2, no AVX-512
+  #   c6a (AMD Zen 3): x86-64-v3, no AVX-512
   #   c6i (Intel Ice Lake): AVX-512 F/BW/VBMI2/VPOPCNTDQ
   #   c8g (Graviton4, Neoverse V2): SVE2 with BITPERM
   # `VORTEX_EXPECT_CPU_FEATURES` lists every feature the instance must have; vortex-array-macros'
   # `cpu_features` test fails if any of them is missing or any other known feature (e.g.
-  # AVX-512 on the avx2 entry) is detected.
+  # AVX-512 on the v3 entry) is detected.
   rust-test-cpu-features:
     name: "Rust tests (cpu-features, ${{ matrix.config.name }})"
     if: github.repository == 'vortex-data/vortex'
@@ -388,16 +388,16 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - name: avx2
+          - name: v3
             runner: amd64-ci-medium
             family: c6a.2xlarge
             image: ubuntu26-full-x64-pre-v2
-            expect: "sse2,popcnt,bmi1,bmi2,avx,avx2"
+            expect: "sse,sse2,sse3,ssse3,sse4.1,sse4.2,popcnt,bmi1,bmi2,avx,avx2,cmpxchg16b,f16c,fma,fxsr,lzcnt,movbe,xsave"
           - name: avx512
             runner: amd64-ci-medium
             family: c6i.2xlarge
             image: ubuntu26-full-x64-pre-v2
-            expect: "sse2,popcnt,bmi1,bmi2,avx,avx2,avx512f,avx512bw,avx512vbmi2,avx512vpopcntdq"
+            expect: "sse,sse2,sse3,ssse3,sse4.1,sse4.2,popcnt,bmi1,bmi2,avx,avx2,cmpxchg16b,f16c,fma,fxsr,lzcnt,movbe,xsave,avx512f,avx512bw,avx512vbmi2,avx512vpopcntdq"
           - name: sve
             runner: arm64-medium
             family: c8g.2xlarge

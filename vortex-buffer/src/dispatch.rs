@@ -45,6 +45,30 @@ use core::ptr;
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use fearless_simd::Level;
+pub use vortex_macros::target_cpu_v3;
+
+/// Whether this build statically enables the Rust target features of x86-64-v3.
+pub const X86_64_V3: bool = {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        matches!(Level::baseline(), Level::Avx2(_) | Level::Avx512(_))
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    {
+        false
+    }
+};
+
+/// Whether this CPU supports the Rust target features of x86-64-v3.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline]
+pub fn is_x86_64_v3_detected() -> bool {
+    // Fearless SIMD's `Avx2` token proves the whole v3 feature set, not just AVX2.
+    X86_64_V3 || Level::new().as_avx2().is_some()
+}
+
 /// A function pointer selected by CPU-feature detection once, on first use.
 ///
 /// `F` must be a plain function-pointer type (`fn(...) -> ...`). The selector passed
@@ -64,7 +88,7 @@ use core::sync::atomic::Ordering;
 ///         // Compile-time arm per architecture; runtime probes inside it.
 ///         #[cfg(target_arch = "x86_64")]
 ///         {
-///             if std::arch::is_x86_feature_detected!("avx2") {
+///             if vortex_buffer::is_x86_64_v3_detected() {
 ///                 // return |values| unsafe { sum_avx2(values) };
 ///             }
 ///         }

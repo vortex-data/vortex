@@ -255,7 +255,7 @@ impl BitBuffer {
     ///
     /// This has the same callback contract as [`Self::collect_bool`]. On x86-64,
     /// `collect_bool_words_multiversioned` selects `collect_bool_words_avx512`,
-    /// `collect_bool_words_avx2`, or `collect_bool_words_inline` at runtime. Each wider version is a
+    /// `collect_bool_words_v3`, or `collect_bool_words_inline` at runtime. Each wider version is a
     /// `#[target_feature]` function, so Rust cannot inline it into a caller compiled without those
     /// features.
     ///
