@@ -302,6 +302,15 @@ impl AggregateFnSession {
         self.grouped_encoding_kernels.insert((id, fn_id), kernel)
     }
 
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn retain_kernels(&self, mut keep: impl FnMut(&dyn std::fmt::Debug) -> bool) -> Self {
+        let kernels = AggregateKernelRegistry::default();
+        for (key, kernel) in self.kernels.snapshot().iter().filter(|(_, k)| keep(k)) {
+            kernels.insert(*key, *kernel);
+        }
+        Self { kernels, ..self.clone() }
+    }
+
     /// Captures the currently registered aggregate kernels, so repeated lookups skip the session
     /// and registry loads.
     pub(crate) fn kernels_snapshot(&self) -> AggregateKernels {
