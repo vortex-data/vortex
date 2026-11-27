@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Tests for the file format and its public read and write APIs.
+//!
+//! The tests exercise layouts through file round trips so they cover both serialization
+//! and the readers that use the decoded layouts.
+
 #![expect(clippy::cast_possible_truncation)]
 
+mod extension_layout;
 mod scan_metrics;
 
 use std::fs;

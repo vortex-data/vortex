@@ -257,6 +257,7 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 `vortex_bench::enable_unstable_encodings` enables the newest `preview` edition and the
 `unstable` edition on benchmark sessions. The compressor can then use preview formats such as
 `fastlanes.delta` and `vortex.decimal_byte_parts.v2`.
+Benchmarks leave the experimental `vortex.extension` layout disabled.
 
 ### Running SQL Benchmarks
 

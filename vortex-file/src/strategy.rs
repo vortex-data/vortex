@@ -7,6 +7,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::extension::ExtId;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
@@ -24,6 +25,7 @@ use vortex_layout::layouts::constant::ConstantStrategy;
 use vortex_layout::layouts::dict::writer::DictLayoutConstraints;
 use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
+use vortex_layout::layouts::extension::Extension;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::list::List;
 use vortex_layout::layouts::list::writer::ListLayoutStrategy;
@@ -32,6 +34,7 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -131,12 +134,27 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    /// Extension types selected by the session when the edition allows decomposition.
+    extension_layouts: Vec<ExtId>,
 }
 
 impl WriteStrategyBuilder {
     /// Create a new builder that compresses with the schemes registered on `session`. It can be
     /// further configured, and then finally built yielding the [`LayoutStrategy`].
+    ///
+    /// The builder reads the session's [extension layout policy] when it is created, and only if
+    /// the enabled editions include the extension layout. An extension type opted in, or an
+    /// edition enabled, after this call does not change the built strategy.
+    ///
+    /// [extension layout policy]: vortex_layout::session::LayoutSession::decompose_extension
     pub fn from_session(session: &VortexSession) -> Self {
+        let enabled_layouts = session.enabled_component_ids(ComponentKind::Layout);
+        let extension_layouts = if enabled_layouts.contains(&Extension.id()) {
+            session.layouts().decomposed_extensions()
+        } else {
+            Vec::new()
+        };
+
         Self {
             compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::from_session(
                 session,
@@ -147,9 +165,8 @@ impl WriteStrategyBuilder {
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
-            use_list_layout: session
-                .enabled_component_ids(ComponentKind::Layout)
-                .contains(&List.id()),
+            use_list_layout: enabled_layouts.contains(&List.id()),
+            extension_layouts,
         }
     }
 
@@ -319,7 +336,8 @@ impl WriteStrategyBuilder {
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(constant))
-                .with_field_writers(self.field_writers);
+                .with_field_writers(self.field_writers)
+                .with_extension_layout(self.extension_layouts);
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.
