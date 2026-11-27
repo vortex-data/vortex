@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use super::cast::casts_non_null_values_losslessly;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -15,6 +16,7 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::builtin::cast::Cast;
 
 /// Returns the rows of `array` that `codes` select from its values.
 ///
@@ -51,8 +53,28 @@ fn has_fallible_scalar_fn(array: &ArrayRef) -> bool {
         return false;
     };
 
-    !scalar_fn.scalar_fn().signature().is_infallible()
-        || scalar_fn.iter_children().any(has_fallible_scalar_fn)
+    !is_infallible(&scalar_fn) || scalar_fn.iter_children().any(has_fallible_scalar_fn)
+}
+
+/// Returns whether the function of `array` cannot fail on its inputs.
+///
+/// The signature of `Cast` does not know the source dtype, so it reports every cast as fallible.
+/// A lossless cast, such as one that `CastReduce` pushes into the values, cannot fail.
+fn is_infallible(array: &ArrayView<'_, ScalarFn>) -> bool {
+    let scalar_fn = array.scalar_fn();
+    if scalar_fn.signature().is_infallible() {
+        return true;
+    }
+
+    if !scalar_fn.is::<Cast>() {
+        return false;
+    }
+
+    let from = array.get_child(0).dtype();
+    let to = array.dtype();
+    let null_safe = to.is_nullable() || !from.is_nullable();
+
+    null_safe && casts_non_null_values_losslessly(from, to)
 }
 
 /// Takes `codes` from the inputs of the scalar functions of `array`, and applies the functions
@@ -84,6 +106,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -95,8 +118,14 @@ mod tests {
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFn;
+    use crate::arrays::dict::DictArraySlotsExt;
+    use crate::arrays::filter::FilterReduce;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::NumericOperator;
 
@@ -148,6 +177,36 @@ mod tests {
         let selected = select(&division)?.optimize_ctx(&SESSION)?;
 
         assert_arrays_eq!(selected, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A lossless cast in the values cannot fail, so a selection keeps the dictionary.
+    #[test]
+    fn selection_keeps_dictionary_with_lossless_cast_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = DictArray::try_new(
+            buffer![0u8, 1, 0, 1].into_array(),
+            buffer![10u8, 20].into_array(),
+        )?
+        .into_array();
+
+        let cast = dict
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))?
+            .optimize_ctx(&SESSION)?;
+        assert!(cast.as_::<Dict>().values().is::<ScalarFn>());
+
+        // Call the kernel directly: the optimizer would build a dictionary again from a cast
+        // over taken values, which hides the result of the kernel.
+        let mask = Mask::from_iter([true, true, false, true]);
+        let selected = <Dict as FilterReduce>::filter(cast.as_::<Dict>(), &mask)?
+            .vortex_expect("Dict FilterReduce always returns Some");
+
+        assert!(selected.is::<Dict>());
+        assert_arrays_eq!(
+            selected,
+            PrimitiveArray::from_iter([10i64, 20, 20]),
+            &mut ctx
+        );
         Ok(())
     }
 
