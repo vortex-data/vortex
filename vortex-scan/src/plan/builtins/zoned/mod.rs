@@ -461,26 +461,38 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
     }
 }
 
-/// Whether `eval` is a boolean expression over abstract statistics alone, which a zone table can
-/// prune without reading the data it summarises.
-pub fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
+/// Checks whether `expression` contains a [`StatFn`] node and whether any `root()` appears
+/// outside a [`StatFn`] subtree.
+fn inspect_stat_refs(expression: &BoundExpression) -> VortexResult<(bool, bool)> {
     let mut contains_stat = false;
     let mut contains_root = false;
-    eval.expression().clone().transform_down(|expression| {
-        if expression
+    expression.clone().transform_down(|node| {
+        if node
             .as_scalar()
             .is_some_and(|scalar_fn| scalar_fn.is::<StatFn>())
         {
             contains_stat = true;
             return Ok(Transformed {
-                value: expression,
+                value: node,
                 order: TraversalOrder::Skip,
                 changed: false,
             });
         }
-        contains_root |= expression.is_root();
-        Ok(Transformed::no(expression))
+        contains_root |= node.is_root();
+        Ok(Transformed::no(node))
     })?;
+    Ok((contains_stat, contains_root))
+}
+
+/// Whether `expression` contains any unresolved [`StatFn`] node.
+pub(crate) fn contains_stat_fn(expression: &BoundExpression) -> VortexResult<bool> {
+    Ok(inspect_stat_refs(expression)?.0)
+}
+
+/// Whether `eval` is a boolean expression over abstract statistics alone, which a zone table can
+/// prune without reading the data it summarises.
+pub fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
+    let (contains_stat, contains_root) = inspect_stat_refs(eval.expression())?;
     Ok(eval.dtype().is_boolean() && contains_stat && !contains_root)
 }
 
