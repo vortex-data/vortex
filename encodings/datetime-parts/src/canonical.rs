@@ -139,7 +139,7 @@ impl TimePart {
 }
 
 /// Writes `days * 86_400 * divisor + seconds * divisor + subseconds` for every lane of `out`.
-fn combine_parts<D, S, U>(
+pub(crate) fn combine_parts<D, S, U>(
     days: &[D],
     seconds: S,
     subseconds: U,

@@ -52,8 +52,9 @@ The nightly toolchain for `cargo fuzz` is `$NIGHTLY_TOOLCHAIN` in CI. Outside CI
 Decide whether a Vortex maintainer should spend time reviewing this fix as a pull request. Approve
 only when all of the following hold.
 
-- **The crash is gone.** Re-run the input yourself:
-  `cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $target $crash_input -- -runs=1 -rss_limit_mb=0`.
+- **The crash is gone.** Re-run the input yourself (use `-rss_limit_mb=2048` when the crash file
+  starts with `oom-`, and `-rss_limit_mb=0` otherwise):
+  `cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none $target $crash_input -- -runs=1 -rss_limit_mb=$rss_limit_mb`.
 - **The fix addresses the cause, not the symptom.** Find the code that creates the invalid value,
   and check that the fix is there, or explains why it can't be. These are signs of a symptom fix:
   catching or ignoring the panic; turning an error into a fallback (a null, an unknown or a default)

@@ -72,9 +72,48 @@ message ShreddingSpecField {
   vortex.dtype.DType dtype = 2;
 }
 
+// How a type-specific comparison orders the values in its domain.
+//
+// The mode holds one order for each type with more than one useful order. Only the float order is
+// required. A reader fails when the float order is absent, and when it finds an order that it does
+// not know. So a reader that knows this field never compares in another order than the writer
+// asked for. Readers that predate this field, which include 0.95.0 and earlier, drop the mode and
+// compare floats in total order.
+//
+// To add the order of another type, add a variant to `TypeOrder.order`. The new entry is optional:
+// when it is absent, the comparison orders that type as it did before the entry existed. A writer
+// emits the entry only when the operands contain that type, so that the comparisons of other types
+// stay readable. An older reader decodes the variant as an empty `TypeOrder` and fails.
+message CompareMode {
+  // One entry for each type. A type has at most one entry.
+  repeated TypeOrder orders = 1;
+
+  // The order of the values of one type.
+  message TypeOrder {
+    oneof order {
+      // How a comparison orders float values.
+      FloatOrder float = 1;
+    }
+  }
+
+  enum FloatOrder {
+    // `-0.0 = +0.0`, and NaN values order by sign and payload.
+    ZerosEqual = 0;
+    // The total order over the bit patterns: `-0.0 < +0.0`.
+    TotalOrder = 1;
+    // `-0.0 = +0.0`, and all NaN values are equal and greatest.
+    Canonical = 2;
+    // `-0.0 = +0.0`, and NaN is unordered.
+    Ieee754 = 3;
+  }
+}
+
 // Options for `vortex.compare`
 message CompareOpts {
   CompareOp op = 1;
+  // How the comparison orders values. Options written before the mode existed have none, and
+  // compare in total order.
+  CompareMode mode = 2;
 
   enum CompareOp {
     Eq = 0;
@@ -141,6 +180,9 @@ message LikeOpts {
 
 message ListContainsOpts {
   bool sql_null_semantics = 1;
+  // How the needle and the elements compare. Options written before the mode existed have none,
+  // and compare in total order.
+  CompareMode compare_mode = 2;
 }
 
 message CastOpts {

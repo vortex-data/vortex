@@ -121,6 +121,20 @@ impl VectorRef {
         unsafe { cpp::duckdb_vector_flatten(self.as_ptr()) }
     }
 
+    /// Sets the logical element count of the vector (and any nested struct/array children) via
+    /// `VectorBuffer::SetVectorSize`.
+    ///
+    /// # Safety
+    ///
+    /// - The vector buffer must not be null.
+    /// - `VectorBuffer::SetVectorSize` throws an uncaught C++ `duckdb::InternalException` across
+    ///   the `extern "C"` boundary if flat vectors (including nested struct/array children) have
+    ///   capacity < `size` (or `size * array_size` for array children), or if non-flat,
+    ///   non-constant vectors (e.g. dictionary or sequence) do not already have size `size`.
+    pub(crate) unsafe fn set_size(&mut self, size: usize) {
+        unsafe { cpp::duckdb_vx_vector_set_size(self.as_ptr(), size as idx_t) }
+    }
+
     // NOTE(ngates): vector doesn't hold its own length. Which makes writing a safe
     //  Rust API annoying...
     pub unsafe fn as_slice_mut<T>(&mut self, length: usize) -> &mut [T] {
