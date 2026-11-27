@@ -4344,9 +4344,9 @@ checksum = "c6e8948ce679d00a02a94739ea185595dca7118ed04feb991127e443bd3d761f"
 
 [[package]]
 name = "fastlanes"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8ecfed9994b53d8bab778667fa2404fddad952d1828a132c14ed8e58a32b7af"
+checksum = "c966d9bb8e3cd79271b9700a056b645eb6aff63d2ae9a52b3f816edaa5288629"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
@@ -11141,6 +11141,7 @@ dependencies = [
  "futures",
  "goldenfile",
  "half",
+ "hegeltest",
  "humansize",
  "insta",
  "inventory",
@@ -11326,6 +11327,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-onpair",
+ "vortex-parquet-variant",
  "vortex-pco",
  "vortex-sequence",
  "vortex-session",
@@ -11341,7 +11343,6 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "arrow-buffer 60.2.0",
- "bitvec",
  "bytes",
  "codspeed-divan-compat",
  "fearless_simd",
@@ -11600,6 +11601,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-functions",
  "vortex-mask",
  "vortex-session",
@@ -11848,6 +11850,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
+ "simdutf8",
  "test-with",
  "vortex-array",
  "vortex-buffer",
@@ -11894,10 +11897,13 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "flatbuffers",
+ "hegeltest",
  "itertools 0.14.0",
  "libfuzzer-sys",
  "num-traits",
  "parquet-variant",
+ "prost 0.14.4",
+ "rand 0.10.3",
  "rstest",
  "strum 0.28.0",
  "tokio",
@@ -11972,6 +11978,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "pin-project-lite",
+ "rstest",
  "tokio",
  "vortex-array",
  "vortex-buffer",
@@ -12260,6 +12267,7 @@ dependencies = [
  "arrow-array 60.2.0",
  "arrow-row 60.1.0",
  "codspeed-divan-compat",
+ "hegeltest",
  "mimalloc",
  "num-traits",
  "rand 0.10.3",
@@ -12414,16 +12422,19 @@ name = "vortex-table"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "object_store 0.14.2",
  "tempfile",
  "tokio",
  "vortex",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-io",
  "vortex-layout",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -12521,6 +12532,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
  "vortex-session",
 ]
 

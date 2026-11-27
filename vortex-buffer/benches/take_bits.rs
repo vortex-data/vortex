@@ -35,6 +35,11 @@ fn make_4096_u16(count: usize) -> Vec<u16> {
     (0..count).map(|_| rng.random_range(0..4096u16)).collect()
 }
 
+fn make_256_u8(count: usize) -> Vec<u8> {
+    let mut rng = StdRng::seed_from_u64(46);
+    (0..count).map(|_| rng.random()).collect()
+}
+
 fn make_65536_u16(count: usize) -> Vec<u16> {
     let mut rng = StdRng::seed_from_u64(44);
     (0..count).map(|_| rng.random()).collect()
@@ -52,6 +57,22 @@ fn make_1m_u32(count: usize) -> Vec<u32> {
 fn take_u16_from_4096(bencher: Bencher, count: usize) {
     let bits = make_bits(4096);
     let indices = make_4096_u16(count);
+    bencher.bench(|| take_bits(bits.as_view(), &indices, None));
+}
+
+#[vortex_bench_support::cpu_features(exclude = ["avx2", "neon"])]
+#[divan::bench(args = [1_024])]
+fn take_u16_from_4096_short(bencher: Bencher, count: usize) {
+    let bits = make_bits(4096);
+    let indices = make_4096_u16(count);
+    bencher.bench(|| take_bits(bits.as_view(), &indices, None));
+}
+
+#[vortex_bench_support::cpu_features(exclude = ["avx2", "neon"])]
+#[divan::bench(args = [65_536])]
+fn take_u8_from_256(bencher: Bencher, count: usize) {
+    let bits = make_bits(256);
+    let indices = make_256_u8(count);
     bencher.bench(|| take_bits(bits.as_view(), &indices, None));
 }
 
@@ -77,6 +98,16 @@ fn take_u16_single_zero(bencher: Bencher, count: usize) {
     let bits = BitBuffer::collect_bool(65_536, |i| i != 12_345);
     let indices = make_65536_u16(count);
     bencher.bench(|| take_bits(bits.as_view(), &indices, None));
+}
+
+#[vortex_bench_support::cpu_features(exclude = ["avx2", "neon"])]
+#[divan::bench(args = [65_536])]
+fn take_u16_nullable_from_1000(bencher: Bencher, count: usize) {
+    let bits = make_bits(1000);
+    let mut rng = StdRng::seed_from_u64(47);
+    let indices: Vec<u16> = (0..count).map(|_| rng.random_range(0..1000u16)).collect();
+    let validity = make_bits(count);
+    bencher.bench(|| take_bits(bits.as_view(), &indices, Some(validity.as_view())));
 }
 
 #[vortex_bench_support::cpu_features]

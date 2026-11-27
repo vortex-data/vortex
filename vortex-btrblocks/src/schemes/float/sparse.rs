@@ -21,7 +21,9 @@ use vortex_sparse::SparseExt as _;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
@@ -82,41 +84,48 @@ impl Scheme for NullDominatedSparseScheme {
         CompressionEstimate::Verdict(EstimateVerdict::Skip)
     }
 
-    fn compress(
+    /// Children: indices=0, and the values, kept. The values carry no nulls, so the indices
+    /// define the validity.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         // We pass None as we only run this pathway for NULL-dominated float arrays.
         let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
+        let Some(sparse) = sparse_encoded.as_opt::<Sparse>() else {
+            return Ok(Encoded::leaf(sparse_encoded));
+        };
 
-        if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            let indices = sparse
-                .patches()
-                .indices()
-                .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow(exec_ctx)?;
-            let compressed_indices = compressor.compress_child(
-                &indices.into_array(),
-                &compress_ctx,
-                self.id(),
-                0,
-                exec_ctx,
-            )?;
+        let indices = sparse
+            .patches()
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .narrow(exec_ctx)?;
+        let len = sparse.len();
+        let fill = sparse.fill_scalar().clone();
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, indices.into_array())],
+            // The few valid values of a null-dominated array are not worth compressing.
+            vec![Child::new(self, 1, sparse.patches().values().clone())],
+            move |children, exec_ctx| {
+                let [indices] = children.compressed()?;
+                let [values] = children.kept()?;
+                Sparse::try_new(indices, values, len, fill, exec_ctx).map(|a| a.into_array())
+            },
+        ))
+    }
 
-            Sparse::try_new(
-                compressed_indices,
-                sparse.patches().values().clone(),
-                sparse.len(),
-                sparse.fill_scalar().clone(),
-                exec_ctx,
-            )
-            .map(|a| a.into_array())
-        } else {
-            Ok(sparse_encoded)
-        }
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

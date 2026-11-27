@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fuzz_target: [array_ops, file_io, file_corruption, compress_roundtrip, arrow_roundtrip]
+        fuzz_target: [array_ops, file_io, file_corruption, file_session, compress_roundtrip, arrow_roundtrip, row_encode, wire_safety]
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'

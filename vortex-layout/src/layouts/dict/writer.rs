@@ -34,6 +34,7 @@ use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
+use vortex_array::builders::dict::dict_encode_by_frequency_with_constraints;
 use vortex_array::builders::dict::dict_encoder_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -179,12 +180,14 @@ impl LayoutStrategy for DictStrategy {
         let (stream, sample) = peek_probe_sample(stream, options.probe_len).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
+        let constraints: DictConstraints = options.constraints.into();
+
         // The probe is the first compression of the column, long before the first full chunk.
         // Record it, so that the size estimate of the write has a ratio early. The codes have
         // a different form and ratio than the values, so keep the codes part of the probe for
         // the codes scopes.
-        let codes_probe = match sample {
-            None => None, // empty stream
+        let (codes_probe, initial_encoder) = match sample {
+            None => (None, None), // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
@@ -196,10 +199,16 @@ impl LayoutStrategy for DictStrategy {
                 ctx.size_scope()
                     .record_probe(sample_size, compressed.nbytes());
 
-                probe_dict_codes(&compressed).map(|codes| {
+                let codes_probe = probe_dict_codes(&compressed).map(|codes| {
                     let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
                     (codes.len() as u64 * element_size, codes.nbytes())
-                })
+                });
+                let initial_encoder = if codes_probe.is_some() {
+                    seed_encoder_from_sample(&sample, &constraints, &mut exec_ctx)?
+                } else {
+                    None
+                };
+                (codes_probe, initial_encoder)
             }
         };
         let should_fallback = codes_probe.is_none();
@@ -216,7 +225,8 @@ impl LayoutStrategy for DictStrategy {
         // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
         let dict_stream = dict_encode_stream(
             stream,
-            options.constraints.into(),
+            constraints,
+            initial_encoder,
             session.create_execution_ctx(),
         );
 
@@ -315,11 +325,12 @@ type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
 fn dict_encode_stream(
     input: SendableSequentialStream,
     constraints: DictConstraints,
+    initial_encoder: Option<Box<dyn DictEncoder>>,
     mut exec_ctx: ExecutionCtx,
 ) -> DictionaryStream {
     Box::pin(try_stream! {
         let mut state = DictStreamState {
-            encoder: None,
+            encoder: initial_encoder,
             constraints,
         };
 
@@ -609,6 +620,32 @@ fn probe_dict_codes(compressed: &ArrayRef) -> Option<ArrayRef> {
     stored.as_opt::<Dict>().map(|dict| dict.codes().clone())
 }
 
+/// Pre-seeds a [`DictEncoder`] with the probe sample's distinct entries ordered by descending
+/// frequency (ties broken by first-seen order).
+///
+/// Returns `Ok(None)` when the sample is empty or its distinct entries exceed `constraints`.
+/// Every seeded entry comes from the leading rows that `peek_probe_sample` placed back in front
+/// of the stream, so the first dictionary run is guaranteed to reference every seeded entry.
+fn seed_encoder_from_sample(
+    sample: &ArrayRef,
+    constraints: &DictConstraints,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Box<dyn DictEncoder>>> {
+    let Some(sorted) = dict_encode_by_frequency_with_constraints(sample, constraints, ctx)? else {
+        return Ok(None);
+    };
+    if sorted.values().is_empty() {
+        return Ok(None);
+    }
+
+    let mut encoder = dict_encoder_in(sample, constraints, ctx.allocator().clone());
+    let seeded = encoder.encode(sorted.values(), ctx)?;
+    if seeded.len() < sorted.values().len() {
+        return Ok(None);
+    }
+    Ok(Some(encoder))
+}
+
 pub fn dict_layout_supported(dtype: &DType) -> bool {
     matches!(
         dtype,
@@ -661,6 +698,7 @@ fn remainder(
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
@@ -745,8 +783,12 @@ mod tests {
         .sendable();
 
         // Encode into dict chunks.
-        let dict_stream =
-            dict_encode_stream(input_stream, constraints, SESSION.create_execution_ctx());
+        let dict_stream = dict_encode_stream(
+            input_stream,
+            constraints,
+            None,
+            SESSION.create_execution_ctx(),
+        );
 
         // Transform into codes/values streams.
         let mut transformer = DictionaryTransformer::new(dict_stream);
@@ -789,8 +831,12 @@ mod tests {
         .sendable();
 
         // Encode into dict chunks.
-        let dict_stream =
-            dict_encode_stream(input_stream, constraints, SESSION.create_execution_ctx());
+        let dict_stream = dict_encode_stream(
+            input_stream,
+            constraints,
+            None,
+            SESSION.create_execution_ctx(),
+        );
 
         // Transform into codes/values streams.
         let mut transformer = DictionaryTransformer::new(dict_stream);
@@ -1038,6 +1084,90 @@ mod tests {
             err.to_string().contains("does not fit in precision"),
             "unexpected error: {err}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn probe_seeds_dictionary_values_in_frequency_order() -> VortexResult<()> {
+        let probe = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+            let chunk = chunk.clone().execute::<Canonical>(ctx)?.into_array();
+            Ok(dict_encode(&chunk, ctx)?.into_array())
+        };
+        let strategy = DictStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            DictLayoutOptions {
+                probe_len: 32,
+                ..Default::default()
+            },
+            Arc::new(probe),
+        );
+
+        // Rare value appears first, hot value appears most often in the probe sample.
+        let mut raw = vec!["rare"];
+        raw.extend(iter::repeat_n("mid", 5));
+        raw.extend(iter::repeat_n("hot", 26));
+        let values = VarBinArray::from(raw).into_array();
+        let dtype = values.dtype().clone();
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let seq = sequence_id.advance();
+        let segments = Arc::new(TestSegments::default());
+
+        let (dict_values, actual) = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    SequentialStreamAdapter::new(
+                        dtype,
+                        futures::stream::once(async move { Ok((seq, values)) }),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let dict_layout = layout.as_::<Dict>();
+            let values_layout = dict_layout.children().child(0, dict_layout.dtype())?;
+            let values_reader = values_layout.new_reader(
+                "".into(),
+                Arc::<TestSegments>::clone(&segments),
+                &session,
+                &Default::default(),
+            )?;
+            let values_rows = values_layout.row_count();
+            let dict_values = values_reader
+                .projection_evaluation(
+                    &(0..values_rows),
+                    &root().bind(values_reader.dtype())?,
+                    MaskFuture::new_true(usize::try_from(values_rows)?),
+                )?
+                .await?;
+
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let row_count = layout.row_count();
+            let actual = reader
+                .projection_evaluation(
+                    &(0..row_count),
+                    &root().bind(reader.dtype())?,
+                    MaskFuture::new_true(usize::try_from(row_count)?),
+                )?
+                .await?;
+            VortexResult::Ok((dict_values, actual))
+        })?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            dict_values,
+            VarBinArray::from(vec!["hot", "mid", "rare"]),
+            &mut ctx
+        );
+        let mut expected_raw = vec!["rare"];
+        expected_raw.extend(iter::repeat_n("mid", 5));
+        expected_raw.extend(iter::repeat_n("hot", 26));
+        assert_arrays_eq!(actual, VarBinArray::from(expected_raw), &mut ctx);
         Ok(())
     }
 }

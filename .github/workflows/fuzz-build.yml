@@ -2,7 +2,7 @@ name: Fuzz Build
 
 on:
   schedule:
-    - cron: "0 */3 * * *"  # every 3 hours
+    - cron: "0 */3 * * *"  # every 3 hours; keep in sync with cycle_hours in the fuzz-*.yml callers
   workflow_dispatch: { }
 
 jobs:

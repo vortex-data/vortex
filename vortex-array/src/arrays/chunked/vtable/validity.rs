@@ -17,7 +17,7 @@ impl ValidityVTable<Chunked> for Chunked {
             .iter()
             .map(|chunk| chunk.validity().map(|v| (v, chunk.len())))
             .try_collect()?;
-        let Some(validity) = Validity::concat(validities) else {
+        let Some(validity) = Validity::concat(validities)? else {
             // If there are no chunks:
             return Ok(array.dtype().nullability().into());
         };

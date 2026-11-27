@@ -237,6 +237,7 @@ impl Scalar {
         let value = self.value()?;
 
         let is_zero = match self.dtype() {
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => {
                 vortex_panic!("non-null value somehow had `DType::Null`")
             }
@@ -312,6 +313,7 @@ impl Scalar {
         use crate::dtype::i256;
 
         match self.dtype() {
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => 0,
             DType::Bool(_) => 1,
             DType::Primitive(ptype, _) => ptype.byte_width(),

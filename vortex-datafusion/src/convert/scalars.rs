@@ -39,6 +39,7 @@ use crate::convert::TryToDataFusion;
 impl TryToDataFusion<ScalarValue> for Scalar {
     fn try_to_df(&self) -> VortexResult<ScalarValue> {
         Ok(match self.dtype() {
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => ScalarValue::Null,
             DType::Bool(_) => ScalarValue::Boolean(self.as_bool().value()),
             DType::Primitive(ptype, _) => {

@@ -209,6 +209,7 @@ pub(crate) fn from_arrow_fields_naive(fields: &Fields) -> VortexResult<StructFie
 /// Naive conversion from a Vortex `DType` to the nearest Arrow physical data type.
 pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
     Ok(match dtype {
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Null => DataType::Null,
         DType::Bool(_) => DataType::Boolean,
         DType::Primitive(ptype, _) => match ptype {

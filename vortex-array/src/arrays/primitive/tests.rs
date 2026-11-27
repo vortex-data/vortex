@@ -3,6 +3,8 @@
 
 use std::sync::LazyLock;
 
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_session::VortexSession;
 
@@ -11,11 +13,13 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::buffer::BufferHandle;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::search_sorted::rstest_reuse::apply;
 use crate::compute::conformance::search_sorted::search_sorted_conformance;
 use crate::compute::conformance::search_sorted::*;
+use crate::dtype::PType;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedPrimitiveArray;
@@ -95,5 +99,31 @@ fn test_filter_primitive_array() {
         )
         .into_array(),
         &mut SESSION.create_execution_ctx(),
+    );
+}
+
+#[test]
+#[should_panic(expected = "PrimitiveArray buffer is not aligned")]
+fn test_from_buffer_handle_rejects_misaligned_host_buffer() {
+    let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
+    let misaligned = bytes.slice_unaligned(1..5);
+    assert!(!misaligned.is_aligned(Alignment::of::<i32>()));
+
+    PrimitiveArray::from_buffer_handle(
+        BufferHandle::new_host(misaligned),
+        PType::I32,
+        Validity::NonNullable,
+    );
+}
+
+#[test]
+#[should_panic(expected = "not a multiple of element width")]
+fn test_from_buffer_handle_rejects_length_not_multiple_of_ptype_width() {
+    let bytes = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::of::<i32>());
+
+    PrimitiveArray::from_buffer_handle(
+        BufferHandle::new_host(bytes),
+        PType::I32,
+        Validity::NonNullable,
     );
 }

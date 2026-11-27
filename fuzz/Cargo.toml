@@ -22,6 +22,7 @@ native = [
     "zstd",
     "vortex-file",
     "vortex/files",
+    "dep:prost",
     "dep:vortex-arrow",
     "dep:parquet-variant",
     "dep:vortex-json",
@@ -41,6 +42,7 @@ flatbuffers = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 parquet-variant = { workspace = true, optional = true }
+rand = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
@@ -60,6 +62,7 @@ vortex-utils = { workspace = true }
 
 # Native-only: libfuzzer harness and file IO (won't compile to WASM)
 libfuzzer-sys = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
 vortex-file = { workspace = true, optional = true }
 
 vortex-arrow = { workspace = true, features = [
@@ -79,6 +82,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+hegeltest = { workspace = true }
 rstest = { workspace = true }
 
 [lints]
@@ -105,6 +109,14 @@ bench = false
 doc = false
 name = "file_corruption"
 path = "fuzz_targets/file_corruption.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "file_session"
+path = "fuzz_targets/file_session.rs"
 test = false
 required-features = ["native"]
 
@@ -153,5 +165,13 @@ bench = false
 doc = false
 name = "arrow_roundtrip"
 path = "fuzz_targets/arrow_roundtrip.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "wire_safety"
+path = "fuzz_targets/wire_safety.rs"
 test = false
 required-features = ["native"]

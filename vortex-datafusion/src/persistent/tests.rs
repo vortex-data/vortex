@@ -1627,3 +1627,91 @@ async fn test_coarser_table_timestamp_matches_memtable() -> anyhow::Result<()> {
     )
     .await
 }
+
+#[tokio::test]
+async fn test_projection_keeps_utf8_and_utf8view_aliases_separate() -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: true,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let schema = Arc::new(Schema::new(vec![Field::new("s", DataType::Utf8, true)]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(StringArray::from(vec![
+            Some("alpha"),
+            None,
+            Some("beta"),
+        ]))],
+    )?;
+    ctx.write_arrow_batch("mixed_utf8.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/mixed_utf8.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query =
+        |table: &str| format!("SELECT s AS plain, arrow_cast(s, 'Utf8View') AS view FROM {table}");
+    let actual = ctx.session.sql(&query("actual")).await?.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+    assert_eq!(actual, expected);
+    Ok(())
+}
+
+/// The filter pins `lower(s)` to a literal, so the scan projects only that literal and no column.
+/// The scan must still return one row for each row that passes the filter.
+#[tokio::test]
+async fn test_projection_folded_to_literal_keeps_filtered_rows() -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: true,
+        predicate_pushdown: true,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let schema = Arc::new(Schema::new(vec![Field::new("s", DataType::Utf8, true)]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(StringArray::from(vec![
+            Some("A"),
+            Some("b"),
+            None,
+            Some("a"),
+            Some("B"),
+            Some("a"),
+        ]))],
+    )?;
+    ctx.write_arrow_batch("folded.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/folded.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT lower(s) AS out FROM {table} WHERE lower(s) = 'a'");
+    let actual = ctx.session.sql(&query("actual")).await?.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+
+    assert_eq!(
+        pretty_format_batches(&actual)?.to_string(),
+        pretty_format_batches(&expected)?.to_string()
+    );
+    assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 3);
+    Ok(())
+}
