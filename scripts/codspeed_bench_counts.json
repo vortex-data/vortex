@@ -122,7 +122,7 @@
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
     "bitpacking_list_contains": 5,
-    "bitpacking_take": 70,
+    "bitpacking_take": 81,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "chunked_fsl_take": 2,

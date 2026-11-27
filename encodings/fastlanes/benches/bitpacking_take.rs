@@ -4,10 +4,12 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use fastlanes::BitPacking;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -29,6 +31,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::patches::Patches;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -889,4 +892,131 @@ fn bench_patched_packed(
         .counter(ItemsCount::new(patched.len()))
         .with_inputs(|| (patched.clone(), make_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
+}
+
+/// Full arrays with identical packed bytes. Clustered and spread both update 1,024 rows.
+#[divan::bench(args = ["bare", "one_total_fused", "one_total_level", "spread_fused",
+    "spread_level", "spread_native", "clustered_fused", "clustered_level"])]
+fn sparse_patch_full_decode(bencher: Bencher, case: &str) {
+    let rows = 1 << 20;
+    let base = |row: usize| (row as u32).wrapping_mul(2_654_435_761) >> 23;
+    let mut expected: Vec<u32> = (0..rows).map(base).collect();
+    let mut ctx = SESSION.create_execution_ctx();
+    let packed = BitPackedData::encode(
+        &PrimitiveArray::from_iter(expected.iter().copied()).into_array(),
+        9,
+        &mut ctx,
+    )
+    .unwrap();
+    let array = if case == "bare" {
+        packed.into_array()
+    } else {
+        let mut rng = StdRng::seed_from_u64(491);
+        let indices: Vec<u32> = if case.starts_with("one_total") {
+            vec![(rows / 2) as u32]
+        } else if case.starts_with("clustered") {
+            (0..CHUNK_SIZE as u32)
+                .map(|i| i + (rows / 2) as u32)
+                .collect()
+        } else {
+            (0..rows / CHUNK_SIZE)
+                .map(|i| (i * CHUNK_SIZE + rng.random_range(0..CHUNK_SIZE)) as u32)
+                .collect()
+        };
+        let values: Vec<u32> = indices.iter().map(|&i| rows as u32 + i).collect();
+        for (&index, &value) in indices.iter().zip(&values) {
+            expected[index as usize] = value;
+        }
+        let patches = Patches::new(
+            rows,
+            0,
+            PrimitiveArray::from_iter(indices).into_array(),
+            PrimitiveArray::from_iter(values).into_array(),
+            None,
+            &mut ctx,
+        )
+        .unwrap();
+        if case == "spread_native" {
+            BitPacked::try_new(
+                packed.packed().clone(),
+                PType::U32,
+                Validity::NonNullable,
+                Some(patches),
+                9,
+                rows,
+                0,
+            )
+            .unwrap()
+            .into_array()
+        } else {
+            Patched::from_array_and_patches(packed.into_array(), &patches, &mut ctx)
+                .unwrap()
+                .into_array()
+        }
+    };
+    let make_ctx = || {
+        SESSION
+            .create_execution_ctx()
+            .with_block_fusion(case.ends_with("_fused"))
+    };
+    let decoded = array
+        .clone()
+        .execute::<PrimitiveArray>(&mut make_ctx())
+        .unwrap();
+    assert_eq!(decoded.as_slice::<u32>(), expected);
+    drop(decoded);
+    drop(expected);
+    bencher
+        .counter(ItemsCount::new(rows))
+        .with_inputs(|| (array.clone(), make_ctx()))
+        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
+}
+
+/// Isolate the 9-bit kernel and sparse stores on the same reusable 4 MiB output.
+#[divan::bench(args = ["unpack_only", "patch_in_block", "patch_after_unpack"])]
+fn sparse_patch_kernel(bencher: Bencher, case: &str) {
+    const BLOCKS: usize = 1024;
+    const PACKED_WORDS: usize = CHUNK_SIZE * 9 / u32::BITS as usize;
+    let packed = vec![[0x92ab_715d_u32; PACKED_WORDS]; BLOCKS];
+    let mut output = vec![[0u32; CHUNK_SIZE]; BLOCKS];
+    let mut rng = StdRng::seed_from_u64(491);
+    let indices: Vec<u16> = (0..BLOCKS)
+        .map(|_| rng.random_range(0..CHUNK_SIZE) as u16)
+        .collect();
+    let values: Vec<u32> = (0..BLOCKS).map(|i| (1 << 20) + i as u32).collect();
+    let unpack = |src: &[u32; PACKED_WORDS], dst: &mut [u32; CHUNK_SIZE]| {
+        // SAFETY: src contains one 9-bit block and dst has exactly 1024 slots.
+        unsafe { u32::unchecked_unpack(9, src, dst) };
+    };
+    bencher
+        .counter(ItemsCount::new(BLOCKS * CHUNK_SIZE))
+        .bench_local(|| {
+            let output = black_box(&mut output[..]);
+            match case {
+                "patch_in_block" => {
+                    for (((src, dst), &index), &value) in packed
+                        .iter()
+                        .zip(output.iter_mut())
+                        .zip(&indices)
+                        .zip(&values)
+                    {
+                        unpack(src, dst);
+                        dst[usize::from(index)] = value;
+                    }
+                }
+                "patch_after_unpack" | "unpack_only" => {
+                    for (src, dst) in packed.iter().zip(output.iter_mut()) {
+                        unpack(src, dst);
+                    }
+                    if case == "patch_after_unpack" {
+                        for ((dst, &index), &value) in output.iter_mut().zip(&indices).zip(&values)
+                        {
+                            dst[usize::from(index)] = value;
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            }
+            black_box(&*output);
+        });
 }
