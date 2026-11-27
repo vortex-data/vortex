@@ -61,21 +61,24 @@ impl FlatReader {
         }
     }
 
-    /// Register the segment request and return a future that would resolve into the deserialised array.
+    /// Return a future for the decoded array, registering the segment early when appropriate.
     fn array_future(&self, mask: &MaskFuture) -> SharedArrayFuture {
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
         let id = self.layout.segment_id();
-        let segment_fut =
-            if self.layout.dtype().is_variant() && mask.peek().is_none_or(Mask::all_false) {
-                // A deferred predicate may eliminate the entire Variant segment.
-                let source = Arc::clone(&self.segment_source);
-                async move { source.request(id).await }.boxed()
-            } else {
-                // Register known reads immediately so the source can prioritize them.
-                self.segment_source.request(id)
-            };
+        let defer_request = match mask.peek() {
+            Some(mask) => mask.all_false(),
+            // A pending filter can eliminate a Variant's residual payload. Keep other
+            // columns eligible to coalesce with the filter's reads.
+            None => self.layout.dtype().is_variant(),
+        };
+        let segment_fut = if defer_request {
+            let source = Arc::clone(&self.segment_source);
+            async move { source.request(id).await }.boxed()
+        } else {
+            self.segment_source.request(id)
+        };
 
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
@@ -256,6 +259,7 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -287,30 +291,42 @@ mod test {
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::new_session;
 
-    #[test]
-    fn deferred_empty_variant_mask_requests_no_segments() -> VortexResult<()> {
+    #[rstest]
+    #[case::ready_bool(DType::Bool(Nullability::Nullable), true, 0)]
+    #[case::pending_bool(DType::Bool(Nullability::Nullable), false, 2)]
+    #[case::pending_variant(DType::Variant(Nullability::Nullable), false, 0)]
+    fn empty_mask_segment_requests(
+        #[case] dtype: DType,
+        #[case] ready: bool,
+        #[case] expected_requests: usize,
+    ) -> VortexResult<()> {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let segments = Arc::new(CountingSegmentSource::new(
                 Arc::new(TestSegments::default()),
             ));
-            let layout = FlatLayout::new(
-                4,
-                DType::Variant(Nullability::Nullable),
-                SegmentId::from(0),
-                ReadContext::new([]),
-            );
+            let layout = FlatLayout::new(4, dtype, SegmentId::from(0), ReadContext::new([]));
             let reader = layout.into_layout().new_reader(
                 "".into(),
                 segments.clone(),
                 &session,
                 &Default::default(),
             )?;
-            let mask = MaskFuture::new(4, async { Ok(Mask::new_false(4)) });
+            let mask = if ready {
+                MaskFuture::ready(Mask::new_false(4))
+            } else {
+                MaskFuture::new(4, async { Ok(Mask::new_false(4)) })
+            };
             let predicate = is_not_null(root()).bind(reader.dtype())?;
-            let result = reader.filter_evaluation(&(0..4), &predicate, mask)?.await?;
-            assert!(result.all_false());
-            assert_eq!(segments.requests(), 0);
+            let filter = reader.filter_evaluation(&(0..4), &predicate, mask.clone())?;
+            let root = root().bind(reader.dtype())?;
+            let projection = reader.projection_evaluation(&(0..4), &root, mask)?;
+            assert_eq!(segments.requests(), expected_requests);
+            assert!(filter.await?.all_false());
+            let projected = projection.await?;
+            assert_eq!(projected.dtype(), reader.dtype());
+            assert!(projected.is_empty());
+            assert_eq!(segments.requests(), expected_requests);
             Ok(())
         })
     }
