@@ -23,12 +23,13 @@ use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::builders::VarBinBuilder;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::SchemeExt;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 
 /// Offset-based (rather than view-based) storage for binary arrays.
@@ -61,13 +62,13 @@ impl Scheme for VarBinScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    /// Children: offsets=0. The builder rebuilds the input's validity, which is registered.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         // `append_to_builder` resolves the views slice and data buffers once and appends
         // borrowed slices into a single pre-sized allocation. Iterating the array per element
         // instead would clone a buffer handle and allocate for every value.
@@ -86,16 +87,30 @@ impl Scheme for VarBinScheme {
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?
             .into_array();
-        let compressed_offsets =
-            compressor.compress_child(&offsets, &compress_ctx, self.id(), 0, exec_ctx)?;
+        let bytes = varbin.bytes().clone();
+        let dtype = varbin.dtype().clone();
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, offsets)],
+            Vec::new(),
+            move |children, exec_ctx| {
+                let [offsets] = children.compressed()?;
+                Ok(
+                    VarBinArray::try_new(offsets, bytes, dtype, children.validity()?, exec_ctx)?
+                        .into_array(),
+                )
+            },
+        )
+        .with_validity(varbin.validity()?))
+    }
 
-        Ok(VarBinArray::try_new(
-            compressed_offsets,
-            varbin.bytes().clone(),
-            varbin.dtype().clone(),
-            compressor.compress_validity(varbin.validity()?, exec_ctx)?,
-            exec_ctx,
-        )?
-        .into_array())
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

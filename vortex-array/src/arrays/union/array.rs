@@ -220,13 +220,18 @@ impl Array<Union> {
     }
 
     /// Create an empty array for a union dtype.
-    pub(crate) fn empty(variants: UnionVariants, nullability: Nullability) -> Self {
+    ///
+    /// Returns an error if a variant dtype has no canonical form yet.
+    pub(crate) fn try_empty(
+        variants: UnionVariants,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
         let type_ids = PrimitiveArray::empty::<u8>(nullability).into_array();
-        let children: Vec<_> = variants
+        let children = variants
             .variants()
-            .map(|dtype| crate::Canonical::empty(&dtype).into_array())
-            .collect();
+            .map(|dtype| Ok(crate::Canonical::try_empty(&dtype)?.into_array()))
+            .collect::<VortexResult<Vec<_>>>()?;
 
-        Self::new(type_ids, variants, children)
+        Ok(Self::new(type_ids, variants, children))
     }
 }

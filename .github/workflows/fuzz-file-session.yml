@@ -22,6 +22,7 @@ jobs:
     with:
       fuzz_target: file_session
       jobs: 4
+      extra_flags: "-len_control=0 -max_len=16384"
       max_time: 9000
       cycle_hours: 3
       seed_merge_timeout: 60

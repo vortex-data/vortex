@@ -655,7 +655,7 @@ mod tests {
     #[test]
     fn test_from_arrow_variant_with_shredded_typed_value() -> VortexResult<()> {
         let mut metadata_builder = BinaryViewBuilder::new();
-        let min_metadata = [1u8, 0];
+        let min_metadata = parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
         for _ in 0..3 {
             metadata_builder.append_value(min_metadata);
         }

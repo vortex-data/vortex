@@ -178,15 +178,15 @@ where
 
     let bit_offset: __m256i = _mm256_set1_epi32(bits.offset().as_());
     let low_bits: __m256i = _mm256_set1_epi32(31);
-    let max_index: __m256i = _mm256_set1_epi32(max_index.as_());
+    let max_lane: __m256i = _mm256_set1_epi32(max_index.as_());
     let mut max_taken_index: __m256i = _mm256_setzero_si256();
 
     let mut out = BufferMut::<u8>::with_capacity(total.div_ceil(8));
     for group in 0..groups {
         let original_indices: __m256i = load_group(group);
-        // clamped = min(original_indices, max_index)
+        // clamped = min(original_indices, max_lane)
         // "clamped" never reads beyond bits's buffer end
-        let clamped = _mm256_min_epu32(original_indices, max_index);
+        let clamped = _mm256_min_epu32(original_indices, max_lane);
         // clamped_shifted = clamped + bit_offset
         let clamped_shifted = _mm256_add_epi32(clamped, bit_offset);
 
@@ -216,8 +216,8 @@ where
         unsafe { out.push_unchecked(msb) };
     }
 
-    // max_clamped = min(max_taken_index, max_index)
-    let max_clamped = _mm256_min_epu32(max_taken_index, max_index);
+    // max_clamped = min(max_taken_index, max_lane)
+    let max_clamped = _mm256_min_epu32(max_taken_index, max_lane);
     // in_bounds = max_clamped == max_taken_index
     let in_bounds: __m256i = _mm256_cmpeq_epi32(max_clamped, max_taken_index);
     // AVX2 doesn't have integral MSB for 32bit lanes, cast to floats
@@ -243,6 +243,9 @@ where
         });
         // SAFETY: pos stays within indices
         let idx = unsafe { indices.get_unchecked(pos) }.as_() & keep;
+        // A small bitmap is padded with zeros, so a read past its end does not panic by itself.
+        assert!(idx <= max_index, "take index out of bounds");
+
         let value = get_bit(inner, bits.offset() + idx);
         byte |= (value as u8) << bit;
     }

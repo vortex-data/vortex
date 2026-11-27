@@ -29,9 +29,10 @@ use vortex_sparse::SparseExt;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
 
 /// Run-end encoding for boolean arrays with long runs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -73,18 +74,35 @@ impl Scheme for BoolRunEndScheme {
         ))
     }
 
-    fn compress(
+    /// Children: ends=0, and the run values, kept at 1: one bit per run.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let array = data.array().as_opt::<Bool>().vortex_expect("boolean input");
         let (ends, values) = runend_encode_bool(array, exec_ctx)?;
-        let ends =
-            compressor.compress_child(&ends.into_array(), &compress_ctx, self.id(), 0, exec_ctx)?;
-        Ok(RunEnd::try_new(ends, values, exec_ctx)?.into_array())
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, ends.into_array())],
+            vec![Child::new(self, 1, values)],
+            |children, exec_ctx| {
+                let [ends] = children.compressed()?;
+                let [values] = children.kept()?;
+                Ok(RunEnd::try_new(ends, values, exec_ctx)?.into_array())
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
@@ -125,18 +143,18 @@ impl Scheme for BoolSparseScheme {
         ))
     }
 
-    fn compress(
+    /// Children: indices=0. Every patch value is the exception, so the values are a constant.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let stats = data.bool_stats(exec_ctx);
         let fill = stats.true_count() > stats.value_count() / 2;
         let encoded = Sparse::encode(data.array(), Some(Scalar::from(fill)), exec_ctx)?;
         let Some(sparse) = encoded.as_opt::<Sparse>() else {
-            return Ok(encoded);
+            return Ok(Encoded::leaf(encoded));
         };
         let indices = sparse
             .patches()
@@ -144,20 +162,34 @@ impl Scheme for BoolSparseScheme {
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
-        let indices = compressor.compress_child(
-            &indices.into_array(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-        Sparse::try_new(
-            indices,
-            ConstantArray::new(!fill, sparse.patches().values().len()).into_array(),
-            sparse.len(),
-            sparse.fill_scalar().clone(),
-            exec_ctx,
-        )
-        .map(IntoArray::into_array)
+        let num_patches = sparse.patches().values().len();
+        let len = sparse.len();
+        let fill_scalar = sparse.fill_scalar().clone();
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, indices.into_array())],
+            Vec::new(),
+            move |children, exec_ctx| {
+                let [indices] = children.compressed()?;
+                Sparse::try_new(
+                    indices,
+                    ConstantArray::new(!fill, num_patches).into_array(),
+                    len,
+                    fill_scalar,
+                    exec_ctx,
+                )
+                .map(IntoArray::into_array)
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
