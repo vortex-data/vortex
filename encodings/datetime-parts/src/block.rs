@@ -190,7 +190,7 @@ mod tests {
         session
     });
 
-    const LEN: usize = 3000;
+    const LEN: usize = 5000;
 
     /// DateTimeParts of microsecond timestamps over many days, with optional nulls, whose days are
     /// bit-packed under FoR.
@@ -276,7 +276,7 @@ block_op 0 copy {days_ptype}->i64 scratch0 -> output"
     /// A slice reaches the children, so the days source starts part way into a FastLanes chunk.
     #[rstest]
     #[case::mid_chunk(517..2900)]
-    #[case::within_a_block(1500..1600)]
+    #[case::mid_chunk_to_mid_chunk(1500..3600)]
     #[case::to_the_end(1023..LEN)]
     fn sliced_days_fuse(#[case] rows: Range<usize>) -> VortexResult<()> {
         let whole = date_time_parts(true, None)?;
