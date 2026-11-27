@@ -305,7 +305,7 @@ fn bench_patched_readings(bencher: Bencher, fusion: bool, wrapper: bool) {
         let trace =
             vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION).unwrap();
         assert_eq!(
-            trace.contains("fuse extend parent=vortex.patched"),
+            trace.contains("fuse absorb parent=vortex.patched"),
             wrapper,
             "{trace}"
         );

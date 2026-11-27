@@ -289,7 +289,9 @@ The executor fuses in three steps:
    executor asks the parent for its op, once per frame, then the child for its block source. A
    leaf starts a block program, and the op of each fusable parent above is pushed onto it as its
    frame is popped. A child that is not a leaf yet executes as usual, and the op waits in the
-   frame for the result.
+   frame for the result. A source can also apply its nearest op itself. For example,
+   `Patched(BitPacked)` uses the same typed patch loop as the generic op, immediately after
+   unpacking each block. The executor records this as `fuse absorb`.
 3. **Drive.** As soon as the next parent cannot extend the program, or at the root, the executor
    runs it, in place of the parents it reached, and execution carries on with the result. A
    program never waits, so the executor holds it as a value, not as an array.

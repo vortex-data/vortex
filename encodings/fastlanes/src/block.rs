@@ -9,6 +9,7 @@
 //! source too, unpacking with FastLanes' fused unpack-and-add ([`FoRStrategy`]). FoR over any
 //! other child adds its references to each block ([`AddReference`], [`AddReferences`]).
 
+use std::any::Any;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -18,6 +19,7 @@ use num_traits::WrappingAdd;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::patched::PatchKernel;
 use vortex_array::block::Block;
 use vortex_array::block::BlockBuf;
 use vortex_array::block::BlockOp;
@@ -157,6 +159,7 @@ where
         strategy,
         packed,
         widths,
+        wrapper_patches: None,
         validity,
         offset,
         patches,
@@ -188,6 +191,7 @@ struct PackedSource<T: PhysicalPType, S> {
     /// The position of the first row within the first chunk.
     offset: usize,
     patches: Option<BlockPatches<T>>,
+    wrapper_patches: Option<PatchKernel<T>>,
 }
 
 enum PackedWidths {
@@ -197,6 +201,17 @@ enum PackedWidths {
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn apply_patches(&mut self, start: usize, values: &mut [T], validity: &mut BlockValidity<'_>) {
+        if let Some(patches) = &mut self.patches {
+            patches.apply(start, values, validity);
+        }
+        if let Some(patches) = &self.wrapper_patches {
+            patches.apply(start, values);
+        }
+    }
+
     fn packed_chunk(&self, chunk: usize) -> (usize, &[T::Physical]) {
         let (start, width) = match &self.widths {
             PackedWidths::Global(width) => (chunk * 128 * width / size_of::<T>(), *width),
@@ -228,7 +243,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> OutputBlockSource for PackedSource<
         let chunk = position / FL_CHUNK_SIZE;
         let first = position % FL_CHUNK_SIZE;
         // SAFETY: the full-block unpack initializes every destination slot;
-        // the edge path initializes its entire destination with write_copy_of_slice.
+        // the edge path copies only initialized slots from a decoded chunk.
         let mut written = unsafe {
             output.fill_with(|dst: &mut [MaybeUninit<T>]| {
                 if first == 0 && dst.len() == FL_CHUNK_SIZE {
@@ -240,9 +255,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> OutputBlockSource for PackedSource<
                 }
             })
         };
-        if let Some(patches) = &mut self.patches {
-            patches.apply(rows.start, written.as_mut_slice::<T>(), validity);
-        }
+        self.apply_patches(rows.start, written.as_mut_slice::<T>(), validity);
         Ok(written)
     }
 }
@@ -263,6 +276,16 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource<T, S> {
+    fn try_absorb(&mut self, op: &dyn BlockOp) -> bool {
+        if self.wrapper_patches.is_none()
+            && let Some(patches) = (op as &dyn Any).downcast_ref::<PatchKernel<T>>()
+        {
+            self.wrapper_patches = Some(patches.clone());
+            return true;
+        }
+        false
+    }
+
     fn output_source(&mut self) -> Option<&mut dyn OutputBlockSource> {
         Some(self)
     }
@@ -289,9 +312,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
         let offset = first - chunk_start;
         self.unpack(chunk, scratch.values_mut::<T::Physical>(FL_CHUNK_SIZE));
         let block = &mut scratch.values_mut::<T>(FL_CHUNK_SIZE)[offset..end - chunk_start];
-        if let Some(patches) = &mut self.patches {
-            patches.apply(rows.start, block, validity);
-        }
+        self.apply_patches(rows.start, block, validity);
         Ok(SourceBlock::Scratch {
             offset,
             len: rows.len(),
@@ -455,27 +476,74 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let rows = 4096u32;
+        // The native exceptions include an overlapping wrapper patch and a native-only one.
+        let reading = |row: u32| {
+            if row.is_multiple_of(1024) {
+                1000
+            } else {
+                row % 127
+            }
+        };
         let values = PrimitiveArray::from_option_iter(
-            (0..rows).map(|row| (!row.is_multiple_of(23)).then_some(row % 127)),
+            (0..rows).map(|row| (!row.is_multiple_of(23)).then_some(reading(row))),
         );
-        let packed = bitpack_encode(&values, 7, None, &mut ctx)?.into_array();
+        let packed = bitpack_encode(&values, 7, None, &mut ctx)?;
+        assert!(packed.patches().is_some());
         let patches = Patches::new(
             rows as usize,
             0,
-            buffer![31u32, 1023, 1024, 2048, 3078].into_array(),
-            buffer![211u32, 212, 213, 214, 215].into_array(),
+            buffer![31u32, 46, 1023, 1024, 2048, 3078].into_array(),
+            buffer![211u32, 216, 212, 213, 214, 215].into_array(),
             None,
             &mut ctx,
         )?;
-        let array = Patched::from_array_and_patches(packed, &patches, &mut ctx)?
+        let array = Patched::from_array_and_patches(packed.into_array(), &patches, &mut ctx)?
             .into_array()
             .slice(start..end)?;
         let trace = fusion::fusion_trace(array, &SESSION)?;
         assert_eq!(
-            trace.contains("in_place u32->u32 output -> output"),
+            trace.contains("fuse absorb parent=vortex.patched"),
             expect_direct,
             "{trace}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn layered_patches_apply_from_inner_to_outer() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let rows = 4096;
+        let values = PrimitiveArray::from_iter((0..rows).map(|i| (i % 64) as u32));
+        let mut array = bitpack_encode(&values, 6, None, &mut ctx)?.into_array();
+        for replacement in [100u32, 200] {
+            let patches = Patches::new(
+                rows,
+                0,
+                buffer![1024u32, 2049].into_array(),
+                buffer![replacement, replacement + 1].into_array(),
+                None,
+                &mut ctx,
+            )?;
+            array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+        }
+        let slice = array.slice(31..3079)?;
+        let trace = fusion::fusion_trace(slice.clone(), &SESSION)?;
+        assert_eq!(
+            trace.matches("fuse absorb parent=vortex.patched").count(),
+            1,
+            "{trace}"
+        );
+        assert_eq!(
+            trace.matches("fuse extend parent=vortex.patched").count(),
+            1,
+            "{trace}"
+        );
+        let expected = PrimitiveArray::from_iter((31..3079u32).map(|i| match i {
+            1024 => 200,
+            2049 => 201,
+            _ => i % 64,
+        }));
+        assert_arrays_eq!(slice, expected, &mut ctx);
         Ok(())
     }
 

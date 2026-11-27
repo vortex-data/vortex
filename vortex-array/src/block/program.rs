@@ -57,6 +57,11 @@ impl BlockProgram {
         }
     }
 
+    /// Let the source perform its nearest op in its own decoding loop.
+    pub(crate) fn try_absorb(&mut self, op: &dyn BlockOp, ty: BlockType) -> bool {
+        self.ops.is_empty() && ty == self.types[0] && self.source.try_absorb(op)
+    }
+
     /// Transform the program's values with `op`, which writes values of type `ty`.
     pub fn push(&mut self, op: Box<dyn BlockOp>, ty: impl Into<BlockType>) {
         self.ops.push(op);
@@ -132,9 +137,12 @@ impl BlockProgram {
         let mut changed = OutputValidity::new();
         let dst = cast::uninit_bytes_mut(&mut output.spare_capacity_mut()[..len]);
         let offset = self.source.block_offset() % BLOCK_LEN;
-        if let [op] = self.ops.as_mut_slice()
-            && op.prefers_output()
-            && op.supports_in_place()
+        let direct = match self.ops.as_slice() {
+            [] => true,
+            [op] => op.prefers_output() && op.supports_in_place(),
+            _ => false,
+        };
+        if direct
             && self.types[0] == T::BLOCK_TYPE
             && let Some(source) = self.source.output_source()
         {
@@ -159,29 +167,31 @@ impl BlockProgram {
                         && written.ty == T::BLOCK_TYPE,
                     "source must initialize the supplied output block"
                 );
-                if start == 0 {
-                    trace_op!(record_block_op(
-                        0,
-                        "in_place",
-                        "output",
-                        "output",
-                        T::BLOCK_TYPE,
-                        T::BLOCK_TYPE
-                    ));
+                if let [op] = self.ops.as_mut_slice() {
+                    if start == 0 {
+                        trace_op!(record_block_op(
+                            0,
+                            "in_place",
+                            "output",
+                            "output",
+                            T::BLOCK_TYPE,
+                            T::BLOCK_TYPE
+                        ));
+                    }
+                    let span = BlockInOut {
+                        bytes: written.bytes,
+                        len: n,
+                        in_type: T::BLOCK_TYPE,
+                        out_type: T::BLOCK_TYPE,
+                    };
+                    let patched = op.process(Block {
+                        values: Values::InPlace(span),
+                        validity: block_validity,
+                        start,
+                    })?;
+                    vortex_ensure_eq!(patched.len, n);
+                    vortex_ensure_eq!(patched.ty, T::BLOCK_TYPE);
                 }
-                let span = BlockInOut {
-                    bytes: written.bytes,
-                    len: n,
-                    in_type: T::BLOCK_TYPE,
-                    out_type: T::BLOCK_TYPE,
-                };
-                let patched = op.process(Block {
-                    values: Values::InPlace(span),
-                    validity: block_validity,
-                    start,
-                })?;
-                vortex_ensure_eq!(patched.len, n);
-                vortex_ensure_eq!(patched.ty, T::BLOCK_TYPE);
                 changed.push(validity, start, n, &window);
                 start = rows.end;
             }

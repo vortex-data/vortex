@@ -16,6 +16,7 @@
 //! Blocks are borrowed bytes and a [`BlockType`]. Viewing them as values is the job of `cast`, which
 //! holds the runtime's reinterpretations of memory.
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ops::Range;
@@ -347,6 +348,13 @@ pub enum SourceBlock<'s> {
 
 /// The start of a program: emits an array's own values, block by block, in row order.
 pub trait BlockSource: Send {
+    /// Incorporate a same-type op into this source's fills. Returning false leaves the source
+    /// unchanged. After accepting an op, every path that emits values must include its effect,
+    /// including direct output and any buffer returned by `take_buffer`.
+    fn try_absorb(&mut self, _op: &dyn BlockOp) -> bool {
+        false
+    }
+
     /// Offer to decode directly into the final buffer for a same-type, in-place terminal op.
     fn output_source(&mut self) -> Option<&mut dyn OutputBlockSource> {
         None
@@ -398,7 +406,7 @@ pub trait OutputBlockSource {
 
 /// A transform of one block of values into another: of their rows' values, and of their
 /// validity where it changes it.
-pub trait BlockOp: Send {
+pub trait BlockOp: Send + Any {
     /// Prefer editing the result buffer itself when this is the only op.
     fn prefers_output(&self) -> bool {
         false

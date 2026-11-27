@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 mod block;
 mod kernels;
 mod operations;
@@ -12,6 +10,7 @@ mod slice;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+pub use block::PatchKernel;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -19,6 +18,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
@@ -274,7 +275,11 @@ impl VTable for Patched {
         _child_dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
-        Ok((slot_idx == PatchedSlots::INNER).then(|| block::patch_op(array)))
+        Ok(if slot_idx == PatchedSlots::INNER {
+            block::patch_op(array)
+        } else {
+            None
+        })
     }
 }
 

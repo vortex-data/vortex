@@ -536,7 +536,7 @@ fn try_fuse(
     drop(child);
     loop {
         let parent = stack.pop().vortex_expect("the op's frame").parent_array;
-        chain.push(&parent, op)?;
+        chain.push(&parent, op, ctx.block_source_absorption)?;
         let Some(next) = take_op(stack, chain.dtype(), ctx)? else {
             return chain.drive(ctx).map(Ok);
         };
@@ -659,6 +659,7 @@ pub struct ExecutionCtx {
     // Whether `execute_until` fuses primitive encoding chains block by block.
     block_fusion: bool,
     force_standalone: bool,
+    block_source_absorption: bool,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -685,6 +686,7 @@ impl ExecutionCtx {
             aggregate_kernels: OnceLock::new(),
             block_fusion: true,
             force_standalone: false,
+            block_source_absorption: true,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -734,6 +736,13 @@ impl ExecutionCtx {
     /// [`crate::block`].
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
+        self
+    }
+
+    /// Enable source-specific implementations of the first block op for differential benchmarks.
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn with_block_source_absorption(mut self, enabled: bool) -> Self {
+        self.block_source_absorption = enabled;
         self
     }
 

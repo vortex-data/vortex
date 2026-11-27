@@ -17,32 +17,85 @@ use crate::block::Written;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 
-pub(super) fn patch_op(array: ArrayView<'_, Patched>) -> Box<dyn BlockOp> {
-    let offsets = array.lane_offsets().as_::<Primitive>().to_buffer::<u32>();
-    let indices = array.patch_indices().as_::<Primitive>().to_buffer::<u16>();
-    let values = array.patch_values().as_::<Primitive>();
+pub(super) fn patch_op(array: ArrayView<'_, Patched>) -> Option<Box<dyn BlockOp>> {
+    let values = array.patch_values().as_opt::<Primitive>()?;
     match_each_native_ptype!(values.ptype(), |T| {
-        Box::new(ApplyPatches {
-            next_patch: offsets[0] as usize,
-            offsets,
-            indices,
-            values: values.to_buffer::<T>(),
-            n_lanes: array.n_lanes(),
-            offset: array.offset(),
-        })
+        Some(Box::new(PatchKernel::<T>::try_new(array)?))
     })
 }
 
-struct ApplyPatches<T> {
+/// Applies chunk-local patch indices to decoded primitive values.
+#[derive(Clone)]
+pub struct PatchKernel<T> {
     offsets: Buffer<u32>,
     indices: Buffer<u16>,
     values: Buffer<T>,
     n_lanes: usize,
     offset: usize,
-    next_patch: usize,
 }
 
-impl<T: NativePType> BlockOp for ApplyPatches<T> {
+impl<T: NativePType> PatchKernel<T> {
+    /// Builds a kernel when the patch children are primitive and the values have type `T`.
+    pub fn try_new(array: ArrayView<'_, Patched>) -> Option<Self> {
+        let values = array.patch_values().as_opt::<Primitive>()?;
+        if values.ptype() != T::PTYPE {
+            return None;
+        }
+        Some(Self {
+            offsets: array
+                .lane_offsets()
+                .as_opt::<Primitive>()?
+                .to_buffer::<u32>(),
+            indices: array
+                .patch_indices()
+                .as_opt::<Primitive>()?
+                .to_buffer::<u16>(),
+            values: values.to_buffer::<T>(),
+            n_lanes: array.n_lanes(),
+            offset: array.offset(),
+        })
+    }
+
+    /// Applies the patches for the given decoded rows. `start` is relative to the logical array.
+    // Keep full-block writes in the calling decode loop; partial windows share the fallback.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    pub fn apply(&self, start: usize, out: &mut [T]) {
+        let start = self.offset + start;
+        if start.is_multiple_of(BLOCK_LEN) && out.len() == BLOCK_LEN {
+            let lane = (start / BLOCK_LEN) * self.n_lanes;
+            let patches = self.offsets[lane] as usize..self.offsets[lane + self.n_lanes] as usize;
+            for (&index, &value) in self.indices[patches.clone()]
+                .iter()
+                .zip(&self.values[patches])
+            {
+                out[usize::from(index)] = value;
+            }
+            return;
+        }
+        self.apply_partial(start, out);
+    }
+
+    #[inline(never)]
+    fn apply_partial(&self, start: usize, out: &mut [T]) {
+        let end = start + out.len();
+        for chunk in start / BLOCK_LEN..end.div_ceil(BLOCK_LEN) {
+            let lane = chunk * self.n_lanes;
+            let patches = self.offsets[lane] as usize..self.offsets[lane + self.n_lanes] as usize;
+            for (&index, &value) in self.indices[patches.clone()]
+                .iter()
+                .zip(&self.values[patches])
+            {
+                let row = chunk * BLOCK_LEN + usize::from(index);
+                if let Some(dst) = out.get_mut(row.wrapping_sub(start)) {
+                    *dst = value;
+                }
+            }
+        }
+    }
+}
+
+impl<T: NativePType> BlockOp for PatchKernel<T> {
     fn prefers_output(&self) -> bool {
         true
     }
@@ -54,31 +107,12 @@ impl<T: NativePType> BlockOp for ApplyPatches<T> {
     }
 
     fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
-        let start = self.offset + block.start();
+        let start = block.start();
         let mut written = match block.values {
             Values::InPlace(values) => values.written(),
             copy => copy.map(|value: T| value),
         };
-        let out = written.as_mut_slice::<T>();
-        let end = start + out.len();
-        for chunk in start / 1024..end.div_ceil(1024) {
-            let stop = self.offsets[(chunk + 1) * self.n_lanes] as usize;
-            let patches = self.next_patch..stop;
-            for (&index, &value) in self.indices[patches.clone()]
-                .iter()
-                .zip(&self.values[patches])
-            {
-                let row = chunk * 1024 + usize::from(index);
-                if let Some(dst) = out.get_mut(row.wrapping_sub(start)) {
-                    *dst = value;
-                }
-            }
-            // Patches are lane-ordered within each physical chunk. Keep its start if a
-            // misaligned source splits it across two blocks.
-            if end / 1024 > chunk {
-                self.next_patch = stop;
-            }
-        }
+        self.apply(start, written.as_mut_slice::<T>());
         Ok(written)
     }
 }

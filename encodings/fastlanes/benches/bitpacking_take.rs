@@ -870,15 +870,11 @@ fn bench_patched_packed(
         let trace = traced.trace.to_string();
         let direct = fusion && storage == PatchStorage::Wrapper;
         assert_eq!(
-            trace.contains("fuse extend parent=vortex.patched"),
+            trace.contains("fuse absorb parent=vortex.patched"),
             direct,
             "{trace}"
         );
-        assert_eq!(
-            trace.contains("in_place u32->u32 output -> output"),
-            direct,
-            "{trace}"
-        );
+        assert_eq!(trace.contains("drive ops=0"), direct, "{trace}");
         assert!(
             traced
                 .output
@@ -896,7 +892,8 @@ fn bench_patched_packed(
 
 /// Full arrays with identical packed bytes. Clustered and spread both update 1,024 rows.
 #[divan::bench(args = ["bare", "one_total_fused", "one_total_level", "spread_fused",
-    "spread_level", "spread_native", "clustered_fused", "clustered_level"])]
+    "spread_level", "spread_native", "clustered_fused", "clustered_level",
+    "one_total_generic", "spread_generic", "clustered_generic"])]
 fn sparse_patch_full_decode(bencher: Bencher, case: &str) {
     let rows = 1 << 20;
     let base = |row: usize| (row as u32).wrapping_mul(2_654_435_761) >> 23;
@@ -954,11 +951,32 @@ fn sparse_patch_full_decode(bencher: Bencher, case: &str) {
                 .into_array()
         }
     };
+    let generic = case.ends_with("_generic");
     let make_ctx = || {
         SESSION
             .create_execution_ctx()
-            .with_block_fusion(case.ends_with("_fused"))
+            .with_block_fusion(generic || case.ends_with("_fused"))
+            .with_block_source_absorption(!generic)
     };
+    #[cfg(not(codspeed))]
+    if generic || case.ends_with("_fused") {
+        let trace = vortex_array::test_harness::trace::trace_op(|| {
+            array.clone().execute::<PrimitiveArray>(&mut make_ctx())
+        })
+        .unwrap()
+        .trace
+        .to_string();
+        assert_eq!(
+            trace.contains("fuse absorb parent=vortex.patched"),
+            !generic,
+            "{trace}"
+        );
+        assert_eq!(
+            trace.contains("in_place u32->u32 output -> output"),
+            generic,
+            "{trace}"
+        );
+    }
     let decoded = array
         .clone()
         .execute::<PrimitiveArray>(&mut make_ctx())
