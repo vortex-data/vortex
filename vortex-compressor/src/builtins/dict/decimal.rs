@@ -6,20 +6,30 @@
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for
 //! external compatibility.
 
+use std::hash::Hash;
+
+use rustc_hash::FxBuildHasher;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Decimal;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::builders::dict::dict_encode_by_frequency;
+use vortex_array::dtype::NativeDecimalType;
+use vortex_array::match_each_decimal_value_type;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -137,7 +147,7 @@ impl Scheme for DecimalDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dict_encode_by_frequency(data.array(), exec_ctx)?;
+        let dict = dictionary_encode(data.array_as_decimal(), exec_ctx)?;
         let has_all_values_referenced = dict.has_all_values_referenced();
 
         // Values = child 0.
@@ -157,6 +167,59 @@ impl Scheme for DecimalDictScheme {
             )
         }
     }
+}
+
+/// Encodes a decimal array into a [`DictArray`] ordered by descending occurrence count, breaking
+/// ties by ascending value order.
+fn dictionary_encode(
+    array: ArrayView<'_, Decimal>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray> {
+    match_each_decimal_value_type!(array.values_type(), |T| {
+        dictionary_encode_typed::<T>(array, ctx)
+    })
+}
+
+/// Counts valid decimal values and builds a frequency-ordered [`DictArray`] for storage type `T`.
+fn dictionary_encode_typed<T: NativeDecimalType + Hash>(
+    array: ArrayView<'_, Decimal>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray> {
+    let codes_validity = array.validity()?;
+    let values_validity = match codes_validity {
+        Validity::NonNullable => Validity::NonNullable,
+        _ => Validity::AllValid,
+    };
+
+    let slice = array.buffer::<T>();
+    let mask = codes_validity.execute_mask(array.len(), ctx)?;
+    let mut counts = HashMap::<T, u32, FxBuildHasher>::with_hasher(FxBuildHasher);
+    match mask {
+        Mask::AllTrue(_) => {
+            for &value in slice.as_slice() {
+                *counts.entry(value).or_insert(0) += 1;
+            }
+        }
+        Mask::AllFalse(_) => {}
+        Mask::Values(values) => {
+            for idx in values.bit_buffer().set_indices() {
+                *counts.entry(slice[idx]).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let (values, codes) = super::encode_sorted_codes(
+        slice.as_slice(),
+        codes_validity,
+        counts.into_iter(),
+        |v| v,
+        |a, b| a.cmp(&b),
+    );
+    let values =
+        DecimalArray::new(values, array.decimal_dtype(), values_validity, ctx).into_array();
+    // SAFETY: `encode_sorted_codes` emits codes in `0..values.len()` for every valid entry
+    // and `counts` holds the exact distinct valid value set of `array`.
+    Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ mod float;
 mod integer;
 mod string;
 
+use std::cmp::Ordering;
 use std::hash::Hash;
 
 pub use binary::BinaryDictScheme;
@@ -20,6 +21,7 @@ pub use integer::IntDictScheme;
 pub use integer::dictionary_encode as integer_dictionary_encode;
 use rustc_hash::FxBuildHasher;
 pub use string::StringDictScheme;
+use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
@@ -54,46 +56,69 @@ where
         _ => Validity::AllValid,
     };
 
+    let (values, codes) = encode_sorted_codes(
+        source_array.as_slice::<T>(),
+        codes_validity,
+        counts,
+        NativeValue,
+        NativePType::total_compare,
+    );
+
+    let values = PrimitiveArray::new(values, values_validity).into_array();
+    // SAFETY: `encode_sorted_codes` emits codes in `0..values.len()` for every valid entry
+    // and the caller guarantees `counts` holds the exact distinct valid value set.
+    Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
+}
+
+/// Sorts `(value, count)` pairs by descending count (breaking ties with `cmp`) and encodes
+/// `source_slice` into the narrowest unsigned integer codes array (`u8`, `u16`, or `u32`).
+fn encode_sorted_codes<T, K>(
+    source_slice: &[T],
+    codes_validity: Validity,
+    counts: impl Iterator<Item = (T, u32)>,
+    key: impl Fn(T) -> K,
+    cmp: impl Fn(T, T) -> Ordering,
+) -> (Buffer<T>, ArrayRef)
+where
+    T: Copy,
+    K: Eq + Hash,
+{
     let mut entries: Vec<(T, u32)> = counts.collect();
     entries.sort_unstable_by(|&(lhs_val, lhs_count), &(rhs_val, rhs_count)| {
         rhs_count
             .cmp(&lhs_count)
-            .then_with(|| lhs_val.total_compare(rhs_val))
+            .then_with(|| cmp(lhs_val, rhs_val))
     });
     let values: Buffer<T> = entries.into_iter().map(|(value, _)| value).collect();
 
     // The largest code is one less than the dictionary length.
     let dict_len = values.len();
-    let source_slice = source_array.as_slice::<T>();
     let codes = if dict_len <= u8::MAX as usize + 1 {
-        let buf = encode_codes::<T, u8>(&values, source_slice);
+        let buf = encode_codes::<T, K, u8>(&values, source_slice, &key);
         PrimitiveArray::new(buf, codes_validity).into_array()
     } else if dict_len <= u16::MAX as usize + 1 {
-        let buf = encode_codes::<T, u16>(&values, source_slice);
+        let buf = encode_codes::<T, K, u16>(&values, source_slice, &key);
         PrimitiveArray::new(buf, codes_validity).into_array()
     } else {
-        let buf = encode_codes::<T, u32>(&values, source_slice);
+        let buf = encode_codes::<T, K, u32>(&values, source_slice, &key);
         PrimitiveArray::new(buf, codes_validity).into_array()
     };
 
-    let values = PrimitiveArray::new(values, values_validity).into_array();
-    // SAFETY: `encode_codes` emits codes in `0..values.len()` for every valid entry
-    // and the caller guarantees `counts` holds the exact distinct valid value set.
-    Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
+    (values, codes)
 }
 
 /// Maps `values` to their dictionary codes in `distinct`.
-fn encode_codes<T: NativePType, I: UnsignedPType>(distinct: &[T], values: &[T]) -> Buffer<I>
+fn encode_codes<T, K, I>(distinct: &[T], values: &[T], key: impl Fn(T) -> K) -> Buffer<I>
 where
-    NativeValue<T>: Eq + Hash,
+    T: Copy,
+    K: Eq + Hash,
+    I: UnsignedPType,
 {
-    let mut codes = HashMap::<NativeValue<T>, I, FxBuildHasher>::with_capacity_and_hasher(
-        distinct.len(),
-        FxBuildHasher,
-    );
+    let mut codes =
+        HashMap::<K, I, FxBuildHasher>::with_capacity_and_hasher(distinct.len(), FxBuildHasher);
     for (code, &value) in distinct.iter().enumerate() {
         codes.insert(
-            NativeValue(value),
+            key(value),
             I::from(code).vortex_expect("caller ensures dictionary length fits in code type"),
         );
     }
@@ -103,7 +128,7 @@ where
         // Any code lookups which fail are for nulls, so their value does not matter.
         // SAFETY: `output` has capacity `values.len()`.
         unsafe {
-            output.push_unchecked(codes.get(&NativeValue(value)).copied().unwrap_or_default());
+            output.push_unchecked(codes.get(&key(value)).copied().unwrap_or_default());
         }
     }
 

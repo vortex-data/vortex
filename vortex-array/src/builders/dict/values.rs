@@ -20,9 +20,6 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use super::DictCounter;
-use super::FreqCounter;
-use super::NoCounter;
 use crate::dtype::UnsignedPType;
 
 /// The dictionary of an encoder of fixed-width values `V`, looked up by a key `K` of each value.
@@ -33,7 +30,6 @@ pub(super) struct ValuesDict<K, V, Code> {
     null_code: OnceCell<Code>,
     values: BufferMut<V>,
     values_nulls: BitBufferMut,
-    counts: Option<Vec<u64>>,
     max_dict_len: usize,
     allocator: BufferAllocatorRef,
 }
@@ -51,16 +47,9 @@ where
             null_code: OnceCell::new(),
             values: BufferMut::empty_aligned_in(Alignment::of::<V>(), allocator.clone()),
             values_nulls: BitBufferMut::empty_in(allocator.clone()),
-            counts: None,
             max_dict_len,
             allocator,
         }
-    }
-
-    /// Enables tracking per-entry occurrence counts during [`Self::encode`].
-    pub(super) fn with_counts(mut self) -> Self {
-        self.counts = Some(Vec::new());
-        self
     }
 
     /// Returns the codes of the longest prefix of `values` that fits the dictionary constraints,
@@ -80,39 +69,18 @@ where
             return codes;
         }
 
-        let mut counts = self.counts.take();
-        match &mut counts {
-            None => self.encode_with_counter(values, mask, key, &mut codes, &mut NoCounter),
-            Some(counts) => {
-                self.encode_with_counter(values, mask, key, &mut codes, &mut FreqCounter(counts))
-            }
-        }
-        self.counts = counts;
-        codes
-    }
-
-    fn encode_with_counter<C: DictCounter>(
-        &mut self,
-        values: &[V],
-        mask: &Mask,
-        key: impl Fn(V) -> K,
-        codes: &mut BufferMut<Code>,
-        counter: &mut C,
-    ) {
         match mask {
             Mask::AllTrue(_) => {
                 for &value in values {
                     let Some(code) = self.encode_value(key(value), value) else {
                         break;
                     };
-                    counter.record(code, 1);
                     // SAFETY: `codes` holds `values.len()` codes, at most one per value.
                     unsafe { codes.push_unchecked(code) }
                 }
             }
             Mask::AllFalse(_) => {
                 if let Some(code) = self.encode_null() {
-                    counter.record(code, values.len() as u64);
                     // SAFETY: `codes` holds `values.len()` codes.
                     unsafe { codes.push_n_unchecked(code, values.len()) }
                 }
@@ -127,17 +95,12 @@ where
                     let Some(code) = code else {
                         break;
                     };
-                    counter.record(code, 1);
                     // SAFETY: `codes` holds `values.len()` codes, at most one per value.
                     unsafe { codes.push_unchecked(code) }
                 }
             }
         }
-    }
-
-    /// Takes the accumulated per-entry occurrence counts, leaving an empty vector in place.
-    pub(super) fn take_counts(&mut self) -> Vec<u64> {
-        self.counts.as_mut().map(mem::take).unwrap_or_default()
+        codes
     }
 
     /// Returns the values and their validity bits, and clears the dictionary for a new round of
@@ -145,9 +108,6 @@ where
     pub(super) fn reset(&mut self) -> (Buffer<V>, BitBuffer) {
         self.lookup.clear();
         self.null_code = OnceCell::new();
-        if let Some(counts) = &mut self.counts {
-            counts.clear();
-        }
         let values = mem::replace(
             &mut self.values,
             BufferMut::empty_aligned_in(Alignment::of::<V>(), self.allocator.clone()),

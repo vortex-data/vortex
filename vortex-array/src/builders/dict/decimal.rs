@@ -7,7 +7,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
-use super::CountingDictEncoder;
 use super::DictConstraints;
 use super::DictEncoder;
 use super::codes_ptype_for_max_len;
@@ -40,25 +39,6 @@ pub fn decimal_dict_builder<T: NativeDecimalType + Hash>(
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    decimal_dict_builder_impl::<T>(decimal_dtype, nullability, constraints, allocator, false)
-}
-
-pub(super) fn decimal_dict_builder_with_counts<T: NativeDecimalType + Hash>(
-    decimal_dtype: DecimalDType,
-    nullability: Nullability,
-    constraints: &DictConstraints,
-    allocator: BufferAllocatorRef,
-) -> Box<dyn CountingDictEncoder> {
-    decimal_dict_builder_impl::<T>(decimal_dtype, nullability, constraints, allocator, true)
-}
-
-fn decimal_dict_builder_impl<T: NativeDecimalType + Hash>(
-    decimal_dtype: DecimalDType,
-    nullability: Nullability,
-    constraints: &DictConstraints,
-    allocator: BufferAllocatorRef,
-    track_counts: bool,
-) -> Box<dyn CountingDictEncoder> {
     // Nullable values need an additional dictionary entry for null.
     let domain_len = match T::DECIMAL_TYPE {
         DecimalType::I8 => 1 << u8::BITS,
@@ -68,37 +48,30 @@ fn decimal_dict_builder_impl<T: NativeDecimalType + Hash>(
     }
     .saturating_add(<u64 as From<bool>>::from(nullability.is_nullable()));
     match codes_ptype_for_max_len(domain_len.min(constraints.max_len as u64)) {
-        PType::U8 => Box::new(
-            DecimalDictBuilder::<T, u8>::new_in(decimal_dtype, nullability, constraints, allocator)
-                .with_counts(track_counts),
-        ),
-        PType::U16 => Box::new(
-            DecimalDictBuilder::<T, u16>::new_in(
-                decimal_dtype,
-                nullability,
-                constraints,
-                allocator,
-            )
-            .with_counts(track_counts),
-        ),
-        PType::U32 => Box::new(
-            DecimalDictBuilder::<T, u32>::new_in(
-                decimal_dtype,
-                nullability,
-                constraints,
-                allocator,
-            )
-            .with_counts(track_counts),
-        ),
-        _ => Box::new(
-            DecimalDictBuilder::<T, u64>::new_in(
-                decimal_dtype,
-                nullability,
-                constraints,
-                allocator,
-            )
-            .with_counts(track_counts),
-        ),
+        PType::U8 => Box::new(DecimalDictBuilder::<T, u8>::new_in(
+            decimal_dtype,
+            nullability,
+            constraints,
+            allocator,
+        )),
+        PType::U16 => Box::new(DecimalDictBuilder::<T, u16>::new_in(
+            decimal_dtype,
+            nullability,
+            constraints,
+            allocator,
+        )),
+        PType::U32 => Box::new(DecimalDictBuilder::<T, u32>::new_in(
+            decimal_dtype,
+            nullability,
+            constraints,
+            allocator,
+        )),
+        _ => Box::new(DecimalDictBuilder::<T, u64>::new_in(
+            decimal_dtype,
+            nullability,
+            constraints,
+            allocator,
+        )),
     }
 }
 
@@ -132,13 +105,6 @@ where
             decimal_dtype,
             nullability,
         }
-    }
-
-    fn with_counts(mut self, track_counts: bool) -> Self {
-        if track_counts {
-            self.dict = self.dict.with_counts();
-        }
-        self
     }
 }
 
@@ -179,17 +145,6 @@ where
 
     fn codes_ptype(&self) -> PType {
         Code::PTYPE
-    }
-}
-
-impl<T, Code> CountingDictEncoder for DecimalDictBuilder<T, Code>
-where
-    T: NativeDecimalType + Hash,
-    Code: UnsignedPType,
-{
-    fn reset_with_counts(&mut self) -> (ArrayRef, Vec<u64>) {
-        let counts = self.dict.take_counts();
-        (self.reset(), counts)
     }
 }
 
