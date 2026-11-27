@@ -91,6 +91,8 @@ use vortex_arrow::ExecuteArrowExt;
 
 use crate::row_index::RowIndex;
 
+mod struct_pruning;
+
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
     /// Projection evaluated by the Vortex scan.
@@ -105,8 +107,8 @@ pub struct ProcessedProjection {
 ///
 /// Custom converters implement a single schema-aware decision. Conversion should preserve
 /// DataFusion values, nulls, and evaluation errors; see [`DefaultExpressionConverter`] for
-/// the arithmetic and nested field access exceptions. Unsupported expressions remain in
-/// DataFusion, including when a file's schema adapter introduces them.
+/// the arithmetic exception. Unsupported expressions remain in DataFusion, including when a
+/// file's schema adapter introduces them.
 ///
 /// # Implementing a custom converter
 ///
@@ -162,7 +164,10 @@ pub trait ExpressionConverter: Send + Sync {
     /// DataFusion projections that need to be evaluated after the scan.
     ///
     /// If any expression is unsupported, evaluate the complete projection in DataFusion
-    /// over deduplicated raw inputs. This avoids mixing input names with output aliases.
+    /// over deduplicated raw inputs, as [`no_pushdown_projection`] does. This avoids mixing
+    /// input names with output aliases.
+    ///
+    /// [`no_pushdown_projection`]: ExpressionConverter::no_pushdown_projection
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
@@ -216,49 +221,59 @@ pub trait ExpressionConverter: Send + Sync {
 
     /// Create a projection that reads only the required columns without pushing down
     /// any expressions. All projection logic is applied after the scan.
+    ///
+    /// A struct column that the projection reads only through field access keeps only the
+    /// children it reads.
     fn no_pushdown_projection(
         &self,
         source_projection: ProjectionExprs,
         input_schema: &Schema,
     ) -> DFResult<ProcessedProjection> {
-        raw_projection(
-            &source_projection.column_indices(),
-            input_schema,
-            source_projection,
-        )
+        raw_projection(input_schema, source_projection, None)
     }
 }
 
-/// Read raw columns and any physical row index needed by the leftover projection,
-/// without involving custom expression conversion. Replace row-index leaves with scan columns.
+/// Read the raw columns that `source_projection` and `residual_filter` reference, and any
+/// physical row index that the projection needs, without involving custom expression
+/// conversion. DataFusion evaluates both expressions on the scan output.
+///
+/// A struct column that the expressions read only through [`get_field`] keeps only the children
+/// on those field paths, as [`struct_pruning`] describes. Row-index leaves become scan columns.
+///
+/// [`get_field`]: GetFieldFunc
 pub(crate) fn raw_projection(
-    indices: &[usize],
     input_schema: &Schema,
     source_projection: ProjectionExprs,
+    residual_filter: Option<&Arc<dyn PhysicalExpr>>,
 ) -> DFResult<ProcessedProjection> {
-    let schema = input_schema.project(indices)?;
-    let mut scan_columns = schema
-        .fields()
+    let exprs = source_projection
         .iter()
-        .map(|field| {
-            (
-                field.name().clone(),
-                get_item(field.name().as_str(), root()),
-            )
+        .map(|projection| &projection.expr)
+        .chain(residual_filter);
+    let column_uses = struct_pruning::column_uses(exprs, input_schema)?;
+    let (mut scan_columns, mut fields): (Vec<_>, Vec<_>) = column_uses
+        .iter()
+        .map(|(&column_idx, column_use)| {
+            let field = &input_schema.fields()[column_idx];
+            let read = get_item(field.name().as_str(), root());
+            let (read, field) = struct_pruning::prune_read(read, field, column_use);
+            ((field.name().clone(), read), field)
         })
-        .collect_vec();
+        .unzip();
+
     // Use a private, collision-free scan field, independently of output aliases.
     let mut row_index_name = "__vortex_row_index".to_owned();
     while input_schema.field_with_name(&row_index_name).is_ok() {
         row_index_name.push('_');
     }
+    let row_index_idx = scan_columns.len();
     let mut needs_row_index = false;
     let leftover_projection = source_projection.try_map_exprs(|expr| {
         expr.transform_up(|expr| {
             if expr.is::<RowIndex>() {
                 needs_row_index = true;
                 Ok(DFTransformed::yes(
-                    Arc::new(df_expr::Column::new(&row_index_name, indices.len()))
+                    Arc::new(df_expr::Column::new(&row_index_name, row_index_idx))
                         as Arc<dyn PhysicalExpr>,
                 ))
             } else {
@@ -267,7 +282,6 @@ pub(crate) fn raw_projection(
         })
         .map(|transformed| transformed.data)
     })?;
-    let mut fields = schema.fields().to_vec();
     if needs_row_index {
         scan_columns.push((row_index_name.clone(), row_idx::row_idx()));
         fields.push(Arc::new(Field::new(
@@ -276,9 +290,10 @@ pub(crate) fn raw_projection(
             false,
         )));
     }
+
     Ok(ProcessedProjection {
         scan_projection: pack(scan_columns, Nullability::NonNullable),
-        scan_reference_schema: Schema::new_with_metadata(fields, schema.metadata().clone()),
+        scan_reference_schema: Schema::new_with_metadata(fields, input_schema.metadata().clone()),
         leftover_projection,
     })
 }
@@ -304,9 +319,8 @@ type Conversion<T> = Result<T, Unconverted>;
 ///
 /// Supported arithmetic is pushed down using Vortex semantics, including its checked
 /// integer arithmetic. Matching DataFusion's overflow behavior is deferred to a future patch.
-/// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
-/// whereas DataFusion extracts the child without applying parent validity. These differences
-/// are accepted for both filters and projections.
+/// This difference is accepted for both filters and projections. Nested struct field access
+/// matches DataFusion: a null parent produces a null child on both sides.
 /// Field access through an extension can run natively when Arrow exposes its Vortex storage and
 /// the selected field exports without plugins.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and

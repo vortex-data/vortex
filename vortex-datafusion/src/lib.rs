@@ -182,7 +182,7 @@ mod common_tests {
     use crate::VortexFormatFactory;
     use crate::VortexTableOptions;
 
-    static VX_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+    pub static VX_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
     /// The Vortex ID of [`AnyStorage`], which is also its Arrow extension name.
     pub static ANY_STORAGE_ID: CachedId = CachedId::new("test.any_storage");
