@@ -240,3 +240,75 @@ async fn shared_budget_lets_scans_finish_while_another_stalls() -> VortexResult<
     drop(stalled);
     Ok(())
 }
+
+/// An ordered scan yields its rows in order however many chunks run beside each other,
+/// including at a concurrency of zero, where an unordered scan would run them inline.
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordered_scan_yields_chunks_in_row_order(
+    #[values(0, 1, 4)] concurrency: usize,
+) -> VortexResult<()> {
+    let chunks = 8;
+    let builder = chunked_builder(chunks);
+    let dtype = builder.dtype().clone();
+    let driver = ScanDriver::new(builder.session().handle(), concurrency, true);
+    let batches: Vec<ArrayRef> = driver.run(builder).try_collect().await?;
+
+    assert_eq!(batches.len(), chunks);
+    let actual = ChunkedArray::try_new(batches, dtype)?.into_array();
+    assert_arrays_eq!(
+        actual,
+        Buffer::from_iter(0..(chunks * MAX_ROWS_PER_CHUNK) as u64).into_array(),
+        &mut VortexSession::empty().create_execution_ctx()
+    );
+    Ok(())
+}
+
+/// An ordered scan yields its first batch while later chunks are still to run, instead of
+/// holding every batch until the scan is done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordered_scan_streams_before_the_scan_is_done() -> VortexResult<()> {
+    let mapped = Arc::new(AtomicUsize::new(0));
+    let map_fn = {
+        let mapped = Arc::clone(&mapped);
+        move |batch: ArrayRef| {
+            mapped.fetch_add(1, Ordering::SeqCst);
+            Ok(batch)
+        }
+    };
+
+    let chunks = 8;
+    let builder = chunked_builder(chunks);
+    let driver = ScanDriver::new(builder.session().handle(), 1, true);
+    let mut batches = driver.run_prepared(builder.prepare()?, map_fn);
+    batches.next().await.transpose()?;
+
+    assert!(mapped.load(Ordering::SeqCst) < chunks);
+    Ok(())
+}
+
+/// Ordered scans sharing a budget finish: chunks waiting to be drained free their slots, so the
+/// chunk each scan needs next always gets one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ordered_scans_sharing_a_budget_finish() -> VortexResult<()> {
+    let (budget, drivers, chunks) = (ChunkBudget::new(1), 3, 8);
+    let scans = (0..drivers).map(|_| {
+        let builder = chunked_builder(chunks);
+        let driver = ScanDriver::with_budget(builder.session().handle(), budget.clone(), true);
+        async move {
+            driver
+                .run_prepared(builder.prepare()?, Ok)
+                .try_collect::<Vec<_>>()
+                .await
+        }
+    });
+    let batches = tokio::time::timeout(
+        Duration::from_secs(10),
+        futures::future::try_join_all(scans),
+    )
+    .await
+    .map_err(|_| vortex_error::vortex_err!("ordered scans sharing a budget did not finish"))??;
+
+    assert!(batches.iter().all(|batches| batches.len() == chunks));
+    Ok(())
+}
