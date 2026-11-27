@@ -173,8 +173,8 @@ impl BlockProgram {
             Target::Leaf(_) => 0,
             Target::Output(_) => source.block_offset() % BLOCK_LEN,
         };
-        // The source fills the first scratch block; the second is allocated when an op copies
-        // between them.
+        // The source fills the first scratch block; the second is taken when an op copies between
+        // them. Both go back to this thread's spares once every block is written.
         let mut scratch: [Option<Box<BlockBuf>>; 2] = [None, None];
         let mut start = 0;
         while start < len {
@@ -184,7 +184,7 @@ impl BlockProgram {
             let (mut at, mut first, mut lent) = (At::Leaf, start, None);
             let mut window: Window = None;
             if let Target::Output(_) = target {
-                let buf = scratch[0].get_or_insert_with(BlockBuf::new_boxed);
+                let buf = scratch[0].get_or_insert_with(BlockBuf::take);
                 let mut block_validity = BlockValidity::new(validity, start, n, &mut window);
                 match source.fill(rows.clone(), buf, &mut block_validity)? {
                     SourceBlock::Scratch {
@@ -254,7 +254,7 @@ impl BlockProgram {
                         _ => {
                             let to = At::Scratch(usize::from(at == At::Scratch(0)));
                             (at, first) = (to, 0);
-                            let bytes = &mut other.get_or_insert_with(BlockBuf::new_boxed).0;
+                            let bytes = &mut other.get_or_insert_with(BlockBuf::take).0;
                             // SAFETY: a `BlockOut` writes only initialized values.
                             unsafe { cast::as_uninit_mut(&mut bytes[..n * width]) }
                         }
@@ -308,6 +308,7 @@ impl BlockProgram {
             changed.push(validity, start, n, &window);
             start = rows.end;
         }
+        scratch.into_iter().flatten().for_each(BlockBuf::give_back);
         Ok(())
     }
 }

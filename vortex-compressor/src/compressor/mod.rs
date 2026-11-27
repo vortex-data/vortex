@@ -17,6 +17,7 @@ pub(crate) use cascade::exact_uncompressed_size;
 pub(crate) use sample::estimate_compression_ratio_with_sampling;
 pub use sample::sample_aligned_chunks;
 pub(crate) use sample::sample_slices;
+pub(crate) use structural::leaf_validity_slot;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildPolicy;
@@ -61,6 +62,9 @@ pub struct CascadingCompressor {
 
     /// Overrides schemes' decisions about which children to compress.
     child_policy: Option<Arc<dyn ChildPolicy>>,
+
+    /// Compresses the storage children of Variant arrays in place of this compressor, if set.
+    variant_storage: Option<Arc<CascadingCompressor>>,
 }
 
 impl CascadingCompressor {
@@ -79,6 +83,7 @@ impl CascadingCompressor {
             schemes,
             root_exclusions,
             child_policy: None,
+            variant_storage: None,
         }
     }
 
@@ -88,7 +93,6 @@ impl CascadingCompressor {
         self.child_policy = Some(policy);
         self
     }
-
     /// Whether the compressor has the scheme with this ID enabled and not excluded in `ctx`.
     ///
     /// A scheme can use this to compare itself against an alternative only when the compressor
@@ -98,6 +102,16 @@ impl CascadingCompressor {
             .iter()
             .find(|s| s.id() == id)
             .is_some_and(|s| !self.is_excluded(*s, ctx))
+    }
+
+    /// Compresses the storage children of Variant arrays with `compressor` instead of this one.
+    ///
+    /// The storage of a Variant holds opaque binary values, such as its unshredded value, which
+    /// can warrant other schemes than the binary columns of a table. Shredded children are still
+    /// compressed by this compressor.
+    pub fn with_variant_storage_compressor(mut self, compressor: CascadingCompressor) -> Self {
+        self.variant_storage = Some(Arc::new(compressor));
+        self
     }
 }
 

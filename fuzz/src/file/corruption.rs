@@ -3,8 +3,6 @@
 
 use std::cell::Cell;
 use std::fmt;
-use std::panic;
-use std::sync::Once;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
@@ -33,6 +31,7 @@ use crate::SESSION;
 use crate::file::WriteSettings;
 use crate::file::has_duplicate_field_names;
 use crate::file::has_nullable_struct;
+use crate::file::report_on_panic;
 
 const MAX_CORRUPTIONS: usize = 8;
 const CORRUPTION_SETS: usize = 1024;
@@ -178,15 +177,10 @@ pub fn run_file_corruption(fuzz: FuzzFileCorruption) -> VortexResult<bool> {
 
     let targets = Targets::new(&file).vortex_expect("written file has a footer");
 
-    static HOOK: Once = Once::new();
-    HOOK.call_once(|| {
-        let previous = panic::take_hook();
-        panic::set_hook(Box::new(move |info| {
-            for (position, corruption) in CURRENT_SET.get().into_iter().flatten() {
-                eprintln!("corruption {position} {corruption:?}");
-            }
-            previous(info);
-        }));
+    report_on_panic(|| {
+        for (position, corruption) in CURRENT_SET.get().into_iter().flatten() {
+            eprintln!("corruption {position} {corruption:?}");
+        }
     });
 
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(u64::from(seed));

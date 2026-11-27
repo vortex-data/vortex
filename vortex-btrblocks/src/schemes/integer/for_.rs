@@ -46,7 +46,9 @@ use super::RunEndScheme;
 use super::runend::RUN_END_THRESHOLD;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::boolean::BoolRunEndScheme;
@@ -225,19 +227,25 @@ impl Scheme for FoRScheme {
         )))
     }
 
-    fn compress(
+    /// Children: references=0 in v2 mode. The encoded child is bit-packed, and its children are
+    /// the bit-packing scheme's.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let use_v2 = self.mode == FoRSchemeMode::V2
             && !compress_ctx.is_sample()
             && data.array_len() > FL_CHUNK_SIZE
-            && !is_runend_ends(&compress_ctx)
-            && cached_v2_estimate(*self, compressor, data, &compress_ctx, exec_ctx)?
+            && !is_runend_ends(compress_ctx)
+            && data
+                .get_or_insert_with(|| FoRV2EstimateCache(OnceLock::new()))
+                .0
+                .get()
+                .copied()
+                .flatten()
                 .is_some_and(|v2| v1_compression_ratio(data, exec_ctx).is_none_or(|v1| v2 >= v1));
 
         let for_array = if use_v2 {
@@ -252,28 +260,54 @@ impl Scheme for FoRScheme {
 
         // Immediately bitpack when residuals satisfy BitPacking's non-negative precondition.
         // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
-        // residuals; in that case fall back to selecting another encoding (excluding FoR)
-        // rather than materializing an uncompressed FoR array larger than the input.
-        let Some(compressed) = try_bitpack_residuals(compressor, biased, &compress_ctx, exec_ctx)?
-        else {
-            return compressor.compress_child(data.array(), &compress_ctx, self.id(), 0, exec_ctx);
+        // residuals; hand the input back for the size check to reject rather than materializing
+        // an uncompressed FoR array larger than the input.
+        if has_negative_residuals(&biased, exec_ctx) {
+            return Ok(Encoded::leaf(data.array().clone()));
+        }
+        let biased_data =
+            ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
+        let Some(packed) = BitPackingScheme.try_encode(&biased_data, exec_ctx)? else {
+            // Unpacked residuals are no smaller than the input, so hand it back for the size
+            // check to reject.
+            return Ok(Encoded::leaf(data.array().clone()));
         };
 
-        // TODO(connor): This should really be `new_unchecked`.
-        let for_compressed = match for_array.references() {
-            FoRReferences::Global(reference) => FoR::try_new(compressed, reference.clone())?,
+        let for_stats = for_array.statistics().to_owned();
+        let offset = for_array.offset();
+        let (compress, reference) = match for_array.references() {
+            FoRReferences::Global(reference) => (Vec::new(), Some(reference.clone())),
             FoRReferences::Blocked(references) => {
-                let references =
-                    compressor.compress_child(references, &compress_ctx, self.id(), 0, exec_ctx)?;
-                FoR::try_new_chunked(compressed, references, for_array.offset())?
+                (vec![Child::new(self, 0, references.clone())], None)
             }
         };
-        for_compressed
-            .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
+        // The bit-packed children are compressed in our own context, not a leaf one, so a v2
+        // child's block offsets can cascade.
+        Ok(
+            packed.wrap(compress, Vec::new(), move |packed, children, _| {
+                // TODO(connor): This should really be `new_unchecked`.
+                let for_compressed = match reference {
+                    Some(reference) => FoR::try_new(packed, reference)?,
+                    None => {
+                        let [references] = children.compressed()?;
+                        FoR::try_new_chunked(packed, references, offset)?
+                    }
+                };
+                for_compressed.as_ref().statistics().set_all(for_stats);
+                Ok(for_compressed.into_array())
+            }),
+        )
+    }
 
-        Ok(for_compressed.into_array())
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
@@ -397,8 +431,11 @@ fn try_bitpack_residuals(
         return Ok(None);
     }
     let data = ArrayAndStats::new(residuals.into_array(), compress_ctx.merged_stats_options());
-    BitPackingScheme
-        .compress(compressor, &data, compress_ctx.clone(), exec_ctx)
+    let Some(encoded) = BitPackingScheme.try_encode(&data, exec_ctx)? else {
+        return Ok(Some(data.array().clone()));
+    };
+    compressor
+        .compress_encoded(BitPackingScheme.id(), encoded, compress_ctx, exec_ctx)
         .map(Some)
 }
 
@@ -481,8 +518,15 @@ fn evaluate_v2_on_sample(
     let mut baseline_penalized = before_nbytes;
 
     if !sample_stats.erased().min_is_negative() {
-        let bp =
-            BitPackingScheme.compress(compressor, &sample_data, compress_ctx.clone(), exec_ctx)?;
+        let bp = match BitPackingScheme.try_encode(&sample_data, exec_ctx)? {
+            Some(encoded) => compressor.compress_encoded(
+                BitPackingScheme.id(),
+                encoded,
+                compress_ctx,
+                exec_ctx,
+            )?,
+            None => sample_data.array().clone(),
+        };
         let bp_raw = bp.nbytes();
         let bp_penalized = bp_raw.saturating_add(patch_density_cost_bytes(
             sample_len,

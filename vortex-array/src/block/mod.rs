@@ -16,6 +16,7 @@
 //! Blocks are borrowed bytes and a [`BlockType`]. Viewing them as values is the job of `cast`, which
 //! holds the runtime's reinterpretations of memory.
 
+use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -37,12 +38,17 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 
 mod cast;
+mod chain;
+#[cfg(test)]
+mod executor_tests;
 mod program;
 #[cfg(test)]
 mod tests;
 mod validity;
 mod value;
 
+pub(crate) use chain::FusedChain;
+pub(crate) use chain::fusable_ptype;
 pub use program::BlockProgram;
 pub use validity::BlockValidity;
 pub use value::BlockType;
@@ -52,14 +58,35 @@ pub(crate) use value::sealed;
 /// The most rows a block holds.
 pub const BLOCK_LEN: usize = 1024;
 
+/// The executor fuses only chains longer than this: shorter ones have intermediates that stay in
+/// L1, so a program would save no memory traffic and cost more than it saves.
+pub(crate) const MAX_UNFUSED_LEN: usize = 2 * BLOCK_LEN;
+
 /// Scratch for one block of values of any primitive type.
 #[repr(C, align(64))]
 pub struct BlockBuf([u8; BLOCK_LEN * 8]);
 
+thread_local! {
+    /// Scratch that finished programs returned, so the next programs on this thread reuse it
+    /// instead of zeroing new blocks.
+    static SPARE_SCRATCH: RefCell<Vec<Box<BlockBuf>>> = const { RefCell::new(Vec::new()) };
+}
+
 impl BlockBuf {
-    /// Zeroed scratch for one block.
-    pub(crate) fn new_boxed() -> Box<Self> {
-        Box::new(Self([0; BLOCK_LEN * 8]))
+    /// Scratch for one block, holding whatever a previous program left in it.
+    pub(crate) fn take() -> Box<Self> {
+        SPARE_SCRATCH
+            .with_borrow_mut(Vec::pop)
+            .unwrap_or_else(|| Box::new(Self([0; BLOCK_LEN * 8])))
+    }
+
+    /// Return scratch for a later program on this thread to [`take`](Self::take).
+    pub(crate) fn give_back(scratch: Box<Self>) {
+        SPARE_SCRATCH.with_borrow_mut(|spare| {
+            if spare.len() < 2 {
+                spare.push(scratch);
+            }
+        });
     }
 
     /// The scratch as `len` values of `T`, to fill.

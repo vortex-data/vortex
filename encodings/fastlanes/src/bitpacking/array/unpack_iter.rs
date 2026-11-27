@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -16,6 +15,18 @@ use crate::FL_CHUNK_SIZE;
 
 const CHUNK_SIZE: usize = FL_CHUNK_SIZE;
 
+/// Borrow uninitialized integer storage as its unsigned FastLanes physical type.
+pub(crate) fn physical_output<T: PhysicalPType>(
+    output: &mut [MaybeUninit<T>],
+) -> &mut [MaybeUninit<T::Physical>] {
+    const {
+        assert!(size_of::<T>() == size_of::<T::Physical>());
+        assert!(align_of::<T>() == align_of::<T::Physical>());
+    }
+    // SAFETY: the element layouts agree, and both views permit uninitialized bytes.
+    unsafe { std::slice::from_raw_parts_mut(output.as_mut_ptr().cast(), output.len()) }
+}
+
 /// Strategy trait for fastlanes unpacking operations
 pub trait UnpackStrategy<T: PhysicalPType> {
     /// Unpack a chunk of packed data into the destination buffer
@@ -24,6 +35,24 @@ pub trait UnpackStrategy<T: PhysicalPType> {
     /// - `chunk` must contain exactly `elems_per_chunk` elements
     /// - `dst` must have exactly CHUNK_SIZE capacity
     unsafe fn unpack_chunk(&self, bit_width: usize, chunk: &[T::Physical], dst: &mut [T::Physical]);
+
+    /// Unpack into fresh storage and return the initialized destination.
+    ///
+    /// # Safety
+    /// The same packed and unpacked lengths are required as for [`Self::unpack_chunk`].
+    unsafe fn unpack_chunk_uninit<'a>(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &'a mut [MaybeUninit<T::Physical>],
+    ) -> &'a mut [T::Physical] {
+        dst.fill(MaybeUninit::new(T::Physical::default()));
+        // SAFETY: every slot was initialized above.
+        let dst = unsafe { dst.assume_init_mut() };
+        // SAFETY: the caller guarantees both chunk lengths.
+        unsafe { self.unpack_chunk(bit_width, chunk, dst) };
+        dst
+    }
 }
 
 /// BitPacking strategy - uses plain bitpacking without reference value
@@ -43,6 +72,37 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
             BitPacking::unchecked_unpack(bit_width, chunk, dst);
         }
     }
+
+    unsafe fn unpack_chunk_uninit<'a>(
+        &self,
+        bit_width: usize,
+        chunk: &[T::Physical],
+        dst: &'a mut [MaybeUninit<T::Physical>],
+    ) -> &'a mut [T::Physical] {
+        // SAFETY: the caller guarantees both chunk lengths, and the unpack initializes every slot.
+        unsafe {
+            BitPacking::unchecked_unpack_uninit(bit_width, chunk, dst);
+            dst.assume_init_mut()
+        }
+    }
+}
+
+/// Unpack a validated full chunk into logical integer storage.
+fn unpack_chunk<'a, T: PhysicalPType, S: UnpackStrategy<T>>(
+    strategy: &S,
+    width: usize,
+    chunk: &[T::Physical],
+    dst: &'a mut [MaybeUninit<T>],
+) -> &'a mut [T] {
+    let expected = dst.as_mut_ptr_range();
+    // SAFETY: callers pass a full destination and a validated chunk at this width.
+    let initialized = unsafe { strategy.unpack_chunk_uninit(width, chunk, physical_output(dst)) };
+    // UnpackStrategy is publicly implementable. Check that the initialized slice actually
+    // covers the requested destination before the caller assumes it initialized.
+    let actual = initialized.as_mut_ptr_range();
+    assert!(actual.start.cast() == expected.start && actual.end.cast() == expected.end);
+    // SAFETY: the initialized output covers every slot, and every bit pattern is valid for T.
+    unsafe { dst.assume_init_mut() }
 }
 
 /// Accessor to unpacked chunks of bitpacked arrays
@@ -158,21 +218,14 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
     pub fn initial(&mut self) -> Option<&mut [T]> {
         (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
             let chunk: &[T::Physical] = &self.packed[..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = self.scratch;
-            let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
 
             let header_end_slice = if self.num_chunks == 1 {
                 self.len
             } else {
                 CHUNK_SIZE - self.offset
             };
-            // SAFETY:
-            // 1. chunk is elems_per_chunk.
-            // 2. buffer is exactly CHUNK_SIZE.
-            unsafe {
-                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.scratch[self.offset..][..header_end_slice])
-            }
+            let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+            &mut values[self.offset..][..header_end_slice]
         })
     }
 
@@ -228,12 +281,8 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
             let elems_per_chunk = self.elems_per_chunk();
             for i in self.full_chunks_range() {
                 let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
-                unsafe {
-                    let dst: &mut [T::Physical] = mem::transmute(&mut self.scratch[..]);
-                    self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                    let unpacked: &mut [T] = mem::transmute(&mut self.scratch[..]);
-                    f(unpacked, local_idx..local_idx + CHUNK_SIZE);
-                }
+                let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+                f(values, local_idx..local_idx + CHUNK_SIZE);
                 local_idx += CHUNK_SIZE;
             }
         }
@@ -264,12 +313,8 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         for i in self.full_chunks_range() {
             let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
-            unsafe {
-                let uninit_dst = &mut output[local_idx..local_idx + CHUNK_SIZE];
-                // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-                let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
-                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-            }
+            let dst = &mut output[local_idx..local_idx + CHUNK_SIZE];
+            unpack_chunk(&self.strategy, self.bit_width, chunk, dst);
             local_idx += CHUNK_SIZE;
         }
         local_idx
@@ -285,15 +330,8 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
             let chunk: &[T::Physical] = &self.packed
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
-            let dst: &mut [MaybeUninit<T>] = self.scratch;
-            let dst: &mut [T::Physical] = unsafe { mem::transmute(dst) };
-            // SAFETY:
-            // 1. chunk is elems_per_chunk.
-            // 2. buffer is exactly CHUNK_SIZE.
-            unsafe {
-                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                mem::transmute(&mut self.scratch[..self.last_chunk_length])
-            }
+            let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+            &mut values[..self.last_chunk_length]
         })
     }
 
@@ -330,7 +368,9 @@ where
     Ok(())
 }
 
-fn validate_packed<T: PhysicalPType>(
+/// The number of chunks `packed` holds for `len` values from `offset`, and the length of its last
+/// chunk, or 0 if that is full. Errors if `packed` does not hold exactly those chunks.
+pub(crate) fn validate_packed<T: PhysicalPType>(
     packed_len: usize,
     bit_width: usize,
     offset: usize,
@@ -385,15 +425,13 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
 
         let chunk = &self.packed[self.idx * self.elems_per_chunk..][..self.elems_per_chunk];
 
-        let dst: &mut [MaybeUninit<T>] = self.buffer;
+        // SAFETY: the packed slice holds one full chunk, and the buffer has CHUNK_SIZE slots.
         unsafe {
-            let dst: &mut [T::Physical] = mem::transmute(dst);
-
-            BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
-        }
+            BitPacking::unchecked_unpack_uninit(self.bit_width, chunk, physical_output(self.buffer))
+        };
         self.idx += 1;
-        // SAFETY: The buffer was fully initialized by the unpack above.
-        Some(unsafe { mem::transmute::<&mut [MaybeUninit<T>; 1024], &mut [T; 1024]>(self.buffer) })
+        // SAFETY: the unpack initialized every slot in the array.
+        unsafe { self.buffer.assume_init_mut() }.first_chunk_mut::<CHUNK_SIZE>()
     }
 }
 

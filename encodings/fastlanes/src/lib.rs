@@ -41,6 +41,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 mod bitpacking;
+mod block;
 mod delta;
 mod for_;
 mod rle;

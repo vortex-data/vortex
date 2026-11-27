@@ -12,6 +12,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
 use arrow_array::record_batch as arrow_record_batch;
+use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -63,6 +64,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ext_metadata::encode_arrow_ext_metadata;
 
 use super::VortexDataSource;
+use super::VortexTable;
 use crate::common_tests::AnyStorage;
 use crate::convert::ExpressionConverter;
 
@@ -807,6 +809,183 @@ async fn test_get_field_through_extension_storage_is_pushed_down() -> anyhow::Re
         [1, 2, 3, 4]
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_double_projection_swap_composes_against_current_output() -> anyhow::Result<()> {
+    let source = vortex_source().await?;
+    let col = |name: &str, idx| Arc::new(df_expr::Column::new(name, idx)) as Arc<dyn PhysicalExpr>;
+    let bin = |l, op, r| Arc::new(df_expr::BinaryExpr::new(l, op, r)) as Arc<dyn PhysicalExpr>;
+    let swap = |src: &dyn DataSource,
+                exprs: Vec<(&str, Arc<dyn PhysicalExpr>)>|
+     -> anyhow::Result<Arc<dyn DataSource>> {
+        let proj = ProjectionExprs::from(
+            exprs
+                .into_iter()
+                .map(|(alias, expr)| ProjectionExpr::new(expr, alias))
+                .collect::<Vec<_>>(),
+        );
+        src.try_swapping_with_projection(&proj)?
+            .ok_or_else(|| anyhow!("projection was not swapped"))
+    };
+    let collect = |src: Arc<dyn DataSource>| async move {
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(DataSourceExec::new(src));
+        datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await
+    };
+
+    // Reversing and renaming columns, then selecting `a@0` (original `b`).
+    let reversed = swap(&source, vec![("a", col("b", 1)), ("b", col("a", 0))])?;
+    let selected = swap(reversed.as_ref(), vec![("out", col("a", 0))])?;
+    assert_batches_eq!(
+        [
+            "+-----+", //
+            "| out |", //
+            "+-----+", //
+            "| 30  |", //
+            "| 10  |", //
+            "| 20  |", //
+            "+-----+", //
+        ],
+        &collect(selected).await?
+    );
+
+    // Composing a literal alongside a renamed column.
+    let renamed = swap(&source, vec![("x", col("b", 1))])?;
+    let with_lit = swap(
+        renamed.as_ref(),
+        vec![("one", df_expr::lit(1_i32)), ("y", col("x", 0))],
+    )?;
+    assert_batches_eq!(
+        [
+            "+-----+----+",
+            "| one | y  |",
+            "+-----+----+",
+            "| 1   | 30 |",
+            "| 1   | 10 |",
+            "| 1   | 20 |",
+            "+-----+----+",
+        ],
+        &collect(with_lit).await?
+    );
+
+    // Unsupported first swap (leftover projection), composed with a second swap + filter pushdown,
+    // and also with the unsupported column dropped.
+    let leftover = swap(
+        &source,
+        vec![
+            ("b_val", col("b", 1)),
+            (
+                "odd",
+                bin(col("a", 0), Operator::Modulo, df_expr::lit(2_i32)),
+            ),
+        ],
+    )?;
+    let composed = swap(
+        leftover.as_ref(),
+        vec![
+            (
+                "odd_plus_10",
+                bin(col("odd", 1), Operator::Plus, df_expr::lit(10_i32)),
+            ),
+            ("b_out", col("b_val", 0)),
+        ],
+    )?;
+    let pushed = composed.try_pushdown_filters(
+        vec![bin(col("b_out", 1), Operator::Gt, df_expr::lit(15_i32))],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
+    assert_batches_eq!(
+        [
+            "+-------------+-------+",
+            "| odd_plus_10 | b_out |",
+            "+-------------+-------+",
+            "| 11          | 30    |",
+            "| 11          | 20    |",
+            "+-------------+-------+",
+        ],
+        &collect(
+            pushed
+                .updated_node
+                .ok_or_else(|| anyhow!("filter not pushed"))?
+        )
+        .await?
+    );
+
+    let dropped = swap(leftover.as_ref(), vec![("b_only", col("b_val", 0))])?;
+    assert_batches_eq!(
+        [
+            "+--------+",
+            "| b_only |",
+            "+--------+",
+            "| 30     |",
+            "| 10     |",
+            "| 20     |",
+            "+--------+",
+        ],
+        &collect(dropped).await?
+    );
+
+    // Supported first swap followed by an unsupported second swap.
+    let pushed_first = swap(
+        &source,
+        vec![
+            ("a1", bin(col("a", 0), Operator::Plus, df_expr::lit(1_i32))),
+            ("b1", col("b", 1)),
+        ],
+    )?;
+    let unsupported_second = swap(
+        pushed_first.as_ref(),
+        vec![
+            (
+                "a1_odd",
+                bin(col("a1", 0), Operator::Modulo, df_expr::lit(2_i32)),
+            ),
+            ("b2", col("b1", 1)),
+        ],
+    )?;
+    assert_batches_eq!(
+        [
+            "+--------+----+",
+            "| a1_odd | b2 |",
+            "+--------+----+",
+            "| 0      | 30 |",
+            "| 1      | 10 |",
+            "| 0      | 20 |",
+            "+--------+----+",
+        ],
+        &collect(unsupported_second).await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_repeated_projection_does_not_duplicate_volatile_expr() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    let batch = arrow_array::record_batch!(("a", Int32, vec![1, 2, 3, 4, 5]))?;
+    let schema = batch.schema();
+    let data_source = data_source_from_batch(batch, &session).await?;
+    let table = Arc::new(VortexTable::new(data_source, session, schema));
+
+    let ctx = SessionContext::new();
+    ctx.register_table("t", table)?;
+
+    let batches = ctx
+        .sql("SELECT r AS x, r AS y FROM (SELECT random() AS r FROM t) AS s")
+        .await?
+        .collect()
+        .await?;
+
+    let mut row_count = 0usize;
+    for batch in &batches {
+        let xs = batch.column(0).as_primitive::<Float64Type>().values();
+        let ys = batch.column(1).as_primitive::<Float64Type>().values();
+        assert_eq!(xs, ys);
+        row_count += batch.num_rows();
+    }
+    assert_eq!(row_count, 5);
     Ok(())
 }
 
