@@ -25,7 +25,7 @@ pub use for_::FoRScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
 pub use rle::IntRLEScheme;
-pub(crate) use rle::rle_compress;
+pub(crate) use rle::rle_encode;
 pub use runend::RunEndScheme;
 pub use sequence::SequenceScheme;
 pub use sparse::SparseScheme;
