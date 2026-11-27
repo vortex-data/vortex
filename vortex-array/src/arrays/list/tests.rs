@@ -923,6 +923,37 @@ fn test_unsorted_offsets() {
 }
 
 #[test]
+fn test_unsorted_offsets_across_chunk_boundaries() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let n = 140u32;
+    let elements = PrimitiveArray::from_iter(0..n).into_array();
+    let sorted: Vec<u32> = (0..=n).collect();
+    ListArray::try_new(
+        elements.clone(),
+        PrimitiveArray::from_iter(sorted.iter().copied()).into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+
+    for bad_idx in [0usize, 63, 64, 127, 128, 138] {
+        let mut bad = sorted.clone();
+        bad.swap(bad_idx, bad_idx + 1);
+        let err = ListArray::try_new(
+            elements.clone(),
+            PrimitiveArray::from_iter(bad).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+        .expect_err("unsorted offsets must fail validation");
+        assert!(
+            err.to_string().contains(&format!("at index {bad_idx}")),
+            "expected error naming index {bad_idx}, got: {err}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 #[should_panic(expected = "Max offset 7 is beyond the length of the elements array 5")]
 fn test_offset_exceeding_elements_length() {
     let mut ctx = SESSION.create_execution_ctx();

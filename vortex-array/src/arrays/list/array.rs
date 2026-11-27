@@ -256,7 +256,11 @@ impl ListData {
         P: IntegerPType + TryFrom<usize> + Into<ScalarValue>,
     {
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
-        if let Some(idx) = offsets_slice.windows(2).position(|w| w[0] > w[1]) {
+        // Check sortedness in fixed-size branchless chunks so LLVM auto-vectorizes the scan,
+        // and only search for the exact failing index on the cold error path.
+        if !is_sorted_chunked(offsets_slice)
+            && let Some(idx) = offsets_slice.windows(2).position(|w| w[0] > w[1])
+        {
             vortex_bail!(
                 "offsets must be sorted, but offset {} at index {idx} is greater than \
                  offset {} at index {}",
@@ -294,6 +298,27 @@ impl ListData {
     // where `reset_offsets` is infallible.
     // Also, `reset_offsets` can be made more efficient by replacing `sub_scalar` with a match on
     // the offset type and manual subtraction.
+}
+
+/// Checks that `slice` is monotonically non-decreasing in fixed-size branchless chunks so LLVM
+/// auto-vectorizes the comparison loop.
+fn is_sorted_chunked<P: IntegerPType>(slice: &[P]) -> bool {
+    const CHUNK: usize = 64;
+    if slice.len() < 2 {
+        return true;
+    }
+    let (lhs_chunks, lhs_rem) = slice[..slice.len() - 1].as_chunks::<CHUNK>();
+    let (rhs_chunks, rhs_rem) = slice[1..].as_chunks::<CHUNK>();
+    for (a, b) in lhs_chunks.iter().zip(rhs_chunks.iter()) {
+        let mut sorted = true;
+        for i in 0..CHUNK {
+            sorted &= a[i] <= b[i];
+        }
+        if !sorted {
+            return false;
+        }
+    }
+    lhs_rem.iter().zip(rhs_rem).all(|(a, b)| a <= b)
 }
 
 pub trait ListArrayExt: TypedArrayRef<List> {
