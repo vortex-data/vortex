@@ -1,90 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_layout::BufferedBytesReservation;
-use vortex_layout::BufferedBytesTracker;
-use vortex_layout::LayoutWriterContext;
-use vortex_layout::SizeScope;
-
-/// An estimate of the size of a Vortex file while it is written.
-///
-/// The writer holds data in three states, and each byte that the writer accepted is in one of
-/// them:
-///
-/// 1. Written to the file. The caller counts these bytes, for example with
-///    [`CountingVortexWrite`](crate::CountingVortexWrite).
-/// 2. Compressed, but not written yet. [`Self::buffered_bytes`] counts these bytes.
-/// 3. Not compressed yet. [`Self::uncompressed_bytes`] counts these bytes. They include the input
-///    queue of a push-based writer, the data that the strategy coalesces before compression, and
-///    the chunks that are being compressed.
-///
-/// The estimate of the file size is `bytes_written + buffered_bytes + estimated compressed size of
-/// uncompressed_bytes`. The uncompressed bytes count in scopes, for example one for each column and
-/// form of the data, and each scope uses the compression ratio that the write measured for it. See
-/// [`SizeScope`].
-///
-/// The estimate does not include the footer, because the writer makes the footer only when the
-/// write finishes. When the write is complete, the buffered and uncompressed counts are zero, and
-/// the estimate is equal to the bytes written, which then include the footer.
-///
-/// Clones share the same counts, so an estimator can be captured before the write begins and
-/// polled while it runs.
-#[derive(Clone, Debug, Default)]
-pub struct WriteSizeEstimator {
-    buffered_bytes: BufferedBytesTracker,
-    uncompressed: SizeScope,
-}
-
-impl WriteSizeEstimator {
-    /// Returns the compressed bytes that the write holds and did not send to the file yet.
-    pub fn buffered_bytes(&self) -> u64 {
-        self.buffered_bytes.buffered_bytes()
-    }
-
-    /// Returns the bytes that the write accepted but did not compress yet.
-    pub fn uncompressed_bytes(&self) -> u64 {
-        self.uncompressed.uncompressed_bytes()
-    }
-
-    /// Returns the compressed bytes divided by the uncompressed bytes over all the data that the
-    /// write compressed so far, or one before the write compressed data.
-    ///
-    /// The size estimate does not use this ratio for the uncompressed bytes of the write, but the
-    /// ratio of each scope. This ratio is for data that the caller holds before it gives the data
-    /// to the writer.
-    pub fn compression_ratio(&self) -> f64 {
-        self.uncompressed.compression_ratio()
-    }
-
-    /// Returns the estimated number of bytes that the write will add to the file for the data
-    /// that it holds now.
-    pub fn estimated_unwritten_bytes(&self) -> u64 {
-        self.buffered_bytes()
-            .saturating_add(self.uncompressed.estimated_compressed_bytes())
-    }
-
-    /// Returns the estimated size of the file, given the `bytes_written` to it so far.
-    pub fn estimated_size(&self, bytes_written: u64) -> u64 {
-        bytes_written.saturating_add(self.estimated_unwritten_bytes())
-    }
-
-    /// Records `bytes` as accepted but not compressed until the returned reservation is dropped.
-    ///
-    /// Callers that queue input for the writer use this to count their queue.
-    pub fn reserve_uncompressed(&self, bytes: u64) -> BufferedBytesReservation {
-        self.uncompressed.reserve(bytes)
-    }
-
-    pub(crate) fn buffered_bytes_tracker(&self) -> &BufferedBytesTracker {
-        &self.buffered_bytes
-    }
-
-    /// Attaches the counts of this estimator to the context of a layout write.
-    pub(crate) fn attach(&self, ctx: LayoutWriterContext) -> LayoutWriterContext {
-        ctx.with_buffered_bytes_tracker(self.buffered_bytes.clone())
-            .with_size_scope(self.uncompressed.clone())
-    }
-}
+//! Tests of the file size estimate that [`Backpressure`](vortex_io::Backpressure) gives while a
+//! file is written.
 
 #[cfg(test)]
 mod tests {
@@ -316,7 +234,7 @@ mod tests {
     #[tokio::test]
     async fn estimate_does_not_drop_sharply_and_ends_at_the_size() -> VortexResult<()> {
         let options = write_options();
-        let estimator = options.size_estimator();
+        let estimator = options.backpressure();
 
         let mut buf = ByteBufferMut::empty();
         let mut writer = options.writer(&mut buf, dtype()?);
@@ -341,8 +259,8 @@ mod tests {
 
         let summary = writer.finish().await?;
         assert_eq!(estimator.buffered_bytes(), 0);
-        assert_eq!(estimator.uncompressed_bytes(), 0);
-        assert_eq!(estimator.estimated_size(summary.size()), summary.size());
+        assert_eq!(estimator.pending_bytes(), 0);
+        assert_eq!(estimator.estimated_size(), summary.size());
         assert_eq!(summary.size(), buf.len() as u64);
         Ok(())
     }

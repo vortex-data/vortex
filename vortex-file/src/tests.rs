@@ -2376,7 +2376,7 @@ async fn test_writer_buffered_bytes(
 
     let mut buf = ByteBufferMut::empty();
     let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
-    let buffered_bytes = options.buffered_bytes_tracker();
+    let buffered_bytes = options.backpressure();
     let mut writer = options.writer(&mut buf, array.dtype().clone());
 
     assert_eq!(writer.buffered_bytes(), 0);

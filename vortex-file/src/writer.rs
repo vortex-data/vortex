@@ -6,8 +6,6 @@ use std::io;
 use std::io::Write;
 use std::panic::resume_unwind;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use async_channel::SendError;
 use async_channel::Sender;
@@ -46,13 +44,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_io::Backpressure;
+use vortex_io::BackpressureReservation;
 use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::JoinOutcome;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::BufferedBytesReservation;
-use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutWriterContext;
@@ -70,9 +68,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::Footer;
 use crate::MAGIC_BYTES;
-use crate::WriteSizeEstimator;
 use crate::WriteStrategyBuilder;
-use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
 use crate::footer::MAX_METADATA_KEY_BYTES;
 use crate::footer::MAX_METADATA_SEGMENTS;
@@ -91,7 +87,7 @@ pub struct VortexWriteOptions {
     session: VortexSession,
     strategy: Option<Arc<dyn LayoutStrategy>>,
     disable_editions: bool,
-    size: WriteSizeEstimator,
+    backpressure: Backpressure,
     exclude_dtype: bool,
     /// The aggregates to compute for file-level statistics, per field.
     ///
@@ -118,7 +114,7 @@ impl VortexWriteOptions {
         VortexWriteOptions {
             strategy: None,
             disable_editions: false,
-            size: WriteSizeEstimator::default(),
+            backpressure: Backpressure::new(),
             session,
             exclude_dtype: false,
             file_statistics: FileStatsSelection::new(),
@@ -153,27 +149,12 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Returns the tracker of the compressed bytes that the write holds and did not yet send to
-    /// the file.
+    /// Returns the byte accounting of the write that these options start.
     ///
-    /// These are the compressed bytes that layout strategies hold and the segments that wait for
-    /// earlier segments. The data that the write did not compress yet is not in this count. See
-    /// [`BufferedBytesTracker`] and [`Self::size_estimator`].
-    ///
-    /// The tracker is shared with the write these options start, so it can be captured before
-    /// calling [`Self::write`] and polled while the write runs. [`Writer::buffered_bytes`] exposes
-    /// the same counter for the push-based API.
-    pub fn buffered_bytes_tracker(&self) -> BufferedBytesTracker {
-        self.size.buffered_bytes_tracker().clone()
-    }
-
-    /// Returns the estimator of the size of the file that these options write.
-    ///
-    /// The estimator is shared with the write these options start, so it can be captured before
-    /// calling [`Self::write`] and polled while the write runs. [`Writer::estimated_size`] uses
-    /// the same estimator for the push-based API. See [`WriteSizeEstimator`].
-    pub fn size_estimator(&self) -> WriteSizeEstimator {
-        self.size.clone()
+    /// The handle can be captured before calling [`Self::write`] and polled while the write runs.
+    /// [`Writer::backpressure`] returns the same handle for the push-based API.
+    pub fn backpressure(&self) -> Backpressure {
+        self.backpressure.clone()
     }
 
     /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
@@ -363,7 +344,7 @@ impl VortexWriteOptions {
         // The array context is built here, rather than when the options were constructed, so that
         // encodings registered on the session in between are still eligible for the file.
         let array_ctx = new_array_context(&self.session, enforce_editions);
-        let ctx = self.size.attach(LayoutWriterContext::new(array_ctx));
+        let ctx = LayoutWriterContext::new(array_ctx).with_backpressure(self.backpressure.clone());
         let ctx = if enforce_editions {
             ctx.with_allowed_aggregates(edition_filter(&self.session, ComponentKind::Aggregate))
                 .with_allowed_layouts(edition_filter(&self.session, ComponentKind::Layout))
@@ -424,6 +405,7 @@ impl VortexWriteOptions {
         // First, write the magic bytes.
         write.write_all(ByteBuffer::copy_from(MAGIC_BYTES)).await?;
         let mut position = MAGIC_BYTES.len() as u64;
+        self.backpressure.record_written(position);
 
         // Create a channel to send buffers from the segment sink to the output stream.
         let (send, recv_stream) = bounded(1);
@@ -431,7 +413,7 @@ impl VortexWriteOptions {
         let segments = Arc::new(BufferedSegmentSink::new(
             send,
             position,
-            self.size.buffered_bytes_tracker().clone(),
+            self.backpressure.clone(),
         ));
 
         // We spawn the layout future so it is driven in the background while we write the
@@ -456,8 +438,10 @@ impl VortexWriteOptions {
         while let Some(segment_buffer) = recv_stream.next().await {
             let (buffer, reservation) = segment_buffer.into_parts();
             if !buffer.is_empty() {
-                position += buffer.len() as u64;
+                let len = buffer.len() as u64;
+                position += len;
                 write.write_all(buffer).await?;
+                self.backpressure.record_written(len);
             }
 
             // The bytes are in the bytes written now, so they stop counting as buffered.
@@ -507,8 +491,10 @@ impl VortexWriteOptions {
             .with_approx_byte_size(approx_byte_size);
 
         for buffer in footer_buffers {
-            position += buffer.len() as u64;
+            let len = buffer.len() as u64;
+            position += len;
             write.write_all(buffer).await?;
+            self.backpressure.record_written(len);
         }
 
         write.flush().await?;
@@ -535,9 +521,7 @@ impl VortexWriteOptions {
 
         let arrays = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays_recv));
 
-        let write = CountingVortexWrite::new(write);
-        let bytes_written = write.counter();
-        let size = self.size.clone();
+        let backpressure = self.backpressure.clone();
         let deferred_metadata = self.deferred_metadata.clone();
         let future = self.write(write, arrays).boxed().fuse();
 
@@ -545,8 +529,7 @@ impl VortexWriteOptions {
             arrays: Some(arrays_send),
             future,
             terminal_error: None,
-            bytes_written,
-            size,
+            backpressure,
             deferred_metadata,
         }
     }
@@ -706,7 +689,7 @@ fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexR
 
 /// An array in the input queue of a [`Writer`], with the reservation that counts it as
 /// uncompressed.
-type QueuedArray = (VortexResult<ArrayRef>, BufferedBytesReservation);
+type QueuedArray = (VortexResult<ArrayRef>, BackpressureReservation);
 
 /// An async API for writing Vortex files.
 ///
@@ -719,10 +702,8 @@ pub struct Writer<'w> {
     future: Fuse<BoxFuture<'w, VortexResult<WriteSummary>>>,
     // The first terminal error observed from the writer task.
     terminal_error: Option<VortexError>,
-    // The bytes written so far.
-    bytes_written: Arc<AtomicU64>,
-    // The size accounting shared with the layout strategies for this write.
-    size: WriteSizeEstimator,
+    // The byte accounting shared with the layout strategies for this write.
+    backpressure: Backpressure,
     // The metadata segments that the write adds to the footer after the last chunk.
     deferred_metadata: DeferredMetadata,
 }
@@ -735,7 +716,7 @@ impl Writer<'_> {
         }
 
         let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
-        let reservation = self.size.reserve_uncompressed(chunk.nbytes());
+        let reservation = self.backpressure.reserve_pending(chunk.nbytes());
         let send_fut = async move { arrays.send((Ok(chunk), reservation)).await }.fuse();
         pin_mut!(send_fut);
 
@@ -768,12 +749,12 @@ impl Writer<'_> {
         }
 
         let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
-        let size = self.size.clone();
+        let backpressure = self.backpressure.clone();
         let stream_fut = async move {
             while let Some(chunk) = stream.next().await {
                 let bytes = chunk.as_ref().map_or(0, |chunk| chunk.nbytes());
                 arrays
-                    .send((chunk, size.reserve_uncompressed(bytes)))
+                    .send((chunk, backpressure.reserve_pending(bytes)))
                     .await?;
             }
             Ok::<_, SendError<QueuedArray>>(())
@@ -801,30 +782,36 @@ impl Writer<'_> {
         Ok(())
     }
 
+    /// Returns the byte accounting of the write: the written, buffered and pending bytes, and
+    /// the estimated file size.
+    pub fn backpressure(&self) -> &Backpressure {
+        &self.backpressure
+    }
+
     /// Returns the number of bytes written to the file so far.
     pub fn bytes_written(&self) -> u64 {
-        self.bytes_written.load(Ordering::Relaxed)
+        self.backpressure.written_bytes()
     }
 
     /// Returns the number of compressed bytes that the writer holds and did not yet send to the
     /// file.
     ///
     /// This count does not include the data that the writer did not compress yet. Use
-    /// [`Self::estimated_size`] for an estimate of the file size. See [`BufferedBytesTracker`].
+    /// [`Self::estimated_size`] for an estimate of the file size. See [`Backpressure`].
     pub fn buffered_bytes(&self) -> u64 {
-        self.size.buffered_bytes()
+        self.backpressure.buffered_bytes()
     }
 
     /// Returns an estimate of the size of the file if the write finished now.
     ///
     /// The estimate is the bytes written, plus the compressed bytes that the writer holds, plus
     /// the bytes that the writer did not compress yet multiplied by the compression ratio that
-    /// the write measured so far. It does not include the footer. See [`WriteSizeEstimator`].
+    /// the write measured so far. It does not include the footer. See [`Backpressure`].
     ///
     /// The estimate goes up as the writer accepts data. It can go down a small amount when the
     /// measured compression ratio changes. [`WriteSummary::size`] gives the final size.
     pub fn estimated_size(&self) -> u64 {
-        self.size.estimated_size(self.bytes_written())
+        self.backpressure.estimated_size()
     }
 
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the

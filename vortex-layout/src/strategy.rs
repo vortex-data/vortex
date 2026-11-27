@@ -2,14 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_error::VortexResult;
+use vortex_io::Backpressure;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -19,288 +17,9 @@ use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 
-/// A shared counter of the bytes that a write accepted but did not yet send to the file.
-///
-/// A [`LayoutWriterContext`] has two of these counters:
-///
-/// - [`LayoutWriterContext::buffered_bytes_tracker`] counts compressed bytes. These are the
-///   bytes that layout strategies hold after compression, and the bytes of the segments that the
-///   layouts emitted, but that wait for earlier segments. Segments reach the file in sequence
-///   order, so a layout that holds an early sequence ID can hold back the later segments.
-/// - The [`SizeScope`] of [`LayoutWriterContext::size_scope`] counts the bytes that the write did
-///   not compress yet, such as the data that a strategy coalesces before compression, in one
-///   counter for each scope.
-///
-/// Each strategy reports its own retained bytes with [`Self::reserve`], which releases the
-/// reservation on drop. The bytes written to the file, plus the compressed count, plus the
-/// [estimated compressed size](SizeScope::estimated_compressed_bytes) of the uncompressed bytes,
-/// are an estimate of the final file size.
-///
-/// Clones share the same counter, so a tracker can be handed to a writer before the write begins
-/// and polled while it runs.
-#[derive(Clone, Debug, Default)]
-pub struct BufferedBytesTracker(Arc<AtomicU64>);
-
-impl BufferedBytesTracker {
-    /// Creates a tracker with a zeroed counter.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns the number of bytes that the write accepted but did not yet send to the file.
-    pub fn buffered_bytes(&self) -> u64 {
-        self.0.load(Ordering::Relaxed)
-    }
-
-    /// Records `bytes` as buffered until the returned reservation is dropped.
-    pub fn reserve(&self, bytes: u64) -> BufferedBytesReservation {
-        self.0.fetch_add(bytes, Ordering::Relaxed);
-        BufferedBytesReservation {
-            tracker: self.clone(),
-            bytes,
-        }
-    }
-}
-
-/// An outstanding claim on a [`BufferedBytesTracker`], released when dropped.
-#[derive(Debug)]
-pub struct BufferedBytesReservation {
-    tracker: BufferedBytesTracker,
-    bytes: u64,
-}
-
-impl BufferedBytesReservation {
-    /// Returns the number of bytes held by this reservation.
-    pub fn bytes(&self) -> u64 {
-        self.bytes
-    }
-}
-
-impl Drop for BufferedBytesReservation {
-    fn drop(&mut self) {
-        self.tracker.0.fetch_sub(self.bytes, Ordering::Relaxed);
-    }
-}
-
-/// The compression ratio to use before a write measures one.
-///
-/// A ratio of one assumes that the data does not compress. Thus, a size estimate made before the
-/// first measurement does not underestimate the file.
-const DEFAULT_COMPRESSION_RATIO: f64 = 1.0;
-
-/// A shared measurement of a compression ratio: the compressed bytes out divided by the
-/// uncompressed bytes in, over all the recorded samples.
-#[derive(Clone, Debug, Default)]
-struct CompressionRatio(Arc<CompressionRatioCounts>);
-
-#[derive(Debug, Default)]
-struct CompressionRatioCounts {
-    uncompressed: AtomicU64,
-    compressed: AtomicU64,
-}
-
-impl CompressionRatio {
-    fn record(&self, uncompressed: u64, compressed: u64) {
-        self.0
-            .uncompressed
-            .fetch_add(uncompressed, Ordering::Relaxed);
-        self.0.compressed.fetch_add(compressed, Ordering::Relaxed);
-    }
-
-    /// Returns the ratio, or `None` if there is no sample.
-    fn measured(&self) -> Option<f64> {
-        let uncompressed = self.0.uncompressed.load(Ordering::Relaxed);
-        if uncompressed == 0 {
-            return None;
-        }
-
-        let compressed = self.0.compressed.load(Ordering::Relaxed);
-        Some(compressed as f64 / uncompressed as f64)
-    }
-}
-
-/// One scope of a [`SizeScope`] tree.
-#[derive(Debug, Default)]
-struct SizeScopeNode {
-    bytes: BufferedBytesTracker,
-    ratio: CompressionRatio,
-    parent: Option<Arc<SizeScopeNode>>,
-}
-
-impl SizeScopeNode {
-    /// Returns the ratio of this scope, or of the nearest ancestor that has a sample.
-    fn ratio(&self) -> Option<f64> {
-        self.ratio
-            .measured()
-            .or_else(|| self.parent.as_ref().and_then(|parent| parent.ratio()))
-    }
-}
-
-/// The scopes of one write, and the ratio over all the samples of the write.
-#[derive(Debug, Default)]
-struct SizeScopeRegistry {
-    scopes: Mutex<Vec<Arc<SizeScopeNode>>>,
-    overall: CompressionRatio,
-    /// The uncompressed bytes of the chunks that were written as constants, which take no space.
-    constant: AtomicU64,
-}
-
-impl SizeScopeRegistry {
-    /// Returns the ratio over all the samples, or `None` if no chunk was compressed yet.
-    ///
-    /// The constant bytes are included only after the first compressed sample. Thus a write that
-    /// starts with constant columns does not estimate its other data at zero bytes.
-    fn ratio(&self) -> Option<f64> {
-        let uncompressed = self.overall.0.uncompressed.load(Ordering::Relaxed);
-        if uncompressed == 0 {
-            return None;
-        }
-
-        let constant = self.constant.load(Ordering::Relaxed);
-        let compressed = self.overall.0.compressed.load(Ordering::Relaxed);
-        Some(compressed as f64 / (uncompressed + constant) as f64)
-    }
-}
-
-/// The accounting of the bytes that a write accepted but did not compress yet.
-///
-/// Data changes its form as it goes through the strategy tree. For example, a dictionary strategy
-/// replaces the values of a column with codes, and the codes compress at a different ratio than
-/// the values. Columns also compress at very different ratios. So one ratio for all the
-/// uncompressed bytes of a write gives a bad estimate.
-///
-/// Thus the bytes are counted in a tree of scopes. Each scope has its own byte count and its own
-/// compression ratio, and a strategy opens a child scope with [`Self::child`] for the data that
-/// it holds in a new form. A strategy that holds uncompressed data reserves it on its scope with
-/// [`Self::reserve`]. A strategy that compresses data records the result on the scope of the
-/// data with [`Self::record`] or [`Self::record_probe`].
-///
-/// The estimated compressed size of the uncompressed bytes is the sum over all the scopes of the
-/// bytes multiplied by the ratio of the scope. A scope without a sample uses the ratio of its
-/// nearest ancestor with a sample, then the ratio over all the samples of the write, then one.
-///
-/// Clones refer to the same scope, and all the scopes of a tree share the same totals, so a scope
-/// can be handed to a writer before the write begins and polled while it runs.
-#[derive(Clone, Debug)]
-pub struct SizeScope {
-    node: Arc<SizeScopeNode>,
-    registry: Arc<SizeScopeRegistry>,
-}
-
-impl Default for SizeScope {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SizeScope {
-    /// Creates the root scope of a new tree.
-    pub fn new() -> Self {
-        let node = Arc::new(SizeScopeNode::default());
-        let registry = SizeScopeRegistry::default();
-        registry.scopes.lock().push(Arc::clone(&node));
-        Self {
-            node,
-            registry: Arc::new(registry),
-        }
-    }
-
-    /// Creates a scope for data in a new form, which inherits the ratio of this scope until it
-    /// has a sample of its own.
-    pub fn child(&self) -> Self {
-        let node = Arc::new(SizeScopeNode {
-            parent: Some(Arc::clone(&self.node)),
-            ..SizeScopeNode::default()
-        });
-
-        let mut scopes = self.registry.scopes.lock();
-        // Remove the scopes that no strategy uses and that hold no bytes.
-        scopes.retain(|scope| Arc::strong_count(scope) > 1 || scope.bytes.buffered_bytes() > 0);
-        scopes.push(Arc::clone(&node));
-        drop(scopes);
-
-        Self {
-            node,
-            registry: Arc::clone(&self.registry),
-        }
-    }
-
-    /// Records `bytes` of uncompressed data in this scope until the returned reservation is
-    /// dropped.
-    pub fn reserve(&self, bytes: u64) -> BufferedBytesReservation {
-        self.node.bytes.reserve(bytes)
-    }
-
-    /// Records that `uncompressed` bytes of a chunk in this scope compressed to `compressed`
-    /// bytes.
-    pub fn record(&self, uncompressed: u64, compressed: u64) {
-        self.node.ratio.record(uncompressed, compressed);
-        self.registry.overall.record(uncompressed, compressed);
-    }
-
-    /// Records the result of a probe that compressed `uncompressed` bytes of the data in this
-    /// scope to `compressed` bytes.
-    ///
-    /// A strategy compresses a probe early in the write, for example to choose an encoding. The
-    /// probe gives a ratio before the first full chunk is compressed. A probe counts the same as a
-    /// chunk, and the chunks soon outweigh it.
-    pub fn record_probe(&self, uncompressed: u64, compressed: u64) {
-        self.record(uncompressed, compressed);
-    }
-
-    /// Records that `uncompressed` bytes of a chunk were written as a constant, which takes no
-    /// space in the file.
-    pub fn record_constant(&self, uncompressed: u64) {
-        self.registry
-            .constant
-            .fetch_add(uncompressed, Ordering::Relaxed);
-    }
-
-    /// Returns the uncompressed bytes in all the scopes of the tree.
-    pub fn uncompressed_bytes(&self) -> u64 {
-        self.registry
-            .scopes
-            .lock()
-            .iter()
-            .map(|scope| scope.bytes.buffered_bytes())
-            .sum()
-    }
-
-    /// Returns the compressed bytes divided by the uncompressed bytes over all the samples of the
-    /// tree, or one if there is no sample.
-    pub fn compression_ratio(&self) -> f64 {
-        self.registry.ratio().unwrap_or(DEFAULT_COMPRESSION_RATIO)
-    }
-
-    /// Returns the estimated compressed size of the uncompressed bytes in all the scopes of the
-    /// tree.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the ratios are not negative, and the cast saturates at u64::MAX"
-    )]
-    pub fn estimated_compressed_bytes(&self) -> u64 {
-        let fallback = self.compression_ratio();
-        let estimate: f64 = self
-            .registry
-            .scopes
-            .lock()
-            .iter()
-            .map(|scope| {
-                let bytes = scope.bytes.buffered_bytes();
-                if bytes == 0 {
-                    return 0.0;
-                }
-                bytes as f64 * scope.ratio().unwrap_or(fallback)
-            })
-            .sum();
-        estimate.round() as u64
-    }
-}
-
 /// State shared by every strategy participating in a single layout write.
 ///
-/// Clones share the [`BufferedBytesTracker`] and the [`SizeScope`] while retaining the array
-/// serialization context.
+/// Clones share the [`Backpressure`] while retaining the array serialization context.
 /// Passing this context through the strategy tree keeps writer-scoped state independent of the
 /// strategy instances, which may be shared by multiple leaves or writers.
 #[derive(Clone)]
@@ -309,20 +28,18 @@ pub struct LayoutWriterContext {
     allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
     allowed_layouts: Option<Arc<HashSet<LayoutId>>>,
     nullable_ancestor: bool,
-    buffered_bytes: BufferedBytesTracker,
-    size_scope: SizeScope,
+    backpressure: Backpressure,
 }
 
 impl LayoutWriterContext {
-    /// Creates a context for a layout write with a fresh buffered bytes tracker and size scope.
+    /// Creates a context for a layout write with a fresh [`Backpressure`].
     pub fn new(array_ctx: ArrayContext) -> Self {
         Self {
             array_ctx,
             allowed_aggregates: None,
             allowed_layouts: None,
             nullable_ancestor: false,
-            buffered_bytes: BufferedBytesTracker::new(),
-            size_scope: SizeScope::new(),
+            backpressure: Backpressure::new(),
         }
     }
 
@@ -380,60 +97,34 @@ impl LayoutWriterContext {
         self.nullable_ancestor
     }
 
-    /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the
-    /// strategy tree.
-    pub fn with_buffered_bytes_tracker(mut self, tracker: BufferedBytesTracker) -> Self {
-        self.buffered_bytes = tracker;
-        self
-    }
-
     /// Returns the array serialization context.
     pub fn array_ctx(&self) -> &ArrayContext {
         &self.array_ctx
     }
 
-    /// Returns the tracker that accounts for bytes retained by layout strategies.
-    ///
-    /// Strategies that hold compressed data reserve it here. Strategies that hold data that is
-    /// not compressed yet reserve it on [`Self::size_scope`].
-    pub fn buffered_bytes_tracker(&self) -> &BufferedBytesTracker {
-        &self.buffered_bytes
-    }
-
-    /// Replaces the scope of the bytes that the write accepted but did not compress yet, so
-    /// callers can observe the counts from outside the strategy tree.
-    pub fn with_size_scope(mut self, scope: SizeScope) -> Self {
-        self.size_scope = scope;
+    /// Replaces the byte accounting of this write, so callers can observe the counts from outside
+    /// the strategy tree.
+    pub fn with_backpressure(mut self, backpressure: Backpressure) -> Self {
+        self.backpressure = backpressure;
         self
     }
 
-    /// Returns a context in which the uncompressed bytes count in a new child of the current
-    /// [`SizeScope`].
+    /// Returns a context in which the pending bytes count in a new child scope of the current
+    /// [`Backpressure`].
     ///
     /// A strategy calls this for the data that it holds or emits in a new form, so that the data
     /// gets its own compression ratio.
-    pub fn with_child_size_scope(mut self) -> Self {
-        self.size_scope = self.size_scope.child();
+    pub fn with_child_scope(mut self) -> Self {
+        self.backpressure = self.backpressure.child();
         self
     }
 
-    /// Returns the scope of the bytes that the write accepted but did not compress yet.
+    /// Returns the byte accounting of this write, in the scope of this context.
     ///
-    /// Strategies that hold data before compression, such as the repartition strategy and the
-    /// input of the compressing strategy, reserve their bytes here. Strategies that compress data
-    /// record the compression ratio here. See [`SizeScope`].
-    pub fn size_scope(&self) -> &SizeScope {
-        &self.size_scope
-    }
-
-    /// Returns the number of bytes that the write accepted but did not yet send to the file.
-    pub fn buffered_bytes(&self) -> u64 {
-        self.buffered_bytes.buffered_bytes()
-    }
-
-    /// Records `bytes` as retained by this write until the returned reservation is dropped.
-    pub fn reserve_buffered_bytes(&self, bytes: u64) -> BufferedBytesReservation {
-        self.buffered_bytes.reserve(bytes)
+    /// A strategy reserves here the data that it holds: pending before compression, buffered
+    /// after it. A strategy that compresses data records the compression ratio here.
+    pub fn backpressure(&self) -> &Backpressure {
+        &self.backpressure
     }
 }
 
@@ -515,106 +206,5 @@ impl LayoutStrategy for Arc<dyn LayoutStrategy> {
         (**self)
             .write_stream(ctx, segment_sink, stream, eof, session)
             .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::strategy::BufferedBytesTracker;
-    use crate::strategy::SizeScope;
-
-    #[test]
-    fn reservations_accumulate_and_release() {
-        let tracker = BufferedBytesTracker::new();
-        assert_eq!(tracker.buffered_bytes(), 0);
-
-        let first = tracker.reserve(16);
-        let second = tracker.reserve(32);
-        assert_eq!(tracker.buffered_bytes(), 48);
-        assert_eq!(first.bytes(), 16);
-
-        drop(first);
-        assert_eq!(tracker.buffered_bytes(), 32);
-
-        drop(second);
-        assert_eq!(tracker.buffered_bytes(), 0);
-    }
-
-    #[test]
-    fn size_scope_defaults_to_a_ratio_of_one() {
-        let scope = SizeScope::new();
-        let reservation = scope.reserve(100);
-        assert_eq!(scope.compression_ratio(), 1.0);
-        assert_eq!(scope.uncompressed_bytes(), 100);
-        assert_eq!(scope.estimated_compressed_bytes(), 100);
-
-        drop(reservation);
-        assert_eq!(scope.estimated_compressed_bytes(), 0);
-    }
-
-    #[test]
-    fn size_scopes_use_their_own_ratio_or_the_nearest_sample() {
-        let root = SizeScope::new();
-        let values = root.child();
-        let codes = values.child();
-        let other = root.child();
-
-        values.record_probe(100, 10);
-        let _values_bytes = values.reserve(1000);
-        let _codes_bytes = codes.reserve(1000);
-        let _other_bytes = other.reserve(1000);
-
-        // The codes inherit the ratio of the values, and the other scope uses the ratio over all
-        // the samples.
-        assert_eq!(root.estimated_compressed_bytes(), 300);
-
-        codes.record(100, 50);
-        // The ratio over all the samples is 60 / 200.
-        assert_eq!(root.estimated_compressed_bytes(), 100 + 500 + 300);
-        assert_eq!(root.compression_ratio(), 0.3);
-        assert_eq!(root.uncompressed_bytes(), 3000);
-    }
-
-    #[test]
-    fn constant_bytes_count_only_after_a_compressed_sample() {
-        let root = SizeScope::new();
-        let _bytes = root.reserve(1000);
-
-        root.record_constant(300);
-        assert_eq!(root.compression_ratio(), 1.0);
-        assert_eq!(root.estimated_compressed_bytes(), 1000);
-
-        root.child().record(100, 40);
-        assert_eq!(root.compression_ratio(), 0.1);
-        assert_eq!(root.estimated_compressed_bytes(), 100);
-    }
-
-    #[test]
-    fn unused_size_scopes_are_removed() {
-        let root = SizeScope::new();
-        let child = root.child();
-        let reservation = child.reserve(10);
-        drop(child);
-
-        // The bytes of a dropped scope still count until the reservation is released.
-        let _other = root.child();
-        assert_eq!(root.uncompressed_bytes(), 10);
-
-        drop(reservation);
-        let _another = root.child();
-        assert_eq!(root.uncompressed_bytes(), 0);
-        assert_eq!(root.registry.scopes.lock().len(), 3);
-    }
-
-    #[test]
-    fn clones_share_the_same_counter() {
-        let tracker = BufferedBytesTracker::new();
-        let observer = tracker.clone();
-
-        let reservation = tracker.reserve(8);
-        assert_eq!(observer.buffered_bytes(), 8);
-
-        drop(reservation);
-        assert_eq!(observer.buffered_bytes(), 0);
     }
 }

@@ -47,7 +47,7 @@ impl LayoutStrategy for BufferedStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
-        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        let backpressure = ctx.backpressure().clone();
 
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
@@ -60,7 +60,7 @@ impl LayoutStrategy for BufferedStrategy {
                 let (sequence_id, chunk) = chunk?;
                 let chunk_size = chunk.nbytes();
                 nbytes += chunk_size;
-                chunks.push_back((chunk, buffered_bytes.reserve(chunk_size)));
+                chunks.push_back((chunk, backpressure.reserve_buffered(chunk_size)));
 
                 // If this is the last element, flush everything.
                 if stream.as_mut().peek().await.is_none() {

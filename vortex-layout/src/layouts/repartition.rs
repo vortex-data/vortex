@@ -20,13 +20,13 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::Backpressure;
+use vortex_io::BackpressureReservation;
 use vortex_session::VortexSession;
 
-use crate::BufferedBytesReservation;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
-use crate::SizeScope;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -85,7 +85,7 @@ impl RepartitionWriterOptions {
 ///
 /// The strategy reserves the blocks that it holds as uncompressed bytes, because a repartition
 /// comes before compression in the default strategy. It counts them in a new child of its
-/// [size scope](LayoutWriterContext::size_scope), which it also gives to its child strategy. So
+/// [backpressure](LayoutWriterContext::backpressure) scope, which it also gives to its child strategy. So
 /// the blocks that it holds use the compression ratio that the strategies below it measure. It
 /// releases the reservation of an emitted block after the child takes the block.
 #[derive(Clone)]
@@ -141,15 +141,15 @@ impl LayoutStrategy for RepartitionStrategy {
         let block_len = options.effective_block_len(&dtype);
         let block_size_minimum = options.block_size_minimum;
         let repartition_session = session.clone();
-        let ctx = ctx.with_child_size_scope();
-        let size_scope = ctx.size_scope().clone();
+        let ctx = ctx.with_child_scope();
+        let backpressure = ctx.backpressure().clone();
 
         let repartitioned_stream = try_stream! {
             let canonical_stream = stream.peekable();
             pin_mut!(canonical_stream);
 
             let mut ctx = repartition_session.create_execution_ctx();
-            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, size_scope);
+            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, backpressure);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
@@ -215,23 +215,23 @@ struct ChunksBuffer {
     /// Each entry stores the chunk and a reservation of the size snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
-    data: VecDeque<(ArrayRef, BufferedBytesReservation)>,
+    data: VecDeque<(ArrayRef, BackpressureReservation)>,
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
     block_len_multiple: usize,
-    size_scope: SizeScope,
+    backpressure: Backpressure,
 }
 
 impl ChunksBuffer {
-    fn new(block_size_minimum: u64, block_len_multiple: usize, size_scope: SizeScope) -> Self {
+    fn new(block_size_minimum: u64, block_len_multiple: usize, backpressure: Backpressure) -> Self {
         Self {
             data: Default::default(),
             row_count: 0,
             nbytes: 0,
             block_size_minimum,
             block_len_multiple,
-            size_scope,
+            backpressure,
         }
     }
 
@@ -247,7 +247,7 @@ impl ChunksBuffer {
     fn collect_exact_blocks(
         &mut self,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(Vec<ArrayRef>, Vec<BufferedBytesReservation>)> {
+    ) -> VortexResult<(Vec<ArrayRef>, Vec<BackpressureReservation>)> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut reservations = Vec::with_capacity(self.data.len());
@@ -277,7 +277,8 @@ impl ChunksBuffer {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_back((chunk, self.size_scope.reserve(nb)));
+        self.data
+            .push_back((chunk, self.backpressure.reserve_pending(nb)));
         Ok(())
     }
 
@@ -285,11 +286,12 @@ impl ChunksBuffer {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_front((chunk, self.size_scope.reserve(nb)));
+        self.data
+            .push_front((chunk, self.backpressure.reserve_pending(nb)));
         Ok(())
     }
 
-    fn pop_front(&mut self) -> Option<(ArrayRef, BufferedBytesReservation)> {
+    fn pop_front(&mut self) -> Option<(ArrayRef, BackpressureReservation)> {
         let res = self.data.pop_front();
         if let Some((chunk, reservation)) = res.as_ref() {
             self.row_count -= chunk.len();
@@ -331,6 +333,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_io::Backpressure;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_session::VortexSession;
@@ -588,24 +591,24 @@ mod tests {
     #[test]
     fn chunks_buffer_reserves_held_bytes() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let tracker = SizeScope::new();
+        let tracker = Backpressure::new();
         let mut buf = ChunksBuffer::new(0, 6, tracker.clone());
 
         buf.push_back(buffer![1u64, 2, 3, 4].into_array(), &mut ctx)?;
         buf.push_back(buffer![5u64, 6, 7, 8].into_array(), &mut ctx)?;
-        assert_eq!(tracker.uncompressed_bytes(), 64);
+        assert_eq!(tracker.pending_bytes(), 64);
 
         // The split chunk counts in full until the caller drops the returned reservations, and
         // its remainder has its own reservation.
         let (blocks, reservations) = buf.collect_exact_blocks(&mut ctx)?;
         assert_eq!(blocks.iter().map(|block| block.len()).sum::<usize>(), 6);
-        assert_eq!(tracker.uncompressed_bytes(), 80);
+        assert_eq!(tracker.pending_bytes(), 80);
 
         drop(reservations);
-        assert_eq!(tracker.uncompressed_bytes(), 16);
+        assert_eq!(tracker.pending_bytes(), 16);
 
         drop(buf);
-        assert_eq!(tracker.uncompressed_bytes(), 0);
+        assert_eq!(tracker.pending_bytes(), 0);
         Ok(())
     }
 
@@ -628,7 +631,7 @@ mod tests {
         let s1 = arr.slice(0..block_len)?;
         let s2 = arr.slice(block_len..n)?;
 
-        let mut buf = ChunksBuffer::new(0, block_len, SizeScope::new());
+        let mut buf = ChunksBuffer::new(0, block_len, Backpressure::new());
         buf.push_back(s1, &mut ctx)?;
         buf.push_back(s2, &mut ctx)?;
 

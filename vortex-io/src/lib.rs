@@ -10,11 +10,13 @@
 //! This crate provides core traits for positioned and streaming IO, and via feature
 //! flags implements the core traits for several common async runtimes and backing stores.
 
+pub use backpressure::*;
 pub use io_buf::*;
 pub use limit::*;
 pub use read_at::*;
 pub use write::*;
 
+mod backpressure;
 pub mod compat;
 pub mod filesystem;
 mod io_buf;

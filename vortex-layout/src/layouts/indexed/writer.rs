@@ -23,10 +23,10 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_io::Backpressure;
+use vortex_io::BackpressureReservation;
 use vortex_session::VortexSession;
 
-use crate::BufferedBytesReservation;
-use crate::BufferedBytesTracker;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
@@ -343,18 +343,18 @@ struct BuilderState {
     /// Builders report a running total rather than a per-chunk delta, so each push replaces this
     /// reservation (drop the old, reserve the new total) instead of accumulating one reservation
     /// per chunk the way `BufferedStrategy` does for known-size chunks.
-    buffered: Option<BufferedBytesReservation>,
+    buffered: Option<BackpressureReservation>,
 }
 
 impl BuilderState {
-    fn push(&mut self, chunk: &ArrayRef, tracker: &BufferedBytesTracker) -> VortexResult<()> {
+    fn push(&mut self, chunk: &ArrayRef, tracker: &Backpressure) -> VortexResult<()> {
         let mut ctx = self.factory.session.create_execution_ctx();
         for index in &mut self.indexes {
             index.push(chunk, &self.factory, &mut ctx)?;
         }
 
         let total: u64 = self.indexes.iter().map(IndexState::buffered_bytes).sum();
-        self.buffered = Some(tracker.reserve(total));
+        self.buffered = Some(tracker.reserve_buffered(total));
         Ok(())
     }
 }
@@ -512,7 +512,7 @@ impl LayoutStrategy for IndexedStrategy {
         }));
 
         let feed_state = Arc::clone(&state);
-        let feed_tracker = ctx.buffered_bytes_tracker().clone();
+        let feed_tracker = ctx.backpressure().clone();
         let stream = SequentialStreamAdapter::new(
             dtype,
             stream.map(move |item| {
