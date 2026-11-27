@@ -216,7 +216,7 @@ fn dictionary_encode_typed<T: NativeDecimalType + Hash>(
         |a, b| a.cmp(&b),
     );
     let values =
-        DecimalArray::new(values, array.decimal_dtype(), values_validity, ctx).into_array();
+        DecimalArray::try_new(values, array.decimal_dtype(), values_validity, ctx)?.into_array();
     // SAFETY: `encode_sorted_codes` emits codes in `0..values.len()` for every valid entry
     // and `counts` holds the exact distinct valid value set of `array`.
     Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
