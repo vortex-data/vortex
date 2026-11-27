@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .dedup import check_duplicate
@@ -19,6 +20,9 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Stable marker to find and update the recurrence-tracking comment.
 _RECURRENCE_KEY = "<!-- fuzzer-recurrence-tracker -->"
+# State marker that fuzzer-fix-automation.yml writes into its status comment.
+_FIX_STATE_RE = re.compile(r"<!-- fuzzer-fix-state: (\w+) -->")
+_FIX_RETRY_INTERVAL = timedelta(hours=24)
 # Variables that must be set (non-empty) before creating or commenting on an issue.
 REQUIRED_REPORT_VARIABLES = ["FUZZ_TARGET", "CRASH_FILE", "ARTIFACT_URL"]
 
@@ -170,28 +174,10 @@ def _render_recurrence_body(count: int) -> str:
 
 
 def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
-    """Find-or-create the recurrence comment, incrementing its count.
-
-    Uses a compare-and-swap pattern: reads the current count from the
-    existing comment (if any), increments it, and writes back.
-
-    Returns the new count.
-    """
-    # List all comments on the issue
-    result = _run_gh(
-        [
-            "gh",
-            "api",
-            f"repos/{repo}/issues/{issue_number}/comments",
-            "--paginate",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
+    """Increment the recurrence count on the issue and return the new count."""
     existing_id = None
     current_count = 0
-    for comment in json.loads(result.stdout or "[]"):
+    for comment in _list_comments(repo, issue_number):
         if _RECURRENCE_KEY in comment["body"]:
             existing_id = comment["id"]
             m = re.search(r"Seen \*\*(\d+)\*\*", comment["body"])
@@ -229,6 +215,43 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
         )
 
     return new_count
+
+
+def _list_comments(repo: str, issue_number: int | str) -> list[dict]:
+    result = _run_gh(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/issues/{issue_number}/comments",
+            "--paginate",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    return json.loads(result.stdout or "[]")
+
+
+def _fix_attempt_due(repo: str, issue_number: int | str) -> bool:
+    """Return whether the issue has no fix attempt or a retry is due."""
+    try:
+        comments = _list_comments(repo, issue_number)
+    except subprocess.CalledProcessError:
+        print(f"Warning: cannot read the fix state of #{issue_number}", file=sys.stderr)
+        return False
+
+    for comment in comments:
+        m = _FIX_STATE_RE.search(comment["body"])
+        if not m:
+            continue
+
+        if m.group(1) != "retry":
+            return False
+
+        updated_at = datetime.fromisoformat(comment["updated_at"].replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) - updated_at >= _FIX_RETRY_INTERVAL
+
+    return True
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
@@ -305,6 +328,9 @@ def cmd_report(args: argparse.Namespace) -> int:
     variables = _build_template_variables(crash_info, args.var)
     existing_issue = dedup.get("issue_number") if dedup else None
 
+    if existing_issue:
+        _write_github_output("needs_fix", str(_fix_attempt_due(args.repo, existing_issue)).lower())
+
     # Validate required variables before creating/commenting (skip is fine without them)
     if action != "skip":
         missing = _validate_required_variables(variables)
@@ -365,6 +391,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
     _write_github_output("issue_number", issue_number)
     _write_github_output("issue_created", "true")
+    _write_github_output("needs_fix", "true")
 
     # Post full debug output as a follow-up comment (collapsed).
     debug_output = variables.get("DEBUG_OUTPUT", "")

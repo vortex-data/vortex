@@ -39,6 +39,11 @@ on:
         required: false
         type: string
         default: ""
+      extra_flags:
+        description: "Extra libFuzzer flags, space-separated"
+        required: false
+        type: string
+        default: ""
       jobs:
         description: "Number of parallel fuzzing jobs (libfuzzer -fork=N)."
         required: false
@@ -104,6 +109,7 @@ jobs:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
       FUZZ_TARGET: ${{ inputs.fuzz_target }}
       EXTRA_ENV: ${{ inputs.extra_env }}
+      EXTRA_FLAGS: ${{ inputs.extra_flags }}
       FUZZ_JOBS: ${{ inputs.jobs }}
       MAX_TIME: ${{ inputs.max_time }}
       CYCLE_HOURS: >-
@@ -240,7 +246,9 @@ jobs:
     # Without a status function, `if` adds an implicit success(), which checks
     # all upstream jobs. The fuzz job fails when it finds a crash, so success()
     # is always false here.
-    if: ${{ !cancelled() && needs.report.outputs.issue_created == 'true' }}
+    # A recurring crash retries a failed attempt at most once a day, so an issue
+    # that a fix attempt could not handle does not start a new session each cycle.
+    if: ${{ !cancelled() && needs.report.outputs.fix_issue_number != '' }}
     permissions:
       # The reusable workflow downloads the crash artifact (actions: read) and
       # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
@@ -252,5 +260,5 @@ jobs:
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
-      issue_number: ${{ needs.report.outputs.issue_number }}
+      issue_number: ${{ needs.report.outputs.fix_issue_number }}
     secrets: inherit

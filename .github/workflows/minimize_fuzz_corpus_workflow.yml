@@ -32,6 +32,11 @@ on:
         required: false
         type: number
         default: 8
+      rss_limit_mb:
+        description: "RSS limit per input, 0 to disable"
+        required: false
+        type: number
+        default: 2048
       fuzzer_artifact:
         description: "Precompiled CPU fuzzers; builds locally when omitted"
         required: false
@@ -111,6 +116,7 @@ jobs:
           FUZZ_TARGET: ${{ inputs.fuzz_target }}
           EXTRA_ENV: ${{ inputs.extra_env }}
           MINIMIZE_SHARDS: ${{ inputs.shards }}
+          RSS_LIMIT_MB: ${{ inputs.rss_limit_mb }}
         run: .github/scripts/minimize-fuzz-corpus.sh
 
       - name: Persist corpus

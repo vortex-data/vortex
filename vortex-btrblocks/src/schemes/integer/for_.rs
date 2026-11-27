@@ -30,7 +30,9 @@ use vortex_fastlanes::for_v2_id;
 use super::BitPackingScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 
@@ -204,13 +206,14 @@ impl Scheme for FoRScheme {
         ))
     }
 
-    fn compress(
+    /// Children: references=0 in v2 mode. The encoded child is bit-packed, and its children are
+    /// the bit-packing scheme's.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let for_array = match self.mode {
             FoRSchemeMode::V1 => FoR::encode(primitive, exec_ctx)?,
@@ -227,24 +230,47 @@ impl Scheme for FoRScheme {
         //  as well.
         let biased_data =
             ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
-        let compressed =
-            BitPackingScheme.compress(compressor, &biased_data, compress_ctx.clone(), exec_ctx)?;
+        let Some(packed) = BitPackingScheme.try_encode(&biased_data, exec_ctx)? else {
+            // Unpacked residuals are no smaller than the input, so hand it back for the size
+            // check to reject.
+            return Ok(Encoded::leaf(data.array().clone()));
+        };
 
-        // TODO(connor): This should really be `new_unchecked`.
-        let for_compressed = match for_array.references() {
-            FoRReferences::Global(reference) => FoR::try_new(compressed, reference.clone())?,
+        let for_stats = for_array.statistics().to_owned();
+        let offset = for_array.offset();
+        let (compress, reference) = match for_array.references() {
+            FoRReferences::Global(reference) => (Vec::new(), Some(reference.clone())),
             FoRReferences::Blocked(references) => {
-                let references =
-                    compressor.compress_child(references, &compress_ctx, self.id(), 0, exec_ctx)?;
-                FoR::try_new_chunked(compressed, references, for_array.offset())?
+                (vec![Child::new(self, 0, references.clone())], None)
             }
         };
-        for_compressed
-            .as_ref()
-            .statistics()
-            .inherit_from(for_array.as_ref().statistics());
+        // The bit-packed children are compressed in our own context, not a leaf one, so a v2
+        // child's block offsets can cascade.
+        Ok(
+            packed.wrap(compress, Vec::new(), move |packed, children, _| {
+                // TODO(connor): This should really be `new_unchecked`.
+                let for_compressed = match reference {
+                    Some(reference) => FoR::try_new(packed, reference)?,
+                    None => {
+                        let [references] = children.compressed()?;
+                        FoR::try_new_chunked(packed, references, offset)?
+                    }
+                };
+                for_compressed.as_ref().statistics().set_all(for_stats);
+                Ok(for_compressed.into_array())
+            }),
+        )
+    }
 
-        Ok(for_compressed.into_array())
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

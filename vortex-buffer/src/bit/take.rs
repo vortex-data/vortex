@@ -6,7 +6,11 @@ use num_traits::Zero;
 use vortex_error::VortexExpect;
 
 use crate::BitBuffer;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use crate::BitBufferMut;
 use crate::BitBufferView;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use crate::BufferAllocatorRef;
 use crate::BufferMut;
 use crate::bit::get_bit_unchecked;
 
@@ -68,41 +72,59 @@ where
             min >= I::zero() && max.as_() < bits.len(),
             "take index out of bounds"
         );
-
-        return if bits.len() <= COLLECT_TO_VEC {
-            let bools: Vec<bool> = bits.iter().collect();
-            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
-                // SAFETY: we're already iterating over every index, a bound
-                // is excessive
-                let idx = indices.get_unchecked(i).as_();
-                // SAFETY: we've asserted index is in bounds before
-                *bools.get_unchecked(idx)
-            })
-        } else {
-            #[cfg(target_arch = "x86_64")]
-            if let Some(taken) = avx2::take(bits, indices, None) {
-                return taken;
-            }
-
-            let ptr = bits.inner().as_ptr();
-            let offset = bits.offset();
-            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
-                // SAFETY: we're already iterating over every index, a bound
-                // is excessive
-                let idx = indices.get_unchecked(i).as_();
-                // SAFETY: we've asserted index is in bounds before
-                get_bit_unchecked(ptr, offset + idx)
-            })
-        };
+        return take_all_valid(bits, indices);
     };
 
+    take_nullable(bits, indices, validity)
+}
+
+/// Takes the bits at `indices`, which the caller checked to be in bounds.
+fn take_all_valid<I: AsPrimitive<usize>>(bits: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    if let Some(taken) = lut::take(bits, indices) {
+        return taken;
+    }
+
+    // On a small bitmap, the gather beats a byte per bit on CPUs with AVX-512, but not on CPUs
+    // with only AVX2, such as Zen 3.
     #[cfg(target_arch = "x86_64")]
-    if let Some(taken) = avx2::take(bits, indices, Some(validity)) {
+    if (bits.len() > COLLECT_TO_VEC || is_x86_feature_detected!("avx512f"))
+        && let Some(taken) = gather(bits, indices, None)
+    {
         return taken;
     }
 
     if bits.len() <= COLLECT_TO_VEC {
-        let bools: Vec<bool> = bits.iter().collect();
+        let bools = expand_bools(bits);
+        return BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
+            // SAFETY: i is less than indices.len(), and the caller checked that every index is in
+            // bounds.
+            *bools.get_unchecked(indices.get_unchecked(i).as_())
+        });
+    }
+
+    let ptr = bits.inner().as_ptr();
+    let offset = bits.offset();
+    BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
+        // SAFETY: i is less than indices.len(), and the caller checked that every index is in
+        // bounds.
+        get_bit_unchecked(ptr, offset + indices.get_unchecked(i).as_())
+    })
+}
+
+/// Takes the bits at `indices` where `validity` is set. The other indices can hold any value.
+fn take_nullable<I: AsPrimitive<usize>>(
+    bits: BitBufferView<'_>,
+    indices: &[I],
+    validity: BitBufferView<'_>,
+) -> BitBuffer {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(taken) = gather(bits, indices, Some(validity)) {
+        return taken;
+    }
+
+    if bits.len() <= COLLECT_TO_VEC {
+        let bools = expand_bools(bits);
         return take_with_validity(indices, validity, bits.len() - 1, |idx| unsafe {
             // SAFETY: we clamp index so it's never out of bounds
             *bools.get_unchecked(idx)
@@ -115,6 +137,24 @@ where
         // SAFETY: we clamp index so it's never out of bounds
         get_bit_unchecked(buf, bits_offset + idx)
     })
+}
+
+/// Gathers the bits with AVX2, or returns `None` if the CPU has no AVX2.
+///
+/// The gather's 32-bit loads can pass the end of a small bitmap's buffer, so a small bitmap is
+/// copied into a padded table first, at most 520 bytes.
+#[cfg(target_arch = "x86_64")]
+fn gather<I: AsPrimitive<usize>>(
+    bits: BitBufferView<'_>,
+    indices: &[I],
+    validity: Option<BitBufferView<'_>>,
+) -> Option<BitBuffer> {
+    if bits.len() > COLLECT_TO_VEC {
+        return avx2::take(bits, indices, validity);
+    }
+
+    let padded = padded_table::<{ COLLECT_TO_VEC / 8 + 8 }>(bits);
+    avx2::take(BitBufferView::new(&padded, bits.len()), indices, validity)
 }
 
 fn take_with_validity<I>(
@@ -185,6 +225,92 @@ where
     BitBuffer::new(out.freeze(), total)
 }
 
+/// Expands each bit into a bool, with a table that holds the 8 bools of each byte value.
+///
+/// The result is padded with `false` to a multiple of 64 bits, with at least one bit of padding.
+fn expand_bools(bits: BitBufferView<'_>) -> Vec<bool> {
+    const PATTERNS: [[u8; 8]; 256] = {
+        let mut patterns = [[0u8; 8]; 256];
+        let mut byte = 0;
+        while byte < 256 {
+            let mut bit = 0;
+            while bit < 8 {
+                if (byte >> bit) & 1 == 1 {
+                    patterns[byte][bit] = 1;
+                }
+                bit += 1;
+            }
+            byte += 1;
+        }
+        patterns
+    };
+
+    // iter_padded always adds a remainder word, also when the length is a multiple of 64.
+    let len = (bits.len() / 64 + 1) * 64;
+    let mut bools = Vec::<bool>::with_capacity(len);
+    let out = bools.spare_capacity_mut().as_mut_ptr().cast::<[u8; 8]>();
+    let words = bits.chunks().iter_padded().take(len / 64);
+    for (word_idx, word) in words.enumerate() {
+        for (byte_idx, byte) in word.to_le_bytes().into_iter().enumerate() {
+            // SAFETY: take keeps the writes below len. Each pattern byte is 0 or 1, which is a
+            // valid bool.
+            unsafe {
+                out.add(word_idx * 8 + byte_idx)
+                    .write(PATTERNS[usize::from(byte)])
+            };
+        }
+    }
+
+    // SAFETY: iter_padded gives len / 64 words, so the loop above wrote all len bools.
+    unsafe { bools.set_len(len) };
+    bools
+}
+
+/// Copies the bits to the start of a zeroed table of `N` bytes, without the offset.
+///
+/// The bits must fit in the table.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+fn padded_table<const N: usize>(bits: BitBufferView<'_>) -> [u8; N] {
+    let mut table = [0u8; N];
+    for (word, chunk) in bits
+        .chunks()
+        .iter_padded()
+        .zip(table.as_chunks_mut::<8>().0)
+    {
+        *chunk = word.to_le_bytes();
+    }
+    table
+}
+
+/// Packs the bits that `fill` writes, one word for each chunk of 64 indices, into a buffer.
+///
+/// `fill` gets the whole chunks first, then the last chunk padded with zeros, so index 0 must be
+/// valid. The bits of the padding are cleared, so the bits after `len` are zero, as with the other
+/// producers. `fill` takes a slice of chunks, so a SIMD kernel loops over them in one call.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[inline]
+fn collect_words<T: Copy + Default>(
+    indices: &[T],
+    mut fill: impl FnMut(&[[T; 64]], &mut [u64]),
+) -> BitBuffer {
+    let allocator = BufferAllocatorRef::statically_allocated();
+    BitBufferMut::collect_words_in(indices.len(), allocator, |words| {
+        let (chunks, tail) = indices.as_chunks::<64>();
+        let (words, tail_word) = words.split_at_mut(chunks.len());
+        fill(chunks, words);
+
+        if !tail.is_empty() {
+            let mut padded = [T::default(); 64];
+            padded[..tail.len()].copy_from_slice(tail);
+            fill(&[padded], tail_word);
+
+            // The tail holds fewer than 64 indices, so the shift does not overflow.
+            tail_word[0] &= (1u64 << tail.len()) - 1;
+        }
+    })
+    .freeze()
+}
+
 fn first_unset(bits: BitBufferView<'_>) -> Option<usize> {
     let chunks = bits.chunks();
     for (word_idx, word) in chunks.iter().enumerate() {
@@ -202,8 +328,14 @@ fn first_unset(bits: BitBufferView<'_>) -> Option<usize> {
 #[path = "take_avx2.rs"]
 mod avx2;
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[path = "take_lut.rs"]
+mod lut;
+
 #[cfg(test)]
 mod tests {
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use num_traits::AsPrimitive;
     use num_traits::Zero;
     use rand::RngExt;
@@ -263,6 +395,49 @@ mod tests {
         }
     }
 
+    #[hegel::test]
+    #[cfg_attr(miri, ignore)]
+    fn takes_from_small_bitmaps(tc: TestCase) {
+        // u8 indices address at most 256 bits, u16 indices reach the 4096 bits of a small bitmap.
+        let narrow = tc.draw(gs::booleans());
+        let max_len = if narrow { 600 } else { 4096 };
+        let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(max_len));
+        let offset = tc.draw(gs::integers::<usize>().max_value(63));
+        let bits: Vec<bool> = tc.draw(
+            gs::vecs(gs::booleans())
+                .min_size(offset + len)
+                .max_size(offset + len),
+        );
+        let buf = BitBuffer::from(bits.clone());
+        let view = buf.as_view().slice(offset..);
+
+        let bound = if narrow { len.min(256) } else { len };
+        let indices: Vec<usize> = tc.draw(
+            gs::vecs(gs::integers::<usize>().max_value(bound - 1))
+                .min_size(1)
+                .max_size(300),
+        );
+
+        let taken = if narrow {
+            let typed: Vec<u8> = indices
+                .iter()
+                .map(|&idx| u8::try_from(idx).unwrap())
+                .collect();
+            take_bits(view, &typed, None)
+        } else {
+            let typed: Vec<u16> = indices
+                .iter()
+                .map(|&idx| u16::try_from(idx).unwrap())
+                .collect();
+            take_bits(view, &typed, None)
+        };
+
+        assert_eq!(taken.len(), indices.len());
+        for (i, &idx) in indices.iter().enumerate() {
+            assert_eq!(taken.value(i), bits[offset + idx], "index {idx} at {i}");
+        }
+    }
+
     #[rstest]
     #[case(300)]
     #[case(5000)]
@@ -311,6 +486,18 @@ mod tests {
     }
 
     #[test]
+    fn clears_bits_after_len() {
+        // Bit 0 is set, so the padded indices of the tail chunk look up a set bit.
+        let bits = BitBuffer::collect_bool(100, |i| i % 3 == 0);
+
+        let taken = take_bits(bits.as_view(), &[1u8; 65], None);
+        assert_eq!(taken.inner().as_slice(), &[0u8; 9]);
+
+        let taken = take_bits(bits.as_view(), &[1u16; 65], None);
+        assert_eq!(taken.inner().as_slice(), &[0u8; 9]);
+    }
+
+    #[test]
     fn empty() {
         let bits = random_bits(64);
         assert_eq!(take_bits::<u16>(bits.as_view(), &[], None).len(), 0);
@@ -333,5 +520,15 @@ mod tests {
         indices[80] = u32::MAX;
         let validity = BitBuffer::collect_bool(403, |i| i != 200);
         let _taken = take_bits(view, &indices, Some(validity.as_view()));
+    }
+
+    #[test]
+    #[should_panic(expected = "take index out of bounds")]
+    fn small_bitmap_out_of_bounds_in_tail() {
+        let bits = BitBuffer::collect_bool(100, |i| i % 3 == 0);
+        let mut indices = [0u16; 9];
+        indices[8] = 120;
+        let validity = BitBuffer::new_set(9);
+        let _taken = take_bits(bits.as_view(), &indices, Some(validity.as_view()));
     }
 }

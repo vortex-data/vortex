@@ -464,6 +464,11 @@ impl DeviceBuffer for CudaDeviceBuffer {
         self.alignment
     }
 
+    fn is_aligned(&self, alignment: Alignment) -> bool {
+        let effective_ptr = self.device_ptr + self.offset as u64;
+        effective_ptr.is_multiple_of(alignment.as_usize() as u64)
+    }
+
     /// Synchronous copy of CUDA device to host memory.
     ///
     /// The copy is not started before other operations on the streams are completed.
@@ -585,9 +590,8 @@ impl DeviceBuffer for CudaDeviceBuffer {
     }
 
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
-        let effective_ptr = self.device_ptr + self.offset as u64;
         vortex_ensure!(
-            effective_ptr.is_multiple_of(alignment.as_usize() as u64),
+            self.is_aligned(alignment),
             "CUDA buffer cannot satisfy alignment {alignment} without copying"
         );
         Ok(Arc::new(CudaDeviceBuffer {

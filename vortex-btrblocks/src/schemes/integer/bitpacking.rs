@@ -20,6 +20,7 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedDataParts;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -27,12 +28,58 @@ use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::compress_patches;
+use crate::schemes::patches::KeptPatches;
 
 /// BitPacking encoding for non-negative integers.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct BitPackingScheme;
+
+impl BitPackingScheme {
+    /// Bit-packs `data`, or returns `None` when compressing is not beneficial.
+    pub(super) fn try_encode(
+        &self,
+        data: &ArrayAndStats,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Encoded>> {
+        let primitive_array = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
+        let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
+        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+        if !should_pack(primitive_array.ptype(), bw) {
+            return Ok(None);
+        }
+
+        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
+        let packed_stats = packed.statistics().to_owned();
+        let ptype = packed.dtype().as_ptype();
+        let BitPackedDataParts {
+            offset,
+            bit_width,
+            len,
+            packed,
+            patches,
+            validity,
+        } = BitPacked::into_parts(packed);
+
+        let (patches, keep) = KeptPatches::new(self, 0, data.array(), patches, exec_ctx)?;
+
+        Ok(Some(
+            Encoded::new(Vec::new(), keep, move |children, _| {
+                let validity = children.validity()?;
+                let array = patches.build(children, |patches| {
+                    let array = BitPacked::try_new(
+                        packed, ptype, validity, patches, bit_width, len, offset,
+                    )?;
+                    Ok(array.into_array())
+                })?;
+                array.statistics().set_all(packed_stats);
+                Ok(array)
+            })
+            .with_validity(validity),
+        ))
+    }
+}
 
 impl Scheme for BitPackingScheme {
     fn scheme_name(&self) -> &'static str {
@@ -68,57 +115,27 @@ impl Scheme for BitPackingScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Children: patches, kept, from 0 on.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        Ok(self
+            .try_encode(data, exec_ctx)?
+            .unwrap_or_else(|| Encoded::leaf(data.array().clone())))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = compressor
-            .with_compressed_validity(data.array(), exec_ctx)?
-            .execute::<PrimitiveArray>(exec_ctx)?;
-
-        let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
-        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
-        if !should_pack(primitive_array.ptype(), bw) {
-            return Ok(primitive_array.into_array());
-        }
-
-        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
-        let packed_stats = packed.statistics().to_owned();
-        let ptype = packed.dtype().as_ptype();
-        let mut parts = BitPacked::into_parts(packed);
-
-        let patches = if use_experimental_patches() {
-            parts.patches.take()
-        } else {
-            parts.patches = parts
-                .patches
-                .take()
-                .map(|p| compress_patches(p, exec_ctx))
-                .transpose()?;
-            None
-        };
-
-        let array = BitPacked::try_new(
-            parts.packed,
-            ptype,
-            parts.validity,
-            parts.patches,
-            parts.bit_width,
-            parts.len,
-            parts.offset,
-        )?;
-
-        match patches {
-            None => Ok(array.with_stats_set(packed_stats).into_array()),
-            Some(p) => Ok(
-                Patched::from_array_and_patches(array.into_array(), &p, exec_ctx)?
-                    .with_stats_set(packed_stats)
-                    .into_array(),
-            ),
-        }
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

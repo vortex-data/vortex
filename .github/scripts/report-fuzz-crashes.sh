@@ -6,6 +6,7 @@ set -euo pipefail
 
 shopt -s nullglob
 status=0
+fix_issue=""
 for log in logs/fuzz_repro/*.log; do
   crash=$(basename "$log" .log)
   python3 -m fuzz_report extract "$log" \
@@ -24,6 +25,12 @@ for log in logs/fuzz_repro/*.log; do
   if [ ! -f new_crash_info.json ] && grep -q "^issue_created=true" report_output; then
     cp crash_info.json new_crash_info.json
     cat report_output >> "$GITHUB_OUTPUT"
+  fi
+  if [ -z "$fix_issue" ] && grep -q "^needs_fix=true" report_output; then
+    fix_issue=$(sed -n 's/^issue_number=//p' report_output)
+    if [ -n "$fix_issue" ]; then
+      echo "fix_issue_number=$fix_issue" >> "$GITHUB_OUTPUT"
+    fi
   fi
   grep -E "^(validation_failed|missing_variables)=" report_output >> "$GITHUB_OUTPUT" || true
 done

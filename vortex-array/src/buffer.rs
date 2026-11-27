@@ -52,6 +52,13 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Returns the alignment of the buffer.
     fn alignment(&self) -> Alignment;
 
+    /// Returns true if the underlying device pointer satisfies the given alignment.
+    ///
+    /// Defaults to checking the buffer's declared [`Self::alignment`].
+    fn is_aligned(&self, alignment: Alignment) -> bool {
+        self.alignment().is_aligned_to(alignment)
+    }
+
     /// Returns true if the buffer is empty.
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -162,9 +169,17 @@ impl BufferHandle {
         }
     }
 
-    /// Returns true if the buffer is aligned to the given alignment.
+    /// Returns true if the buffer's declared alignment satisfies the given alignment.
     pub fn is_aligned_to(&self, alignment: Alignment) -> bool {
         self.alignment().is_aligned_to(alignment)
+    }
+
+    /// Returns true if the underlying host or device pointer satisfies the given alignment.
+    pub fn is_ptr_aligned(&self, alignment: Alignment) -> bool {
+        match &self.0 {
+            Inner::Host(bytes) => bytes.is_aligned(alignment),
+            Inner::Device(device) => device.is_aligned(alignment),
+        }
     }
 
     /// Ensure the buffer satisfies the requested alignment.

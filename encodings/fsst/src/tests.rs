@@ -9,17 +9,23 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::FSST;
+use crate::array::FSSTArrayExt;
+use crate::compress::fsst_compress_with_offset_threshold;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
@@ -34,7 +40,7 @@ pub(crate) fn build_fsst_array(ctx: &mut ExecutionCtx) -> ArrayRef {
     let mut input_array = VarBinBuilder::<i32>::with_capacity_in(
         DType::Utf8(Nullability::NonNullable),
         3,
-        vortex_buffer::BufferAllocatorRef::static_ref(),
+        BufferAllocatorRef::static_ref(),
     );
     input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
     input_array.append_value(
@@ -143,6 +149,59 @@ fn test_fsst_array_ops() {
     );
 }
 
+/// Regression for #7833: [`fsst_compress`] must switch its codes offsets from `i32` to `i64`
+/// once the worst-case compressed byte count exceeds the `i32` threshold.
+///
+/// Uses [`fsst_compress_with_offset_threshold`] with a small KiB threshold so both the `i32`
+/// (at-threshold) and `i64` (above-threshold) paths for `VarBin` and `VarBinView` inputs run in
+/// milliseconds without allocating gigabytes. With an empty symbol table every input byte is
+/// escape-coded to two output bytes, deterministically crossing the threshold.
+#[test]
+fn fsst_compress_offset_width_rollover() -> VortexResult<()> {
+    const MAX_I32_BYTES: usize = 4 * 1024;
+    const ROW_LEN: usize = 256;
+    const ROWS_FITTING: usize = (MAX_I32_BYTES / 2) / ROW_LEN; // 8 rows -> 2048 input -> 4096 compressed
+    const ROWS_OVERFLOWING: usize = ROWS_FITTING + 1; // 9 rows -> 2304 input -> 4608 compressed
+
+    let compressor = CompressorBuilder::default().build();
+    let mut ctx = SESSION.create_execution_ctx();
+    let row = "a".repeat(ROW_LEN);
+
+    for (n_rows, expected_ptype, exceeds_threshold) in [
+        (ROWS_FITTING, PType::I32, false),
+        (ROWS_OVERFLOWING, PType::I64, true),
+    ] {
+        let mut varbin_builder = VarBinBuilder::<i64>::with_capacity_in(
+            DType::Utf8(Nullability::NonNullable),
+            n_rows,
+            BufferAllocatorRef::static_ref(),
+        );
+        for _ in 0..n_rows {
+            varbin_builder.append_value(row.as_bytes());
+        }
+        let varbin = varbin_builder.finish_into_varbin().into_array();
+        let varbinview =
+            VarBinViewArray::from_iter_str((0..n_rows).map(|_| row.as_str())).into_array();
+
+        for input in [varbin, varbinview] {
+            let compressed =
+                fsst_compress_with_offset_threshold(&input, &compressor, MAX_I32_BYTES, &mut ctx)?;
+            assert_eq!(compressed.len(), n_rows);
+            assert_eq!(
+                compressed.codes().offsets().dtype().as_ptype(),
+                expected_ptype
+            );
+            assert_eq!(
+                compressed.codes_bytes().len() > MAX_I32_BYTES,
+                exceeds_threshold
+            );
+            assert_arrays_eq!(compressed, input, &mut ctx);
+        }
+    }
+
+    Ok(())
+}
+
 // TODO(someone): ideally CI would run this in release mode as well since debug builds make the
 // allocation and compression loop substantially slower.
 /// Regression for #7833: [`fsst_compress`] must accept inputs whose cumulative compressed
@@ -181,7 +240,7 @@ fn fsst_compress_offsets_overflow_i32() {
     let mut builder = VarBinBuilder::<i64>::with_capacity_in(
         DType::Utf8(Nullability::NonNullable),
         N,
-        vortex_buffer::BufferAllocatorRef::static_ref(),
+        BufferAllocatorRef::static_ref(),
     );
     for _ in 0..N {
         builder.append_value(&string);

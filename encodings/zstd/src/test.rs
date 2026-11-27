@@ -523,6 +523,158 @@ fn test_zstd_rejects_mismatched_frame_content_size() {
     assert!(error.to_string().contains("metadata declares"));
 }
 
+#[rstest]
+#[case::non_nullable(false)]
+#[case::nullable(true)]
+fn test_zstd_var_bin_view_multi_frame_with_dictionary(#[case] nullable: bool) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // >= 8 frames of structured strings so zstd trains a shared dictionary (MIN_SAMPLES_FOR_DICTIONARY = 8).
+    let rows: Vec<Option<String>> = (0..160)
+        .map(|i| {
+            if nullable && i % 7 == 0 {
+                None
+            } else if i % 5 == 0 {
+                // Short enough to inline (<= 12 bytes).
+                Some(format!("id_{i:04}"))
+            } else {
+                Some(format!(
+                    "https://cdn.example.com/v2/assets/category_{}/item_{i:05}.json?region=us-east-1",
+                    i % 6
+                ))
+            }
+        })
+        .collect();
+
+    let array = VarBinViewArray::from_iter(
+        rows.iter().map(|s| s.as_deref()),
+        DType::Utf8(if nullable {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        }),
+    );
+
+    // 10 values per frame -> >= 13 frames even with nulls, guaranteeing dictionary training.
+    let compressed = Zstd::from_var_bin_view(&array, 3, 10, &mut ctx)?;
+    assert!(
+        compressed.frames.len() >= 8,
+        "expected >= 8 frames, got {}",
+        compressed.frames.len()
+    );
+    assert!(
+        compressed.dictionary.is_some(),
+        "expected trained Zstd dictionary for >= 8 frames"
+    );
+
+    // Full decompression.
+    let decompressed = Zstd::decompress(&compressed, &mut ctx)?;
+    assert_arrays_eq!(decompressed, array.clone(), &mut ctx);
+
+    // Cross-frame slicing.
+    let sliced = compressed.slice(23..97)?;
+    assert_arrays_eq!(sliced, array.clone().into_array().slice(23..97)?, &mut ctx);
+
+    // Both builder append paths on a cross-frame slice.
+    let mut varbin_builder = VarBinBuilder::<i32>::with_capacity_in(
+        sliced.dtype().clone(),
+        sliced.len(),
+        BufferAllocatorRef::static_ref(),
+    );
+    sliced.append_to_builder(&mut varbin_builder, &mut ctx)?;
+    assert_arrays_eq!(
+        varbin_builder.finish_into_varbin(),
+        array.clone().into_array().slice(23..97)?,
+        &mut ctx
+    );
+
+    let mut view_builder = VarBinViewBuilder::with_capacity_in(
+        sliced.dtype().clone(),
+        sliced.len(),
+        BufferAllocatorRef::statically_allocated(),
+    );
+    sliced.append_to_builder(&mut view_builder, &mut ctx)?;
+    assert_arrays_eq!(
+        view_builder.finish_into_varbinview(),
+        array.into_array().slice(23..97)?,
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+fn assert_err_contains(result: VortexResult<()>, expected: &str) {
+    let err = result.expect_err("expected validation failure").to_string();
+    assert!(
+        err.contains(expected),
+        "expected error containing {expected:?}, got {err:?}"
+    );
+}
+
+#[test]
+fn test_zstd_data_validate_error_guards() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(0i32..200);
+    let valid_dtype = values.dtype().clone();
+    let valid_len = values.len();
+    let valid_data = ZstdData::from_primitive(&values, 0, 16, &mut ctx)?;
+    assert!(
+        valid_data.dictionary.is_some(),
+        "expected trained dictionary"
+    );
+
+    // Unsupported dtype.
+    assert_err_contains(
+        valid_data.validate(
+            &DType::Bool(Nullability::NonNullable),
+            valid_len,
+            &Validity::NonNullable,
+        ),
+        "Unsupported dtype for Zstd array",
+    );
+
+    // Length mismatch (slice_stop - slice_start != len).
+    assert_err_contains(
+        valid_data.validate(&valid_dtype, valid_len - 1, &Validity::NonNullable),
+        "self.slice_stop - self.slice_start == len",
+    );
+
+    // Validity length mismatch.
+    let nullable_values =
+        PrimitiveArray::from_option_iter((0i32..200).map(|i| (i % 10 != 0).then_some(i)));
+    let nullable_data = ZstdData::from_primitive(&nullable_values, 0, 16, &mut ctx)?;
+    let short_validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
+    assert_err_contains(
+        nullable_data.validate(nullable_values.dtype(), valid_len, &short_validity),
+        "validity_len == self.unsliced_n_rows",
+    );
+
+    // Dictionary present with wrong metadata dictionary_size.
+    let mut bad = valid_data.clone();
+    bad.metadata.dictionary_size += 1;
+    assert_err_contains(
+        bad.validate(&valid_dtype, valid_len, &Validity::NonNullable),
+        "dictionary.len()",
+    );
+
+    // Dictionary absent with non-zero metadata dictionary_size.
+    let mut bad = valid_data.clone();
+    bad.dictionary = None;
+    assert_err_contains(
+        bad.validate(&valid_dtype, valid_len, &Validity::NonNullable),
+        "Dictionary metadata present without dictionary buffer",
+    );
+
+    // Frame count != metadata frame count.
+    let mut bad = valid_data;
+    bad.frames.pop();
+    assert_err_contains(
+        bad.validate(&valid_dtype, valid_len, &Validity::NonNullable),
+        "self.frames.len() == self.metadata.frames.len()",
+    );
+
+    Ok(())
+}
+
 fn roundtrip_serde(array: &ArrayRef) -> VortexResult<ArrayRef> {
     let array_ctx = ArrayContext::empty();
     let serialized = array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())?;
