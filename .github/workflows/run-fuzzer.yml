@@ -72,7 +72,12 @@ on:
         type: number
         default: 0
       report:
-        description: "Open an issue and start fix automation when a crash is found."
+        description: "Open an issue when a crash is found."
+        required: false
+        type: boolean
+        default: true
+      attempt_fix:
+        description: "Start fix automation after opening a crash issue."
         required: false
         type: boolean
         default: true
@@ -231,6 +236,7 @@ jobs:
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
       fuzz_target: ${{ inputs.fuzz_target }}
+      extra_cargo_args: ${{ inputs.extra_features != '' && format('--features {0}', inputs.extra_features) || '' }}
       artifact_url: ${{ needs.fuzz.outputs.artifact_url }}
       artifact_name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-crash-artifacts
       logs_artifact_name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-logs
@@ -248,7 +254,7 @@ jobs:
     # is always false here.
     # A recurring crash retries a failed attempt at most once a day, so an issue
     # that a fix attempt could not handle does not start a new session each cycle.
-    if: ${{ !cancelled() && needs.report.outputs.fix_issue_number != '' }}
+    if: ${{ !cancelled() && inputs.attempt_fix && needs.report.outputs.fix_issue_number != '' }}
     permissions:
       # The reusable workflow downloads the crash artifact (actions: read) and
       # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
