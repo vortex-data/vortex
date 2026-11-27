@@ -87,10 +87,11 @@ impl StatsRewriteRule for SpatialDistancePrune {
             return Ok(None);
         };
         // A NaN radius has no sound proof, and a positive radius whose square overflows to `+Inf`
-        // or underflows to `0.0` would falsify comparisons against `min_dist_sq`/`max_dist_sq`.
+        // or underflows into the subnormal range (including `0.0`) loses precision in `r^2` and
+        // its FMA residual, which can falsify comparisons against `min_dist_sq`/`max_dist_sq`.
         let r2 = radius * radius;
         if radius.is_nan()
-            || (radius > 0.0 && (!r2.is_finite() || r2 == 0.0))
+            || (radius > 0.0 && (!r2.is_finite() || r2 < f64::MIN_POSITIVE))
             || (!zeros_equal && radius == 0.0)
         {
             return Ok(None);
@@ -374,7 +375,7 @@ mod tests {
             CompareOperator::Gte,
             CompareOperator::Gt,
         ];
-        for radius in [f64::NAN, f64::INFINITY, 1e200, 1e-200] {
+        for radius in [f64::NAN, f64::INFINITY, 1e200, 1e-200, 2.3e-162] {
             for operator in operators {
                 assert!(
                     falsify_distance(operator, true, radius)?.is_none(),
