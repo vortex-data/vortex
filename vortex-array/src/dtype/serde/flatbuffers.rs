@@ -10,7 +10,7 @@ use flatbuffers::Follow;
 use flatbuffers::UOffsetT;
 use flatbuffers::UnionWIPOffset;
 use flatbuffers::WIPOffset;
-use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -177,16 +177,12 @@ impl MapDType {
 impl DType {
     /// Create a [`DType`] from a flatbuffer buffer.
     ///
-    /// Nested struct fields and union variants are parsed lazily on first access, but the whole
-    /// buffer is verified up front: a corrupt nested dtype is reported here as an error rather
-    /// than as a panic from an accessor such as [`StructFields::fields`] later on.
+    /// The whole buffer is verified up front, so lazily parsed fields never fail to parse.
     pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
-        let fb_loc = {
-            let fb_dtype = root::<fbd::DType>(&buffer)?;
-            verify::verify_dtype(fb_dtype, &buffer, session)
-                .map_err(|e| e.with_context("invalid DType flatbuffer"))?;
-            fb_dtype._tab.loc()
-        };
+        verify::verify_dtype(&buffer, session)
+            .map_err(|e| e.with_context("invalid DType flatbuffer"))?;
+        // SAFETY: `verify_dtype` ran the flatbuffers verifier on `buffer`.
+        let fb_loc = unsafe { root_unchecked::<fbd::DType>(&buffer) }._tab.loc();
         let view = ViewedDType::from_fb_loc(fb_loc, buffer, session.clone());
         Self::try_from(view)
     }
@@ -1112,7 +1108,6 @@ mod test {
         assert!(result.unwrap_err().to_string().contains("length mismatch"));
     }
 
-    /// Finishes `root` into an aligned buffer without parsing it.
     fn finish(mut fbb: FlatBufferBuilder<'_>, root: WIPOffset<fb::DType<'_>>) -> FlatBuffer {
         fbb.finish_minimal(root);
         let (vec, start) = fbb.collapse();
@@ -1134,7 +1129,6 @@ mod test {
         )
     }
 
-    /// Wraps `field` as the single field `name` of a non-nullable struct.
     fn struct_of<'fb>(
         fbb: &mut FlatBufferBuilder<'fb>,
         name: &str,
@@ -1255,8 +1249,7 @@ mod test {
         dtype_table(fbb, fb::Type::Extension, ext.as_union_value())
     }
 
-    /// A corrupt dtype nested below a lazily parsed struct field must fail
-    /// `DType::from_flatbuffer`, instead of panicking when the field is first accessed.
+    /// Corruption below a lazily parsed field must fail `from_flatbuffer`, not panic later.
     #[rstest]
     #[case::bad_ptype(bad_ptype, "must be a known PType")]
     #[case::bad_decimal(bad_decimal, "decimal precision")]
@@ -1279,7 +1272,6 @@ mod test {
         assert!(err.to_string().contains(message), "{err}");
     }
 
-    /// Recursively parses every lazily viewed child of `dtype`.
     fn parse_all(dtype: &DType) {
         match dtype {
             DType::Struct(fields, _) => fields.fields().for_each(|field| parse_all(&field)),
@@ -1294,7 +1286,7 @@ mod test {
         }
     }
 
-    /// Any buffer that `DType::from_flatbuffer` accepts must parse completely without panicking.
+    /// Every buffer `from_flatbuffer` accepts must parse completely.
     #[test]
     fn accepted_corruptions_parse_completely() -> VortexResult<()> {
         let point = DType::struct_(
@@ -1368,7 +1360,6 @@ mod test {
                 }
             }
         }
-        // Flips of nullability flags and similar fields still describe valid dtypes.
         assert!(accepted > 0);
         Ok(())
     }

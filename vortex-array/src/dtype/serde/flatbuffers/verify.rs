@@ -1,20 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Up-front verification of a whole `DType` flatbuffer.
+//! Verification of a whole `DType` flatbuffer, so its lazily parsed children never fail to parse.
 //!
-//! [`DType::from_flatbuffer`] parses eagerly only down to the first lazy boundary: struct fields
-//! and union variants are kept as [`ViewedDType`]s and parsed on first access, by infallible
-//! accessors such as [`StructFields::fields`](crate::dtype::StructFields::fields) that panic if
-//! the bytes don't describe a valid `DType`. The `flatbuffers` verifier run by
-//! [`flatbuffers::root`] only proves the buffer is structurally sound (offsets in bounds, valid
-//! UTF-8, nesting depth), not that it describes a valid `DType`.
-//!
-//! [`verify_dtype`] closes that gap. It walks the whole tree once and checks every condition that
-//! `TryFrom<ViewedDType> for DType` can fail on, without building the `DType`s, so any subtree of
-//! a verified buffer parses without error.
-//!
-//! When adding a check to `TryFrom<ViewedDType> for DType`, add the same check here.
+//! Every check in `TryFrom<ViewedDType> for DType` must have a counterpart here.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,15 +23,10 @@ use crate::dtype::flatbuffers as fb;
 use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::dtype as fbd;
 
-/// Verifies that every `DType` table reachable from `root` describes a valid [`DType`].
-///
-/// `root` must come from a buffer already checked by the `flatbuffers` verifier, which bounds the
-/// nesting depth and therefore the recursion depth here.
-pub(super) fn verify_dtype(
-    root: fbd::DType<'_>,
-    buffer: &FlatBuffer,
-    session: &VortexSession,
-) -> VortexResult<()> {
+/// Verifies `buffer` with the `flatbuffers` verifier, then checks that every `DType` table in it
+/// describes a valid [`DType`].
+pub(super) fn verify_dtype(buffer: &FlatBuffer, session: &VortexSession) -> VortexResult<()> {
+    let root = flatbuffers::root::<fbd::DType>(buffer)?;
     DTypeVerifier {
         buffer,
         session,
@@ -54,18 +38,12 @@ pub(super) fn verify_dtype(
 struct DTypeVerifier<'a> {
     buffer: &'a FlatBuffer,
     session: &'a VortexSession,
-    /// Locations of the `DType` tables already verified.
-    ///
-    /// The writer interns equal subtrees, so a schema is a DAG in which one table can be referenced
-    /// from many parents. Verifying each table once keeps the walk linear in the size of the buffer
-    /// rather than the size of the expanded tree.
+    /// Tables already verified. Equal subtrees are interned, so one table can have many parents.
     verified: HashSet<usize>,
 }
 
 impl DTypeVerifier<'_> {
     fn verify(&mut self, dtype: fbd::DType<'_>) -> VortexResult<()> {
-        // Flatbuffer offsets are unsigned and point forward, so the graph is acyclic and a table
-        // can be marked before its children are verified. On error the whole walk is abandoned.
         if !self.verified.insert(dtype._tab.loc()) {
             return Ok(());
         }
@@ -106,7 +84,6 @@ impl DTypeVerifier<'_> {
                 let value = required(map.value_type(), "map value type")?;
                 self.verify(key)?;
                 self.verify(value)?;
-                // `MapDType::try_from_fields` parses the key eagerly to check its nullability.
                 vortex_ensure!(
                     !self.parse(key)?.is_nullable(),
                     "map key dtype must be non-nullable"
@@ -141,9 +118,7 @@ impl DTypeVerifier<'_> {
             fb::Type::Extension => {
                 let ext = required(dtype.type__as_extension(), "extension")?;
                 self.verify(required(ext.storage_dtype(), "extension storage dtype")?)?;
-                // Resolving the extension ID and deserializing its metadata needs the parsed storage
-                // dtype, which `TryFrom` parses eagerly anyway, so parse the extension itself. Its
-                // storage was verified above, so any lazy children it holds are valid too.
+                // Extension metadata is deserialized against the parsed storage dtype.
                 self.parse(dtype)?;
             }
             _ => vortex_bail!("Unknown DType variant {}", dtype.type_type().0),
@@ -152,7 +127,6 @@ impl DTypeVerifier<'_> {
         Ok(())
     }
 
-    /// Parses the table at `dtype` down to its first lazy boundary.
     fn parse(&self, dtype: fbd::DType<'_>) -> VortexResult<DType> {
         DType::try_from(ViewedDType::from_fb_loc(
             dtype._tab.loc(),

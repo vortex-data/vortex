@@ -31,7 +31,6 @@ use vortex_array::flatbuffers::FlatBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_io::segments::SegmentLocation;
 use vortex_layout::LayoutId;
@@ -138,17 +137,14 @@ impl Footer {
             .collect();
         let array_read_ctx = ReadContext::new(array_ids);
 
-        let layout = |layout_bytes| {
-            layout_from_flatbuffer_with_options(
-                layout_bytes,
-                &dtype,
-                &layout_read_ctx,
-                &array_read_ctx,
-                session,
-                session.allows_unknown(),
-            )
-        };
-        let root_layout = layout(layout_bytes.clone())?;
+        let root_layout = layout_from_flatbuffer_with_options(
+            layout_bytes,
+            &dtype,
+            &layout_read_ctx,
+            &array_read_ctx,
+            session,
+            session.allows_unknown(),
+        )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()
@@ -156,11 +152,6 @@ impl Footer {
             .iter()
             .map(SegmentSpec::try_from)
             .try_collect()?;
-
-        // Walk a separate copy of the tree, so the layouts it materializes are dropped as it goes
-        // instead of being cached in `root_layout` for the lifetime of the file.
-        verify_layout_tree(layout(layout_bytes)?, segments.len())
-            .map_err(|e| e.with_context("invalid layout"))?;
 
         // Note this assertion is `<=` since we allow zero-length segments
         if !segments.is_sorted_by_key(|segment| segment.offset) {
@@ -335,26 +326,6 @@ fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> Vo
     Ok(())
 }
 
-/// Deserializes every node of the layout tree once and checks the segments it references exist.
-///
-/// Children are deserialized lazily, on first access, so without this walk a corrupt node deep in
-/// the layout flatbuffer would only be reported by whichever scan first reaches it. Each node is
-/// dropped once its children have been queued, so the walk holds only its frontier in memory.
-fn verify_layout_tree(root: LayoutRef, nsegments: usize) -> VortexResult<()> {
-    let mut stack = vec![root];
-    while let Some(layout) = stack.pop() {
-        for segment_id in layout.segment_ids() {
-            vortex_ensure!(
-                (*segment_id as usize) < nsegments,
-                "{} layout references segment {} but the file has {nsegments} segments",
-                layout.encoding_id(),
-                *segment_id,
-            );
-        }
-        stack.extend(layout.children()?);
-    }
-    Ok(())
-}
 #[cfg(test)]
 mod tests {
     use vortex_array::dtype::Nullability;
