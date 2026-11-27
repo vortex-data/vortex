@@ -30,13 +30,17 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::BoundExpression;
 use vortex_expr::Expression;
 use vortex_expr::eq;
 use vortex_expr::get_item;
 use vortex_expr::gt;
 use vortex_expr::lit;
 use vortex_expr::root;
+use vortex_functions::dynamic_expression::DynamicExpressionSource;
+use vortex_functions::dynamic_expression::input_field_name;
 use vortex_functions::expr::dynamic;
+use vortex_functions::expr::dynamic_expression;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -839,11 +843,64 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
     Ok(())
 }
 
+/// The predicate `ints > bound` of an engine's dynamic filter, replaced as `bound` changes.
+#[derive(Debug)]
+struct GreaterThanBound(Arc<AtomicI32>);
+
+impl std::fmt::Display for GreaterThanBound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ints > {}", self.0.load(Ordering::Relaxed))
+    }
+}
+
+impl DynamicExpressionSource for GreaterThanBound {
+    fn generation(&self) -> u64 {
+        // Bounds start at -1.
+        u64::try_from(i64::from(self.0.load(Ordering::Relaxed)) + 1).unwrap_or(0)
+    }
+
+    fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+        gt(
+            get_item(input_field_name(0), root()),
+            lit(self.0.load(Ordering::Relaxed)),
+        )
+        .bind(scope)
+    }
+}
+
+/// `ints > bound` as a dynamic comparison, or as a dynamic expression like an engine's filter.
+fn greater_than_bound(
+    bound: &Arc<AtomicI32>,
+    layout: &PlanRef,
+    as_expression: bool,
+) -> VortexResult<Expression> {
+    let ints = get_item("ints", root());
+    if as_expression {
+        return Ok(dynamic_expression(
+            Arc::new(GreaterThanBound(Arc::clone(bound))),
+            [ints],
+        ));
+    }
+    let bound = Arc::clone(bound);
+    Ok(dynamic(
+        CompareOperator::Gt,
+        move || Some(bound.load(Ordering::Relaxed).into()),
+        ints.return_dtype(layout.dtype())?,
+        true,
+        ints,
+    ))
+}
+
 /// A dynamic conjunct whose zone maps prove that every row of a chunk satisfies its current value
 /// is not evaluated on that chunk, so the scan reads its zone maps but not its column. Once its
 /// value tightens, the chunks the zone maps no longer prove evaluate it again.
+#[rstest]
+#[case::dynamic_comparison(false)]
+#[case::dynamic_expression(true)]
 #[tokio::test]
-async fn dynamic_conjuncts_proved_by_zone_maps_are_not_evaluated() -> VortexResult<()> {
+async fn dynamic_conjuncts_proved_by_zone_maps_are_not_evaluated(
+    #[case] as_expression: bool,
+) -> VortexResult<()> {
     const TABLE_CHUNKS: usize = 600;
     let session = new_session().with_tokio();
     let (segments, layout) =
@@ -860,17 +917,7 @@ async fn dynamic_conjuncts_proved_by_zone_maps_are_not_evaluated() -> VortexResu
     assert_eq!(all, TABLE_CHUNKS * CHUNK_ROWS);
 
     let bound = Arc::new(AtomicI32::new(-1));
-    let ints = get_item("ints", root());
-    let filter = {
-        let bound = Arc::clone(&bound);
-        dynamic(
-            CompareOperator::Gt,
-            move || Some(bound.load(Ordering::Relaxed).into()),
-            ints.return_dtype(layout.dtype())?,
-            true,
-            ints,
-        )
-    };
+    let filter = greater_than_bound(&bound, &layout, as_expression)?;
 
     // Every zone's minimum is above the bound, so the scan reads the zone map, for pruning and
     // again for the proof since no segment is retained, but not the `ints` column.
