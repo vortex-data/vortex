@@ -11364,7 +11364,6 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "arrow-buffer 60.2.0",
- "bitvec",
  "bytes",
  "codspeed-divan-compat",
  "fearless_simd",
@@ -11623,6 +11622,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-functions",
  "vortex-mask",
  "vortex-session",

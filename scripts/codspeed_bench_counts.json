@@ -8,6 +8,7 @@
     "write_compression": 3
   },
   "vortex-alp": {
+    "alp_chain_decode": 1,
     "alp_compress": 36,
     "alp_fsl_take": 2,
     "alp_rd_take_chunked": 4,
@@ -18,6 +19,7 @@
     "aggregate_max": 15,
     "aggregate_sum": 14,
     "binary_ops": 7,
+    "block_program": 3,
     "cast_decimal": 8,
     "cast_primitive": 7,
     "chunk_array_builder": 31,
@@ -97,6 +99,7 @@
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
+    "date_time_parts_decode": 1,
     "split_temporal": 6
   },
   "vortex-decimal-byte-parts": {
@@ -109,7 +112,8 @@
   },
   "vortex-expr": {
     "expr_large_struct_pack": 4,
-    "expr_optimize": 1
+    "expr_optimize": 1,
+    "stats_rewrite": 8
   },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
@@ -126,6 +130,7 @@
     "delta_decode": 6,
     "for_decode": 0,
     "for_encode": 0,
+    "for_stack_decode": 1,
     "patched_search": 6,
     "rle_decode": 0
   },
