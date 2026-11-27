@@ -932,6 +932,7 @@ impl PivcoData {
     }
 
     /// Shared chunk-level wavelet tree.
+    #[cfg(test)]
     #[inline]
     pub(crate) fn tree(&self) -> &Arc<PivcoTree> {
         &self.tree
@@ -1005,8 +1006,8 @@ pub trait PivcoArrayExt: TypedArrayRef<Pivco> {
     }
 
     #[inline]
-    fn tree(&self) -> &Arc<PivcoTree> {
-        PivcoData::tree(self)
+    fn is_order_preserving(&self) -> bool {
+        PivcoData::is_order_preserving(self)
     }
 
     #[inline]
