@@ -1232,8 +1232,7 @@ fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexRe
     )?
     .into_array();
     let validity = BoolArray::from_iter([true, false]).into_array();
-    let packed =
-        VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
+    let packed = VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
 
     let target = DType::struct_(
         [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
