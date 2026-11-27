@@ -18,9 +18,12 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
+use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeExt;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -29,6 +32,7 @@ use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
 use crate::Scheme;
+use crate::schemes::integer::IntDictScheme;
 use crate::schemes::patches::KeptPatches;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
@@ -56,6 +60,17 @@ impl Scheme for ALPScheme {
     /// Children: encoded_ints=0.
     fn num_children(&self) -> usize {
         1
+    }
+
+    /// `FloatDictScheme` already competes as `ALPScheme`'s sibling at the parent level. Excluding
+    /// `IntDictScheme` on ALP's encoded integer child keeps low-cardinality floats as `Dict(ALP)`
+    /// rather than `ALP(Dict)` so DuckDB can export a dictionary vector directly and reads only
+    /// ALP-decode the distinct dictionary values instead of every row.
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        vec![DescendantExclusion {
+            excluded: IntDictScheme.id(),
+            children: ChildSelection::One(0),
+        }]
     }
 
     fn expected_compression_ratio(

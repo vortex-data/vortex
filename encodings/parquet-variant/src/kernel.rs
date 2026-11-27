@@ -6,6 +6,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::cast::AsArray;
+use arrow_array::types::Decimal32Type;
+use arrow_array::types::Decimal64Type;
+use arrow_array::types::Decimal128Type;
+use arrow_array::types::Decimal256Type;
+use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
 use parquet_variant::VariantPath as PqVariantPath;
@@ -120,7 +126,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             GetOptions::new_with_path(to_parquet_variant_path(parent.options.path())?)
                 .with_as_type(as_type.clone());
 
-        let arrow_output = arrow_variant_get(&arrow_input, get_options)?;
+        let arrow_output = null_if_decimal_overflows(arrow_variant_get(&arrow_input, get_options)?);
         let output = if parent.options.dtype().is_none_or(DType::is_variant) {
             let arrow_variant_output = ArrowVariantArray::try_new(arrow_output.as_ref())?;
             ParquetVariant::from_arrow_variant_nullable(
@@ -142,6 +148,35 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             "VariantGet output dtype must match parent dtype"
         );
         Ok(Some(output))
+    }
+}
+
+/// Nulls the decimals that do not fit their precision. Arrow rescales an integer as if it fits the
+/// precision of its Variant decimal type, so an `Int32` such as `2147483647` can come back as a
+/// `Decimal(9, 0)` value. Such a value does not convert, which a null represents.
+fn null_if_decimal_overflows(array: ArrowArrayRef) -> ArrowArrayRef {
+    match array.data_type() {
+        DataType::Decimal32(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal32Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        DataType::Decimal64(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal64Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        DataType::Decimal128(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal128Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        DataType::Decimal256(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal256Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        _ => array,
     }
 }
 
@@ -317,21 +352,27 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
     use parquet_variant::VariantMetadata;
+    use parquet_variant_compute::ShreddedSchemaBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
+    use parquet_variant_compute::shred_variant;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -341,11 +382,15 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType as VortexDType;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -365,6 +410,7 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
+        vortex_functions::initialize(&session);
         crate::initialize(&session);
         vortex_uuid::initialize(&session);
         session
@@ -1301,6 +1347,444 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         test_filter_conformance(&array, &mut ctx);
         test_take_conformance(&array, &mut ctx);
+        Ok(())
+    }
+
+    /// Events shredded as `kind` and `commit.collection`, canonicalized. Only some events have a
+    /// `commit`, and `commit.rev` stays in the residual value of `commit`.
+    fn make_nested_shredded_events() -> VortexResult<ArrayRef> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","commit":{"collection":"post","rev":1}}"#,
+            r#"{"kind":"identity"}"#,
+            r#"{"kind":"commit","commit":{"collection":"like","rev":2}}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .with_path("commit.collection", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let parquet_array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        Ok(canonical.into_array())
+    }
+
+    /// The shapes in which a scan hands a Variant column to `variant_get`.
+    #[derive(Clone, Copy, Debug)]
+    enum Input {
+        Canonical,
+        Chunked,
+        Filtered,
+    }
+
+    #[rstest]
+    #[case::canonical(Input::Canonical, &[0, 1, 2])]
+    #[case::chunked(Input::Chunked, &[0, 1, 2])]
+    #[case::filtered(Input::Filtered, &[0, 2])]
+    fn test_variant_get_nested_shredded_path(
+        #[case] input: Input,
+        #[case] rows: &[usize],
+    ) -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let array = match input {
+            Input::Canonical => events,
+            Input::Chunked => ChunkedArray::try_new(
+                [events.slice(0..2)?, events.slice(2..3)?],
+                events.dtype().clone(),
+            )?
+            .into_array(),
+            Input::Filtered => events.filter(Mask::from_iter([true, false, true]))?,
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let collection = [Some("post"), None, Some("like")];
+        assert_arrays_eq!(
+            execute_variant_get(
+                array.clone(),
+                "$.commit.collection",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            VarBinViewArray::from_iter_nullable_str(rows.iter().map(|&row| collection[row])),
+            &mut ctx
+        );
+
+        let rev = [Some(1i64), None, Some(2)];
+        assert_arrays_eq!(
+            execute_variant_get(
+                array,
+                "$.commit.rev",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter(rows.iter().map(|&row| rev[row])),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_variant_get_partially_shredded_struct_keeps_residual_fields() -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let requested = VortexDType::Struct(
+            StructFields::new(
+                FieldNames::from(["collection", "rev"]),
+                vec![
+                    VortexDType::Utf8(Nullability::Nullable),
+                    VortexDType::Primitive(PType::I64, Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+        let expected = VortexStructArray::try_from_iter_with_validity(
+            [
+                (
+                    "collection",
+                    VarBinViewArray::from_iter_nullable_str([Some("post"), None, Some("like")])
+                        .into_array(),
+                ),
+                (
+                    "rev",
+                    PrimitiveArray::from_option_iter([Some(1i64), None, Some(2)]).into_array(),
+                ),
+            ],
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+
+        assert_arrays_eq!(
+            execute_variant_get(events, "$.commit", Some(requested))?,
+            expected,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Rows whose value does not fit the shredded type stay in the residual value, and are
+    /// extracted from there into the positions the typed column leaves null.
+    #[rstest]
+    #[case::as_string(DataType::Utf8, VortexDType::Utf8(Nullability::Nullable))]
+    #[case::as_integer(
+        DataType::Int64,
+        VortexDType::Primitive(PType::I64, Nullability::Nullable)
+    )]
+    // Arrow reads "y" as true.
+    #[case::strings_as_boolean(DataType::Utf8, VortexDType::Bool(Nullability::Nullable))]
+    // Arrow rounds 12.345 to 12.35.
+    #[case::decimal_to_smaller_scale(
+        DataType::Decimal128(12, 3),
+        VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
+    )]
+    // Arrow parses "-2.345e1" as -23.45.
+    #[case::strings_as_decimal(
+        DataType::Utf8,
+        VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
+    )]
+    fn test_variant_get_fills_rows_the_shredded_column_lacks(
+        #[case] shredded_type: DataType,
+        #[case] requested: VortexDType,
+    ) -> VortexResult<()> {
+        let rows = vec![
+            Some(r#"{"a":"x"}"#),
+            Some(r#"{"a":7}"#),
+            Some(r#"{"b":1}"#),
+            Some(r#"{"a":"y"}"#),
+            Some(r#"{"a":8}"#),
+            Some(r#"{"a":true}"#),
+            Some(r#"{"a":12.345}"#),
+            Some(r#"{"a":" 1.005 "}"#),
+            Some(r#"{"a":"-2.345e1"}"#),
+        ];
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &shredded_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        let expected = execute_variant_get(unshredded, "$.a", Some(requested.clone()))?;
+        assert!(
+            !expected
+                .validity()?
+                .execute_mask(expected.len(), &mut ctx)?
+                .all_false(),
+            "the fixture must extract some values"
+        );
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested))?,
+            expected,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Arrow shreds each object field to a nested Variant. A struct of such fields reads as the
+    /// unshredded value does.
+    #[rstest]
+    #[case::complete(vec![Some(r#"{"a":1,"b":"x"}"#), Some(r#"{"a":2,"b":"y"}"#)])]
+    #[case::mixed(vec![
+        Some(r#"{"a":1,"b":"x"}"#),
+        Some(r#"{"a":"2","b":"y"}"#),
+        Some(r#"{"a":7.0,"b":"v"}"#),
+        Some(r#"{"a":4.5,"b":"u"}"#),
+        Some(r#"{"b":"z"}"#),
+        None,
+        Some(r#"{"a":3,"b":"w","c":true}"#),
+    ])]
+    fn test_variant_get_struct_of_arrow_shredded_fields(
+        #[case] rows: Vec<Option<&str>>,
+    ) -> VortexResult<()> {
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &DataType::Int64)?
+            .with_path("b", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        let requested = VortexDType::Struct(
+            StructFields::new(
+                FieldNames::from(["a", "b"]),
+                vec![
+                    VortexDType::Primitive(PType::I64, Nullability::Nullable),
+                    VortexDType::Utf8(Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$", Some(requested.clone()))?,
+            execute_variant_get(unshredded, "$", Some(requested))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Draws a string that is often a number in the syntax that Arrow's decimal parser reads.
+    fn draw_number_string(tc: &TestCase) -> String {
+        if tc.draw(gs::booleans()) {
+            let tokens = ["0", "1", "5", "9", ".", "-", "+", "e", "E", " "];
+            return tc
+                .draw(gs::vecs(gs::sampled_from(&tokens)).max_size(10))
+                .concat();
+        }
+
+        let digits = |max_size| {
+            tc.draw(gs::vecs(gs::sampled_from(&["0", "1", "4", "5", "9"])).max_size(max_size))
+                .concat()
+        };
+        let sign = tc.draw(gs::sampled_from(&["", "-", "+"]));
+        let integer = digits(20);
+        let fraction = if tc.draw(gs::booleans()) {
+            format!(".{}", digits(20))
+        } else {
+            String::new()
+        };
+        let exponent = if tc.draw(gs::booleans()) {
+            let exponent_sign = tc.draw(gs::sampled_from(&["", "-", "+"]));
+            format!(
+                "e{exponent_sign}{}",
+                tc.draw(gs::integers::<u8>().max_value(45))
+            )
+        } else {
+            String::new()
+        };
+        format!("{sign}{integer}{fraction}{exponent}")
+    }
+
+    fn check_strings_convert_to_decimals_as_arrow_does(tc: &TestCase) -> VortexResult<()> {
+        let precision = tc.draw(gs::integers::<u8>().min_value(1).max_value(38));
+        let max_scale = i8::try_from(precision)?;
+        let scale = tc.draw(gs::integers::<i8>().min_value(-10).max_value(max_scale));
+        let requested =
+            VortexDType::Decimal(DecimalDType::new(precision, scale), Nullability::Nullable);
+
+        let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+        let rows = (0..len)
+            .map(|_| format!(r#"{{"a":"{}"}}"#, draw_number_string(tc)))
+            .collect::<Vec<_>>();
+        let rows = rows
+            .iter()
+            .map(|row| Some(row.as_str()))
+            .collect::<Vec<_>>();
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        // The unshredded strings convert through Arrow, the shredded ones through Vortex.
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested.clone()))?,
+            execute_variant_get(unshredded, "$.a", Some(requested))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[hegel::test(test_cases = 300)]
+    fn shredded_strings_convert_to_decimals_as_arrow_does(tc: TestCase) {
+        check_strings_convert_to_decimals_as_arrow_does(&tc)
+            .vortex_expect("shredded strings must convert to decimals as Arrow converts them");
+    }
+
+    fn check_values_convert_to_decimals_as_arrow_does(tc: &TestCase) -> VortexResult<()> {
+        let shredded_types = [
+            DataType::Int8,
+            DataType::Int32,
+            DataType::Int64,
+            DataType::Float64,
+            DataType::Boolean,
+            DataType::Utf8,
+            DataType::Decimal64(18, 4),
+        ];
+        let shredded_type = tc.draw(gs::sampled_from(&shredded_types));
+        let precision = tc.draw(gs::integers::<u8>().min_value(1).max_value(38));
+        let max_scale = i8::try_from(precision)?;
+        let scale = tc.draw(gs::integers::<i8>().min_value(-10).max_value(max_scale));
+        let requested =
+            VortexDType::Decimal(DecimalDType::new(precision, scale), Nullability::Nullable);
+
+        let values = [
+            "0",
+            "-1",
+            "127",
+            "2147483647",
+            "-9223372036854775808",
+            "2.5",
+            "-0.125",
+            "1e20",
+            "true",
+            r#""1.25""#,
+            "12.3456",
+        ];
+        let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+        let rows = (0..len)
+            .map(|_| format!(r#"{{"a":{}}}"#, tc.draw(gs::sampled_from(&values))))
+            .collect::<Vec<_>>();
+        let rows = rows
+            .iter()
+            .map(|row| Some(row.as_str()))
+            .collect::<Vec<_>>();
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &shredded_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested.clone()))?,
+            execute_variant_get(unshredded, "$.a", Some(requested))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// The typed values of each shredded type convert through Vortex, the unshredded values
+    /// through Arrow.
+    #[hegel::test(test_cases = 300)]
+    fn shredded_values_convert_to_decimals_as_arrow_does(tc: TestCase) {
+        check_values_convert_to_decimals_as_arrow_does(&tc)
+            .vortex_expect("shredded values must convert to decimals as Arrow converts them");
+    }
+
+    /// A chunked Variant builds one storage array, so that it compresses and deserializes as a
+    /// single array.
+    #[test]
+    fn test_chunked_storage_executes_to_one_storage_array() -> VortexResult<()> {
+        let first = make_unshredded_json_array(vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#)])?;
+        let second = make_unshredded_json_array(vec![Some(r#"{"a":3}"#)])?;
+        let dtype = first.dtype().clone();
+        let chunked = ChunkedArray::try_new([first, second], dtype)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let Canonical::Variant(canonical) = chunked.clone().execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        assert!(canonical.core_storage().is::<ParquetVariant>());
+
+        let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
+        assert_arrays_eq!(
+            execute_variant_get(chunked, "$.a", Some(requested))?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Chunks of shredded storage build one storage array beside one shredded child, and keep
+    /// every value.
+    #[test]
+    fn test_chunked_shredded_storage_builds_one_storage_array() -> VortexResult<()> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","n":1}"#,
+            r#"{"kind":"identity","n":2}"#,
+            r#"{"kind":"commit","n":3}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let storage = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let dtype = storage.dtype().clone();
+        let chunked = ChunkedArray::try_new([storage.slice(0..2)?, storage.slice(2..3)?], dtype)?
+            .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let Canonical::Variant(canonical) = chunked.clone().execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        assert!(canonical.core_storage().is::<ParquetVariant>());
+        assert!(canonical.shredded().is_some());
+
+        assert_arrays_eq!(
+            execute_variant_get(
+                chunked.clone(),
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable))
+            )?,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("commit"),
+                Some("identity"),
+                Some("commit")
+            ]),
+            &mut ctx
+        );
+        let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
+        assert_arrays_eq!(
+            execute_variant_get(chunked, "$.n", Some(requested))?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
+            &mut ctx
+        );
         Ok(())
     }
 }

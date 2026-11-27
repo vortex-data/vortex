@@ -30,7 +30,7 @@
 ### Reproduce
 
 ```bash
-cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
+cargo +nightly fuzz run -D --sanitizer=none{% if EXTRA_CARGO_ARGS %} {{EXTRA_CARGO_ARGS}}{% endif %} {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
 ```
 
 <details>
@@ -57,17 +57,17 @@ rm ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip
 3. Reproduce the crash:
 
 ```bash
-cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
+cargo +nightly fuzz run -D --sanitizer=none{% if EXTRA_CARGO_ARGS %} {{EXTRA_CARGO_ARGS}}{% endif %} {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
 ```
 
 If you want a backtrace:
 
 ```bash
-RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
+RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none{% if EXTRA_CARGO_ARGS %} {{EXTRA_CARGO_ARGS}}{% endif %} {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
 ```
 
 ```bash
-RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
+RUST_BACKTRACE=full cargo +nightly fuzz run -D --sanitizer=none{% if EXTRA_CARGO_ARGS %} {{EXTRA_CARGO_ARGS}}{% endif %} {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
 ```
 
 </details>
@@ -80,7 +80,7 @@ mkdir -p ./fuzz/artifacts
 mv ~/Downloads/{{FUZZ_TARGET}}-crash-artifacts.zip ./fuzz/artifacts/
 unzip ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip -d ./fuzz/artifacts/
 rm ./fuzz/artifacts/{{FUZZ_TARGET}}-crash-artifacts.zip
-RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
+RUST_BACKTRACE=1 cargo +nightly fuzz run -D --sanitizer=none{% if EXTRA_CARGO_ARGS %} {{EXTRA_CARGO_ARGS}}{% endif %} {{FUZZ_TARGET}} ./fuzz/artifacts/{{FUZZ_TARGET}}/{{CRASH_FILE}} -- -rss_limit_mb={{RSS_LIMIT_MB}}
 ```
 
 </details>
