@@ -51,6 +51,12 @@ use vortex::error::vortex_bail;
 use crate::cpp;
 
 /// Converts a `duckdb_vx_error` out-parameter into a [`VortexResult`], freeing the error if set.
+///
+/// # Safety
+///
+/// `err` must be either null or a valid, unfreed `duckdb_vx_error` handle returned by the C++ FFI
+/// layer. This function takes ownership of `err` and frees it when non-null; callers must not use
+/// `err` again after calling this function.
 pub(crate) unsafe fn check_vx_error(err: cpp::duckdb_vx_error) -> VortexResult<()> {
     if err.is_null() {
         return Ok(());

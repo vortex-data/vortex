@@ -32,7 +32,7 @@ char *duckdb_vx_value_to_string(duckdb_value value);
 
 const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk, duckdb_vx_error *err);
 
-void duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err);
+duckdb_state duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err);
 
 char *duckdb_vx_logical_type_stringify(duckdb_logical_type ty);
 duckdb_logical_type duckdb_vx_logical_type_copy(duckdb_logical_type ty);

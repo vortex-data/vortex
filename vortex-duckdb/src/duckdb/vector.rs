@@ -71,6 +71,7 @@ impl Vector {
         let ptr = unsafe {
             cpp::duckdb_vx_vector_slice(other.as_ptr(), range.start, range.end, &raw mut err)
         };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_vector_slice`.
         unsafe { check_vx_error(err)? };
         vortex_ensure!(!ptr.is_null(), "Failed to slice vector");
         Ok(unsafe { Self::own(ptr) })
@@ -115,6 +116,7 @@ impl VectorRef {
                 &raw mut err,
             )
         };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_vector_dictionary`.
         unsafe { check_vx_error(err)? };
         vortex_ensure!(
             state == cpp::duckdb_state::DuckDBSuccess,
@@ -123,11 +125,14 @@ impl VectorRef {
         Ok(())
     }
 
-    pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) -> VortexResult<()> {
+    /// Converts the vector into a sequence vector starting at `start`, incrementing by `step`,
+    /// with `capacity` elements.
+    pub fn to_sequence(&mut self, start: i64, step: i64, capacity: u64) -> VortexResult<()> {
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let state = unsafe {
-            cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity, &raw mut err)
+            cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, step, capacity, &raw mut err)
         };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_sequence_vector`.
         unsafe { check_vx_error(err)? };
         vortex_ensure!(
             state == cpp::duckdb_state::DuckDBSuccess,
@@ -151,6 +156,7 @@ impl VectorRef {
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let state =
             unsafe { cpp::duckdb_vx_vector_set_size(self.as_ptr(), size as idx_t, &raw mut err) };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_vector_set_size`.
         unsafe { check_vx_error(err)? };
         vortex_ensure!(
             state == cpp::duckdb_state::DuckDBSuccess,
@@ -373,6 +379,7 @@ impl VectorRef {
         }
     }
 
+    /// Returns the value at `idx`, or `None` if `idx >= len` or if DuckDB fails to read the value.
     pub fn get_value(&self, idx: u64, len: u64) -> Option<Value> {
         if idx >= len {
             return None;

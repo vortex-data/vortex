@@ -35,6 +35,7 @@ impl ReusableDict {
         let ptr = unsafe {
             cpp::duckdb_vx_reusable_dict_create(logical_type.as_ptr(), size as _, &raw mut err)
         };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_reusable_dict_create`.
         unsafe { check_vx_error(err)? };
         vortex_ensure!(!ptr.is_null(), "Failed to create reusable dictionary");
         Ok(unsafe { Self::own(ptr) })
@@ -85,6 +86,7 @@ impl VectorRef {
                 &raw mut err,
             )
         };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_vector_dictionary_reusable`.
         unsafe { check_vx_error(err)? };
         vortex_ensure!(
             state == cpp::duckdb_state::DuckDBSuccess,

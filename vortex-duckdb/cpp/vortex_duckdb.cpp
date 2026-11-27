@@ -96,8 +96,8 @@ extern "C" const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk, duck
     return result;
 }
 
-extern "C" void duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err) {
-    TryWrap(err, [&]() {
+extern "C" duckdb_state duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err) {
+    return TryWrap(err, [&]() {
         auto dchunk = reinterpret_cast<DataChunk *>(chunk);
         dchunk->Verify();
     });

@@ -79,11 +79,17 @@ impl TryFrom<&DataChunkRef> for String {
     fn try_from(value: &DataChunkRef) -> Result<Self, Self::Error> {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
-        unsafe {
-            cpp::duckdb_data_chunk_verify(value.as_ptr(), &raw mut err);
-            check_vx_error(err)?;
-        };
+        {
+            let state = unsafe { cpp::duckdb_data_chunk_verify(value.as_ptr(), &raw mut err) };
+            // SAFETY: `err` was initialized to null and populated by `duckdb_data_chunk_verify`.
+            unsafe { check_vx_error(err)? };
+            vortex_ensure!(
+                state == cpp::duckdb_state::DuckDBSuccess,
+                "Failed to verify DataChunk"
+            );
+        }
         let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &raw mut err) };
+        // SAFETY: `err` is populated by `duckdb_data_chunk_to_string` (reset to null on entry).
         unsafe { check_vx_error(err)? };
         vortex_ensure!(!debug.is_null(), "Failed to format DataChunk");
         let string = unsafe { CStr::from_ptr(debug).to_string_lossy() }.to_string();
