@@ -445,9 +445,12 @@ mod tests {
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::Constant;
+        use vortex_array::arrays::Masked;
         use vortex_array::arrays::VarBinViewArray;
         use vortex_array::arrays::Variant;
         use vortex_array::arrays::variant::VariantArraySlotsExt;
+        use vortex_array::assert_arrays_eq;
         use vortex_array::validity::Validity;
         use vortex_error::VortexResult;
         use vortex_error::vortex_err;
@@ -553,6 +556,39 @@ mod tests {
             compressor.compress(&variant, &mut ctx)?;
 
             assert!(policy.0.load(Ordering::Relaxed) > 0);
+            Ok(())
+        }
+
+        /// The session allowlist and built-in gates also apply to the Variant storage compressor.
+        #[test]
+        fn test_allowlist_applies_to_variant_storage() -> VortexResult<()> {
+            let (variant, value) = unshredded_variant()?;
+
+            // `SESSION` registers no encodings, so Variant storage must not emit Zstd, Constant,
+            // or Masked.
+            let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION).build();
+            let mut ctx = SESSION.create_execution_ctx();
+
+            let compressed = compressor.compress(&variant, &mut ctx)?;
+            let core_storage = compressed
+                .as_opt::<Variant>()
+                .ok_or_else(|| vortex_err!("expected a Variant array"))?
+                .core_storage()
+                .clone();
+            let compressed_value = core_storage
+                .as_opt::<ParquetVariant>()
+                .ok_or_else(|| vortex_err!("expected Parquet Variant storage"))?
+                .value()
+                .cloned()
+                .ok_or_else(|| vortex_err!("expected a value child"))?;
+            assert_arrays_eq!(compressed_value, value, &mut ctx);
+            for node in compressed.depth_first_traversal() {
+                assert!(
+                    !node.is::<Zstd>() && !node.is::<Constant>() && !node.is::<Masked>(),
+                    "disallowed encoding emitted in Variant storage: {}",
+                    node.encoding_id()
+                );
+            }
             Ok(())
         }
     }
