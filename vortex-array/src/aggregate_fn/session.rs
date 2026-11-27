@@ -308,7 +308,10 @@ impl AggregateFnSession {
         for (key, kernel) in self.kernels.snapshot().iter().filter(|(_, k)| keep(k)) {
             kernels.insert(*key, *kernel);
         }
-        Self { kernels, ..self.clone() }
+        Self {
+            kernels,
+            ..self.clone()
+        }
     }
 
     /// Captures the currently registered aggregate kernels, so repeated lookups skip the session

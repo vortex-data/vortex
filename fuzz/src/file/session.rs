@@ -23,8 +23,8 @@ use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_io::runtime::BlockingRuntime;
@@ -62,7 +62,9 @@ static KERNELS: LazyLock<Kernels> = LazyLock::new(|| {
     let mut visited = Vec::new();
     let mut visit = |kernel: &dyn Debug| {
         let name = format!("{kernel:?}");
-        let short = name.rsplit_once(": ").map_or(name.as_str(), |(_, kernel)| kernel);
+        let short = name
+            .rsplit_once(": ")
+            .map_or(name.as_str(), |(_, kernel)| kernel);
         visited.push(short.trim_end_matches(" }").to_string());
         true
     };
@@ -73,7 +75,12 @@ static KERNELS: LazyLock<Kernels> = LazyLock::new(|| {
     names.dedup();
     let order = visited
         .iter()
-        .map(|name| names.binary_search(name).ok().vortex_expect("name is listed"))
+        .map(|name| {
+            names
+                .binary_search(name)
+                .ok()
+                .vortex_expect("name is listed")
+        })
         .collect();
     Kernels { names, order }
 });
