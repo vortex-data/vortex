@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
+use fastlanes::Delta as FastLanesDelta;
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::slice::SliceArraySlotsExt;
+use vortex_array::block::BlockBuf;
+use vortex_array::block::BlockSource;
+use vortex_array::block::BlockValidity;
+use vortex_array::block::SourceBlock;
+use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -37,14 +48,9 @@ pub fn delta_decompress(
     let bases = bases.reinterpret_cast(original_ptype.to_unsigned());
 
     let decoded = match_each_unsigned_integer_ptype!(bases.ptype(), |T| {
-        let mut deltas = None;
-        let buffer = DeltaChunks::<T, { T::LANES }>::for_array(
-            array.as_view(),
-            bases.as_slice(),
-            &mut deltas,
-            ctx,
-        )?
-        .decode_all();
+        let buffer =
+            DeltaChunks::<T, { T::LANES }>::for_array(array.as_view(), bases.to_buffer(), ctx)?
+                .decode_all();
         // Whole chunks were decoded; keep the values within the Delta array's slice.
         let buffer = buffer.slice(start..end);
 
@@ -52,6 +58,63 @@ pub fn delta_decompress(
     });
 
     Ok(decoded.reinterpret_cast(original_ptype))
+}
+
+/// Stream decoded chunks into a parent without allocating Delta's full logical output.
+pub(crate) fn delta_source(
+    array: ArrayView<'_, crate::Delta>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Box<dyn BlockSource>>> {
+    if !array.deltas().is::<Primitive>() && PackedDeltas::try_new(array.deltas()).is_none() {
+        return Ok(None);
+    }
+    let bases = array.bases().clone().execute::<PrimitiveArray>(ctx)?;
+    let bases = bases.reinterpret_cast(bases.ptype().to_unsigned());
+    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+    Ok(Some(match_each_unsigned_integer_ptype!(
+        bases.ptype(),
+        |T| {
+            Box::new(DeltaSource {
+                chunks: DeltaChunks::<T, { T::LANES }>::for_array(array, bases.to_buffer(), ctx)?,
+                offset: array.offset(),
+                validity,
+            }) as Box<dyn BlockSource>
+        }
+    )))
+}
+
+struct DeltaSource<T, const LANES: usize> {
+    chunks: DeltaChunks<T, LANES>,
+    offset: usize,
+    validity: Mask,
+}
+
+impl<T: NativePType + FastLanesDelta, const LANES: usize> BlockSource for DeltaSource<T, LANES> {
+    fn validity(&self) -> &Mask {
+        &self.validity
+    }
+
+    fn block_offset(&self) -> usize {
+        self.offset
+    }
+
+    fn fill<'s>(
+        &'s mut self,
+        rows: Range<usize>,
+        scratch: &mut BlockBuf,
+        _: &mut BlockValidity<'_>,
+    ) -> VortexResult<SourceBlock<'s>> {
+        let start = self.offset + rows.start;
+        let chunk = scratch
+            .values_mut::<T>(FL_CHUNK_SIZE)
+            .first_chunk_mut()
+            .vortex_expect("the scratch fits a Delta chunk");
+        self.chunks.decode_into(start / FL_CHUNK_SIZE, chunk);
+        Ok(SourceBlock::Scratch {
+            offset: start % FL_CHUNK_SIZE,
+            len: rows.len(),
+        })
+    }
 }
 
 /// Bit-packed deltas whose delta chunks each line up with one packed block.

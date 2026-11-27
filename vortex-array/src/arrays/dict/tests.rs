@@ -14,6 +14,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
+use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::assert_arrays_eq;
@@ -25,6 +26,45 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[test]
+fn repeated_dictionary_codes_cross_blocks_and_skip_empty_runs() -> VortexResult<()> {
+    let codes = PiecewiseSequenceArray::try_new(
+        buffer![u64::MAX, 0, 1, u64::MAX].into_array(),
+        buffer![0u64, 1025, 1047, 0].into_array(),
+        ConstantArray::new(0u64, 4).into_array(),
+        2072,
+    )?;
+    let table = buffer![5u32, 9].into_array();
+    let dict = DictArray::try_new(codes.into_array(), table)?.into_array();
+    let mut ctx = SESSION.create_execution_ctx().with_block_fusion(true);
+    let actual = dict.execute::<PrimitiveArray>(&mut ctx)?;
+    let expected = PrimitiveArray::from_iter(
+        std::iter::repeat_n(5u32, 1025).chain(std::iter::repeat_n(9u32, 1047)),
+    );
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn repeated_dictionary_codes_check_declared_length() -> VortexResult<()> {
+    for declared_len in [2, 4] {
+        let codes = PiecewiseSequenceArray::try_new(
+            buffer![0u64].into_array(),
+            buffer![3u64].into_array(),
+            ConstantArray::new(0u64, 1).into_array(),
+            declared_len,
+        )?;
+        let dict = DictArray::try_new(codes.into_array(), buffer![99u32].into_array())?;
+        let mut ctx = SESSION.create_execution_ctx().with_block_fusion(true);
+        assert!(
+            dict.into_array()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .is_err()
+        );
+    }
+    Ok(())
+}
 
 #[test]
 fn test_scalar_at_null_code() {

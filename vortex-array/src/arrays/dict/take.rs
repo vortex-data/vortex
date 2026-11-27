@@ -132,6 +132,11 @@ where
         if let Some(result) = short_circuit::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
+        // Dict::execute handles this lookup at the root. Leaving the dictionary intact lets
+        // a waiting spine parent consume the lookup block by block.
+        if ctx.block_fusion_enabled() && super::block::can_source(parent.codes(), array.array()) {
+            return Ok(None);
+        }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(taken) = &result {
             propagate_take_stats(array.array(), taken, parent.codes())?;

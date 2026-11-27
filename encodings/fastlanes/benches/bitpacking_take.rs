@@ -19,6 +19,8 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::builder_with_capacity_in;
@@ -33,6 +35,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
+use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::BitPackedData;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
@@ -682,4 +685,208 @@ fn bench_piecewise_take(bencher: Bencher, packed: ArrayRef, indices: ArrayRef) {
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
         });
+}
+
+/// Numeric dictionary decoding with a 512-entry lookup table and 9-bit codes.
+#[divan::bench(args = [false, true])]
+fn dictionary_packed_codes(bencher: Bencher, fusion: bool) {
+    let rows = 65_536u32;
+    let code = |row: u32| (row.wrapping_mul(2_654_435_761) >> 23) as u16;
+    let value = |index: u16| u64::from(index) * 12_001 + 781;
+    let mut ctx = SESSION.create_execution_ctx();
+    let codes = PrimitiveArray::from_iter((0..rows).map(code));
+    let packed = BitPackedData::encode(&codes.into_array(), 9, &mut ctx).unwrap();
+    let values = PrimitiveArray::from_iter((0..512).map(value));
+    let dict = DictArray::try_new(packed.into_array(), values.into_array())
+        .unwrap()
+        .into_array();
+    let result = dict.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
+    assert!(
+        result
+            .as_slice::<u64>()
+            .iter()
+            .copied()
+            .eq((0..rows).map(code).map(value))
+    );
+    bencher
+        .counter(ItemsCount::new(rows))
+        .with_inputs(|| {
+            (
+                dict.clone(),
+                SESSION.create_execution_ctx().with_block_fusion(fusion),
+            )
+        })
+        .bench_values(|(dict, mut ctx)| dict.execute::<PrimitiveArray>(&mut ctx).unwrap());
+}
+
+/// The repeated dictionary codes produced by RunEndArray::to_dict.
+#[divan::bench(args = [false, true])]
+fn dictionary_run_codes(bencher: Bencher, fusion: bool) {
+    let runs = 4096u64;
+    let lengths = (0..runs).map(|i| 1 + (i * 7) % 31);
+    let rows = lengths.clone().sum::<u64>() as usize;
+    let indices = PiecewiseSequenceArray::try_new(
+        PrimitiveArray::from_iter(0..runs).into_array(),
+        PrimitiveArray::from_iter(lengths.clone()).into_array(),
+        ConstantArray::new(0u64, runs as usize).into_array(),
+        rows,
+    )
+    .unwrap();
+    let value = |i: u64| i.wrapping_mul(2_654_435_761);
+    let dict = DictArray::try_new(
+        indices.into_array(),
+        PrimitiveArray::from_iter((0..runs).map(value)).into_array(),
+    )
+    .unwrap()
+    .into_array();
+    let result = dict
+        .clone()
+        .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+    assert!(
+        result.as_slice::<u64>().iter().copied().eq((0..runs)
+            .zip(lengths)
+            .flat_map(|(run, len)| std::iter::repeat_n(value(run), len as usize)))
+    );
+    bencher
+        .counter(ItemsCount::new(rows))
+        .with_inputs(|| {
+            (
+                dict.clone(),
+                SESSION.create_execution_ctx().with_block_fusion(fusion),
+            )
+        })
+        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
+}
+
+/// Control for plain dictionary decoding when no consumer requests a block source.
+#[divan::bench(args = [false, true])]
+fn dictionary_plain_codes(bencher: Bencher, fusion: bool) {
+    let rows = 65_536u32;
+    let codes =
+        PrimitiveArray::from_iter((0..rows).map(|i| (i.wrapping_mul(2_654_435_761) >> 23) as u16));
+    let table = PrimitiveArray::from_iter((0..512u64).map(|i| i * 12_001 + 781));
+    let dict = DictArray::try_new(codes.into_array(), table.into_array())
+        .unwrap()
+        .into_array();
+    bencher
+        .counter(ItemsCount::new(rows))
+        .with_inputs(|| {
+            (
+                dict.clone(),
+                SESSION.create_execution_ctx().with_block_fusion(fusion),
+            )
+        })
+        .bench_values(|(dict, mut ctx)| dict.execute::<PrimitiveArray>(&mut ctx).unwrap());
+}
+
+/// The two representations share the packed bytes and originate from the same exceptions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PatchStorage {
+    Native,
+    Wrapper,
+}
+
+/// Sliced integer telemetry with one outlier per 211 rows.
+#[divan::bench(args = [false, true])]
+fn patched_packed_decode(bencher: Bencher, fusion: bool) {
+    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, 65_536, 211);
+}
+
+#[divan::bench(args = [false, true])]
+fn patched_packed_decode_million(bencher: Bencher, fusion: bool) {
+    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, 1 << 20, 97);
+}
+
+#[divan::bench(args = [(262_144, false), (262_144, true), (524_288, false), (524_288, true)])]
+fn patched_packed_window(bencher: Bencher, (rows, fusion): (u32, bool)) {
+    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, rows, 97);
+}
+
+#[divan::bench(args = [(65_536, false), (65_536, true), (262_144, false), (262_144, true),
+    (524_288, false), (524_288, true), (1_048_576, false), (1_048_576, true)])]
+fn native_packed_decode(bencher: Bencher, (rows, fusion): (u32, bool)) {
+    let stride = if rows == 65_536 { 211 } else { 97 };
+    bench_patched_packed(bencher, PatchStorage::Native, fusion, rows, stride);
+}
+
+#[divan::bench(args = [false, true])]
+fn wrapper_one_patch_per_chunk(bencher: Bencher, fusion: bool) {
+    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, 1 << 20, 1024);
+}
+
+#[divan::bench]
+fn native_one_patch_per_chunk(bencher: Bencher) {
+    bench_patched_packed(bencher, PatchStorage::Native, false, 1 << 20, 1024);
+}
+
+fn bench_patched_packed(
+    bencher: Bencher,
+    storage: PatchStorage,
+    fusion: bool,
+    rows: u32,
+    stride: usize,
+) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let reading = |row: u32| {
+        if (row as usize).is_multiple_of(stride) {
+            rows + row
+        } else {
+            row.wrapping_mul(2_654_435_761) >> 23
+        }
+    };
+    let values = PrimitiveArray::from_iter((0..rows).map(reading));
+    let native = BitPackedData::encode(&values.into_array(), 9, &mut ctx).unwrap();
+    let patches = native.patches().unwrap();
+    let packed = match storage {
+        PatchStorage::Native => native.into_array(),
+        PatchStorage::Wrapper => {
+            let inner = BitPacked::try_new(
+                native.packed().clone(),
+                PType::U32,
+                Validity::NonNullable,
+                None,
+                9,
+                native.len(),
+                native.offset(),
+            )
+            .unwrap();
+            Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
+                .unwrap()
+                .into_array()
+        }
+    };
+    let patched = packed.slice(31..rows as usize - 49).unwrap();
+    let make_ctx = || SESSION.create_execution_ctx().with_block_fusion(fusion);
+    #[cfg(not(codspeed))]
+    {
+        let traced = vortex_array::test_harness::trace::trace_op(|| {
+            patched.clone().execute::<PrimitiveArray>(&mut make_ctx())
+        })
+        .unwrap();
+        let trace = traced.trace.to_string();
+        let direct = fusion && storage == PatchStorage::Wrapper;
+        assert_eq!(
+            trace.contains("fuse extend parent=vortex.patched"),
+            direct,
+            "{trace}"
+        );
+        assert_eq!(
+            trace.contains("in_place u32->u32 output -> output"),
+            direct,
+            "{trace}"
+        );
+        assert!(
+            traced
+                .output
+                .as_slice::<u32>()
+                .iter()
+                .copied()
+                .eq((31..rows - 49).map(reading))
+        );
+    }
+    bencher
+        .counter(ItemsCount::new(patched.len()))
+        .with_inputs(|| (patched.clone(), make_ctx()))
+        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }

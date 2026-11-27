@@ -347,6 +347,11 @@ pub enum SourceBlock<'s> {
 
 /// The start of a program: emits an array's own values, block by block, in row order.
 pub trait BlockSource: Send {
+    /// Offer to decode directly into the final buffer for a same-type, in-place terminal op.
+    fn output_source(&mut self) -> Option<&mut dyn OutputBlockSource> {
+        None
+    }
+
     /// The validity of the source's rows, which each block's starts from.
     fn validity(&self) -> &Mask;
 
@@ -380,9 +385,31 @@ pub trait BlockSource: Send {
     }
 }
 
+/// A source that can write its rows into a block of the result buffer.
+pub trait OutputBlockSource {
+    /// Fill all the requested rows, applying any changes to source validity.
+    fn fill_output<'a>(
+        &mut self,
+        rows: Range<usize>,
+        output: BlockOut<'a>,
+        validity: &mut BlockValidity<'_>,
+    ) -> VortexResult<Written<'a>>;
+}
+
 /// A transform of one block of values into another: of their rows' values, and of their
 /// validity where it changes it.
 pub trait BlockOp: Send {
+    /// Prefer editing the result buffer itself when this is the only op.
+    fn prefers_output(&self) -> bool {
+        false
+    }
+
+    /// Whether to start a program for this op alone. Ops in a longer chain can also save
+    /// the next consumer from materializing this op's output.
+    fn fuse_standalone(&self, _rows: usize) -> bool {
+        true
+    }
+
     /// Write the op's values for the block's rows, and edit their validity in `block.validity`
     /// if the op changes it.
     ///

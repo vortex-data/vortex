@@ -37,7 +37,12 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_elias_fano::EliasFano;
+use vortex_elias_fano::EliasFanoArrayExt;
+use vortex_elias_fano::EliasFanoArraySlotsExt;
+use vortex_elias_fano::elias_fano_encode;
 use vortex_elias_fano::unary_encode;
+use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -46,6 +51,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
     vortex_elias_fano::initialize(&session);
+    vortex_fastlanes::initialize(&session);
     session
 });
 
@@ -193,4 +199,45 @@ fn slice_decode(bencher: Bencher, shape: Shape) {
 
 fn main() {
     divan::main();
+}
+
+/// A posting list with varying gaps, represented as unary bucket counts and packed low bits.
+#[divan::bench(args = [false, true])]
+fn packed_postings(bencher: Bencher, fusion: bool) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut rng = StdRng::seed_from_u64(42);
+    let mut id = 0u32;
+    let plain = PrimitiveArray::from_iter((0..65_536).map(|_| {
+        id += rng.random_range(1..32);
+        id
+    }));
+    let ef = elias_fano_encode(plain.as_view()).unwrap().unwrap();
+    let upper = unary_encode(ef.upper().as_::<Primitive>(), &mut ctx)
+        .unwrap()
+        .unwrap();
+    let lower = ef
+        .lower()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let packed = bitpack_encode(&lower, ef.lower_bits(), None, &mut ctx).unwrap();
+    let encoded = EliasFano::try_new(upper.into_array(), packed.into_array(), ef.lower_bits())
+        .unwrap()
+        .into_array();
+    assert_eq!(
+        encoded
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap()
+            .as_slice::<u32>(),
+        plain.as_slice::<u32>()
+    );
+    bencher
+        .with_inputs(|| {
+            (
+                encoded.clone(),
+                SESSION.create_execution_ctx().with_block_fusion(fusion),
+            )
+        })
+        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }

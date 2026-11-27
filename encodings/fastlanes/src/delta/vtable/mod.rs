@@ -17,6 +17,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::block::BlockSource;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::require_child;
@@ -37,6 +38,7 @@ use crate::delta::array::DeltaSlots;
 use crate::delta::array::DeltaSlotsView;
 use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::delta_decompress::delta_decompress;
+use crate::delta::array::delta_decompress::delta_source;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
@@ -138,6 +140,13 @@ impl VTable for Delta {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         DeltaSlots::NAMES[idx].to_string()
+    }
+
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        delta_source(array, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

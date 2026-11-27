@@ -294,8 +294,10 @@ The executor fuses in three steps:
    runs it, in place of the parents it reached, and execution carries on with the result. A
    program never waits, so the executor holds it as a value, not as an array.
 
-Fusion covers primitive arrays and extension types stored as primitives, and today FoR and
-BitPacked take part. Each block's validity starts as the leaf source's, and an op may edit it a
+Fusion covers primitive arrays and extension types stored as primitives, including timestamps.
+Sources include BitPacked, Delta, dictionaries, sparse arrays, Pco, and piecewise sequences.
+Ops include FoR, ALP, ZigZag, DateTimeParts, Elias–Fano, and patches. Each block's validity
+starts as the leaf source's, and an op may edit it a
 row or a 64-bit word at a time, such as a patch that nulls a row or an intersection with a side
 input's validity. Only edited blocks are copied into the output's validity. Disable fusion with
 `ExecutionCtx::with_block_fusion(false)`. Traces show each
@@ -357,7 +359,7 @@ c) Partly: a parent above cannot fuse, for example one that asks with require_ch
      Pass executes as usual over the driven result.
 ```
 
-A child that is not a leaf yet, such as a Dict under FoR, does not stop the chain: the Dict
+A child that is not a leaf yet, such as a dictionary with nullable values under FoR, does not stop the chain: the Dict
 executes as usual, the op FoR built waits in its frame, and the Dict's canonical result is the
 leaf.
 

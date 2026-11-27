@@ -37,6 +37,7 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-sparse = { workspace = true }
 
 [[bench]]
 name = "alp_chain_decode"

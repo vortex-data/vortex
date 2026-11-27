@@ -3,6 +3,7 @@
 
 use crate::ArrayEq;
 use crate::ArrayHash;
+mod block;
 mod kernels;
 mod operations;
 mod plugin;
@@ -40,6 +41,7 @@ use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
 use crate::arrays::primitive::PrimitiveDataParts;
+use crate::block::BlockOp;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -47,6 +49,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::require_child;
+use crate::require_spine;
 
 /// A [`Patched`]-encoded Vortex array.
 pub type PatchedArray = Array<Patched>;
@@ -215,13 +218,14 @@ impl VTable for Patched {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.inner(), PatchedSlots::INNER => Primitive);
         let array =
             require_child!(array, array.lane_offsets(), PatchedSlots::LANE_OFFSETS => Primitive);
         let array =
             require_child!(array, array.patch_indices(), PatchedSlots::PATCH_INDICES => Primitive);
         let array =
             require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => Primitive);
+
+        let array = require_spine!(array, array.inner(), PatchedSlots::INNER => Primitive);
 
         let len = array.len();
 
@@ -262,6 +266,15 @@ impl VTable for Patched {
         });
 
         Ok(ExecutionResult::done(patched_values.into_array()))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        Ok((slot_idx == PatchedSlots::INNER).then(|| block::patch_op(array)))
     }
 }
 

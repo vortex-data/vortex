@@ -19,6 +19,7 @@
 //! ```
 
 mod array;
+mod block;
 mod compute;
 mod probe;
 mod rules;

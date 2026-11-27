@@ -34,6 +34,7 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-sparse = { workspace = true }
 
 [[bench]]
 name = "date_time_parts_decode"

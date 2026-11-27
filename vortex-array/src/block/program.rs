@@ -131,9 +131,64 @@ impl BlockProgram {
         let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
         let mut changed = OutputValidity::new();
         let dst = cast::uninit_bytes_mut(&mut output.spare_capacity_mut()[..len]);
-        self.run_blocks(Target::Output(dst), validity, &mut changed)?;
-        // SAFETY: `run_blocks` succeeded, so the last op of every block, or the copy when there are
-        // no ops, wrote that block's rows of the output.
+        let offset = self.source.block_offset() % BLOCK_LEN;
+        if let [op] = self.ops.as_mut_slice()
+            && op.prefers_output()
+            && op.supports_in_place()
+            && self.types[0] == T::BLOCK_TYPE
+            && let Some(source) = self.source.output_source()
+        {
+            let mut start = 0;
+            while start < len {
+                let rows = block_rows(start, len, offset);
+                let n = rows.len();
+                let bytes = &mut dst[start * size_of::<T>()..rows.end * size_of::<T>()];
+                let address = bytes.as_ptr().cast::<u8>();
+                let out = BlockOut {
+                    bytes,
+                    len: n,
+                    ty: T::BLOCK_TYPE,
+                    filled: 0,
+                };
+                let mut window = None;
+                let mut block_validity = BlockValidity::new(validity, start, n, &mut window);
+                let written = source.fill_output(rows.clone(), out, &mut block_validity)?;
+                vortex_ensure!(
+                    written.bytes.as_ptr() == address
+                        && written.bytes.len() == n * size_of::<T>()
+                        && written.ty == T::BLOCK_TYPE,
+                    "source must initialize the supplied output block"
+                );
+                if start == 0 {
+                    trace_op!(record_block_op(
+                        0,
+                        "in_place",
+                        "output",
+                        "output",
+                        T::BLOCK_TYPE,
+                        T::BLOCK_TYPE
+                    ));
+                }
+                let span = BlockInOut {
+                    bytes: written.bytes,
+                    len: n,
+                    in_type: T::BLOCK_TYPE,
+                    out_type: T::BLOCK_TYPE,
+                };
+                let patched = op.process(Block {
+                    values: Values::InPlace(span),
+                    validity: block_validity,
+                    start,
+                })?;
+                vortex_ensure_eq!(patched.len, n);
+                vortex_ensure_eq!(patched.ty, T::BLOCK_TYPE);
+                changed.push(validity, start, n, &window);
+                start = rows.end;
+            }
+        } else {
+            self.run_blocks(Target::Output(dst), validity, &mut changed)?;
+        }
+        // SAFETY: both schedules initialize every row in the supplied output on success.
         unsafe { output.set_len(len) };
         Ok(PrimitiveArray::new(
             output.freeze(),

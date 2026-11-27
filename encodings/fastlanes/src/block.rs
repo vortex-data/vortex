@@ -9,6 +9,7 @@
 //! source too, unpacking with FastLanes' fused unpack-and-add ([`FoRStrategy`]). FoR over any
 //! other child adds its references to each block ([`AddReference`], [`AddReferences`]).
 
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use fastlanes::FoR as FastLanesFoR;
@@ -20,9 +21,11 @@ use vortex_array::arrays::Primitive;
 use vortex_array::block::Block;
 use vortex_array::block::BlockBuf;
 use vortex_array::block::BlockOp;
+use vortex_array::block::BlockOut;
 use vortex_array::block::BlockPatches;
 use vortex_array::block::BlockSource;
 use vortex_array::block::BlockValidity;
+use vortex_array::block::OutputBlockSource;
 use vortex_array::block::SourceBlock;
 use vortex_array::block::Values;
 use vortex_array::block::Written;
@@ -47,11 +50,13 @@ use crate::FoR;
 use crate::FoRArrayExt;
 use crate::FoRArraySlotsExt;
 use crate::FoRReferences;
+use crate::bitpack_decompress::execute_block_offsets;
 use crate::unpack_iter::BitPackingStrategy;
 use crate::unpack_iter::UnpackStrategy;
+use crate::unpack_iter::physical_output;
 use crate::unpack_iter::validate_packed;
 
-/// BitPacked's block source, for arrays with one global bit width.
+/// BitPacked's block source, with global or per-block widths.
 pub(crate) fn packed_source(
     bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
@@ -62,9 +67,9 @@ pub(crate) fn packed_source(
 }
 
 /// FoR's block source over a BitPacked child with one global reference: FastLanes' fused
-/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does.
-/// Per-chunk references that line up with BitPacked's chunks have no source: FoR's execute
-/// unpacks them fused without requesting its spine, and its output starts the chain.
+/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does. FoR's
+/// execute also unpacks fused under per-chunk references that line up with BitPacked's chunks;
+/// as a source those take the BitPacked leaf and FoR's per-chunk op instead.
 pub(crate) fn for_block_source(
     array: ArrayView<'_, FoR>,
     ctx: &mut ExecutionCtx,
@@ -126,73 +131,142 @@ where
     T: PhysicalPType,
     S: UnpackStrategy<T> + Send + 'static,
 {
-    let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
-        return Ok(None);
-    };
-    let bit_width = usize::from(bit_width);
-    vortex_ensure!(
-        bit_width <= 8 * size_of::<T>(),
-        "bit width {bit_width} is wider than {}",
-        bp.dtype()
-    );
     let offset = usize::from(bp.offset());
-    // A packed buffer read from a file need not be aligned to its values: copy it if not.
-    let bytes = bp
-        .packed()
-        .as_host()
-        .clone()
-        .aligned(Alignment::of::<T::Physical>());
-    vortex_ensure!(
-        bytes.len().is_multiple_of(size_of::<T::Physical>()),
-        "packed buffer of {} bytes holds no whole number of values",
-        bytes.len()
-    );
-    validate_packed::<T>(
-        bytes.len() / size_of::<T::Physical>(),
-        bit_width,
-        offset,
-        bp.len(),
-    )?;
-    let packed = Buffer::<T::Physical>::from_byte_buffer(bytes);
+    let packed = packed_buffer::<T::Physical>(bp)?;
+    let widths = match bp.bit_widths() {
+        BitWidthsView::Global(width) => {
+            let width = usize::from(width);
+            vortex_ensure!(
+                width <= 8 * size_of::<T>(),
+                "bit width {width} is wider than {}",
+                bp.dtype()
+            );
+            validate_packed::<T>(packed.len(), width, offset, bp.len())?;
+            PackedWidths::Global(width)
+        }
+        BitWidthsView::Blocked(offsets) => {
+            PackedWidths::Blocked(execute_block_offsets(bp, offsets, ctx)?)
+        }
+    };
+    let validity = BitPackedArrayExt::validity(&bp).execute_mask(bp.len(), ctx)?;
     let patches = bp
         .patches()
         .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value)))
         .transpose()?;
-    let validity = bp.validity()?.execute_mask(bp.len(), ctx)?;
     Ok(Some(Box::new(PackedSource::<T, S> {
         strategy,
         packed,
-        bit_width,
+        widths,
+        validity,
         offset,
         patches,
-        validity,
     })))
+}
+
+/// Read the packed words, aligning a file-backed slice if needed.
+pub(crate) fn packed_buffer<T: NativePType>(
+    bp: ArrayView<'_, BitPacked>,
+) -> VortexResult<Buffer<T>> {
+    let bytes = bp
+        .packed()
+        .try_to_host_sync()?
+        .aligned(Alignment::of::<T>());
+    vortex_ensure!(
+        bytes.len().is_multiple_of(size_of::<T>()),
+        "packed buffer of {} bytes holds no whole number of values",
+        bytes.len()
+    );
+    Ok(Buffer::from_byte_buffer(bytes))
 }
 
 /// Unpacks the FastLanes chunks under each requested range with its strategy.
 struct PackedSource<T: PhysicalPType, S> {
     strategy: S,
     packed: Buffer<T::Physical>,
-    bit_width: usize,
+    widths: PackedWidths,
+    validity: Mask,
     /// The position of the first row within the first chunk.
     offset: usize,
     patches: Option<BlockPatches<T>>,
-    validity: Mask,
+}
+
+enum PackedWidths {
+    Global(usize),
+    /// Validated absolute byte offsets, including the ending boundary.
+    Blocked(Buffer<u64>),
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
-    /// Unpack chunk `chunk` into `buf` and return its values.
-    fn unpack<'o>(&self, chunk: usize, buf: &'o mut BlockBuf) -> &'o mut [T] {
-        let elems_per_chunk = 128 * self.bit_width / size_of::<T>();
-        let packed = &self.packed[chunk * elems_per_chunk..][..elems_per_chunk];
-        let dst = buf.values_mut::<T::Physical>(FL_CHUNK_SIZE);
-        // SAFETY: `packed` holds exactly one chunk at `bit_width`, and `dst` exactly one chunk.
-        unsafe { self.strategy.unpack_chunk(self.bit_width, packed, dst) };
-        buf.values_mut::<T>(FL_CHUNK_SIZE)
+    fn packed_chunk(&self, chunk: usize) -> (usize, &[T::Physical]) {
+        let (start, width) = match &self.widths {
+            PackedWidths::Global(width) => (chunk * 128 * width / size_of::<T>(), *width),
+            PackedWidths::Blocked(offsets) => {
+                let start = ((offsets[chunk] - offsets[0]) as usize) / size_of::<T>();
+                let width = ((offsets[chunk + 1] - offsets[chunk]) / 128) as usize;
+                (start, width)
+            }
+        };
+        let packed = &self.packed[start..][..128 * width / size_of::<T>()];
+        (width, packed)
+    }
+
+    fn unpack(&self, chunk: usize, dst: &mut [T::Physical]) {
+        let (width, packed) = self.packed_chunk(chunk);
+        // SAFETY: both slices hold one complete chunk at this width.
+        unsafe { self.strategy.unpack_chunk(width, packed, dst) };
+    }
+}
+
+impl<T: PhysicalPType, S: UnpackStrategy<T>> OutputBlockSource for PackedSource<T, S> {
+    fn fill_output<'a>(
+        &mut self,
+        rows: Range<usize>,
+        output: BlockOut<'a>,
+        validity: &mut BlockValidity<'_>,
+    ) -> VortexResult<Written<'a>> {
+        let position = self.offset + rows.start;
+        let chunk = position / FL_CHUNK_SIZE;
+        let first = position % FL_CHUNK_SIZE;
+        // SAFETY: the full-block unpack initializes every destination slot;
+        // the edge path initializes its entire destination with write_copy_of_slice.
+        let mut written = unsafe {
+            output.fill_with(|dst: &mut [MaybeUninit<T>]| {
+                if first == 0 && dst.len() == FL_CHUNK_SIZE {
+                    let (width, packed) = self.packed_chunk(chunk);
+                    self.strategy
+                        .unpack_chunk_uninit(width, packed, physical_output::<T>(dst));
+                } else {
+                    self.unpack_partial(chunk, first, dst);
+                }
+            })
+        };
+        if let Some(patches) = &mut self.patches {
+            patches.apply(rows.start, written.as_mut_slice::<T>(), validity);
+        }
+        Ok(written)
+    }
+}
+
+impl<T: PhysicalPType, S: UnpackStrategy<T>> PackedSource<T, S> {
+    // FastLanes always writes 1024 values; only a sliced head or tail needs staging.
+    #[inline(never)]
+    fn unpack_partial(&self, chunk: usize, first: usize, output: &mut [MaybeUninit<T>]) {
+        let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+        let (width, packed) = self.packed_chunk(chunk);
+        // SAFETY: the validated packed chunk initializes all slots in the full-sized scratch.
+        unsafe {
+            self.strategy
+                .unpack_chunk_uninit(width, packed, physical_output::<T>(&mut scratch))
+        };
+        output.copy_from_slice(&scratch[first..first + output.len()]);
     }
 }
 
 impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource<T, S> {
+    fn output_source(&mut self) -> Option<&mut dyn OutputBlockSource> {
+        Some(self)
+    }
+
     fn validity(&self) -> &Mask {
         &self.validity
     }
@@ -213,7 +287,8 @@ impl<T: PhysicalPType, S: UnpackStrategy<T> + Send> BlockSource for PackedSource
             "rows {rows:?} cross a FastLanes chunk"
         );
         let offset = first - chunk_start;
-        let block = &mut self.unpack(chunk, scratch)[offset..end - chunk_start];
+        self.unpack(chunk, scratch.values_mut::<T::Physical>(FL_CHUNK_SIZE));
+        let block = &mut scratch.values_mut::<T>(FL_CHUNK_SIZE)[offset..end - chunk_start];
         if let Some(patches) = &mut self.patches {
             patches.apply(rows.start, block, validity);
         }
@@ -262,8 +337,8 @@ impl<T: NativePType + WrappingAdd> AddReferences<T> {
 
 impl<T: NativePType + WrappingAdd> BlockOp for AddReferences<T> {
     fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
-        // A block may straddle a FoR chunk boundary, so add each chunk's reference to its rows.
         let start = block.start();
+        // A block may straddle a FoR chunk boundary, so add each chunk's reference to its rows.
         match block.values {
             Values::Copy { input, mut out } => {
                 let input = input.as_slice::<T>();
@@ -324,10 +399,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::Patched;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::PType;
+    use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::fusion;
     use vortex_array::test_harness::fusion::fused_chains;
@@ -340,14 +417,89 @@ mod tests {
 
     use crate::BitPacked;
     use crate::BitPackedArrayExt;
+    use crate::Delta;
+    use crate::DeltaArraySlotsExt;
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
+    use crate::bitpack_compress::bitpack_encode_blocked;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
+
+    #[test]
+    fn blocked_widths_under_a_parent() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let widths = [0, 3, 11, 1];
+        let input =
+            PrimitiveArray::from_option_iter((0..3781u32).map(|row| {
+                (row % 29 != 0).then_some(row & ((1 << widths[row as usize / 1024]) - 1))
+            }));
+        let packed = bitpack_encode_blocked(&input, &widths, Some(0), &mut ctx)?.into_array();
+        let inner = FoR::try_new(packed, Scalar::from(17u32))?.into_array();
+        let array = FoR::try_new(inner, Scalar::from(3u32))?.into_array();
+        assert_fuses_like_execute(&array.slice(37..3241)?, 1)
+    }
+
+    #[rstest]
+    #[case::small_full_chunk(0, 1024, false)]
+    #[case::single_patch(31, 32, false)]
+    #[case::full_chunks(0, 3072, true)]
+    #[case::partial_chunks(31, 3079, true)]
+    fn patched_writes_into_output(
+        #[case] start: usize,
+        #[case] end: usize,
+        #[case] expect_direct: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let rows = 4096u32;
+        let values = PrimitiveArray::from_option_iter(
+            (0..rows).map(|row| (!row.is_multiple_of(23)).then_some(row % 127)),
+        );
+        let packed = bitpack_encode(&values, 7, None, &mut ctx)?.into_array();
+        let patches = Patches::new(
+            rows as usize,
+            0,
+            buffer![31u32, 1023, 1024, 2048, 3078].into_array(),
+            buffer![211u32, 212, 213, 214, 215].into_array(),
+            None,
+            &mut ctx,
+        )?;
+        let array = Patched::from_array_and_patches(packed, &patches, &mut ctx)?
+            .into_array()
+            .slice(start..end)?;
+        let trace = fusion::fusion_trace(array, &SESSION)?;
+        assert_eq!(
+            trace.contains("in_place u32->u32 output -> output"),
+            expect_direct,
+            "{trace}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn delta_streams_partial_packed_chunks() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = PrimitiveArray::from_option_iter(
+            (0..3510i32).map(|i| (i % 89 != 0).then_some(i + i / 11 - 1800)),
+        );
+        let delta = Delta::try_from_primitive_array(&input, &mut ctx)?;
+        let residuals = delta.deltas().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let max = residuals.as_slice::<i32>().iter().max().unwrap();
+        let width = u8::try_from(32 - max.leading_zeros())?;
+        let packed = bitpack_encode(&residuals, width, None, &mut ctx)?;
+        let delta = Delta::try_new(
+            delta.bases().clone(),
+            packed.into_array(),
+            delta.validity()?,
+            0,
+            input.len(),
+        )?;
+        let array = FoR::try_new(delta.into_array(), Scalar::from(47i32))?.into_array();
+        assert_fuses_like_execute(&array.slice(19..2599)?, 1)
+    }
 
     /// Execute `array` with and without fusion, check the results agree, and how many chains
     /// fused.
