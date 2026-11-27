@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import polars
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -32,7 +33,12 @@ def ds(tmpdir_factory) -> vx.dataset.VortexDataset:
 
     assert not os.path.exists(fname)
 
-    a = pa.array([record(x) for x in range(1_000_000)])
+    indices = np.arange(1_000_000, dtype=np.int64)
+    index = pa.array(indices)
+    a = pa.StructArray.from_arrays(
+        [index, pc.cast(index, pa.string()), pa.array((indices & 1) == 0), pa.array(np.sqrt(indices))],
+        names=["index", "string", "bool", "float"],
+    )
     vx.io.write(vx.array(a), str(fname))
     return vx.dataset.VortexDataset.from_path(str(fname))
 
@@ -132,12 +138,13 @@ def test_fragment_take_unordered(ds: vx.dataset.VortexDataset) -> None:
 def test_to_batches(ds: pd.Dataset) -> None:
     assert sum(len(x) for x in ds.to_batches(columns=["float", "bool"])) == 1_000_000
 
-    schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
-
     chunk0 = next(ds.to_batches(columns=["string", "bool"]))
-    assert chunk0.to_struct_array() == pa.array(
-        [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
+    indices = np.arange(len(chunk0), dtype=np.int64)
+    expected = pa.StructArray.from_arrays(
+        [pc.cast(pa.array(indices), pa.string_view()), pa.array((indices & 1) == 0)],
+        names=["string", "bool"],
     )
+    assert chunk0.to_struct_array() == expected
 
 
 def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -472,12 +479,13 @@ def test_fragment_to_batches(ds: vx.dataset.VortexDataset) -> None:
 
     assert sum(len(x) for f in fragments for x in f.to_batches(columns=["float", "bool"])) == 1_000_000
 
-    schema = pa.struct([("string", pa.string_view()), ("bool", pa.bool_())])
-
     chunk0 = next(fragments[0].to_batches(columns=["string", "bool"]))
-    assert chunk0.to_struct_array() == pa.array(
-        [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
+    indices = np.arange(len(chunk0), dtype=np.int64)
+    expected = pa.StructArray.from_arrays(
+        [pc.cast(pa.array(indices), pa.string_view()), pa.array((indices & 1) == 0)],
+        names=["string", "bool"],
     )
+    assert chunk0.to_struct_array() == expected
 
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])

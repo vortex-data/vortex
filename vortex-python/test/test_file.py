@@ -9,7 +9,9 @@ import subprocess
 import sys
 import textwrap
 
+import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.fs as pafs
 import pytest
 
@@ -31,9 +33,13 @@ def vxf(tmpdir_factory) -> vx.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):
-        a = pa.array([record(x) for x in range(1_000_000)])
-        arr = vx.compress(vx.array(a))
-        vx.io.write(arr, str(fname))
+        indices = np.arange(1_000_000, dtype=np.int64)
+        index = pa.array(indices)
+        a = pa.StructArray.from_arrays(
+            [index, pc.cast(index, pa.string()), pa.array((indices & 1) == 0), pa.array(np.sqrt(indices))],
+            names=["index", "string", "bool", "float"],
+        )
+        vx.io.write(vx.array(a), str(fname))
     return vx.open(str(fname), without_segment_cache=True)
 
 
@@ -48,9 +54,15 @@ def test_row_count(vxf: VortexFile) -> None:
 
 
 def test_scan(vxf: VortexFile) -> None:
+    indices = np.arange(1_000_000, dtype=np.int64)
+    index = pa.array(indices)
+    expected = pa.StructArray.from_arrays(
+        [index, pc.cast(index, pa.string_view()), pa.array((indices & 1) == 0), pa.array(np.sqrt(indices))],
+        names=["index", "string", "bool", "float"],
+    )
     start = 0
     for batch in vxf.scan():
-        assert batch.to_pylist() == [record(x) for x in range(start, start + len(batch))]
+        assert batch.to_arrow_array() == expected.slice(start, len(batch))
         start += len(batch)
     assert start == 1_000_000
 
@@ -142,10 +154,8 @@ def test_to_arrow_offset_string_schema(vxf: VortexFile) -> None:
     schema = pa.schema([("string", pa.string())])
     table = vxf.to_arrow(projection=["string"], schema=schema).read_all()
     assert table.schema == schema
-    assert table.column("string").combine_chunks() == pa.array(
-        (str(i) for i in range(1_000_000)),
-        type=pa.string(),
-    )
+    expected = pc.cast(pa.array(np.arange(1_000_000, dtype=np.int64)), pa.string())
+    assert table.column("string").combine_chunks() == expected
 
 
 def test_empty_file(tmpdir_factory) -> None:
