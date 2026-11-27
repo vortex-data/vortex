@@ -60,6 +60,9 @@ pub struct CascadingCompressor {
 
     /// Overrides schemes' decisions about which children to compress.
     child_policy: Option<Arc<dyn ChildPolicy>>,
+
+    /// Compresses the storage children of Variant arrays in place of this compressor, if set.
+    variant_storage: Option<Arc<CascadingCompressor>>,
 }
 
 impl CascadingCompressor {
@@ -78,6 +81,7 @@ impl CascadingCompressor {
             schemes,
             root_exclusions,
             child_policy: None,
+            variant_storage: None,
         }
     }
 
@@ -85,6 +89,16 @@ impl CascadingCompressor {
     /// overriding the schemes' own decisions.
     pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
         self.child_policy = Some(policy);
+        self
+    }
+
+    /// Compresses the storage children of Variant arrays with `compressor` instead of this one.
+    ///
+    /// The storage of a Variant holds opaque binary values, such as its unshredded value, which
+    /// can warrant other schemes than the binary columns of a table. Shredded children are still
+    /// compressed by this compressor.
+    pub fn with_variant_storage_compressor(mut self, compressor: CascadingCompressor) -> Self {
+        self.variant_storage = Some(Arc::new(compressor));
         self
     }
 }
