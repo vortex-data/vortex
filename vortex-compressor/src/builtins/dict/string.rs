@@ -12,7 +12,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
-use vortex_array::builders::dict::dict_encode;
+use vortex_array::builders::dict::dict_encode_by_frequency;
 use vortex_error::VortexResult;
 
 use super::bytes_candidate::bytes_dictionary_estimate;
@@ -79,7 +79,7 @@ impl Scheme for StringDictScheme {
         _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
-        let dict = dict_encode(data.array(), exec_ctx)?;
+        let dict = dict_encode_by_frequency(data.array(), exec_ctx)?;
         Ok(dictionary_encoded(self, &dict))
     }
 

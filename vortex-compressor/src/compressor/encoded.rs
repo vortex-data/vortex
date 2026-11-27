@@ -6,10 +6,12 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::child_to_validity;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -116,6 +118,25 @@ impl CascadingCompressor {
         }
     }
 
+    /// Like [`Self::resolve_validity`], also replacing [`Validity::AllInvalid`] with an explicit
+    /// bitmap when `vortex.constant` is disallowed so constructors do not materialize a constant
+    /// validity child.
+    pub(super) fn resolve_validity_with_len(
+        &self,
+        validity: Validity,
+        len: usize,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Validity> {
+        match validity {
+            Validity::AllInvalid if !self.allow_constant => {
+                let bitmap = BoolArray::from(BitBuffer::new_unset(len)).into_array();
+                self.resolve_validity(Validity::Array(bitmap), compress_ctx, exec_ctx)
+            }
+            validity => self.resolve_validity(validity, compress_ctx, exec_ctx),
+        }
+    }
+
     /// Replaces a validity bitmap known to be all `true` with a constant, unless the policy keeps
     /// it, or the constant is no smaller.
     pub(super) fn resolve_all_valid_bitmap(
@@ -123,6 +144,9 @@ impl CascadingCompressor {
         bitmap: ArrayRef,
         compress_ctx: &CompressorContext,
     ) -> ArrayRef {
+        if !self.allow_constant {
+            return bitmap;
+        }
         let decision = self.child_decision(
             ChildKind::Validity,
             &bitmap,

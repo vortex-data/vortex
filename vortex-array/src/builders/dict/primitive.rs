@@ -7,6 +7,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use super::CountingDictEncoder;
 use super::DictConstraints;
 use super::DictEncoder;
 use super::codes_ptype_for_max_len;
@@ -35,6 +36,29 @@ pub fn primitive_dict_builder<T: NativePType>(
 where
     NativeValue<T>: Hash + Eq,
 {
+    primitive_dict_builder_impl::<T>(nullability, constraints, allocator, false)
+}
+
+pub(super) fn primitive_dict_builder_with_counts<T: NativePType>(
+    nullability: Nullability,
+    constraints: &DictConstraints,
+    allocator: BufferAllocatorRef,
+) -> Box<dyn CountingDictEncoder>
+where
+    NativeValue<T>: Hash + Eq,
+{
+    primitive_dict_builder_impl::<T>(nullability, constraints, allocator, true)
+}
+
+fn primitive_dict_builder_impl<T: NativePType>(
+    nullability: Nullability,
+    constraints: &DictConstraints,
+    allocator: BufferAllocatorRef,
+    track_counts: bool,
+) -> Box<dyn CountingDictEncoder>
+where
+    NativeValue<T>: Hash + Eq,
+{
     // Nullable values need an additional dictionary entry for null.
     let domain_len = match T::PTYPE.bit_width() {
         8 => 1 << u8::BITS,
@@ -45,26 +69,22 @@ where
     }
     .saturating_add(u64::from(nullability.is_nullable()));
     match codes_ptype_for_max_len(domain_len.min(constraints.max_len as u64)) {
-        PType::U8 => Box::new(PrimitiveDictBuilder::<T, u8>::new_in(
-            nullability,
-            constraints,
-            allocator,
-        )),
-        PType::U16 => Box::new(PrimitiveDictBuilder::<T, u16>::new_in(
-            nullability,
-            constraints,
-            allocator,
-        )),
-        PType::U32 => Box::new(PrimitiveDictBuilder::<T, u32>::new_in(
-            nullability,
-            constraints,
-            allocator,
-        )),
-        _ => Box::new(PrimitiveDictBuilder::<T, u64>::new_in(
-            nullability,
-            constraints,
-            allocator,
-        )),
+        PType::U8 => Box::new(
+            PrimitiveDictBuilder::<T, u8>::new_in(nullability, constraints, allocator)
+                .with_counts(track_counts),
+        ),
+        PType::U16 => Box::new(
+            PrimitiveDictBuilder::<T, u16>::new_in(nullability, constraints, allocator)
+                .with_counts(track_counts),
+        ),
+        PType::U32 => Box::new(
+            PrimitiveDictBuilder::<T, u32>::new_in(nullability, constraints, allocator)
+                .with_counts(track_counts),
+        ),
+        _ => Box::new(
+            PrimitiveDictBuilder::<T, u64>::new_in(nullability, constraints, allocator)
+                .with_counts(track_counts),
+        ),
     }
 }
 
@@ -95,6 +115,13 @@ where
             nullability,
         }
     }
+
+    fn with_counts(mut self, track_counts: bool) -> Self {
+        if track_counts {
+            self.dict = self.dict.with_counts();
+        }
+        self
+    }
 }
 
 impl<T, Code> DictEncoder for PrimitiveDictBuilder<T, Code>
@@ -123,6 +150,18 @@ where
 
     fn codes_ptype(&self) -> PType {
         Code::PTYPE
+    }
+}
+
+impl<T, Code> CountingDictEncoder for PrimitiveDictBuilder<T, Code>
+where
+    T: NativePType,
+    NativeValue<T>: Hash + Eq,
+    Code: UnsignedPType,
+{
+    fn reset_with_counts(&mut self) -> (ArrayRef, Vec<u64>) {
+        let counts = self.dict.take_counts();
+        (self.reset(), counts)
     }
 }
 
