@@ -80,7 +80,9 @@ impl Display for DTypePythonRepr<'_> {
                 size,
                 n.python_repr()
             ),
-            DType::Map(..) | DType::Union(..) => write!(f, "{dtype}"),
+            // Python has no constructors for these dtypes, but they can be nested in a dtype
+            // that Python can hold, such as the schema of a file. Write the Rust form for them.
+            DType::FixedSizeBinary(..) | DType::Map(..) | DType::Union(..) => write!(f, "{dtype}"),
             DType::Struct(st, n) => write!(
                 f,
                 "struct({{{}}}, nullable={})",
@@ -139,5 +141,27 @@ impl Display for ExtIdPythonRepr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ExtIdPythonRepr(ext_id) = self;
         write!(f, "\"{}\"", ext_id.as_ref().escape_default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+
+    use crate::python_repr::PythonRepr;
+
+    /// A FixedSizeBinary dtype nested in a struct must not panic when Python calls `repr()`.
+    #[test]
+    fn nested_fixed_size_binary_repr() {
+        let dtype = DType::struct_(
+            [("a", DType::FixedSizeBinary(16, Nullability::Nullable))],
+            Nullability::NonNullable,
+        );
+
+        assert_eq!(
+            dtype.python_repr().to_string(),
+            "struct({\"a\": fixed_size_binary[16]?}, nullable=False)"
+        );
     }
 }

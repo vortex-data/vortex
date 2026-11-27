@@ -97,7 +97,8 @@ impl DType {
             | Self::Primitive(..)
             | Self::Decimal(..)
             | Self::Utf8(_)
-            | Self::Binary(_) => match claim {
+            | Self::Binary(_)
+            | Self::FixedSizeBinary(..) => match claim {
                 Claim::Eq | Claim::Ord => true,
             },
             Self::List(element, _) | Self::FixedSizeList(element, ..) => element.holds(claim),
@@ -214,6 +215,7 @@ mod tests {
     #[case::bool(DType::Bool(NonNullable), true)]
     #[case::utf8(DType::Utf8(NonNullable), true)]
     #[case::binary(DType::Binary(NonNullable), true)]
+    #[case::fixed_size_binary(DType::FixedSizeBinary(16, NonNullable), true)]
     #[case::decimal(DType::Decimal(DecimalDType::new(8, 2), NonNullable), true)]
     #[case::null(DType::Null, true)]
     #[case::variant(DType::Variant(NonNullable), false)]

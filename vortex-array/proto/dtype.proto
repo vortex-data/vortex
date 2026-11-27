@@ -47,6 +47,11 @@ message Binary {
   bool nullable = 1;
 }
 
+message FixedSizeBinary {
+  uint32 size = 1;
+  bool nullable = 2;
+}
+
 message Struct {
   repeated string names = 1;
   repeated DType dtypes = 2;
@@ -103,6 +108,7 @@ message DType {
     Variant variant = 11;
     Union union = 12;
     Map map = 13;
+    FixedSizeBinary fixed_size_binary = 14;
   }
 }
 
