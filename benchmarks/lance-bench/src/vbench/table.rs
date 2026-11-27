@@ -136,6 +136,7 @@ impl NativeScan {
     async fn batches(
         &self,
         schema: SchemaRef,
+        target_partitions: usize,
     ) -> anyhow::Result<BoxStream<'static, anyhow::Result<RecordBatch>>> {
         match self {
             Self::Vortex {
@@ -149,8 +150,14 @@ impl NativeScan {
                 let columns = pack(
                     ["id", "emb", "price"].map(|name| (name, col(name))),
                     NonNullable,
-                );
-                let mut read = scan().with_projection(columns.bind(file.dtype())?);
+                )
+                .bind(file.dtype())?;
+                // An identity scan sizes work chunks using the file's bytes per row.
+                let mut read = if search.is_none() && columns.dtype() == file.dtype() {
+                    scan()
+                } else {
+                    scan().with_projection(columns)
+                };
                 if let Some(search) = search {
                     let hits = if let Some(floor) = search.min_price {
                         let dtype = file.dtype();
@@ -184,7 +191,14 @@ impl NativeScan {
                     rows.sort_unstable();
                     read = read.with_row_indices(StrictSortedBuffer::try_new(Buffer::from(rows))?);
                 }
-                Ok(ScanDriver::new(session.handle(), 0, true)
+                // Full scans can stream completed chunks in any order.
+                // An indexed take fetches only the candidate rows in a single small read.
+                let driver = if search.is_some() {
+                    ScanDriver::new(session.handle(), 0, true)
+                } else {
+                    ScanDriver::new(session.handle(), target_partitions, false)
+                };
+                Ok(driver
                     .run_record_batches(read, Some(schema))
                     .map_err(anyhow::Error::from)
                     .boxed())
@@ -400,7 +414,11 @@ impl ExecutionPlan for RecipeExec {
         }
         Ok(self)
     }
-    fn execute(&self, partition: usize, _: Arc<TaskContext>) -> Result<SendableRecordBatchStream> {
+    fn execute(
+        &self,
+        partition: usize,
+        ctx: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
         if partition != 0 {
             return exec_err!("recipe scan has one partition");
         }
@@ -409,7 +427,7 @@ impl ExecutionPlan for RecipeExec {
         let projection = self.projection.clone();
         let batches = stream::once(async move {
             let stream = source
-                .batches(schema)
+                .batches(schema, ctx.session_config().target_partitions())
                 .await
                 .map_err(|e| DataFusionError::External(e.into()))?;
             Ok::<_, DataFusionError>(stream.map(move |batch| {
