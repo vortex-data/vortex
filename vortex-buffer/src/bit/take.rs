@@ -284,7 +284,8 @@ fn padded_table<const N: usize>(bits: BitBufferView<'_>) -> [u8; N] {
 
 /// Packs the bits that `kernel` returns for each 64 indices into a buffer.
 ///
-/// The last chunk is padded with zeros, so index 0 must be valid.
+/// The last chunk is padded with zeros, so index 0 must be valid. The bits of the padding are
+/// cleared, so the bits after `len` are zero, as with the other producers.
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[inline]
 fn collect_words<T: Copy + Default>(
@@ -301,7 +302,10 @@ fn collect_words<T: Copy + Default>(
         if !tail.is_empty() {
             let mut padded = [T::default(); 64];
             padded[..tail.len()].copy_from_slice(tail);
-            words[chunks.len()] = kernel(&padded);
+
+            // The tail holds fewer than 64 indices, so the shift does not overflow.
+            let tail_mask = (1u64 << tail.len()) - 1;
+            words[chunks.len()] = kernel(&padded) & tail_mask;
         }
     })
     .freeze()
@@ -487,6 +491,18 @@ mod tests {
         assert!(taken.value(0));
         assert!(!taken.value(1));
         assert!(taken.value(2));
+    }
+
+    #[test]
+    fn clears_bits_after_len() {
+        // Bit 0 is set, so the padded indices of the tail chunk look up a set bit.
+        let bits = BitBuffer::collect_bool(100, |i| i % 3 == 0);
+
+        let taken = take_bits(bits.as_view(), &[1u8; 65], None);
+        assert_eq!(taken.inner().as_slice(), &[0u8; 9]);
+
+        let taken = take_bits(bits.as_view(), &[1u16; 65], None);
+        assert_eq!(taken.inner().as_slice(), &[0u8; 9]);
     }
 
     #[test]
