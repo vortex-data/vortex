@@ -6,10 +6,10 @@
 mod scan_metrics;
 
 use std::fs;
+use std::io;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::time::Duration;
 
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
@@ -27,6 +27,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
+use tokio::sync::watch;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -94,6 +95,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_expr::BoundExpression;
 use vortex_expr::Expression;
 use vortex_expr::ScalarFnExprExt;
@@ -111,6 +113,7 @@ use vortex_expr::or;
 use vortex_expr::root;
 use vortex_functions::expr::lower;
 use vortex_functions::expr::select;
+use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 #[cfg(feature = "object_store")]
 use vortex_io::object_store::ObjectStoreWrite;
@@ -2270,6 +2273,25 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     Ok(())
 }
 
+/// Publishes how many bytes it has received.
+struct WatchedWrite(watch::Sender<u64>);
+
+impl VortexWrite for WatchedWrite {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        let len = buffer.as_slice().len() as u64;
+        self.0.send_modify(|bytes| *bytes += len);
+        Ok(buffer)
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
     let chunks: Vec<ArrayRef> = (0..8u32)
@@ -2296,27 +2318,19 @@ async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
         .segments_end()
         .vortex_expect("segment ends fit in u64");
 
+    let (bytes_send, mut bytes_received) = watch::channel(0);
     let mut writer = SESSION
         .write_options()
         .with_strategy(strategy)
-        .spawn_writer(ByteBufferMut::empty(), dtype);
+        .spawn_writer(WatchedWrite(bytes_send), dtype);
     for chunk in chunks {
         writer.push(chunk).await?;
     }
 
-    // `push` returns before the layout takes its chunk, so the segment of the last chunk reaches
-    // the sink only if the write runs while nothing awaits the writer.
-    let drained = tokio::time::timeout(Duration::from_secs(10), async {
-        while writer.bytes_written() < segments_end {
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    })
-    .await;
-    assert!(
-        drained.is_ok(),
-        "wrote {} of {segments_end} segment bytes",
-        writer.bytes_written()
-    );
+    bytes_received
+        .wait_for(|bytes| *bytes >= segments_end)
+        .await
+        .map_err(|_| vortex_err!("The write dropped its sink"))?;
 
     let summary = writer.finish().await?;
     assert_eq!(summary.size(), expected.len() as u64);

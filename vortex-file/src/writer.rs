@@ -523,9 +523,6 @@ impl VortexWriteOptions {
     ///
     /// Each pushed chunk must have dtype `dtype`. Call [`Writer::finish`] to close the input stream,
     /// flush remaining buffers, and receive the [`WriteSummary`].
-    ///
-    /// Buffers reach `write` only while a push or [`Writer::finish`] is awaited; see
-    /// [`Self::spawn_writer`].
     pub fn writer<'w, W: VortexWrite + Unpin + 'w>(self, write: W, dtype: DType) -> Writer<'w> {
         // Create a channel for sending arrays to the layout task. Each queued array carries the
         // reservation that counts it as uncompressed. The layout task takes the array from the
@@ -554,11 +551,7 @@ impl VortexWriteOptions {
         }
     }
 
-    /// Like [`Self::writer`], but runs the write in a task on the session's runtime, so buffers
-    /// keep reaching `write` while the caller does other work between pushes.
-    ///
-    /// As with [`Self::writer`], the write flushes `write` without shutting it down, and dropping
-    /// the [`Writer`] before [`Writer::finish`] cancels the write.
+    /// Like [`Self::writer`], but keeps writing to `write` between pushes.
     pub fn spawn_writer<W: VortexWrite + Unpin + 'static>(
         self,
         write: W,
