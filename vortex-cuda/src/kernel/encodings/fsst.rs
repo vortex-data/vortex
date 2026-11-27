@@ -472,6 +472,14 @@ mod tests {
         vec![None, None, None, None, None],
         DType::Binary(Nullability::Nullable),
     )]
+    #[case::binary_unaligned_scratch_boundary(
+        vec![
+            Some(&b"x"[..]),
+            Some(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[..]),
+            Some(&b"abcdefghabcdefghabcdefghabcdefghabcdefgh"[..]),
+        ],
+        DType::Binary(Nullability::NonNullable),
+    )]
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip(
         #[case] strings: Vec<Option<&'static [u8]>>,

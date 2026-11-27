@@ -67,18 +67,20 @@ struct Scratch {
 
     // Insert a length-`len` masked symbol at byte offset `cursor`. The
     // symbol spans at most two of the three lanes. Caller must ensure
-    // cursor + len ≤ 24.
+    // len ≤ 8 and cursor + len ≤ 24.
     __device__ inline void push(uint64_t sym, uint32_t len) {
         if (cursor < 8) {
             low |= sym << (8u * cursor);
             if (cursor + len > 8) {
                 mid |= sym >> (8u * (8u - cursor));
             }
-        } else {
+        } else if (cursor < 16) {
             mid |= sym << (8u * (cursor - 8u));
             if (cursor + len > 16) {
                 high |= sym >> (8u * (16u - cursor));
             }
+        } else if (cursor < 24) {
+            high |= sym << (8u * (cursor - 16u));
         }
         cursor += len;
     }
