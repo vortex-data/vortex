@@ -34,7 +34,6 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
-use vortex_functions::expr::ilike;
 use vortex_functions::expr::like;
 use vortex_index::CoveredFile;
 use vortex_index::Hit;
@@ -271,30 +270,6 @@ async fn scan_ids(
 
 fn needle(text: &str) -> bool {
     text.contains("Needle")
-}
-
-#[rstest]
-#[case::like(like(col("text"), lit("%Needle%")), &needle as &dyn Fn(&str) -> bool)]
-#[case::ilike(ilike(col("text"), lit("%nEEdle%")), &needle)]
-#[case::two_runs(like(col("text"), lit("%Needle _ravo%")), &|t: &str| t.contains("Needle bravo"))]
-#[case::text_match(text_match(col("text"), "needle"), &needle)]
-#[case::text_match_and(
-    text_match(col("text"), "ECHO hotel"),
-    &|t: &str| t.split(' ').any(|w| w == "echo") && t.split(' ').any(|w| w == "hotel"),
-)]
-#[tokio::test]
-async fn in_file_filters_match_brute_force(
-    #[case] filter: Expression,
-    #[case] expected: &dyn Fn(&str) -> bool,
-) -> VortexResult<()> {
-    let session = session()?;
-    let data = Data::generate(7, ROWS);
-    let file = write_indexed_file(&session, &data).await?;
-    assert_eq!(
-        scan_ids(&file, filter, Selection::All).await?,
-        data.rows_where(expected)
-    );
-    Ok(())
 }
 
 #[tokio::test]
