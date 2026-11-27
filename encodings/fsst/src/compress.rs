@@ -72,21 +72,21 @@ pub fn fsst_compress(
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
-    fsst_compress_with_max_i32_bytes(array, compressor, i32::MAX as usize, ctx)
+    fsst_compress_with_offset_threshold(array, compressor, i32::MAX as usize, ctx)
 }
 
 /// Compress a string array using FSST, choosing `i32` codes offsets when the worst-case
-/// compressed byte count fits within `max_i32_output_bytes` and `i64` offsets otherwise.
-pub(crate) fn fsst_compress_with_max_i32_bytes(
+/// compressed byte count fits within `i32_offset_threshold` and `i64` offsets otherwise.
+pub(crate) fn fsst_compress_with_offset_threshold(
     array: &ArrayRef,
     compressor: &Compressor,
-    max_i32_output_bytes: usize,
+    i32_offset_threshold: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
     if let Some(view) = array.as_opt::<VarBinView>() {
-        compress_varbinview(view, compressor, max_i32_output_bytes, ctx)
+        compress_varbinview(view, compressor, i32_offset_threshold, ctx)
     } else if let Some(varbin) = array.as_opt::<VarBin>() {
-        compress_varbin_array(varbin, compressor, max_i32_output_bytes, ctx)
+        compress_varbin_array(varbin, compressor, i32_offset_threshold, ctx)
     } else {
         vortex_bail!(
             "fsst_compress requires VarBinView or VarBin encoding, got {}",

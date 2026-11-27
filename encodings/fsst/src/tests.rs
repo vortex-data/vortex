@@ -25,7 +25,7 @@ use vortex_session::VortexSession;
 
 use crate::FSST;
 use crate::array::FSSTArrayExt;
-use crate::compress::fsst_compress_with_max_i32_bytes;
+use crate::compress::fsst_compress_with_offset_threshold;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
@@ -152,7 +152,7 @@ fn test_fsst_array_ops() {
 /// Regression for #7833: [`fsst_compress`] must switch its codes offsets from `i32` to `i64`
 /// once the worst-case compressed byte count exceeds the `i32` threshold.
 ///
-/// Uses [`fsst_compress_with_max_i32_bytes`] with a small KiB threshold so both the `i32`
+/// Uses [`fsst_compress_with_offset_threshold`] with a small KiB threshold so both the `i32`
 /// (at-threshold) and `i64` (above-threshold) paths for `VarBin` and `VarBinView` inputs run in
 /// milliseconds without allocating gigabytes. With an empty symbol table every input byte is
 /// escape-coded to two output bytes, deterministically crossing the threshold.
@@ -185,7 +185,7 @@ fn fsst_compress_offset_width_rollover() -> VortexResult<()> {
 
         for input in [varbin, varbinview] {
             let compressed =
-                fsst_compress_with_max_i32_bytes(&input, &compressor, MAX_I32_BYTES, &mut ctx)?;
+                fsst_compress_with_offset_threshold(&input, &compressor, MAX_I32_BYTES, &mut ctx)?;
             assert_eq!(compressed.len(), n_rows);
             assert_eq!(
                 compressed.codes().offsets().dtype().as_ptype(),
