@@ -118,15 +118,29 @@ statistics, footer, and user metadata segments referenced by the postscript. The
 `AesGcm` encrypts every segment with AES-GCM, stored as `ciphertext || nonce || tag`, with a random 12-byte nonce and a
 16-byte tag. The ciphertext has the plaintext's length and starts at the segment's offset.
 
-The additional authenticated data is the length of the AAD prefix as a little-endian `uint32`, the AAD
-prefix, the spec's random `aad_file_unique` bytes, and an identifier of the segment: its index in the segment map, the
-name of a footer segment, or the key of a metadata segment. A segment moved within or between files fails to decrypt.
+The additional authenticated data (AAD) is the concatenation of these bytes:
 
-The identifier of the footer segment also binds the postscript entries that the footer does not list: a byte whose bit
-0 is set if the postscript has a `DType` segment and whose bit 1 is set if it has a statistics segment, followed by
-the number of metadata segments as a little-endian `uint64` and, for each in postscript order, the length of its key
-as a little-endian `uint64` and the key's UTF-8 bytes. An attacker who drops or reorders postscript entries therefore
-makes the footer fail to decrypt.
+1. The length of the AAD prefix, as a little-endian `uint32`.
+2. The AAD prefix.
+3. The spec's random `aad_file_unique` bytes.
+4. One byte that identifies the role of the segment, followed by bytes that are specific to that role:
+
+   | Tag | Segment            | Bytes after the tag                                         |
+   | --- | ------------------ | ----------------------------------------------------------- |
+   | 0   | Data segment       | Its index in the segment map, as a little-endian `uint32`.  |
+   | 1   | `DType` segment    | None.                                                       |
+   | 2   | Layout segment     | None.                                                       |
+   | 3   | Statistics segment | None.                                                       |
+   | 4   | Footer segment     | The postscript binding, as given below.                     |
+   | 5   | Metadata segment   | The UTF-8 bytes of its key, without a length.               |
+
+A segment moved within or between files fails to decrypt.
+
+The postscript binding of the footer segment binds the postscript entries that the footer does not list. It is a byte
+whose bit 0 is set if the postscript has a `DType` segment and whose bit 1 is set if it has a statistics segment,
+followed by the number of metadata segments as a little-endian `uint64` and, for each in postscript order, the length
+of its key as a little-endian `uint64` and the key's UTF-8 bytes. An attacker who drops or reorders postscript entries
+therefore makes the footer fail to decrypt.
 
 The AAD prefix is optional and application-defined, such as the file's path, and binds the file to an identity the
 reader knows, so that it cannot be replaced by another file encrypted with the same key. It is never stored in the
