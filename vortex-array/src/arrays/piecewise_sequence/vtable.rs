@@ -30,6 +30,7 @@ use crate::arrays::piecewise_sequence::materialize_ranges;
 use crate::arrays::piecewise_sequence::probe;
 use crate::arrays::piecewise_sequence::probe::PiecewiseProbeState;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -103,6 +104,13 @@ impl VTable for PiecewiseSequence {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         PiecewiseSequenceSlots::NAMES[idx].to_string()
+    }
+
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        Ok(super::block::is_repeated(array).then(|| super::block::repeated_source(array, Ok)))
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

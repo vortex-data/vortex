@@ -14,6 +14,8 @@ pub use arbitrary::ArbitraryDictArray;
 mod array;
 pub use array::*;
 
+mod block;
+pub(crate) use block::gather_checked;
 pub(crate) mod compute;
 mod execute;
 
