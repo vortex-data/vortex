@@ -11895,10 +11895,12 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "flatbuffers",
+ "hegeltest",
  "itertools 0.14.0",
  "libfuzzer-sys",
  "num-traits",
  "parquet-variant",
+ "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
  "strum 0.28.0",

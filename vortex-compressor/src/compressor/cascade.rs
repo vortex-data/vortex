@@ -176,7 +176,12 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    self.resolve_validity(struct_array.validity()?, &compress_ctx, exec_ctx)?,
+                    self.resolve_validity_with_len(
+                        struct_array.validity()?,
+                        struct_array.len(),
+                        &compress_ctx,
+                        exec_ctx,
+                    )?,
                 )?
                 .into_array())
             }
@@ -233,7 +238,12 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    self.resolve_validity(fsl_array.validity()?, &compress_ctx, exec_ctx)?,
+                    self.resolve_validity_with_len(
+                        fsl_array.validity()?,
+                        fsl_array.len(),
+                        &compress_ctx,
+                        exec_ctx,
+                    )?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -371,7 +381,7 @@ impl CascadingCompressor {
             return Ok(Selection::Unchanged(array, None));
         }
 
-        if array.all_invalid(exec_ctx)? {
+        if self.allow_constant && array.all_invalid(exec_ctx)? {
             return Ok(Selection::Compressed(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             ));
@@ -382,7 +392,10 @@ impl CascadingCompressor {
         // full array is constant.
         //
         // Compare valid values directly so even nullable constants avoid distinct-value counting.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
+        if self.allow_constant
+            && !compress_ctx.is_sample()
+            && constant::is_constant_for_compression(&array, self.allow_masked, exec_ctx)?
+        {
             let compressed = constant::compress_as_constant(
                 array.clone(),
                 |validity, exec_ctx| self.resolve_validity(validity, &compress_ctx, exec_ctx),

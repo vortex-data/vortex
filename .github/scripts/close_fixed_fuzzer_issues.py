@@ -210,38 +210,31 @@ def close_issue_as_fixed(repo: str, issue_number: int, dry_run: bool) -> None:
     )
 
 
-def build_fuzz_target(target: str) -> bool:
+def build_fuzz_target(target: str, features: str = "") -> bool:
     """Build the fuzz target once. Returns True on success."""
     print(f"\nBuilding fuzz target: {target}")
     env = os.environ.copy()
     toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
-    result = run(
-        ["cargo", f"+{toolchain}", "fuzz", "build", "--dev", "--sanitizer=none", target],
-        env=env,
-    )
+    cmd = ["cargo", f"+{toolchain}", "fuzz", "build", "--dev", "--sanitizer=none"]
+    if features:
+        cmd.extend(["--features", features])
+    cmd.append(target)
+    result = run(cmd, env=env)
     return result.returncode == 0
 
 
-def retest_crash(target: str, crash_path: str, timeout_secs: int = 120) -> str:
+def retest_crash(target: str, crash_path: str, features: str = "", timeout_secs: int = 120) -> str:
     """Run the fuzz target with the crash file. Returns 'fixed', 'reproduces', or 'timeout'."""
     env = os.environ.copy()
     toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
     rss_limit_mb = 2048 if os.path.basename(crash_path).startswith("oom-") else 0
+    cmd = ["cargo", f"+{toolchain}", "fuzz", "run", "--dev", "--sanitizer=none"]
+    if features:
+        cmd.extend(["--features", features])
+    cmd.extend([target, crash_path, "--", "-runs=1", f"-rss_limit_mb={rss_limit_mb}"])
     try:
         result = run(
-            [
-                "cargo",
-                f"+{toolchain}",
-                "fuzz",
-                "run",
-                "--dev",
-                "--sanitizer=none",
-                target,
-                crash_path,
-                "--",
-                "-runs=1",
-                f"-rss_limit_mb={rss_limit_mb}",
-            ],
+            cmd,
             env=env,
             timeout=timeout_secs,
         )
@@ -266,6 +259,11 @@ def main() -> None:
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY", ""),
         help="GitHub repository (owner/name). Defaults to $GITHUB_REPOSITORY.",
+    )
+    parser.add_argument(
+        "--features",
+        default="",
+        help="Extra Cargo features to enable when building and running the target (e.g., cuda).",
     )
     parser.add_argument(
         "--dry-run",
@@ -299,7 +297,7 @@ def main() -> None:
         return
 
     # 3. Build the fuzz target once
-    if not build_fuzz_target(args.target):
+    if not build_fuzz_target(args.target, features=args.features):
         print("ERROR: Failed to build fuzz target", file=sys.stderr)
         sys.exit(1)
     print()
@@ -363,7 +361,7 @@ def main() -> None:
 
             # Retest
             print(f"  Retesting crash file: {issue.crash_file}")
-            result = retest_crash(args.target, crash_path)
+            result = retest_crash(args.target, crash_path, features=args.features)
 
             if result == "fixed":
                 print("  Crash NO LONGER reproduces — closing issue")

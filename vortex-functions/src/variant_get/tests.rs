@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use rstest::rstest;
@@ -8,11 +9,13 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -20,13 +23,16 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar_is_null;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -40,6 +46,7 @@ use vortex_expr::ArrayExprExt;
 use vortex_expr::Expression;
 use vortex_expr::proto::ExprSerializeProtoExt;
 use vortex_expr::root;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::expr::variant_get;
@@ -47,6 +54,7 @@ use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
+use crate::variant_get::convert_to_decimal;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -58,7 +66,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
+pub(super) fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
     let fields = fields.into_iter().collect::<Vec<_>>();
     let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
     let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
@@ -73,7 +81,7 @@ fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> S
     .unwrap()
 }
 
-fn variant_rows(rows: impl IntoIterator<Item = Scalar>) -> VortexResult<ArrayRef> {
+pub(super) fn variant_rows(rows: impl IntoIterator<Item = Scalar>) -> VortexResult<ArrayRef> {
     let dtype = DType::Variant(Nullability::Nullable);
     let chunks = rows
         .into_iter()
@@ -797,63 +805,59 @@ fn variant_get_untyped_merges_shredded_leaf_values(
     Ok(())
 }
 
+/// A typed row reads from the shredded child, and a null typed row from core storage.
 #[rstest]
 #[case::list(false)]
 #[case::fixed_size_list(true)]
-fn variant_get_untyped_list_falls_back_to_core(#[case] fixed_size: bool) -> VortexResult<()> {
+fn variant_get_untyped_list_reads_typed_and_core_rows(
+    #[case] fixed_size: bool,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let row0_list = Scalar::list(
-        DType::Variant(Nullability::NonNullable),
-        vec![
-            Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
-            Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
-        ],
-        Nullability::NonNullable,
-    );
-    let row1_list = Scalar::list(
-        DType::Variant(Nullability::NonNullable),
-        vec![
-            Scalar::variant(Scalar::primitive(30i32, Nullability::NonNullable)),
-            Scalar::variant(Scalar::primitive(40i32, Nullability::NonNullable)),
-        ],
-        Nullability::NonNullable,
-    );
+    let no_value = Scalar::variant(Scalar::null(DType::Null));
     let core_storage = variant_rows([
-        Scalar::variant(row0_list.clone()),
-        Scalar::variant(row1_list.clone()),
+        no_value,
+        Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
     ])?;
+    let validity = Validity::from_iter([true, false]);
     let shredded_items = if fixed_size {
-        FixedSizeListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array(),
-            2,
-            Validity::NonNullable,
-            2,
-        )?
-        .into_array()
+        FixedSizeListArray::try_new(buffer![1i32, 2, 0, 0].into_array(), 2, validity, 2)?
+            .into_array()
     } else {
         ListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array(),
-            buffer![0u32, 2, 4].into_array(),
-            Validity::NonNullable,
+            buffer![1i32, 2].into_array(),
+            buffer![0u32, 2, 2].into_array(),
+            validity,
             &mut ctx,
         )?
         .into_array()
     };
     let variant = VariantArray::try_new(core_storage, Some(shredded_items))?.into_array();
 
+    let typed_list = Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![
+            Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
+            Scalar::variant(Scalar::primitive(2i32, Nullability::NonNullable)),
+        ],
+        Nullability::NonNullable,
+    );
+
     let expr = variant_get(root(), VariantPath::root(), None);
     let result = variant.apply(&expr)?;
 
     assert_arrays_eq!(
         result,
-        variant_rows([Scalar::variant(row0_list), Scalar::variant(row1_list)])?,
+        variant_rows([
+            Scalar::variant(typed_list),
+            Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
+        ])?,
         &mut ctx
     );
     Ok(())
 }
 
 #[test]
-fn variant_get_dtype_mismatch_falls_back_to_core() -> VortexResult<()> {
+fn variant_get_converts_typed_values_of_another_dtype() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let core_storage = variant_rows([
         obj_a(10),
@@ -939,6 +943,272 @@ fn variant_get_unwraps_nested_variant_core_storage() -> VortexResult<()> {
     assert_arrays_eq!(
         result,
         PrimitiveArray::from_option_iter([Some(10i32), Some(20)]),
+        &mut ctx
+    );
+    Ok(())
+}
+
+fn variant_list(elements: impl IntoIterator<Item = Scalar>) -> Scalar {
+    Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        elements.into_iter().map(Scalar::variant).collect(),
+        Nullability::NonNullable,
+    )
+}
+
+#[test]
+fn variant_get_non_nullable_nested_target_returns_null_without_panicking() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = variant_rows([
+        Scalar::variant(variant_object([(
+            "x",
+            Scalar::utf8("not_an_int", Nullability::NonNullable),
+        )])),
+        Scalar::variant(variant_object([(
+            "x",
+            Scalar::primitive(7i32, Nullability::NonNullable),
+        )])),
+    ])?;
+
+    let struct_target = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["x"]),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+        ),
+        Nullability::Nullable,
+    );
+    let expr = variant_get(root(), VariantPath::root(), Some(struct_target));
+    let result = input.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+    assert!(result.is_invalid(0, &mut ctx)?);
+    assert_eq!(
+        result
+            .execute_scalar(1, &mut ctx)?
+            .as_struct()
+            .field("x")
+            .and_then(|s| s.as_primitive().typed_value::<i32>()),
+        Some(7)
+    );
+
+    let list_input = variant_rows([
+        Scalar::variant(variant_list([Scalar::utf8(
+            "bad",
+            Nullability::NonNullable,
+        )])),
+        Scalar::variant(variant_list([Scalar::primitive(
+            9i32,
+            Nullability::NonNullable,
+        )])),
+    ])?;
+
+    let list_target = DType::List(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        Nullability::Nullable,
+    );
+    let list_expr = variant_get(root(), VariantPath::root(), Some(list_target));
+    let list_result = list_input
+        .apply(&list_expr)?
+        .execute::<ArrayRef>(&mut ctx)?;
+    assert!(list_result.is_invalid(0, &mut ctx)?);
+    assert_eq!(
+        list_result
+            .execute_scalar(1, &mut ctx)?
+            .as_list()
+            .element(0)
+            .and_then(|s| s.as_primitive().typed_value::<i32>()),
+        Some(9)
+    );
+    Ok(())
+}
+
+#[test]
+fn variant_get_fixed_size_list_target() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = variant_rows([
+        Scalar::variant(variant_list([
+            Scalar::primitive(1i64, Nullability::NonNullable),
+            Scalar::primitive(2i64, Nullability::NonNullable),
+        ])),
+        Scalar::variant(variant_list([Scalar::primitive(
+            3i64,
+            Nullability::NonNullable,
+        )])),
+    ])?;
+
+    let target = DType::FixedSizeList(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        2,
+        Nullability::Nullable,
+    );
+    let expr = variant_get(root(), VariantPath::root(), Some(target));
+    let result = input.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+    let scalar0 = result.execute_scalar(0, &mut ctx)?;
+    assert_eq!(
+        scalar0.as_list().elements().map(|elems| elems
+            .into_iter()
+            .map(|e| e.as_primitive().typed_value::<i32>())
+            .collect::<Vec<_>>()),
+        Some(vec![Some(1), Some(2)])
+    );
+    assert!(result.is_invalid(1, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn variant_get_fixed_size_list_preserves_variant_nulls() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let row = Scalar::variant(variant_list([
+        Scalar::primitive(7i32, Nullability::NonNullable),
+        Scalar::null(DType::Null),
+    ]));
+    let input = ConstantArray::new(row, 1).into_array();
+
+    for elem_nullability in [Nullability::NonNullable, Nullability::Nullable] {
+        let target = DType::FixedSizeList(
+            Arc::new(DType::Variant(elem_nullability)),
+            2,
+            Nullability::Nullable,
+        );
+        let expr = variant_get(root(), VariantPath::root(), Some(target));
+        let result = input.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_valid(0, &mut ctx)?);
+        let list = result.execute_scalar(0, &mut ctx)?;
+        let elems = list
+            .as_list()
+            .elements()
+            .ok_or_else(|| vortex_error::vortex_err!("expected non-null fixed-size list"))?;
+        assert_eq!(elems.len(), 2);
+        assert_eq!(
+            elems[0]
+                .as_variant()
+                .value()
+                .and_then(|v| v.as_primitive().typed_value::<i32>()),
+            Some(7)
+        );
+        assert!(!elems[1].is_null());
+        assert_eq!(elems[1].as_variant().is_variant_null(), Some(true));
+    }
+    Ok(())
+}
+
+/// The lazy shapes over a constant in [`variant_get_extracts_from_lazy_constants`].
+#[derive(Clone, Copy, Debug)]
+enum Lazy {
+    Constant,
+    Sliced,
+    Filtered,
+    Masked,
+}
+
+/// A constant canonicalizes to a Variant array over itself. Extraction from it and from the
+/// lazy arrays over it must end, with the value of the constant in each row.
+#[rstest]
+#[case::constant(Lazy::Constant, [Some(5i32), Some(5), Some(5)])]
+#[case::sliced(Lazy::Sliced, [Some(5i32), Some(5), Some(5)])]
+#[case::filtered(Lazy::Filtered, [Some(5i32), Some(5), Some(5)])]
+#[case::masked(Lazy::Masked, [Some(5i32), None, Some(5)])]
+fn variant_get_extracts_from_lazy_constants(
+    #[case] lazy: Lazy,
+    #[case] expected: [Option<i32>; 3],
+) -> VortexResult<()> {
+    let row = Scalar::variant(variant_object([(
+        "a",
+        Scalar::primitive(5i32, Nullability::NonNullable),
+    )]))
+    .cast(&DType::Variant(Nullability::Nullable))?;
+    let constant = ConstantArray::new(row.clone(), 4).into_array();
+    let input = match lazy {
+        Lazy::Constant => ConstantArray::new(row, 3).into_array(),
+        Lazy::Sliced => constant.slice(1..4)?,
+        Lazy::Filtered => constant.filter(Mask::from_iter([true, false, true, true]))?,
+        Lazy::Masked => constant
+            .slice(0..3)?
+            .mask(BoolArray::from_iter([true, false, true]).into_array())?,
+    };
+
+    let expr = variant_get(
+        root(),
+        VariantPath::field("a"),
+        Some(DType::Primitive(PType::I32, Nullability::Nullable)),
+    );
+    let result = input
+        .apply(&expr)?
+        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn converts_decimals_to_zero_when_every_digit_is_dropped() {
+    let value = Scalar::decimal(
+        DecimalValue::I64(99_999_999),
+        DecimalDType::new(8, 3),
+        Nullability::NonNullable,
+    );
+    let target = DecimalDType::new(6, -36);
+
+    assert_eq!(
+        convert_to_decimal(&value, &DType::Decimal(target, Nullability::Nullable)),
+        Some(Scalar::decimal(
+            DecimalValue::I128(0),
+            target,
+            Nullability::Nullable
+        ))
+    );
+}
+
+#[rstest]
+#[case::rounds_up(12_345, Some(1_235))]
+#[case::rounds_down(12_344, Some(1_234))]
+#[case::rounds_negative_away_from_zero(-12_345, Some(-1_235))]
+#[case::too_wide_for_precision(99_999_995, None)]
+fn converts_decimals_to_a_smaller_scale(#[case] unscaled: i64, #[case] expected: Option<i64>) {
+    let value = Scalar::decimal(
+        DecimalValue::I64(unscaled),
+        DecimalDType::new(8, 3),
+        Nullability::NonNullable,
+    );
+    let target = DecimalDType::new(6, 2);
+
+    assert_eq!(
+        convert_to_decimal(&value, &DType::Decimal(target, Nullability::Nullable)),
+        expected.map(|expected| Scalar::decimal(
+            DecimalValue::I128(i128::from(expected)),
+            target,
+            Nullability::Nullable,
+        ))
+    );
+}
+
+#[rstest]
+#[case::masked_input(false)]
+#[case::masked_core_storage(true)]
+fn variant_get_extracts_from_masked_variants(#[case] as_core_storage: bool) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let row = obj_a(5).cast(&DType::Variant(Nullability::Nullable))?;
+    let masked = MaskedArray::try_new(
+        ConstantArray::new(row, 3).into_array(),
+        Validity::from_iter([true, false, true]),
+        &mut ctx,
+    )?
+    .into_array();
+    let input = if as_core_storage {
+        VariantArray::try_new(masked, None)?.into_array()
+    } else {
+        masked
+    };
+
+    let expr = variant_get(
+        root(),
+        VariantPath::field("a"),
+        Some(DType::Primitive(PType::I32, Nullability::Nullable)),
+    );
+    let result = input.apply(&expr)?;
+
+    assert_arrays_eq!(
+        result,
+        PrimitiveArray::from_option_iter([Some(5i32), None, Some(5)]),
         &mut ctx
     );
     Ok(())
