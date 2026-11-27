@@ -367,7 +367,7 @@ impl CascadingCompressor {
             return Ok(Selection::Unchanged(array, None));
         }
 
-        if array.all_invalid(exec_ctx)? {
+        if self.allow_constant && array.all_invalid(exec_ctx)? {
             return Ok(Selection::Compressed(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
             ));
@@ -378,7 +378,10 @@ impl CascadingCompressor {
         // full array is constant.
         //
         // Compare valid values directly so even nullable constants avoid distinct-value counting.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
+        if self.allow_constant
+            && !compress_ctx.is_sample()
+            && constant::is_constant_for_compression(&array, self.allow_masked, exec_ctx)?
+        {
             let compressed = constant::compress_as_constant(
                 array.clone(),
                 |validity, exec_ctx| self.resolve_validity(validity, &compress_ctx, exec_ctx),

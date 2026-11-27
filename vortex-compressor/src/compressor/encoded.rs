@@ -123,6 +123,9 @@ impl CascadingCompressor {
         bitmap: ArrayRef,
         compress_ctx: &CompressorContext,
     ) -> ArrayRef {
+        if !self.allow_constant {
+            return bitmap;
+        }
         let decision = self.child_decision(
             ChildKind::Validity,
             &bitmap,

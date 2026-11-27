@@ -6,6 +6,9 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayId;
+use vortex_array::VTable;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Masked;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
@@ -243,24 +246,36 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        let compressor = CascadingCompressor::new(self.allowed_schemes());
+        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
+        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
+        let compressor = CascadingCompressor::new(self.allowed_schemes_with(&allowed))
+            .with_allow_constant(allowed(&Constant.id()))
+            .with_allow_masked(allowed(&Masked.id()));
         BtrBlocksCompressor(match self.child_policy {
             Some(policy) => compressor.with_child_policy(policy),
             None => compressor,
         })
     }
 
-    fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
+    fn allowed_schemes_with(
+        &self,
+        allowed: &impl Fn(&ArrayId) -> bool,
+    ) -> Vec<&'static dyn Scheme> {
         let excluded: HashSet<SchemeId> = self.mode.excluded_schemes().into_iter().collect();
-        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
-        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
         self.schemes
             .iter()
             .copied()
             .filter(|s| !excluded.contains(&s.id()))
-            .map(|s| s.refine(&allowed))
-            .filter(|s| s.produced_encodings().iter().all(&allowed))
+            .map(|s| s.refine(allowed))
+            .filter(|s| s.produced_encodings().iter().all(allowed))
             .collect()
+    }
+
+    #[cfg(test)]
+    fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
+        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
+        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
+        self.allowed_schemes_with(&allowed)
     }
 }
 
@@ -270,10 +285,19 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayId;
+    use vortex_array::IntoArray;
     use vortex_array::VTable;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Masked;
     use vortex_array::arrays::Patched;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBin;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
     use vortex_edition::EDITION_DECLARATIONS;
@@ -402,5 +426,71 @@ mod tests {
         let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
         assert!(has(string::StringDictScheme.id()));
         assert!(!has(binary::BinaryDictScheme.id()));
+    }
+
+    #[rstest]
+    #[case::constant(
+        PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array()
+    )]
+    #[case::all_null(
+        PrimitiveArray::new(
+            buffer![0u64; 1024],
+            Validity::Array(BoolArray::from_iter([false; 1024]).into_array()),
+        )
+        .into_array()
+    )]
+    #[case::nullable_constant(
+        PrimitiveArray::new(
+            buffer![42u64; 1024],
+            Validity::Array(BoolArray::from_iter((0..1024).map(|i| i % 8 != 0)).into_array()),
+        )
+        .into_array()
+    )]
+    #[case::all_valid_bitmap(
+        PrimitiveArray::new(
+            Buffer::from_iter(0..1024u64),
+            Validity::Array(BoolArray::from_iter([true; 1024]).into_array()),
+        )
+        .into_array()
+    )]
+    fn empty_session_never_emits_constant_or_masked(
+        #[case] array: vortex_array::ArrayRef,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let compressor = BtrBlocksCompressor::from_session(&session);
+        let mut ctx = session.create_execution_ctx();
+        let compressed = compressor.compress(&array, &mut ctx)?;
+
+        assert!(!compressed.is::<Constant>());
+        assert!(!compressed.is::<Masked>());
+        for slot in compressed.slots().iter().flatten() {
+            assert!(!slot.is::<Constant>());
+            assert!(!slot.is::<Masked>());
+        }
+        assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn constant_without_masked_avoids_masked_for_nullable_constant() -> VortexResult<()> {
+        let mut builder = BtrBlocksCompressorBuilder::empty();
+        builder.allowed.editions = Some([Constant.id()].into_iter().collect());
+        let compressor = builder.build();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let non_null =
+            PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
+        let compressed_non_null = compressor.compress(&non_null, &mut ctx)?;
+        assert!(compressed_non_null.is::<Constant>());
+
+        let nullable = PrimitiveArray::new(
+            buffer![42u64; 1024],
+            Validity::Array(BoolArray::from_iter((0..1024).map(|i| i % 8 != 0)).into_array()),
+        )
+        .into_array();
+        let compressed_nullable = compressor.compress(&nullable, &mut ctx)?;
+        assert!(!compressed_nullable.is::<Masked>());
+        assert_arrays_eq!(compressed_nullable, nullable, &mut ctx);
+        Ok(())
     }
 }

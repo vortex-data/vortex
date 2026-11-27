@@ -126,7 +126,9 @@ impl CascadingCompressor {
         };
         let compressed = match null_count {
             // The leaf's statistics already show every row is valid: the bitmap is a constant.
-            Some(0) => self.resolve_all_valid_bitmap(validity.clone(), compress_ctx),
+            Some(0) if self.allow_constant => {
+                self.resolve_all_valid_bitmap(validity.clone(), compress_ctx)
+            }
             _ => self.resolve_bitmap(validity.clone(), compress_ctx, exec_ctx)?,
         };
         if ArrayRef::ptr_eq(&compressed, validity) {

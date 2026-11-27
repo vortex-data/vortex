@@ -129,7 +129,7 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
             stream: Box::pin(self),
             encoder: MessageEncoder::new(session.clone()),
             buffers: vec![],
-            written_dtype: false,
+            state: StreamState::Init,
         }
     }
 
@@ -149,11 +149,17 @@ impl<S: ArrayStream + 'static> ArrayStreamIPC for S {
     }
 }
 
+enum StreamState {
+    Init,
+    Streaming,
+    Done,
+}
+
 pub struct ArrayStreamIPCBytes {
     stream: Pin<Box<dyn ArrayStream + 'static>>,
     encoder: MessageEncoder,
     buffers: Vec<Bytes>,
-    written_dtype: bool,
+    state: StreamState,
 }
 
 impl ArrayStreamIPCBytes {
@@ -177,22 +183,26 @@ impl Stream for ArrayStreamIPCBytes {
     ) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        // If we haven't written the dtype yet, we write it
-        if !this.written_dtype {
-            match this
-                .encoder
-                .encode(EncoderMessage::DType(this.stream.dtype()))
-            {
-                Ok(buffers) => {
-                    this.buffers.extend(buffers);
-                    this.written_dtype = true;
-                }
-                Err(e) => {
-                    return Poll::Ready(Some(
-                        Err(e.with_context("Failed to encode DType message")),
-                    ));
+        match this.state {
+            StreamState::Done => return Poll::Ready(None),
+            StreamState::Init => {
+                match this
+                    .encoder
+                    .encode(EncoderMessage::DType(this.stream.dtype()))
+                {
+                    Ok(buffers) => {
+                        this.buffers.extend(buffers);
+                        this.state = StreamState::Streaming;
+                    }
+                    Err(e) => {
+                        this.state = StreamState::Done;
+                        return Poll::Ready(Some(Err(
+                            e.with_context("Failed to encode DType message")
+                        )));
+                    }
                 }
             }
+            StreamState::Streaming => {}
         }
 
         // Try to flush any buffers we have
@@ -202,7 +212,10 @@ impl Stream for ArrayStreamIPCBytes {
 
         // Or else try to serialize the next array
         match ready!(this.stream.poll_next_unpin(cx)) {
-            None => return Poll::Ready(None),
+            None => {
+                this.state = StreamState::Done;
+                return Poll::Ready(None);
+            }
             Some(chunk) => match chunk.and_then(|c| this.encoder.encode(EncoderMessage::Array(&c)))
             {
                 Ok(buffers) => {
@@ -218,6 +231,7 @@ impl Stream for ArrayStreamIPCBytes {
         }
 
         // Otherwise, we're done
+        this.state = StreamState::Done;
         Poll::Ready(None)
     }
 }
@@ -233,7 +247,14 @@ mod test {
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::stream::ArrayStream;
+    use vortex_array::stream::ArrayStreamAdapter;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -366,6 +387,68 @@ mod test {
             .unwrap_err();
         assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
         assert!(async_reader.next().await.is_none());
+        Ok(())
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct FailingSerializeExt;
+
+    impl ExtVTable for FailingSerializeExt {
+        type Metadata = u8;
+        type StoredMetadata = u8;
+        type NativeValue<'a> = i32;
+
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
+        fn id(&self) -> ExtId {
+            ExtId::new("test.failing_serialize")
+        }
+
+        fn serialize_metadata(&self, _metadata: &u8) -> VortexResult<Vec<u8>> {
+            vortex_bail!("metadata serialization failed")
+        }
+
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<u8> {
+            Ok(0)
+        }
+
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: u8,
+            _storage_dtype: &DType,
+        ) -> VortexResult<u8> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &u8) -> DType {
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        }
+
+        fn unpack_native<'a>(
+            _dtype: &'a ExtDType<Self>,
+            value: &'a ScalarValue,
+        ) -> VortexResult<i32> {
+            value.as_primitive().cast::<i32>()
+        }
+    }
+
+    #[tokio::test]
+    async fn dtype_encode_error_terminates_ipc_byte_stream() -> VortexResult<()> {
+        let ext_dtype = ExtDType::<FailingSerializeExt>::try_new(0, Nullability::NonNullable)?;
+        let dtype = DType::Extension(ext_dtype.erased());
+        let stream = ArrayStreamAdapter::new(dtype, futures::stream::empty());
+
+        let mut ipc_bytes = stream.into_ipc(&SESSION);
+        let err = ipc_bytes
+            .next()
+            .await
+            .vortex_expect("expected DType encoding error")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to encode DType message"),
+            "unexpected error: {err}"
+        );
+        assert!(ipc_bytes.next().await.is_none());
+        assert!(ipc_bytes.next().await.is_none());
         Ok(())
     }
 }
