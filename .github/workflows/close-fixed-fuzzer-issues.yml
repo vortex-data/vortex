@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [file_io, file_corruption, file_session, array_ops, compress_roundtrip, row_encode, fsst_like, arrow_roundtrip, wire_safety]
+        target: [file_io, file_corruption, file_session, array_ops, compress_roundtrip, row_encode, fsst_like, arrow_roundtrip, variant_encoding, wire_safety]
         include:
           - target: compress_gpu
             runner: gpu

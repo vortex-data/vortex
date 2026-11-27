@@ -24,7 +24,10 @@ native = [
     "vortex/files",
     "dep:prost",
     "dep:vortex-arrow",
+    "dep:arrow-array",
+    "dep:arrow-schema",
     "dep:parquet-variant",
+    "dep:parquet-variant-compute",
     "dep:vortex-json",
     "dep:vortex-parquet-variant",
     "dep:vortex-spatial",
@@ -38,10 +41,13 @@ cuda = ["vortex-cuda", "tokio"]
 [dependencies]
 # Always needed - arbitrary is used for input generation
 arbitrary = { workspace = true }
+arrow-array = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 parquet-variant = { workspace = true, optional = true }
+parquet-variant-compute = { workspace = true, optional = true }
 rand = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
@@ -173,5 +179,13 @@ bench = false
 doc = false
 name = "wire_safety"
 path = "fuzz_targets/wire_safety.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "variant_encoding"
+path = "fuzz_targets/variant_encoding.rs"
 test = false
 required-features = ["native"]
