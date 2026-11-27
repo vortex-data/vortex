@@ -89,12 +89,12 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 }
 
 /// Unpack a validated full chunk into logical integer storage.
-fn unpack_chunk<T: PhysicalPType, S: UnpackStrategy<T>>(
+fn unpack_chunk<'a, T: PhysicalPType, S: UnpackStrategy<T>>(
     strategy: &S,
     width: usize,
     chunk: &[T::Physical],
-    dst: &mut [MaybeUninit<T>],
-) {
+    dst: &'a mut [MaybeUninit<T>],
+) -> &'a mut [T] {
     let expected = dst.as_mut_ptr_range();
     // SAFETY: callers pass a full destination and a validated chunk at this width.
     let initialized = unsafe { strategy.unpack_chunk_uninit(width, chunk, physical_output(dst)) };
@@ -102,6 +102,8 @@ fn unpack_chunk<T: PhysicalPType, S: UnpackStrategy<T>>(
     // covers the requested destination before the caller assumes it initialized.
     let actual = initialized.as_mut_ptr_range();
     assert!(actual.start.cast() == expected.start && actual.end.cast() == expected.end);
+    // SAFETY: the initialized output covers every slot, and every bit pattern is valid for T.
+    unsafe { dst.assume_init_mut() }
 }
 
 /// Accessor to unpacked chunks of bitpacked arrays
@@ -226,9 +228,8 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
             } else {
                 CHUNK_SIZE - self.offset
             };
-            unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
-            // SAFETY: the full scratch chunk was initialized above.
-            unsafe { self.scratch[self.offset..][..header_end_slice].assume_init_mut() }
+            let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+            &mut values[self.offset..][..header_end_slice]
         })
     }
 
@@ -284,12 +285,8 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
             let elems_per_chunk = self.elems_per_chunk();
             for i in self.full_chunks_range() {
                 let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
-                unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
-                // SAFETY: the full scratch chunk was initialized above.
-                f(
-                    unsafe { self.scratch.assume_init_mut() },
-                    local_idx..local_idx + CHUNK_SIZE,
-                );
+                let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+                f(values, local_idx..local_idx + CHUNK_SIZE);
                 local_idx += CHUNK_SIZE;
             }
         }
@@ -337,9 +334,8 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         (self.last_chunk_is_sliced() && self.num_chunks > 1).then(|| {
             let chunk: &[T::Physical] = &self.packed
                 [(self.num_chunks - 1) * self.elems_per_chunk()..][..self.elems_per_chunk()];
-            unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
-            // SAFETY: the full scratch chunk was initialized above.
-            unsafe { self.scratch[..self.last_chunk_length].assume_init_mut() }
+            let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+            &mut values[..self.last_chunk_length]
         })
     }
 
