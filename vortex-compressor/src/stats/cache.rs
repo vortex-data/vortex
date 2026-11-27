@@ -51,7 +51,10 @@ impl StatsCache {
         }
     }
 
-    /// Returns a cached value, computing it on first access.
+    /// Returns a cached value, computing it outside the lock on a miss.
+    ///
+    /// Concurrent or re-entrant misses for the same type may each invoke `f`; the first
+    /// published value is retained and returned.
     fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         if let Some(existing) = self.get::<T>() {
             return existing;
@@ -257,7 +260,10 @@ impl ArrayAndStats {
         })
     }
 
-    /// For extension schemes with custom stats types.
+    /// Returns a cached custom stats value for extension schemes, computing it with `f` on a miss.
+    ///
+    /// Computed outside the cache lock so `f` may re-enter the cache; concurrent or re-entrant
+    /// misses for the same type may each run `f`, with the first published value retained.
     pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         self.cache.get_or_insert_with::<T>(f)
     }
@@ -316,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn get_or_insert_with_allows_reentrant_stat_derivation() {
+    fn test_get_or_insert_with_allows_reentrant_stat_derivation() {
         let session = VortexSession::empty();
         let mut ctx = session.create_execution_ctx();
         let array = PrimitiveArray::from_iter(buffer![1i32, 2, 3, 4]).into_array();
@@ -338,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn get_or_insert_with_same_type_reentrancy_keeps_first_published_entry() {
+    fn test_get_or_insert_with_same_type_reentrancy_keeps_first_published_entry() {
         let array = PrimitiveArray::from_iter(buffer![1i32, 2]).into_array();
         let data = ArrayAndStats::new(array, GenerateStatsOptions::default());
 
@@ -349,6 +355,9 @@ mod tests {
         });
 
         assert_eq!(*result, 1);
-        assert_eq!(data.cache.entries.lock().len(), 1);
+        assert!(Arc::ptr_eq(
+            &result,
+            &data.get_or_insert_with::<u32>(|| panic!("should return cached entry")),
+        ));
     }
 }

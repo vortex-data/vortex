@@ -432,7 +432,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn dtype_encode_error_terminates_ipc_byte_stream() -> VortexResult<()> {
+    async fn test_dtype_encode_error_terminates_ipc_byte_stream() -> VortexResult<()> {
         let ext_dtype = ExtDType::<FailingSerializeExt>::try_new(0, Nullability::NonNullable)?;
         let dtype = DType::Extension(ext_dtype.erased());
         let stream = ArrayStreamAdapter::new(dtype, futures::stream::empty());

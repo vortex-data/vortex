@@ -439,6 +439,9 @@ mod tests {
         )
         .into_array()
     )]
+    #[case::all_invalid(
+        PrimitiveArray::new(buffer![0u64; 1024], Validity::AllInvalid).into_array()
+    )]
     #[case::nullable_constant(
         PrimitiveArray::new(
             buffer![42u64; 1024],
@@ -453,7 +456,7 @@ mod tests {
         )
         .into_array()
     )]
-    fn empty_session_never_emits_constant_or_masked(
+    fn test_empty_session_never_emits_constant_or_masked(
         #[case] array: vortex_array::ArrayRef,
     ) -> VortexResult<()> {
         let session = VortexSession::empty();
@@ -472,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn constant_without_masked_avoids_masked_for_nullable_constant() -> VortexResult<()> {
+    fn test_constant_without_masked_avoids_masked_for_nullable_constant() -> VortexResult<()> {
         let mut builder = BtrBlocksCompressorBuilder::empty();
         builder.allowed.editions = Some([Constant.id()].into_iter().collect());
         let compressor = builder.build();
