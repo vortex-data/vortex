@@ -58,12 +58,12 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer_mut;
+use vortex_compute::lane_kernels::collect_sparse_bits;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -718,48 +718,36 @@ fn execute_sparse_primitives<T: NativePType>(
         Some(value) => BufferMut::full_in(value, len, allocator),
         None => BufferMut::zeroed_in(len, allocator),
     };
-    let mut validity =
-        (valid_count != 0 && valid_count != len).then(|| BitBufferMut::full(fill.is_some(), len));
     let source = values.as_slice::<T>();
     let offset = patches.offset();
-    match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        let output = output.as_mut_slice();
+    let validity = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
         let indices = indices.as_slice::<I>();
         let rows = indices.iter().map(|&index| {
             let index: usize = index.as_();
             index - offset
         });
-        if let Some(bits) = &mut validity {
-            // The output bitmap was allocated above with bit offset zero.
-            let bytes = bits.as_mut_slice();
-            if mask.all_true() {
-                for (row, &value) in rows.zip(source) {
-                    output[row] = value;
-                    bytes[row / 8] |= 1 << (row % 8);
-                }
-            } else {
-                for ((row, &value), valid) in rows.zip(source).zip(mask.iter()) {
-                    output[row] = value;
-                    let bit = 1 << (row % 8);
-                    let byte = &mut bytes[row / 8];
-                    if valid {
-                        *byte |= bit;
-                    } else {
-                        *byte &= !bit;
-                    }
-                }
-            }
+        let dst = output.as_mut_slice();
+        for (row, &value) in rows.clone().zip(source) {
+            dst[row] = value;
+        }
+        if valid_count == len {
+            Validity::from(fill_value.dtype().nullability())
+        } else if valid_count == 0 {
+            Validity::AllInvalid
         } else {
-            for (row, &value) in rows.zip(source) {
-                output[row] = value;
-            }
+            let fill_valid = fill.is_some();
+            let bits = if mask.all_true() || mask.all_false() {
+                // A uniform patch mask can produce mixed output only if every patch differs from the fill.
+                collect_sparse_bits(len, fill_valid, rows, ctx.allocator())
+            } else {
+                let exceptions = rows
+                    .zip(mask.iter())
+                    .filter_map(|(row, valid)| (valid != fill_valid).then_some(row));
+                collect_sparse_bits(len, fill_valid, exceptions, ctx.allocator())
+            };
+            Validity::Array(BoolArray::from(bits).into_array())
         }
     });
-    let validity = match validity {
-        Some(bits) => Validity::Array(BoolArray::from(bits.freeze()).into_array()),
-        None if valid_count == len => Validity::from(fill_value.dtype().nullability()),
-        None => Validity::AllInvalid,
-    };
     Ok(PrimitiveArray::new(output.freeze(), validity).into_array())
 }
 
