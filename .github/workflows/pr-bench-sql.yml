@@ -45,7 +45,7 @@ on:
       nvme_regions:
         description: >-
           JSON list of the AWS regions to spread the NVMe benchmarks over, such as
-          ["eu-west-2"]. Empty uses the BENCH_NVME_REGIONS repository variable
+          ["eu-central-1"]. Empty uses the BENCH_NVME_REGIONS repository variable
         required: false
         type: string
         default: ""
