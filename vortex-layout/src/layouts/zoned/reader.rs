@@ -629,7 +629,10 @@ mod test {
     ) -> VortexResult<()> {
         block_on(|handle| async {
             let session = session_with_handle(handle);
-            let zones_segment = layout.slot(1)?.unwrap().segment_ids()[0];
+            let zones_segment = layout
+                .slot(1)?
+                .ok_or_else(|| vortex_err!("zoned layout missing zones child"))?
+                .segment_ids()[0];
             let source = Arc::new(FailOnceZoneSource {
                 inner: data,
                 target: zones_segment,

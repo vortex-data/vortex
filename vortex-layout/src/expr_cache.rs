@@ -77,7 +77,11 @@ impl<V> WeakExprCache<V> {
     }
 
     /// Returns the cached value for `expr` if present and accepted by `is_valid`, otherwise
-    /// inserts or replaces the entry with `init()`.
+    /// builds a replacement with `init()` outside the shard lock and inserts or replaces the
+    /// entry if it is still absent or invalid.
+    ///
+    /// Because `init()` runs without holding the shard lock, concurrent misses may each invoke
+    /// `init()`, with only the first valid entry retained.
     pub(crate) fn get_or_insert_valid_with(
         &self,
         expr: &BoundExpression,
@@ -93,15 +97,16 @@ impl<V> WeakExprCache<V> {
             return entry.value().clone();
         }
 
+        let value = init();
         self.maybe_evict();
         match self.map.entry(WeakBoundExprKey::new(expr)) {
             Entry::Occupied(mut occupied) => {
                 if !is_valid(occupied.get()) {
-                    *occupied.get_mut() = init();
+                    *occupied.get_mut() = value;
                 }
                 occupied.get().clone()
             }
-            Entry::Vacant(vacant) => vacant.insert(init()).clone(),
+            Entry::Vacant(vacant) => vacant.insert(value).clone(),
         }
     }
 
@@ -204,6 +209,31 @@ mod tests {
             cache.get_or_insert_valid_with(&expr, Result::is_ok, || Ok(99)),
             Ok(42)
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_or_insert_valid_with_runs_init_outside_shard_lock() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let cache = WeakExprCache::<Result<usize, &'static str>>::with_shard_amount(2);
+        let expr = gt(root(), lit(0i32)).bind(&dtype)?;
+
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Err("transient")),
+            Err("transient")
+        );
+
+        // Re-entering the cache inside `init` must not deadlock, and a valid entry inserted
+        // before `init` returns must win over `init`'s return value.
+        let value = cache.get_or_insert_valid_with(&expr, Result::is_ok, || {
+            assert_eq!(cache.get_cloned(&expr), Some(Err("transient")));
+            cache
+                .get_or_insert_valid_with(&expr, Result::is_ok, || Ok(1))
+                .expect("inner insert should succeed");
+            Ok(2)
+        });
+        assert_eq!(value, Ok(1));
 
         Ok(())
     }

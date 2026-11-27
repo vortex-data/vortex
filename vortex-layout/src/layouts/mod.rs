@@ -36,12 +36,9 @@ pub(crate) fn is_shared_future_usable<T: Clone>(
     !matches!(fut.peek(), Some(Err(_)))
 }
 
-/// A shared future slot that caches in-flight and successful results while allowing retries
-/// after a transient error.
+/// Caches one shared future while it is in-flight or resolved to `Ok`.
 ///
-/// Concurrent callers share the same in-flight future, and once a future resolves to `Ok`,
-/// it is retained for subsequent callers. If a future resolves to `Err`, the next caller
-/// replaces it with a fresh attempt without discarding a newer attempt installed concurrently.
+/// Once the cached future resolves to `Err`, a later caller replaces it with a fresh attempt.
 pub(crate) struct SharedFutureSlot<T> {
     slot: RwLock<Option<Shared<BoxFuture<'static, SharedVortexResult<T>>>>>,
 }

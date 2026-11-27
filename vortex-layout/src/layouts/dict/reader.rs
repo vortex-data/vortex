@@ -884,12 +884,17 @@ mod tests {
     ) -> VortexResult<(crate::LayoutReaderRef, Arc<FailOnceSegmentSource>)> {
         let (layout, segments) = write_dict_layout(input, session).await;
         assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
-        let values_segment = layout.slot(0)?.unwrap().segment_ids()[0];
+
+        let values_segment = layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("dict layout missing values child"))?
+            .segment_ids()[0];
         let source = Arc::new(FailOnceSegmentSource {
             inner: segments,
             target: values_segment,
             calls: AtomicUsize::new(0),
         });
+
         let reader = layout.new_reader(
             "dict".into(),
             Arc::clone(&source) as Arc<dyn SegmentSource>,
