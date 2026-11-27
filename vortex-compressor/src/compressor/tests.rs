@@ -1986,6 +1986,124 @@ fn test_scheme_eligibility_at_final_cascade_level() {
     ));
 }
 
+/// When no scheme is eligible in a child context, `compress_child` returns a non-canonical child
+/// as-is without canonicalizing it, while canonical children still run through `compress_canonical`.
+#[test]
+fn non_canonical_child_skipped_when_no_scheme_eligible() -> VortexResult<()> {
+    #[derive(Debug)]
+    struct AbsentAllowedScheme;
+
+    impl Scheme for AbsentAllowedScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.absent_allowed"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(_))
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
+        }
+    }
+
+    #[derive(Debug)]
+    struct RestrictedAllowlistParent;
+
+    impl Scheme for RestrictedAllowlistParent {
+        fn scheme_name(&self) -> &'static str {
+            "test.restricted_allowlist_parent"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(_))
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn num_children(&self) -> usize {
+            1
+        }
+
+        fn descendant_allowlists(&self) -> Vec<crate::scheme::DescendantAllowlist> {
+            vec![crate::scheme::DescendantAllowlist {
+                allowed: vec![AbsentAllowedScheme.id()],
+                children: crate::scheme::ChildSelection::One(0),
+            }]
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
+        }
+    }
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let dict_compressor = CascadingCompressor::new(vec![&KEEPING_DICT]);
+    let dict_child = dict_compressor.compress(&alternating_ints(), &mut ctx)?;
+    assert!(dict_child.is::<Dict>());
+
+    let compressor = CascadingCompressor::new(vec![&RestrictedAllowlistParent, &KEEPING_DICT]);
+    let root_ctx = CompressorContext::new();
+
+    // Non-canonical child is returned unchanged when no registered scheme is eligible.
+    let result = compressor.compress_child(
+        &dict_child,
+        &root_ctx,
+        RestrictedAllowlistParent.id(),
+        0,
+        &mut ctx,
+    )?;
+    assert!(result.is::<Dict>(), "{}", result.encoding_id());
+
+    // Canonical children still go through `compress_canonical` (e.g. constant collapse).
+    let canonical_const = PrimitiveArray::from_iter([7i32; 64]).into_array();
+    let collapsed = compressor.compress_child(
+        &canonical_const,
+        &root_ctx,
+        RestrictedAllowlistParent.id(),
+        0,
+        &mut ctx,
+    )?;
+    assert!(collapsed.is::<Constant>(), "{}", collapsed.encoding_id());
+    Ok(())
+}
+
 /// Hands back its whole input, validity included, as a general-purpose compressor would store
 /// it.
 #[derive(Debug)]
