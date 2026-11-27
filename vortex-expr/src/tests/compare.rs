@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -12,13 +14,17 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Expression;
 use crate::col;
+use crate::compare_with_mode;
 use crate::eq;
 use crate::gt;
 use crate::gt_eq;
@@ -27,6 +33,7 @@ use crate::lt;
 use crate::lt_eq;
 use crate::not_eq;
 use crate::or;
+use crate::root;
 use crate::test_harness;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -160,4 +167,31 @@ fn test_struct_comparison() {
         Scalar::bool(false, Nullability::NonNullable),
         "Different structs should not be equal"
     );
+}
+
+const CANONICAL: CompareMode = CompareMode::new(FloatOrder::Canonical);
+
+/// A comparison with a literal that has no floats uses the total order, so rewrites that need the
+/// total order still apply to it. A float literal keeps the requested mode.
+#[rstest]
+#[case::integer(Scalar::from(1i32), CompareMode::TOTAL_ORDER)]
+#[case::string(Scalar::from("a"), CompareMode::TOTAL_ORDER)]
+#[case::float(Scalar::from(1.0f64), CANONICAL)]
+#[case::integer_list(int_list_scalar(), CompareMode::TOTAL_ORDER)]
+fn compare_with_mode_keeps_default_mode_without_floats(
+    #[case] value: Scalar,
+    #[case] expected: CompareMode,
+) {
+    let expr = compare_with_mode(CompareOperator::Eq, CANONICAL, root(), lit(value));
+
+    let options = expr.as_::<Compare>();
+    assert_eq!(options.compare_mode(), expected);
+}
+
+fn int_list_scalar() -> Scalar {
+    Scalar::list(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        vec![1i32.into()],
+        Nullability::NonNullable,
+    )
 }

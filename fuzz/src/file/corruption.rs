@@ -1,34 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ptr;
+use std::cell::Cell;
+use std::fmt;
+use std::panic;
+use std::sync::Once;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 use flatbuffers::root;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::Xoshiro256PlusPlus;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_file::EOF_SIZE;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::POSTSCRIPT_LEN_BYTES;
 use vortex_file::VERSION_BYTES;
-use vortex_file::WriteOptionsSessionExt;
 use vortex_file::flatbuffers::footer as fb;
 
 use crate::FUZZ_FILE_ARRAY_MAX_LEN;
 use crate::RUNTIME;
 use crate::SESSION;
+use crate::file::WriteSettings;
 use crate::file::has_duplicate_field_names;
 use crate::file::has_nullable_struct;
 
 const MAX_CORRUPTIONS: usize = 8;
+const CORRUPTION_SETS: usize = 1024;
+const SET_ENTROPY_BYTES: usize = 64;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum SegmentField {
     /// Although valid Offset is u64, generated files are usually small, so most
     /// such offsets are rejected in file size check. Same for Length
@@ -38,7 +48,7 @@ pub enum SegmentField {
     AlignmentExponent(u8),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Region {
     DataSegment(u8),
     Dtype,
@@ -47,7 +57,19 @@ pub enum Region {
     Footer,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl fmt::Debug for Region {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DataSegment(index) => write!(f, "data_segment[{index}]"),
+            Self::Dtype => f.write_str("dtype"),
+            Self::Layout => f.write_str("layout"),
+            Self::Statistics => f.write_str("statistics"),
+            Self::Footer => f.write_str("footer"),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum Corruption {
     FooterSegmentSpec {
         index: u8,
@@ -58,6 +80,22 @@ pub enum Corruption {
         offset: u32,
         byte: u8,
     },
+}
+
+impl fmt::Debug for Corruption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FooterSegmentSpec { index, field } => {
+                let (name, value) = match field {
+                    SegmentField::Offset(v) => ("offset", u32::from(*v)),
+                    SegmentField::Length(v) => ("length", u32::from(*v)),
+                    SegmentField::AlignmentExponent(v) => ("alignment_exponent", u32::from(*v)),
+                };
+                write!(f, "footer.segments[{index}].{name} = {value}")
+            }
+            Self::Bytes { region, byte, .. } => write!(f, "{region:?} ^= {byte:#04x}"),
+        }
+    }
 }
 
 impl<'a> Arbitrary<'a> for Corruption {
@@ -86,16 +124,20 @@ impl<'a> Arbitrary<'a> for Corruption {
     }
 }
 
-const NO_CORRUPTION: Corruption = Corruption::Bytes {
-    region: Region::Dtype,
-    offset: 0,
-    byte: 0,
-};
-
-#[derive(Debug)]
 pub struct FuzzFileCorruption {
     pub array: ArrayRef,
-    pub corruptions: [Corruption; MAX_CORRUPTIONS],
+    pub seed: u32,
+    pub write_settings: WriteSettings,
+}
+
+impl fmt::Debug for FuzzFileCorruption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FuzzFileCorruption")
+            .field("array", &self.array)
+            .field("seed", &self.seed)
+            .field("write_settings", &self.write_settings)
+            .finish()
+    }
 }
 
 impl<'a> Arbitrary<'a> for FuzzFileCorruption {
@@ -105,57 +147,78 @@ impl<'a> Arbitrary<'a> for FuzzFileCorruption {
             len: 0..=FUZZ_FILE_ARRAY_MAX_LEN,
         };
         let array = ArbitraryArray::arbitrary_with_config(u, &config)?.0;
-        let mut corruptions = [NO_CORRUPTION; MAX_CORRUPTIONS];
-        let corruptions_len = u.int_in_range(0..=MAX_CORRUPTIONS)?;
-        for slot in corruptions.iter_mut().take(corruptions_len) {
-            *slot = u.arbitrary()?;
-        }
-        Ok(Self { array, corruptions })
+        Ok(Self {
+            array,
+            seed: u.arbitrary()?,
+            write_settings: WriteSettings::arbitrary(u)?,
+        })
     }
 }
 
+thread_local! {
+    static CURRENT_SET: Cell<[Option<(usize, Corruption)>; MAX_CORRUPTIONS]> =
+        const { Cell::new([None; MAX_CORRUPTIONS]) };
+}
+
 pub fn run_file_corruption(fuzz: FuzzFileCorruption) -> VortexResult<bool> {
-    let FuzzFileCorruption { array, corruptions } = fuzz;
+    let FuzzFileCorruption {
+        array,
+        seed,
+        write_settings,
+    } = fuzz;
     if has_nullable_struct(array.dtype()) || has_duplicate_field_names(array.dtype()) {
         return Ok(false);
     }
 
     let mut file = Vec::new();
-    SESSION
+    write_settings
         .write_options()
         .blocking(&*RUNTIME)
         .write(&mut file, array.to_array_iterator())?;
 
-    for corruption in corruptions {
-        match corruption {
-            Corruption::FooterSegmentSpec { index, field } => {
-                apply_footer_segment_spec(&mut file, index, field);
-            }
-            Corruption::Bytes {
-                region,
-                offset,
-                byte,
-            } => apply_bytes(&mut file, region, offset, byte),
-        }
-    }
+    let targets = Targets::new(&file).vortex_expect("written file has a footer");
 
-    let Ok(vortex_file) = SESSION.open_options().open_buffer(file) else {
-        return Ok(true);
-    };
-    let Ok(scan) = vortex_file.scan() else {
-        return Ok(true);
-    };
-    let Ok(iter) = scan.into_array_iter(&*RUNTIME) else {
-        return Ok(true);
-    };
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            for (position, corruption) in CURRENT_SET.get().into_iter().flatten() {
+                eprintln!("corruption {position} {corruption:?}");
+            }
+            previous(info);
+        }));
+    });
+
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(u64::from(seed));
     let mut ctx = SESSION.create_execution_ctx();
-    for batch in iter {
-        let Ok(array) = batch else {
-            return Ok(true);
-        };
-        let _canonical = array.execute::<RecursiveCanonical>(&mut ctx);
+    for _ in 0..CORRUPTION_SETS {
+        let mut entropy = [0u8; SET_ENTROPY_BYTES];
+        rng.fill(&mut entropy);
+        let mut u = Unstructured::new(&entropy);
+        let mut corrupted = file.clone();
+        let mut applied = [None; MAX_CORRUPTIONS];
+        let len = u.int_in_range(1..=MAX_CORRUPTIONS).unwrap_or(1);
+        for slot in applied.iter_mut().take(len) {
+            let corruption = u.arbitrary().ok();
+            *slot = corruption.and_then(|corruption| targets.apply(&mut corrupted, corruption));
+        }
+        CURRENT_SET.set(applied);
+        read_corrupted(&mut ctx, corrupted).ok();
     }
+    CURRENT_SET.set([None; MAX_CORRUPTIONS]);
     Ok(true)
+}
+
+fn read_corrupted(ctx: &mut ExecutionCtx, file: Vec<u8>) -> VortexResult<()> {
+    let iter = SESSION
+        .open_options()
+        .open_buffer(file)?
+        .scan()?
+        .into_array_iter(&*RUNTIME)?;
+    for batch in iter {
+        let _canonical = batch?.execute::<RecursiveCanonical>(ctx);
+    }
+    Ok(())
 }
 
 fn postscript(file: &[u8]) -> Option<fb::Postscript<'_>> {
@@ -175,62 +238,82 @@ fn span(file: &[u8], offset: u64, length: u32) -> Option<(usize, usize)> {
     (end <= file.len()).then_some((start, length))
 }
 
-fn segment_spec(file: &[u8], index: u8) -> Option<&fb::SegmentSpec> {
-    let footer = postscript(file)?.footer()?;
-    let (start, length) = span(file, footer.offset(), footer.length())?;
-    let specs = root::<fb::Footer>(file.get(start..start + length)?)
-        .ok()?
-        .segment_specs()?;
-    if specs.is_empty() {
-        return None;
-    }
-    Some(specs.get(usize::from(index) % specs.len()))
+struct Targets {
+    segment_specs: (usize, usize),
+    dtype: Option<(usize, usize)>,
+    layout: Option<(usize, usize)>,
+    statistics: Option<(usize, usize)>,
+    footer: (usize, usize),
 }
 
-fn patched_segment_spec(file: &[u8], index: u8, field: SegmentField) -> Option<(usize, [u8; 16])> {
-    let spec = segment_spec(file, index)?;
-    let position = (ptr::from_ref(spec) as usize).checked_sub(file.as_ptr() as usize)?;
-    let mut patched = fb::SegmentSpec(spec.0);
-    match field {
-        SegmentField::Offset(value) => patched.set_offset(u64::from(value)),
-        SegmentField::Length(value) => patched.set_length(u32::from(value)),
-        SegmentField::AlignmentExponent(value) => patched.set_alignment_exponent(value),
+impl Targets {
+    fn new(file: &[u8]) -> Option<Self> {
+        let postscript = postscript(file)?;
+        let segment = |segment: Option<fb::PostscriptSegment<'_>>| {
+            segment.and_then(|segment| span(file, segment.offset(), segment.length()))
+        };
+        let footer @ (start, length) = segment(postscript.footer())?;
+        let specs = root::<fb::Footer>(&file[start..start + length])
+            .ok()?
+            .segment_specs()?;
+        let position = (specs.bytes().as_ptr() as usize).checked_sub(file.as_ptr() as usize)?;
+        Some(Self {
+            segment_specs: (position, specs.len()),
+            dtype: segment(postscript.dtype()),
+            layout: segment(postscript.layout()),
+            statistics: segment(postscript.statistics()),
+            footer,
+        })
     }
-    Some((position, patched.0))
-}
 
-fn apply_footer_segment_spec(file: &mut [u8], index: u8, field: SegmentField) {
-    let Some((position, bytes)) = patched_segment_spec(file, index, field) else {
-        return;
-    };
-    if let Some(slot) = file.get_mut(position..position + bytes.len()) {
-        slot.copy_from_slice(&bytes);
+    fn segment_spec(&self, file: &[u8], index: u8) -> Option<(u8, usize, fb::SegmentSpec)> {
+        let (start, len) = self.segment_specs;
+        let index = usize::from(index).checked_rem(len)?;
+        let position = start + index * size_of::<fb::SegmentSpec>();
+        let bytes = file.get(position..position + size_of::<fb::SegmentSpec>())?;
+        let spec = fb::SegmentSpec(bytes.try_into().ok()?);
+        Some((u8::try_from(index).ok()?, position, spec))
     }
-}
 
-fn region_span(file: &[u8], region: Region) -> Option<(usize, usize)> {
-    let segment = match region {
-        Region::DataSegment(index) => {
-            let spec = segment_spec(file, index)?;
-            return span(file, spec.offset(), spec.length());
+    fn apply(&self, file: &mut [u8], corruption: Corruption) -> Option<(usize, Corruption)> {
+        match corruption {
+            Corruption::FooterSegmentSpec { index, field } => {
+                let (index, position, mut spec) = self.segment_spec(file, index)?;
+                match field {
+                    SegmentField::Offset(value) => spec.set_offset(u64::from(value)),
+                    SegmentField::Length(value) => spec.set_length(u32::from(value)),
+                    SegmentField::AlignmentExponent(value) => spec.set_alignment_exponent(value),
+                }
+                file.get_mut(position..position + spec.0.len())?
+                    .copy_from_slice(&spec.0);
+                Some((position, Corruption::FooterSegmentSpec { index, field }))
+            }
+            Corruption::Bytes { byte: 0, .. } => None,
+            Corruption::Bytes {
+                region,
+                offset,
+                byte,
+            } => {
+                let (region, (start, len)) = match region {
+                    Region::DataSegment(index) => {
+                        let (index, _, spec) = self.segment_spec(file, index)?;
+                        let span = span(file, spec.offset(), spec.length())?;
+                        (Region::DataSegment(index), span)
+                    }
+                    Region::Dtype => (region, self.dtype?),
+                    Region::Layout => (region, self.layout?),
+                    Region::Statistics => (region, self.statistics?),
+                    Region::Footer => (region, self.footer),
+                };
+                let position = start + usize::try_from(offset).ok()?.checked_rem(len)?;
+                *file.get_mut(position)? ^= byte;
+                let corruption = Corruption::Bytes {
+                    region,
+                    offset,
+                    byte,
+                };
+                Some((position, corruption))
+            }
         }
-        Region::Dtype => postscript(file)?.dtype(),
-        Region::Layout => postscript(file)?.layout(),
-        Region::Statistics => postscript(file)?.statistics(),
-        Region::Footer => postscript(file)?.footer(),
-    }?;
-    span(file, segment.offset(), segment.length())
-}
-
-fn apply_bytes(file: &mut [u8], region: Region, offset: u32, byte: u8) {
-    let Some((start, length)) = region_span(file, region) else {
-        return;
-    };
-    if length == 0 {
-        return;
-    }
-    let position = start + usize::try_from(offset).unwrap_or(0) % length;
-    if let Some(slot) = file.get_mut(position) {
-        *slot ^= byte;
     }
 }

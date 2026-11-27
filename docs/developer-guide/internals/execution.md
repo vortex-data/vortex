@@ -160,6 +160,10 @@ pub enum ExecutionStep {
     /// parent once that child matches the predicate.
     ExecuteSlot(usize, DonePredicate),
 
+    /// Like ExecuteSlot, for the encoding's spine: the last child it waits for,
+    /// whose values it then only transforms row by row.
+    ExecuteSpine(usize, DonePredicate),
+
     /// Detach a child, append it into the current activation's builder, and
     /// keep the parent as current_array for the next iteration.
     AppendChild(usize),
@@ -171,6 +175,10 @@ pub enum ExecutionStep {
 
 - `ExecuteSlot(i, pred)` detaches slot `i`, pushes the parent onto `stack`, and makes that
   child the new `current_array` until `pred` says it is done.
+- `ExecuteSpine(i, pred)` runs like `ExecuteSlot(i, pred)`. It also promises that slot `i` is
+  the encoding's spine: every other child it needs is already executed, and once the spine is,
+  `execute` only transforms its values row by row and takes its validity. With block fusion on,
+  the executor may then fuse the slot (see [Block Fusion](#block-fusion)).
 - `AppendChild(i)` detaches slot `i`, appends that child into `current_builder`, and keeps
   the returned parent as `current_array` for the next iteration.
 - `Done` finishes the current activation. If `current_builder` is active, the builder is
@@ -251,6 +259,107 @@ observe inconsistent state and could discard accumulated builder data.
 
 Both Step 2a and Step 2b route through `execute_parent_for_child`, which looks up
 `(parent.encoding_id(), child.encoding_id())` in the session kernel snapshot.
+
+## Block Fusion
+
+Level-wise execution writes a full-length buffer at every level of an encoding tree, such as
+FoR over FoR over BitPacked. Block fusion builds those levels into one pass over blocks of at most
+1024 rows instead, whose intermediates stay in L1.
+
+An encoding takes part with three pieces:
+
+- `require_spine!` in `execute`, for the last child it waits for, once every other child it needs
+  is executed. It promises that once that child is canonical, the encoding only transforms the
+  child's values row by row, and that its validity is the child's. When the slot cannot fuse, it
+  behaves exactly like `require_child!`.
+- `VTable::block_op` for that slot: the transform of one block, which must produce exactly what
+  `execute` produces.
+- `VTable::block_source`, if the encoding can emit its own values a block at a time. An array
+  with a block source is a *leaf*. A canonical primitive array is one: it lends its buffer.
+
+The executor fuses in three steps:
+
+1. **Check, going down.** When a parent asks for its spine with `ExecuteSpine`, the executor
+   checks what does not need the slot executed: fusion is on, no builder is active, both arrays
+   are primitive and of one length, longer than two blocks, the parent has no `execute_parent`
+   kernels of its own, and the parent above has none for it. A slot that fails runs as a plain
+   `ExecuteSlot`. Chains of at most two blocks are not fused because their intermediates stay in
+   L1, so a program would cost more than it saves.
+2. **Build, going up.** When the child is ready, after its own `execute_parent` probes, the
+   executor asks the parent for its op, once per frame, then the child for its block source. A
+   leaf starts a block program, and the op of each fusable parent above is pushed onto it as its
+   frame is popped. A child that is not a leaf yet executes as usual, and the op waits in the
+   frame for the result.
+3. **Drive.** As soon as the next parent cannot extend the program, or at the root, the executor
+   runs it, in place of the parents it reached, and execution carries on with the result. A
+   program never waits, so the executor holds it as a value, not as an array.
+
+Fusion covers primitive arrays and extension types stored as primitives, and today FoR and
+BitPacked take part. Each block's validity starts as the leaf source's, and an op may edit it a
+row or a 64-bit word at a time, such as a patch that nulls a row or an intersection with a side
+input's validity. Only edited blocks are copied into the output's validity. Disable fusion with
+`ExecutionCtx::with_block_fusion(false)`. Traces show each
+`ExecuteSpine` or `ExecuteSlot`, `fuse start`, `fuse extend` and `drive`, and how each op ran over
+the first block.
+
+### Walkthrough: a Leaf and Two Ops
+
+`FoR₁(FoR₂(FoR₃(BitPacked)))` fuses into one program. `FoR₃(BitPacked)` is the leaf: its block
+source unpacks a FastLanes chunk and adds its reference in one pass. `FoR₂` and `FoR₁` are the
+ops.
+
+```
+Going down: check each spine, build nothing
+  FoR₁.execute → require_spine!(encoded)   check ✓ → frame { fuse }   ExecuteSpine
+  FoR₂.execute → require_spine!(encoded)   check ✓ → frame { fuse }   ExecuteSpine
+  current = FoR₃(BitPacked)
+
+    stack:  FoR₂  fuse  ← top
+            FoR₁  fuse
+
+Going up (Step 2c): build
+  FoR₂.block_op()        → add ref₂               the op first
+  FoR₃.block_source()    → unpack + add ref₃      then the leaf     fuse start
+  pop FoR₂, push its op                                             fuse extend ops=1
+  FoR₁.block_op()        → add ref₁
+  pop FoR₁, push its op                                             fuse extend ops=2
+  stack empty → drive
+
+Drive: one pass, 1024 rows at a time                                drive ops=2
+  chunk k ──► unpack + ref₃ ──► scratch0 ──► + ref₂ ──► scratch0 ──► + ref₁ ──► output
+                                (op 0: in place)         (op 1: the last op writes
+                                                          the full-length output)
+```
+
+Level-wise execution writes three full-length buffers. The program writes one, and every
+intermediate stays in one scratch block.
+
+### When a Chain Does Not Form
+
+A chain can stop at three points, each cheaper the earlier it stops:
+
+```
+a) Going down: the check fails, for example the chain is at most two blocks long or the
+   parent has execute_parent kernels.
+     Op.execute → require_spine!   check ✗ → frame { no fuse }        ExecuteSpine
+     The child executes as a plain slot. Going up, the frame is skipped with a field read.
+
+b) Going up: the parent has no op, for example FoR with a zero reference.
+     FoR(0).execute → require_spine!   check ✓ → frame { fuse }        ExecuteSpine
+     FoR(0).block_op() → None → the frame turns off; no source is built
+     FoR(5)(BitPacked) runs its own kernel, and FoR(0) returns the result.
+
+c) Partly: a parent above cannot fuse, for example one that asks with require_child!.
+     Pass.execute → require_child!                                    ExecuteSlot
+     add.execute  → require_spine! ✓                                  ExecuteSpine
+     add.execute  → require_spine! ✓                                  ExecuteSpine
+     leaf + op + op, then the top frame is Pass → drive below it      drive ops=2
+     Pass executes as usual over the driven result.
+```
+
+A child that is not a leaf yet, such as a Dict under FoR, does not stop the chain: the Dict
+executes as usual, the op FoR built waits in its frame, and the Dict's canonical result is the
+leaf.
 
 ## Incremental Execution
 

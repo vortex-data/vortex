@@ -22,7 +22,7 @@ env:
 jobs:
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
-    # Coverage only runs on develop; PRs get the same tests uninstrumented in ci.yml.
+    # Coverage only runs on develop pushes and manual dispatches, not on pull requests.
     if: github.event_name != 'pull_request'
     timeout-minutes: 30
     permissions:
@@ -73,7 +73,31 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-python-cuda
+          status=0
+          cargo nextest run --locked --workspace --all-features --no-fail-fast \
+            --exclude xtask \
+            --exclude vortex-sqllogictest \
+            --exclude vortex-tui \
+            --exclude vortex-compat \
+            --exclude vortex-fuzz \
+            --exclude vortex-cuda \
+            --exclude vortex-cuda-driver \
+            --exclude vortex-cuda-ffi \
+            --exclude vortex-cuda-macros \
+            --exclude vortex-cub \
+            --exclude vortex-nvcomp \
+            --exclude gpu-scan-cli \
+            --exclude vortex-test-e2e-cuda \
+            --exclude vortex-python-cuda \
+            --exclude vortex-bench-support \
+            --exclude compress-bench \
+            --exclude datafusion-bench \
+            --exclude duckdb-bench \
+            --exclude lance-bench \
+            --exclude random-access-bench \
+            --exclude string-bench || status=$?
+          cargo nextest run --locked --no-fail-fast -p vortex-fuzz || status=$?
+          exit "$status"
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"
@@ -83,11 +107,17 @@ jobs:
             --llvm-path "${LLVM_TOOLS_BIN}" \
             --threads $(nproc) \
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'vortex-bench/*' \
-            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
-            --ignore 'vortex-python/*' --ignore 'lang/java/vortex-jni-native/*' \
-            --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' \
-            --ignore benchmarks/* --ignore 'vortex-test/*' \
+            --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' \
+            --ignore 'vortex-python/*' --ignore 'vortex-python-cuda/*' \
+            --ignore 'vortex-cuda/*' --ignore 'vortex-sqllogictest/*' \
+            --ignore 'lang/java/vortex-jni-native/*' --ignore 'vortex-tui/*' \
+            --ignore 'benchmarks/*' --ignore 'vortex-test/*' \
+            --ignore '*/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' \
+            --ignore '*/tests/*' --ignore '*/tests.rs' --ignore '*/test.rs' \
+            --ignore '*/e2e_test/*' --ignore '*_tests.rs' --ignore '*_test.rs' \
+            --ignore '*/conformance/*' --ignore '*/test_harness/*' --ignore '*/test_harness.rs' \
+            --ignore '*/test_utils.rs' --ignore '*/testing.rs' \
+            --ignore '*/generated/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
           test -s ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov

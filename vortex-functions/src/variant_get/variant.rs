@@ -79,19 +79,31 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             return make_fallback(ctx).map(Some);
         };
         // A shredded Variant child still needs VariantGet at the root to produce a
-        // concrete requested dtype.
+        // concrete requested dtype, and SQL-null shredded rows fall back to core storage.
         if typed.dtype().is_variant()
             && parent
                 .options
                 .dtype()
                 .is_some_and(|dtype| !dtype.is_variant())
         {
-            return execute_fallback_variant_get(
+            let typed_mask = typed.validity()?.execute_mask(typed.len(), ctx)?;
+            if typed_mask.all_false() {
+                return make_fallback(ctx).map(Some);
+            }
+            let extracted = execute_fallback_variant_get(
                 VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
                 typed,
                 ctx,
-            )
-            .map(Some);
+            )?;
+            if typed_mask.all_true() {
+                return Ok(Some(extracted));
+            }
+            let fallback = make_fallback(ctx)?;
+            return typed_mask
+                .into_array()
+                .zip(extracted, fallback)?
+                .execute::<ArrayRef>(ctx)
+                .map(Some);
         }
         // Untyped VariantGet must return variant scalars, so typed shredded values
         // are wrapped as variants and merged with raw object fallback where needed.
@@ -131,7 +143,8 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
         // fill those rows from core storage and keep valid typed rows unchanged.
         // TODO: we are computing the entire fallback array here but only take indices where
         // typed_mask is false, so we can narrow the core_storage to only the false
-        // indices and compute from there then zip
+        // indices and compute from there then zip. Also note that `typed` is pre-masked by
+        // `core_validity`, so core-null rows make `typed_mask` not all-true and trigger fallback.
         let fallback = make_fallback(ctx)?;
         typed_mask
             .into_array()

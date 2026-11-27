@@ -228,9 +228,11 @@ def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
     counts: dict[str, dict[str, int]] = collections.defaultdict(dict)
     for path in paths:
         current = None
+        run_count = 0
         for line in path.read_text(errors="replace").splitlines():
             if match := re.search(r"\bRunning (\S+) (\S+)$", line):
                 current = (match.group(1), match.group(2))
+                run_count = 0
                 if current[0] in packages:
                     counts[current[0]].setdefault(current[1], 0)
                 else:
@@ -238,7 +240,8 @@ def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
             elif "Done running" in line:
                 current = None
             elif current and "Measured: " in line:
-                counts[current[0]][current[1]] += 1
+                run_count += 1
+                counts[current[0]][current[1]] = max(counts[current[0]][current[1]], run_count)
     return {package: dict(sorted(benches.items())) for package, benches in sorted(counts.items())}
 
 
