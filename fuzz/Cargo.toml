@@ -104,6 +104,14 @@ required-features = ["native"]
 [[bin]]
 bench = false
 doc = false
+name = "file_io_v2"
+path = "fuzz_targets/file_io_v2.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
 name = "file_corruption"
 path = "fuzz_targets/file_corruption.rs"
 test = false

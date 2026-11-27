@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod corruption;
+mod io;
 mod settings;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 pub use corruption::*;
+pub use io::*;
 pub use settings::*;
 use vortex::expr::Expression;
 use vortex_array::ArrayRef;
