@@ -33,6 +33,10 @@ class Merge:
     def control(self) -> Path:
         return self.directory / "merge.txt"
 
+    @property
+    def failed(self) -> int:
+        return self.total - self.processed
+
     def read_progress(self) -> None:
         if not self.control.exists():
             return
@@ -79,12 +83,11 @@ def shard_corpus(files: list[Path], directory: Path, shards: int) -> list[Merge]
     return merges
 
 
-async def run_merge(merge: Merge, binary: Path, artifacts: Path, env: dict[str, str]) -> bool:
+async def run_merge(merge: Merge, binary: Path, artifacts: Path, rss_limit_mb: int, env: dict[str, str]) -> bool:
     merge.output.mkdir(parents=True)
     merge.started = time.monotonic()
     print(f"Starting {merge.name}: {merge.total} inputs", flush=True)
     process = None
-    failed_input = False
     try:
         process = await asyncio.create_subprocess_exec(
             str(binary),
@@ -93,7 +96,7 @@ async def run_merge(merge: Merge, binary: Path, artifacts: Path, env: dict[str, 
             *(str(path) for path in merge.inputs),
             f"-merge_control_file={merge.control}",
             f"-artifact_prefix={artifacts}/",
-            "-rss_limit_mb=0",
+            f"-rss_limit_mb={rss_limit_mb}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=env,
@@ -105,15 +108,16 @@ async def run_merge(merge: Merge, binary: Path, artifacts: Path, env: dict[str, 
         with (merge.directory / "merge.log").open("wb") as log:
             async for line in process.stdout:
                 log.write(line)
-                if b"caused a failure" in line or b"will be skipped as unlucky" in line:
-                    failed_input = True
                 if b"MERGE-OUTER:" in line or b"ERROR:" in line:
                     print(f"[{merge.name}] {line.decode(errors='replace').rstrip()}", flush=True)
         status = await process.wait()
         merge.report()
-        if status != 0 or failed_input or merge.processed != merge.total:
-            print(f"::error::{merge.name} failed or skipped inputs; see {merge.directory / 'merge.log'}")
+        log = merge.directory / 'merge.log'
+        if status != 0:
+            print(f"::error::{merge.name} failed, see {log}")
             return False
+        if merge.failed:
+            print(f"{merge.name} dropped {merge.failed} failing inputs, see {log}")
         return True
     finally:
         if process is not None and process.returncode is None:
@@ -122,8 +126,10 @@ async def run_merge(merge: Merge, binary: Path, artifacts: Path, env: dict[str, 
         merge.finished = True
 
 
-async def run_phase(merges: list[Merge], binary: Path, artifacts: Path, env: dict[str, str]) -> bool:
-    tasks = [asyncio.create_task(run_merge(merge, binary, artifacts, env)) for merge in merges]
+async def run_phase(
+    merges: list[Merge], binary: Path, artifacts: Path, rss_limit_mb: int, max_failed: int, env: dict[str, str]
+) -> bool:
+    tasks = [asyncio.create_task(run_merge(merge, binary, artifacts, rss_limit_mb, env)) for merge in merges]
     try:
         pending = set(tasks)
         while pending:
@@ -131,7 +137,13 @@ async def run_phase(merges: list[Merge], binary: Path, artifacts: Path, env: dic
             for merge in merges:
                 if not merge.finished:
                     merge.report()
-        return all(await asyncio.gather(*tasks))
+        if not all(await asyncio.gather(*tasks)):
+            return False
+        failed = sum(merge.failed for merge in merges)
+        if failed > max_failed:
+            print(f"::error::{failed} inputs failed, the limit is {max_failed}")
+            return False
+        return True
     finally:
         for task in tasks:
             if not task.done():
@@ -139,7 +151,15 @@ async def run_phase(merges: list[Merge], binary: Path, artifacts: Path, env: dic
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def minimize(binary: Path, corpus: Path, work_dir: Path, artifacts: Path, shards: int) -> bool:
+async def minimize(
+    binary: Path,
+    corpus: Path,
+    work_dir: Path,
+    artifacts: Path,
+    shards: int,
+    rss_limit_mb: int = 0,
+    max_failed_fraction: float = 0,
+) -> bool:
     files = corpus_files(corpus)
     if not files:
         print("Corpus is empty; nothing to minimize")
@@ -156,14 +176,17 @@ async def minimize(binary: Path, corpus: Path, work_dir: Path, artifacts: Path, 
         key, value = assignment.split("=", 1)
         env[key] = value
     merges = shard_corpus(files, work_dir, shards)
-    if not await run_phase(merges, binary, artifacts, env):
+    max_failed = int(len(files) * max_failed_fraction)
+    if not await run_phase(merges, binary, artifacts, rss_limit_mb, max_failed, env):
         return False
+    failed = sum(merge.failed for merge in merges)
     if len(merges) > 1:
         inputs = [merge.output for merge in merges]
         final = Merge("final", inputs, work_dir / "final", sum(len(corpus_files(path)) for path in inputs))
-        if final.total == 0 or not await run_phase([final], binary, artifacts, env):
+        if final.total == 0 or not await run_phase([final], binary, artifacts, rss_limit_mb, max_failed, env):
             print("::error::Final merge failed or all shards were empty; retaining original corpus")
             return False
+        failed += final.failed
     else:
         final = merges[0]
     minimized = corpus_files(final.output)
@@ -173,13 +196,14 @@ async def minimize(binary: Path, corpus: Path, work_dir: Path, artifacts: Path, 
     minimized_bytes = sum(path.stat().st_size for path in minimized)
     summary = (
         f"Minimized {len(files)} inputs ({original_bytes} bytes) to {len(minimized)} "
-        f"({minimized_bytes} bytes) in {time.monotonic() - started:.0f}s using {len(merges)} shards"
+        f"({minimized_bytes} bytes) in {time.monotonic() - started:.0f}s using {len(merges)} shards, "
+        f"dropped {failed} failing inputs"
     )
     print(summary, flush=True)
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(summary_path).open("a") as output:
             output.write(f"### {corpus.name} corpus minimization\n\n{summary}\n")
-    # Only publish a fully completed, crash-free merge. The remote update still
+    # Only publish a fully completed merge. The remote update still
     # uses the original ETag in checkpoint-fuzz-corpus.sh.
     shutil.rmtree(corpus)
     final.output.rename(corpus)
@@ -193,12 +217,24 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--shards", type=int, default=8)
+    parser.add_argument("--rss-limit-mb", type=int, default=2048)
+    parser.add_argument("--max-failed-fraction", type=float, default=0.01)
     args = parser.parse_args()
     if args.shards < 1:
         parser.error("--shards must be positive")
     if not args.binary.is_file() or not args.corpus.is_dir():
         parser.error("the compiled binary and corpus directory must exist")
-    success = asyncio.run(minimize(args.binary.resolve(), args.corpus, args.work_dir, args.artifacts, args.shards))
+    success = asyncio.run(
+        minimize(
+            args.binary.resolve(),
+            args.corpus,
+            args.work_dir,
+            args.artifacts,
+            args.shards,
+            args.rss_limit_mb,
+            args.max_failed_fraction,
+        )
+    )
     raise SystemExit(0 if success else 1)
 
 
