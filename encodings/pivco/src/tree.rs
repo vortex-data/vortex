@@ -150,12 +150,6 @@ impl PivcoTree {
         self.is_order_preserving
     }
 
-    /// Returns the number of active leaf symbols in this tree (`1..=150`).
-    #[inline]
-    pub fn num_leaves(&self) -> usize {
-        self.rank_to_sym.len()
-    }
-
     pub(crate) fn single_symbol(sym: u8) -> Self {
         let mut sym_to_rank = [0u8; MAX_SYMS];
         sym_to_rank[usize::from(sym)] = 0;
