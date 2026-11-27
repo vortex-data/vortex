@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::canonical::combine_parts;
+use crate::timestamp::SECONDS_PER_DAY;
 
 /// The op of a DateTimeParts array of `dtype` over its days child of `days_dtype`, once its
 /// `seconds` and `subseconds` are executed: it combines each block of days with the same rows of
@@ -40,16 +41,7 @@ pub(crate) fn days_block_op(
     seconds: &ArrayRef,
     subseconds: &ArrayRef,
 ) -> Option<Box<dyn BlockOp>> {
-    let DType::Extension(ext) = dtype else {
-        return None;
-    };
-    let divisor = match ext.metadata_opt::<Timestamp>()?.unit {
-        TimeUnit::Nanoseconds => 1_000_000_000,
-        TimeUnit::Microseconds => 1_000_000,
-        TimeUnit::Milliseconds => 1_000,
-        TimeUnit::Seconds => 1,
-        TimeUnit::Days => return None,
-    };
+    let divisor = units_per_second(dtype)?;
     let DType::Primitive(days_ptype, _) = days_dtype else {
         return None;
     };
@@ -60,6 +52,70 @@ pub(crate) fn days_block_op(
     Some(match_each_integer_ptype!(*days_ptype, |D| {
         combine_op::<D>(seconds, subseconds, divisor)
     }))
+}
+
+fn units_per_second(dtype: &DType) -> Option<i64> {
+    let DType::Extension(ext) = dtype else {
+        return None;
+    };
+    Some(match ext.metadata_opt::<Timestamp>()?.unit {
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => return None,
+    })
+}
+
+/// Reconstruct a single-day batch while decoding either time component. Keep wider inputs on
+/// the usual checked cast to i32, which can fail on out-of-range values.
+pub(crate) fn time_block_op(
+    dtype: &DType,
+    time: &DType,
+    days: &ArrayRef,
+    other: &ArrayRef,
+    streaming_seconds: bool,
+) -> Option<Box<dyn BlockOp>> {
+    let divisor = units_per_second(dtype)?;
+    let day = days.as_constant()?.as_primitive().as_::<i64>()?;
+    let other = other.as_constant()?.as_primitive().as_::<i64>()?;
+    let day_base = day * (SECONDS_PER_DAY * divisor);
+    let (base, scale, suffix) = if streaming_seconds {
+        (day_base, divisor, other)
+    } else {
+        (day_base + other * divisor, 1, 0)
+    };
+    macro_rules! op {
+        ($T:ty) => {
+            Box::new(CombineTime::<$T> {
+                base,
+                scale,
+                suffix,
+                _input: PhantomData,
+            })
+        };
+    }
+    Some(match time.as_ptype() {
+        PType::U8 => op!(u8),
+        PType::I8 => op!(i8),
+        PType::U16 => op!(u16),
+        PType::I16 => op!(i16),
+        PType::I32 => op!(i32),
+        _ => return None,
+    })
+}
+
+struct CombineTime<T> {
+    base: i64,
+    scale: i64,
+    suffix: i64,
+    _input: PhantomData<fn(T)>,
+}
+
+impl<T: NativePType + AsPrimitive<i64>> BlockOp for CombineTime<T> {
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        Ok(block.map(|time: T| self.base + time.as_() * self.scale + self.suffix))
+    }
 }
 
 fn combine_op<D: NativePType + AsPrimitive<i64>>(
@@ -236,6 +292,41 @@ mod tests {
         );
         let bp = bitpack_encode(&shifted, 12, None, &mut ctx)?.into_array();
         Ok(FoR::try_new(bp, Scalar::from(min))?.into_array())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn constant_day_streams_time(#[case] pack_seconds: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([0i64]).into_array(),
+            TimeUnit::Milliseconds,
+            Some(Arc::from("UTC")),
+        )
+        .dtype()
+        .clone();
+        let days = ConstantArray::new(Scalar::from(20_000i32), LEN).into_array();
+        let values = PrimitiveArray::from_iter((0..LEN).map(|i| i32::try_from(i % 1000).unwrap()));
+        let packed = bitpack_encode(&values, 10, None, &mut ctx)?.into_array();
+        let (seconds, subseconds) = if pack_seconds {
+            (
+                packed,
+                ConstantArray::new(Scalar::from(123i32), LEN).into_array(),
+            )
+        } else {
+            (
+                ConstantArray::new(Scalar::from(47i32), LEN).into_array(),
+                packed,
+            )
+        };
+        let array = DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array();
+        let trace = fusion_trace(array.slice(51..2249)?, &SESSION)?;
+        assert!(
+            trace.contains("fuse start array=fastlanes.bitpacked"),
+            "{trace}"
+        );
+        Ok(())
     }
 
     /// The executor's trace for `len` rows of a DateTimeParts array of `dtype` over FoR over
