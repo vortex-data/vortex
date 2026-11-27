@@ -339,9 +339,10 @@ intermediate stays in one scratch block.
 A chain can stop at three points, each cheaper the earlier it stops:
 
 ```
-a) Going down: the check fails, for example the parent has execute_parent kernels.
-     Op.execute → require_spine!   check ✗ → frame { no fuse }        ExecuteSlot
-     The child executes as usual. Going up, the frame is skipped with a field read.
+a) Going down: the check fails, for example the chain is at most two blocks long or the
+   parent has execute_parent kernels.
+     Op.execute → require_spine!   check ✗ → frame { no fuse }        ExecuteSpine
+     The child executes as a plain slot. Going up, the frame is skipped with a field read.
 
 b) Going up: the parent has no op, for example FoR with a zero reference.
      FoR(0).execute → require_spine!   check ✓ → frame { fuse }        ExecuteSpine
