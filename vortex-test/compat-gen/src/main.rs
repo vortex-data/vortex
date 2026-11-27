@@ -69,6 +69,17 @@ enum Commands {
     /// List all frozen `core` editions and their minimum reader versions as JSON.
     Editions,
 
+    /// Write expected Arrow IPC files from HEAD for every fixture (used by oldest-reader checks).
+    DumpExpected {
+        /// Directory to write `<fixture>.arrow` files into.
+        #[arg(long)]
+        output: PathBuf,
+
+        /// Fixture names (or substrings) to exclude (comma-separated).
+        #[arg(long, value_delimiter = ',')]
+        exclude: Vec<String>,
+    },
+
     /// Check .vortex files in a directory against in-memory fixtures.
     ///
     /// For each .vortex file, rebuilds the expected array from current code
@@ -108,6 +119,7 @@ fn main() -> VortexResult<()> {
             edition,
         } => generate::generate(&output, &exclude, edition.as_deref()),
         Commands::Editions => generate::list_core_editions(),
+        Commands::DumpExpected { output, exclude } => generate::dump_expected(&output, &exclude),
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
     }
 }

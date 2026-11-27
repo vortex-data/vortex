@@ -38,8 +38,8 @@ python scripts/compat.py check --store /tmp/compat-store
 
 ## Rust Binary: `vortex-compat`
 
-A thin binary with three commands (`generate`, `editions`, `check`). It has
-**no** knowledge of S3, published manifests, or orchestration.
+A thin binary with four commands (`generate`, `editions`, `dump-expected`,
+`check`). It has **no** knowledge of S3, published manifests, or orchestration.
 
 **Output protocol:** progress/diagnostics to stderr, structured JSON to
 stdout (`check` and `editions`).
@@ -140,7 +140,7 @@ profile (default: `release`, e.g. `compat.py --profile ci check`).
 
 1. Queries `vortex-compat editions` for frozen `core` editions and their `min_library_version`
 2. Generates fixtures at each selected edition with `vortex-compat generate --edition <EDITION>`
-3. Dumps expected Arrow IPC tables from the newest edition, then verifies each edition using its oldest `vortex-data` release wheel (applying any documented `reader_overrides` in `accepted-edition-failures.json`, such as `core2025.06.0` -> `0.42.0`)
+3. Dumps expected Arrow IPC tables directly from HEAD via `vortex-compat dump-expected`, then verifies each edition using its oldest `vortex-data` release wheel (applying any documented `reader_overrides` in `accepted-edition-failures.json`, such as `core2025.06.0` -> `0.42.0`)
 4. Fails on any failure not listed in `accepted-edition-failures.json` and on any listed entry that now passes (shrink-only)
 
 ### `generate --output <DIR> [--edition <EDITION>] [--git-ref <REF>]`

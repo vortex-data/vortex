@@ -1,22 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
+use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
+use arrow_array::RecordBatch;
+use arrow_array::StructArray as ArrowStructArray;
+use arrow_ipc::writer::FileWriter as ArrowIpcFileWriter;
+use arrow_schema::Field as ArrowField;
+use arrow_schema::Schema as ArrowSchema;
 use base16ct::HexDisplay;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
 use vortex::VortexSessionDefault;
+use vortex::editions::ComponentKind;
 use vortex::editions::EditionId;
 use vortex::editions::EditionSessionExt;
+use vortex_array::ArrayId;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
+use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ExecuteArrowExt;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::adapter;
 use crate::fixtures::all_fixtures;
 
 #[derive(Serialize)]
@@ -90,12 +104,83 @@ pub fn resolve_edition(session: &VortexSession, name: &str) -> VortexResult<Edit
     );
 }
 
-fn is_edition_unsupported_error(err: &vortex_error::VortexError) -> bool {
-    err.to_string().contains("not permitted by ctx")
+/// Write expected Arrow IPC files from HEAD for every non-excluded fixture.
+///
+/// Each fixture is written via `write_expected()` and decoded with HEAD's reader so oldest-reader
+/// checks compare historical wheels against HEAD's own oracle rather than another historical wheel.
+pub fn dump_expected(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| vortex_err!("failed to create {}: {e}", output_dir.display()))?;
+
+    let fixtures: Vec<_> = all_fixtures()
+        .into_iter()
+        .filter(|f| !exclude.iter().any(|pat| f.name().contains(pat.as_str())))
+        .collect();
+
+    let session = VortexSession::default();
+    let mut ctx = session.create_execution_ctx();
+    let tmp_dir = tempfile::tempdir()?;
+
+    eprintln!(
+        "dumping expected Arrow IPC for {} fixtures...",
+        fixtures.len()
+    );
+    for fixture in &fixtures {
+        let entries = fixture.write_expected(tmp_dir.path(), &mut ctx)?;
+        for entry in entries {
+            let bytes = ByteBuffer::from(std::fs::read(tmp_dir.path().join(&entry.name))?);
+            let array = adapter::read_file(bytes)?;
+            let arrow_array = array.execute_arrow(None, &mut ctx)?;
+            let batch =
+                if let Some(struct_arr) = arrow_array.as_any().downcast_ref::<ArrowStructArray>() {
+                    RecordBatch::from(struct_arr)
+                } else {
+                    let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+                        "value",
+                        arrow_array.data_type().clone(),
+                        true,
+                    )]));
+                    RecordBatch::try_new(schema, vec![arrow_array]).map_err(|e| {
+                        vortex_err!("failed to build RecordBatch for {}: {e}", entry.name)
+                    })?
+                };
+            let out_path = output_dir.join(format!("{}.arrow", entry.name));
+            let file = File::create(&out_path)?;
+            let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
+                .map_err(|e| vortex_err!("failed to create IPC writer for {}: {e}", entry.name))?;
+            writer
+                .write(&batch)
+                .map_err(|e| vortex_err!("failed to write IPC batch for {}: {e}", entry.name))?;
+            writer
+                .finish()
+                .map_err(|e| vortex_err!("failed to finish IPC file for {}: {e}", entry.name))?;
+            eprintln!("  dumped {}.arrow", entry.name);
+        }
+    }
+    Ok(())
+}
+
+fn encoding_supported_in_edition(
+    session: &VortexSession,
+    allowed: &BTreeSet<String>,
+    id: &ArrayId,
+) -> bool {
+    if let Some(plugin) = session.arrays().registry().get(id) {
+        plugin
+            .write_ids()
+            .iter()
+            .any(|wire_id| allowed.contains(wire_id.as_ref()))
+    } else {
+        allowed.contains(id.as_ref())
+    }
 }
 
 /// Write all fixture files into `output_dir`, returning written fixtures and any encoding-specific
-/// fixtures skipped because their serialized wire ID is not permitted by `edition`.
+/// fixtures skipped up front because none of their serializer's `write_ids()` are members of
+/// `edition`.
+///
+/// Any write error on a fixture whose required encodings are all permitted by `edition` (including
+/// a disallowed encoding emitted by the writer) fails generation.
 pub fn write_fixtures(
     output_dir: &Path,
     exclude: &[String],
@@ -117,32 +202,39 @@ pub fn write_fixtures(
     std::fs::create_dir_all(output_dir)
         .map_err(|e| vortex_err!("failed to create {}: {e}", output_dir.display()))?;
 
+    let allowed_arrays: Option<BTreeSet<String>> = edition.map(|_| {
+        ctx.session()
+            .enabled_component_ids(ComponentKind::Array)
+            .into_iter()
+            .map(|id| id.as_str().to_string())
+            .collect()
+    });
+
     eprintln!("generating {} fixtures...", fixtures.len());
 
     let mut infos = Vec::new();
     let mut skipped = Vec::new();
     for fixture in &fixtures {
-        let entries = match fixture.write(output_dir, ctx) {
-            Ok(entries) => entries,
-            Err(err)
-                if edition.is_some()
-                    && !fixture.required_encodings().is_empty()
-                    && is_edition_unsupported_error(&err) =>
-            {
+        if let (Some(edition_name), Some(allowed)) = (edition, &allowed_arrays) {
+            let missing: Vec<String> = fixture
+                .required_encodings()
+                .into_iter()
+                .filter(|id| !encoding_supported_in_edition(ctx.session(), allowed, id))
+                .map(|id| id.to_string())
+                .collect();
+            if !missing.is_empty() {
                 let name = fixture.name().to_string();
-                drop(std::fs::remove_file(output_dir.join(&name)));
-                let reason = err
-                    .to_string()
-                    .lines()
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
+                let reason = format!(
+                    "required encoding(s) not in {edition_name}: {}",
+                    missing.join(", ")
+                );
                 eprintln!("  skip {name} ({reason})");
                 skipped.push(SkippedFixture { name, reason });
                 continue;
             }
-            Err(err) => return Err(err),
-        };
+        }
+
+        let entries = fixture.write(output_dir, ctx)?;
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)

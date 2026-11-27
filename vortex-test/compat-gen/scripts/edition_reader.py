@@ -5,11 +5,9 @@
 """Isolated oldest-reader worker for `compat.py check-editions`.
 
 Invoked inside a `uv run --with vortex-data==<version> --with pyarrow` environment.
-Supports two commands:
-  - dump-expected: read every fixture in a directory and save expected Arrow IPC files.
-  - verify: read every fixture in a directory with the installed `vortex` wheel,
-    compare decoded values against expected Arrow IPC files, and isolate crashes
-    and per-column causes so every failure is deterministic.
+Reads every fixture in `--src-dir` with the installed `vortex` wheel, compares
+decoded values against HEAD's expected Arrow IPC files in `--expected-dir`, and
+isolates crashes and per-column causes so every failure is deterministic.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ import json
 import math
 import os
 import re
-import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -197,23 +194,6 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
     return {"ok": False, "error": err, "causes": [err]}
 
 
-def cmd_dump_expected(src_dir: Path, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    manifest = json.loads((src_dir / "fixtures.json").read_text())
-    errors = []
-    for entry in manifest["fixtures"]:
-        name = entry["name"]
-        try:
-            table = vortex.open(str(src_dir / name)).to_arrow().read_all()
-            with ipc.new_file(str(out_dir / f"{name}.arrow"), table.schema) as writer:
-                writer.write_table(table)
-        except Exception as e:
-            errors.append({"name": name, "error": _clean_error(f"{type(e).__name__}: {e}")})
-    print(json.dumps({"dumped": len(manifest["fixtures"]) - len(errors), "errors": errors}))
-    if errors:
-        sys.exit(1)
-
-
 def cmd_verify(src_dir: Path, expected_dir: Path) -> None:
     manifest = json.loads((src_dir / "fixtures.json").read_text())
     passed: list[str] = []
@@ -249,18 +229,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Isolated oldest-reader worker for compat-gen")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_dump = sub.add_parser("dump-expected")
-    p_dump.add_argument("--src-dir", type=Path, required=True)
-    p_dump.add_argument("--out-dir", type=Path, required=True)
-
     p_verify = sub.add_parser("verify")
     p_verify.add_argument("--src-dir", type=Path, required=True)
     p_verify.add_argument("--expected-dir", type=Path, required=True)
 
     args = parser.parse_args()
-    if args.command == "dump-expected":
-        cmd_dump_expected(args.src_dir, args.out_dir)
-    elif args.command == "verify":
+    if args.command == "verify":
         cmd_verify(args.src_dir, args.expected_dir)
 
 

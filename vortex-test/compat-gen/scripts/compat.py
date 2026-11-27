@@ -877,6 +877,19 @@ def _run_rust_editions(profile: str = "release") -> list[dict]:
     return editions
 
 
+def _run_rust_dump_expected(
+    output: Path,
+    profile: str = "release",
+    exclude: list[str] | None = None,
+) -> None:
+    """Run `vortex-compat dump-expected --output <dir>` using HEAD's oracle."""
+    bin_path = _build_compat_bin(profile)
+    cmd = [bin_path, "dump-expected", "--output", str(output)]
+    if exclude:
+        cmd.extend(["--exclude", ",".join(exclude)])
+    _run_cmd(cmd, check=True)
+
+
 def _load_accepted_edition_failures(
     path: Path | None,
 ) -> tuple[dict[str, dict[str, str]], dict[tuple[str, str, str], str]]:
@@ -1004,14 +1017,12 @@ def _uv_with_args(reader_version: str) -> list[str]:
 
 
 def _run_edition_reader(
-    subcommand: str,
     reader_version: str,
     src_dir: Path,
-    other_dir: Path,
+    expected_dir: Path,
     python_version: str = DEFAULT_EDITION_PYTHON,
 ) -> dict:
-    """Invoke `edition_reader.py` in an isolated `uv run` environment for `reader_version`."""
-    flag = "--out-dir" if subcommand == "dump-expected" else "--expected-dir"
+    """Invoke `edition_reader.py verify` in an isolated `uv run` environment for `reader_version`."""
     cmd = [
         "uv",
         "run",
@@ -1021,11 +1032,11 @@ def _run_edition_reader(
         *_uv_with_args(reader_version),
         "python",
         str(EDITION_READER_SCRIPT),
-        subcommand,
+        "verify",
         "--src-dir",
         str(src_dir),
-        flag,
-        str(other_dir),
+        "--expected-dir",
+        str(expected_dir),
     ]
     _info(f"  $ {' '.join(cmd)}")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: UP022
@@ -1070,10 +1081,6 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
     reader_overrides, accepted_failures = _load_accepted_edition_failures(accepted_path)
     exclude = [p.strip() for p in args.exclude.split(",") if p.strip()] if args.exclude else None
 
-    # Use the newest frozen edition's reader release to dump expected Arrow IPC tables.
-    latest_edition = all_editions[-1]
-    latest_reader = latest_edition["min_library_version"]
-
     total_passed = 0
     total_accepted = 0
     total_unexpected = 0
@@ -1084,32 +1091,18 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
         tmp_path = Path(tmp)
         generated_dirs: dict[str, Path] = {}
 
-        # 1. Generate fixtures for every selected edition (and the latest edition if not selected,
-        #    so we have expected Arrow IPC for every fixture).
-        editions_to_generate = list(selected)
-        if all(e["id"] != latest_edition["id"] for e in editions_to_generate):
-            editions_to_generate.append(latest_edition)
+        # 1. Dump expected Arrow IPC tables directly from HEAD's oracle.
+        expected_dir = tmp_path / "_expected_ipc"
+        _info("\n=== dumping expected Arrow IPC from HEAD ===")
+        _run_rust_dump_expected(expected_dir, profile=args.profile, exclude=exclude)
 
-        for ed in editions_to_generate:
+        # 2. Generate fixtures for every selected edition.
+        for ed in selected:
             eid = ed["id"]
             out_dir = tmp_path / eid
             _info(f"\n=== generating fixtures for {eid} ===")
             _run_rust_generate(out_dir, profile=args.profile, edition=eid, exclude=exclude)
             generated_dirs[eid] = out_dir
-
-        # 2. Dump expected Arrow IPC tables from the latest edition.
-        expected_dir = tmp_path / "_expected_ipc"
-        _info(f"\n=== dumping expected Arrow IPC from {latest_edition['id']} (vortex-data=={latest_reader}) ===")
-        dump_report = _run_edition_reader(
-            "dump-expected",
-            latest_reader,
-            generated_dirs[latest_edition["id"]],
-            expected_dir,
-            python_version=args.python,
-        )
-        if dump_report.get("errors") or dump_report.get("failed"):
-            print(f"Error: failed to dump expected Arrow IPC: {dump_report}", file=sys.stderr)
-            sys.exit(1)
 
         # 3. Verify each selected edition with its oldest release reader (or documented override).
         for ed in selected:
@@ -1129,7 +1122,6 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
             written_names = [f["name"] for f in gen_manifest.get("fixtures", [])]
 
             report = _run_edition_reader(
-                "verify",
                 reader_ver,
                 generated_dirs[eid],
                 expected_dir,

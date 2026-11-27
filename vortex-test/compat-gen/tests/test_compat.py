@@ -242,14 +242,18 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
             )
         )
 
+    dumped_expected: list[Path] = []
+    monkeypatch.setattr(
+        compat,
+        "_run_rust_dump_expected",
+        lambda output, profile="release", exclude=None: dumped_expected.append(output),
+    )
     monkeypatch.setattr(compat, "_run_rust_generate", fake_generate)
 
-    reader_calls: list[tuple[str, str]] = []
+    reader_calls: list[str] = []
 
-    def fake_reader(subcommand, reader_version, src_dir, other_dir, python_version="3.12") -> dict[str, object]:
-        reader_calls.append((subcommand, reader_version))
-        if subcommand == "dump-expected":
-            return {"dumped": 2, "errors": []}
+    def fake_reader(reader_version, src_dir, expected_dir, python_version="3.12") -> dict[str, object]:
+        reader_calls.append(reader_version)
         if reader_version == "0.42.0":
             return {
                 "passed": ["primitives.vortex"],
@@ -270,20 +274,15 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
     )
     compat.cmd_check_editions(args)
 
-    assert reader_calls == [
-        ("dump-expected", "0.85.0"),
-        ("verify", "0.42.0"),
-        ("verify", "0.85.0"),
-    ]
+    assert len(dumped_expected) == 1
+    assert reader_calls == ["0.42.0", "0.85.0"]
     report = json.loads(json_out.read_text())
     assert len(report) == 2
     assert report[0]["reader_version"] == "0.42.0"
     assert [f["name"] for f in report[0]["accepted"]] == ["fsst.vortex"]
 
     # Now make fsst.vortex pass on 0.42.0 -> shrink-only check must fail with exit 1.
-    def fake_reader_fixed(subcommand, reader_version, src_dir, other_dir, python_version="3.12") -> dict[str, object]:
-        if subcommand == "dump-expected":
-            return {"dumped": 2, "errors": []}
+    def fake_reader_fixed(reader_version, src_dir, expected_dir, python_version="3.12") -> dict[str, object]:
         return {"passed": ["primitives.vortex", "fsst.vortex"], "failed": []}
 
     monkeypatch.setattr(compat, "_run_edition_reader", fake_reader_fixed)
