@@ -30,6 +30,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_error::VortexExpect;
@@ -61,9 +62,9 @@ pub(crate) fn packed_source(
 }
 
 /// FoR's block source over a BitPacked child with one global reference: FastLanes' fused
-/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does. FoR's
-/// execute also unpacks fused under per-chunk references that line up with BitPacked's chunks;
-/// as a source those take the BitPacked leaf and FoR's per-chunk op instead.
+/// unpack adds the reference to each chunk while it unpacks it, as FoR's own execute does.
+/// Per-chunk references that line up with BitPacked's chunks have no source: FoR's execute
+/// unpacks them fused without requesting its spine, and its output starts the chain.
 pub(crate) fn for_block_source(
     array: ArrayView<'_, FoR>,
     ctx: &mut ExecutionCtx,
@@ -129,9 +130,30 @@ where
         return Ok(None);
     };
     let bit_width = usize::from(bit_width);
+    vortex_ensure!(
+        bit_width <= 8 * size_of::<T>(),
+        "bit width {bit_width} is wider than {}",
+        bp.dtype()
+    );
     let offset = usize::from(bp.offset());
-    let packed = Buffer::<T::Physical>::from_byte_buffer(bp.packed().as_host().clone());
-    validate_packed::<T>(packed.len(), bit_width, offset, bp.len())?;
+    // A packed buffer read from a file need not be aligned to its values: copy it if not.
+    let bytes = bp
+        .packed()
+        .as_host()
+        .clone()
+        .aligned(Alignment::of::<T::Physical>());
+    vortex_ensure!(
+        bytes.len().is_multiple_of(size_of::<T::Physical>()),
+        "packed buffer of {} bytes holds no whole number of values",
+        bytes.len()
+    );
+    validate_packed::<T>(
+        bytes.len() / size_of::<T::Physical>(),
+        bit_width,
+        offset,
+        bp.len(),
+    )?;
+    let packed = Buffer::<T::Physical>::from_byte_buffer(bytes);
     let patches = bp
         .patches()
         .map(|patches| BlockPatches::try_new(&patches, ctx, |_, value: T| patch(value)))
@@ -304,15 +326,20 @@ mod tests {
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::fusion;
     use vortex_array::test_harness::fusion::fused_chains;
     use vortex_array::test_harness::trace::trace_op;
     use vortex_array::validity::Validity;
+    use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::BitPacked;
+    use crate::BitPackedArrayExt;
     use crate::FoR;
     use crate::bitpack_compress::bitpack_encode;
 
@@ -401,6 +428,24 @@ mod tests {
         assert_fuses_like_execute(&array, 1)?;
         let outer = FoR::try_new(array, Scalar::from(5u32))?.into_array();
         assert_fuses_like_execute(&outer, 1)
+    }
+
+    /// A packed buffer not aligned to its values, as one read from a file may be, still decodes.
+    #[test]
+    fn misaligned_packed_buffer_decodes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter((0..3000u32).map(|i| i % 1000));
+        let bp = bitpack_encode(&values, 10, None, &mut ctx)?;
+        let mut padded = ByteBufferMut::with_capacity(bp.packed().len() + 1);
+        padded.push(0);
+        padded.extend_from_slice(bp.packed().as_host());
+        let packed = BufferHandle::new_host(padded.freeze().slice(1..));
+        let bp = BitPacked::try_new(packed, PType::U32, Validity::NonNullable, None, 10, 3000, 0)?;
+        let inner = FoR::try_new(bp.into_array(), Scalar::from(5u32))?.into_array();
+        let outer = FoR::try_new(inner, Scalar::from(7u32))?.into_array();
+        let expected = PrimitiveArray::from_iter((0..3000u32).map(|i| i % 1000 + 12));
+        assert_arrays_eq!(outer, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
