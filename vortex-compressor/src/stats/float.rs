@@ -236,20 +236,12 @@ where
         let slice = buff.as_slice();
         let mut prev = slice[0];
         let mut equal_pairs: u64 = 0;
-        let (chunks, remainder) = slice.as_chunks::<4>();
-        for &[a, b, c, d] in chunks {
-            equal_pairs += u64::from(prev.is_eq(a))
-                + u64::from(a.is_eq(b))
-                + u64::from(b.is_eq(c))
-                + u64::from(c.is_eq(d));
-            prev = d;
-        }
-        for &v in remainder {
+        for &v in slice {
             equal_pairs += u64::from(prev.is_eq(v));
             prev = v;
         }
-        // The first comparison checks `slice[0].is_eq(slice[0])` (always true bitwise), adding
-        // 1 to `equal_pairs`, which cancels the `- 1` in `slice.len() - 1 - actual_equal_pairs`.
+        // The first iteration compares `slice[0]` with itself (always true bitwise), adding 1 to
+        // `equal_pairs`, which cancels the `- 1` in `slice.len() - 1 - actual_equal_pairs`.
         runs += slice.len() as u64 - equal_pairs;
     } else {
         let head_idx = validity
