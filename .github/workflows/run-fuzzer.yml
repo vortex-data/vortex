@@ -58,6 +58,13 @@ on:
         description: "libFuzzer RSS limit per fuzzing job in MB. 0 disables the limit."
         required: false
         type: number
+        default: 2048
+      seed_merge_timeout:
+        description: >-
+          Seconds to wait for libFuzzer to finish replaying saved corpus. After
+          that fuzzer restarts and doesn't replay the corpus. 0 to disable.
+        required: false
+        type: number
         default: 0
       report:
         description: "Open an issue and start fix automation when a crash is found."
@@ -103,6 +110,7 @@ jobs:
         ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run')
             && inputs.cycle_hours || 0 }}
       RSS_LIMIT_MB: ${{ inputs.rss_limit_mb }}
+      SEED_MERGE_TIMEOUT: ${{ inputs.seed_merge_timeout }}
     timeout-minutes: 180
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -164,17 +172,16 @@ jobs:
 
       - name: Check for crashes
         id: check
+        if: always()
         run: .github/scripts/check-fuzz-crashes.sh
 
       - name: Reproduce crash for full output
         if: steps.check.outputs.crashes_found == 'true'
-        env:
-          FIRST_CRASH: ${{ steps.check.outputs.first_crash }}
         run: .github/scripts/reproduce-fuzz-crash.sh
 
       - name: Archive crash artifacts
         id: upload_artifacts
-        if: steps.check.outputs.crashes_found == 'true'
+        if: always() && steps.check.outputs.crashes_found == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-crash-artifacts
@@ -186,7 +193,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-logs
-          path: fuzz_output.log
+          path: |
+            fuzz_output.log
+            fuzz_repro
           retention-days: ${{ steps.check.outputs.crashes_found == 'true' && 90 || 7 }}
 
       - name: Persist corpus
@@ -216,7 +225,6 @@ jobs:
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
       fuzz_target: ${{ inputs.fuzz_target }}
-      crash_file: ${{ needs.fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.fuzz.outputs.artifact_url }}
       artifact_name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-crash-artifacts
       logs_artifact_name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-logs
@@ -232,7 +240,9 @@ jobs:
     # Without a status function, `if` adds an implicit success(), which checks
     # all upstream jobs. The fuzz job fails when it finds a crash, so success()
     # is always false here.
-    if: ${{ !cancelled() && needs.report.outputs.issue_created == 'true' }}
+    # A recurring crash retries a failed attempt at most once a day, so an issue
+    # that a fix attempt could not handle does not start a new session each cycle.
+    if: ${{ !cancelled() && needs.report.outputs.fix_issue_number != '' }}
     permissions:
       # The reusable workflow downloads the crash artifact (actions: read) and
       # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
@@ -244,5 +254,5 @@ jobs:
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
-      issue_number: ${{ needs.report.outputs.issue_number }}
+      issue_number: ${{ needs.report.outputs.fix_issue_number }}
     secrets: inherit

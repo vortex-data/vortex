@@ -17,7 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
 use super::chunks::count_transitions;
@@ -26,15 +26,15 @@ use super::chunks::for_each_chunk;
 /// Information about the distinct values in a float array.
 #[derive(Debug, Clone)]
 pub struct DistinctInfo<T> {
-    /// The set of distinct float values.
-    distinct_values: HashSet<NativeValue<T>, FxBuildHasher>,
+    /// The unique values and their occurrences.
+    distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
     /// The count of unique values. This _must_ be non-zero.
     distinct_count: u32,
 }
 
 impl<T> DistinctInfo<T> {
-    /// Returns a reference to the distinct values set.
-    pub fn distinct_values(&self) -> &HashSet<NativeValue<T>, FxBuildHasher> {
+    /// Returns a reference to the distinct values map.
+    pub fn distinct_values(&self) -> &HashMap<NativeValue<T>, u32, FxBuildHasher> {
         &self.distinct_values
     }
 }
@@ -190,7 +190,7 @@ where
             average_run_length: 0,
             erased: TypedStats {
                 distinct: Some(DistinctInfo {
-                    distinct_values: HashSet::with_capacity_and_hasher(0, FxBuildHasher),
+                    distinct_values: HashMap::with_capacity_and_hasher(0, FxBuildHasher),
                     distinct_count: 0,
                 }),
             }
@@ -202,14 +202,13 @@ where
         .statistics()
         .compute_null_count(ctx)
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
-    let value_count = array.len() - null_count;
+    let value_count = u32::try_from(array.len() - null_count)?;
+    let null_count = u32::try_from(null_count)?;
 
-    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
-    // so much more efficient to hash and search for.
     let mut distinct_values = if count_distinct_values {
-        HashSet::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+        HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
     } else {
-        HashSet::with_hasher(FxBuildHasher)
+        HashMap::with_hasher(FxBuildHasher)
     };
 
     let validity = array
@@ -230,7 +229,9 @@ where
         0 => {}
         u64::MAX => {
             if count_distinct_values {
-                distinct_values.extend(chunk.iter().map(|&value| NativeValue(value)));
+                for &value in chunk {
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                }
             }
             runs += u32::from(count_transitions(&prev, chunk));
             prev = chunk[63];
@@ -248,15 +249,14 @@ where
             }
             let gathered = &gathered[..n];
             if count_distinct_values {
-                distinct_values.extend(gathered.iter().map(|&value| NativeValue(value)));
+                for &value in gathered {
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                }
             }
             runs += u32::from(count_transitions(&prev, gathered));
             prev = gathered[n - 1];
         }
     });
-
-    let null_count = u32::try_from(null_count)?;
-    let value_count = u32::try_from(value_count)?;
 
     let distinct = count_distinct_values.then(|| DistinctInfo {
         distinct_count: u32::try_from(distinct_values.len())
@@ -281,13 +281,16 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::NativeValue;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_utils::aliases::hash_map::HashMap;
 
+    use super::ErasedStats;
     use super::FloatStats;
     use crate::stats::GenerateStatsOptions;
 
@@ -354,13 +357,11 @@ mod tests {
             })
             .collect();
 
-        let mut distinct = Vec::new();
+        let mut distinct: HashMap<NativeValue<f64>, u32> = HashMap::new();
         let mut runs = 0;
         let mut prev = None;
         for (&value, _) in values.iter().zip(&valid).filter(|(_, ok)| **ok) {
-            if !distinct.contains(&value) {
-                distinct.push(value);
-            }
+            *distinct.entry(NativeValue(value)).or_insert(0) += 1;
             if prev.replace(value) != Some(value) {
                 runs += 1;
             }
@@ -392,6 +393,17 @@ mod tests {
                 stats.distinct_count(),
                 Some(u32::try_from(distinct.len()).unwrap())
             );
+            let ErasedStats::F64(typed) = stats.erased() else {
+                panic!("expected f64 stats");
+            };
+            let actual: HashMap<NativeValue<f64>, u32> = typed
+                .distinct()
+                .unwrap()
+                .distinct_values()
+                .iter()
+                .map(|(&k, &v)| (k, v))
+                .collect();
+            assert_eq!(actual, distinct);
         }
     }
 }

@@ -34,6 +34,9 @@ use arbitrary::Arbitrary;
 use arbitrary::Error::EmptyChoose;
 use arbitrary::Unstructured;
 use itertools::Itertools;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::Xoshiro256PlusPlus;
 use strum::EnumCount;
 use strum::EnumDiscriminants;
 use strum::EnumIter;
@@ -80,6 +83,8 @@ use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
 
+const ACTION_ENTROPY_BYTES: usize = 16 * 1024;
+
 #[derive(Debug)]
 pub struct FuzzArrayAction {
     pub array: ArrayRef,
@@ -121,19 +126,19 @@ impl<'a> Arbitrary<'a> for CompressorStrategy {
 #[strum_discriminants(derive(Hash, EnumIter))]
 #[strum_discriminants(name(ActionType))]
 pub enum Action {
-    Compress(CompressorStrategy),
-    Slice(Range<usize>),
-    Take(ArrayRef),
-    SearchSorted(Scalar, SearchSortedSide),
-    Filter(Mask),
-    Compare(Scalar, CompareOperator),
-    Cast(DType),
-    Sum,
     MinMax,
-    FillNull(Scalar),
-    Mask(Mask),
     // Here we want to try multiple values.
     ScalarAt(Vec<usize>),
+    Slice(Range<usize>),
+    Sum,
+    Filter(Mask),
+    FillNull(Scalar),
+    Mask(Mask),
+    Cast(DType),
+    Take(ArrayRef),
+    Compare(Scalar, CompareOperator),
+    SearchSorted(Scalar, SearchSortedSide),
+    Compress(CompressorStrategy),
 }
 
 #[derive(Debug, Clone)]
@@ -184,12 +189,26 @@ impl ExpectedValue {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        Self::generate(u)
+        let seed: u32 = u.arbitrary()?;
+        let array = ArbitraryArray::arbitrary_with_config(
+            u,
+            &ArbitraryArrayConfig {
+                dtype: None,
+                len: 0..=FUZZ_ARRAY_MAX_LEN,
+            },
+        )?
+        .0;
+        let mut entropy = [0u8; ACTION_ENTROPY_BYTES];
+        Xoshiro256PlusPlus::seed_from_u64(u64::from(seed)).fill(&mut entropy);
+        Self::with_random_actions(array, &mut Unstructured::new(&entropy))
     }
 }
 
 impl FuzzArrayAction {
-    /// Generate an array and up to four actions on it, with their expected results.
+    /// Generate an array, then actions on it from the same source.
+    ///
+    /// Unlike [`Arbitrary`], which draws the actions from a seeded generator, every decision
+    /// comes from `src`, so a source that shrinks one decision at a time shrinks the actions too.
     pub fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
         let array = src
             .bytes(|u| {
@@ -202,6 +221,13 @@ impl FuzzArrayAction {
                 )
             })?
             .0;
+        Self::with_random_actions(array, src)
+    }
+
+    pub fn with_random_actions(
+        array: ArrayRef,
+        src: &mut impl FuzzSource,
+    ) -> arbitrary::Result<Self> {
         let mut current_array = array.clone();
 
         let mut ctx = SESSION.create_execution_ctx();

@@ -26,5 +26,7 @@ jobs:
       jobs: 1
       max_time: 9000
       cycle_hours: 3
+      # CUDA driver/device mappings exceed a 2 GiB process RSS cap.
+      rss_limit_mb: 0
       report: false
     secrets: inherit

@@ -14,6 +14,8 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::fixed_width::vtable as fixed_width;
 use crate::arrays::primitive::PrimitiveData;
+use crate::block::BlockSource;
+use crate::block::PrimitiveSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -100,9 +102,15 @@ impl VTable for Primitive {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let DType::Primitive(_, nullability) = dtype else {
+        let DType::Primitive(ptype, nullability) = dtype else {
             vortex_bail!("Expected primitive dtype, got {dtype:?}");
         };
+        vortex_ensure_eq!(
+            data.ptype(),
+            *ptype,
+            "PrimitiveArray data ptype does not match dtype",
+        );
+        PrimitiveData::validate_buffer_layout(data.buffer_handle(), *ptype)?;
         vortex_ensure_eq!(
             data.len(),
             len,
@@ -131,6 +139,15 @@ impl VTable for Primitive {
         Ok(ExecutionResult::done(array))
     }
 
+    /// Lends blocks of the values buffer, which a fused chain overwrites in place when nothing
+    /// else references it.
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        PrimitiveSource::boxed(&array.into_owned(), ctx).map(Some)
+    }
+
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
@@ -153,6 +170,8 @@ pub struct Primitive;
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -229,5 +248,17 @@ mod tests {
         // SAFETY: this call is expected to fail the checked buffer length invariant before any
         // rewritten array is returned or observed.
         assert!(unsafe { array.with_buffers([replacement]) }.is_err());
+    }
+
+    #[test]
+    fn test_with_buffers_rejects_misaligned_host_buffer() {
+        let array = PrimitiveArray::from_iter([0i32]).into_array();
+        let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
+        let misaligned = bytes.slice_unaligned(1..5);
+        assert!(!misaligned.is_aligned(Alignment::of::<i32>()));
+
+        // SAFETY: this call is expected to fail the checked host buffer alignment invariant before
+        // any rewritten array is returned or observed.
+        assert!(unsafe { array.with_buffers([BufferHandle::new_host(misaligned)]) }.is_err());
     }
 }

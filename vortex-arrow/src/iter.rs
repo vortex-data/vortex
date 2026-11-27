@@ -9,6 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::iter::ArrayIterator;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrowSession;
 
@@ -28,7 +29,9 @@ impl ArrowArrayStreamAdapter {
     /// Adapt `stream`, importing its schema and each of its batches through `session`.
     ///
     /// The adapter holds a clone of `session`, which shares the plugin registries with it, so
-    /// plugins registered after construction are still observed.
+    /// plugins registered after construction are still observed. If a later registration changes
+    /// the dtype resolved for a batch, [`Iterator::next`] returns an error rather than yielding a
+    /// batch whose dtype disagrees with [`ArrayIterator::dtype`].
     ///
     /// The schema declared by the stream is the authoritative schema for the import: every batch
     /// is converted against it, so extension metadata survives even if an individual batch has
@@ -61,8 +64,15 @@ impl Iterator for ArrowArrayStreamAdapter {
         let batch = self.stream.next()?;
 
         Some(batch.map_err(VortexError::from).and_then(|b| {
-            self.session
-                .from_arrow_record_batch(b, self.schema.as_ref())
+            let array = self
+                .session
+                .from_arrow_record_batch(b, self.schema.as_ref())?;
+            vortex_ensure_eq!(
+                array.dtype(),
+                &self.dtype,
+                "Arrow stream batch dtype changed from declared stream dtype"
+            );
+            Ok(array)
         }))
     }
 }
