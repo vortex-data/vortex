@@ -238,10 +238,13 @@ impl ScalarFnVTable for VariantGet {
                     path = rest;
                     descended = true;
                 }
-                // The end of the path at a typed value of the requested dtype.
+                // The end of the path at a typed value of the requested dtype. Only the top-level
+                // nullability can be different. A nested field or element that the requested
+                // dtype makes non-nullable turns a null value into a null row in `variant_get`,
+                // but makes a cast fail.
                 (dtype, None)
                     if options.dtype().is_some_and(|requested| {
-                        !requested.is_variant() && dtype.eq_ignore_nullability(requested)
+                        !requested.is_variant() && dtype.as_nullable() == requested.as_nullable()
                     }) && (descended || (pack.complete() && !pack.shredded_validity())) =>
                 {
                     return node
