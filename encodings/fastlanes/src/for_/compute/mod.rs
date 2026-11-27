@@ -721,9 +721,11 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::filter_blocked_primitive;
     use crate::BitPackedData;
     use crate::FoR;
     use crate::FoRArray;
+    use crate::for_::array::FoRArrayExt;
     use crate::for_::array::FoRArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -937,6 +939,70 @@ mod tests {
             raw_i64.into_array().filter(mask_i64)?,
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_blocked_filter_primitive_and_alloc() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let raw = PrimitiveArray::from_option_iter((0..3500usize).map(|i| {
+            (i % 19 != 0).then(|| -500_000i64 + (i / 1024) as i64 * 10_000_000 + (i % 97) as i64)
+        }));
+        let for_arr = FoR::encode_chunked(raw.clone(), &mut ctx)?;
+        let sliced = for_arr
+            .into_array()
+            .slice(300..2600)?
+            .optimize_ctx(&SESSION)?;
+        let sliced_raw = raw.into_array().slice(300..2600)?;
+
+        // Multi-range slice mask (cached_slices) crossing chunk boundaries at 724 and 1748.
+        let slice_mask = Mask::from_slices(2300, vec![(0, 50), (700, 800), (1700, 2300)]);
+        assert_arrays_eq!(
+            sliced.filter(slice_mask.clone())?,
+            sliced_raw.filter(slice_mask.clone())?,
+            &mut ctx
+        );
+        // Single-range slice mask keeps a shared buffer in Primitive::filter -> filter_blocked_alloc.
+        let single_slice_mask = Mask::from_slices(2300, vec![(100, 1800)]);
+        assert_arrays_eq!(
+            sliced.filter(single_slice_mask.clone())?,
+            sliced_raw.filter(single_slice_mask)?,
+            &mut ctx
+        );
+        // Dense bitmap mask (no cached_slices) exercises the set_indices branch.
+        let bitmap_mask = Mask::from_iter((0..2300).map(|i| i % 3 == 0 || i == 723 || i == 724));
+        assert_arrays_eq!(
+            sliced.filter(bitmap_mask.clone())?,
+            sliced_raw.filter(bitmap_mask.clone())?,
+            &mut ctx
+        );
+
+        // Explicitly hold a buffer clone to hit both cached_slices and set_indices in filter_blocked_alloc.
+        let sliced_for = sliced.as_::<FoR>();
+        let refs = sliced_for
+            .blocked_references()
+            .unwrap()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let offset = usize::from(sliced_for.offset());
+        for mask in [slice_mask, bitmap_mask] {
+            let filtered_enc = sliced_for
+                .encoded()
+                .filter(mask.clone())?
+                .execute::<PrimitiveArray>(&mut ctx)?;
+            let _keep_shared = filtered_enc.clone();
+            let Mask::Values(mv) = &mask else {
+                unreachable!();
+            };
+            let actual = filter_blocked_primitive::<i64>(
+                filtered_enc,
+                refs.as_slice::<i64>(),
+                offset,
+                mv,
+                &mut ctx,
+            )?;
+            assert_arrays_eq!(actual.into_array(), sliced_raw.filter(mask)?, &mut ctx);
+        }
         Ok(())
     }
 }
