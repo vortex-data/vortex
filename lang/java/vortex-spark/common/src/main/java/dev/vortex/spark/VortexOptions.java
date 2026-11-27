@@ -85,6 +85,24 @@ public final class VortexOptions implements Serializable {
     }
 
     /**
+     * The value set for {@code key} as a long, or {@code fallback} when it is not set.
+     *
+     * @throws IllegalArgumentException if the value is not an integer
+     */
+    public long getLong(String key, long fallback) {
+        Optional<String> value = get(key);
+        if (value.isEmpty()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.get().trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    String.format(Locale.ROOT, "%s must be an integer, got '%s'", key, value.get()), e);
+        }
+    }
+
+    /**
      * The value set for {@code key} as a boolean, or {@code fallback} when it is not set.
      *
      * @throws IllegalArgumentException if the value is neither {@code true} nor {@code false}

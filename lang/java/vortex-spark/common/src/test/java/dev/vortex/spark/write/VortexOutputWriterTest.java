@@ -23,6 +23,7 @@ import dev.vortex.spark.VortexSparkSession;
 import dev.vortex.spark.io.HadoopWritable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,6 +97,84 @@ final class VortexOutputWriterTest {
         assertTrue(assertThrows(IllegalArgumentException.class, () -> new VortexOutputWriterFactory(schema, options))
                 .getMessage()
                 .contains("vortex.write.compact"));
+    }
+
+    @Test
+    void anUnsetBatchByteCapLeavesOnlyTheRowLimit() {
+        assertEquals(0, VortexOutputWriter.configuredBatchBytes(VortexOptions.empty()));
+    }
+
+    @Test
+    void aBatchByteCapMustBePositive() {
+        for (String value : List.of("0", "-1", "lots")) {
+            VortexOptions options = options(Map.of("vortex.write.batch.bytes", value));
+
+            assertTrue(
+                    assertThrows(IllegalArgumentException.class, () -> VortexOutputWriter.configuredBatchBytes(options))
+                            .getMessage()
+                            .contains("vortex.write.batch.bytes"));
+        }
+    }
+
+    /** Wide rows reach the byte cap long before the row limit, so batches stay near the cap whatever the row width. */
+    @Test
+    void theByteCapCutsBatchesOfWideRows() {
+        StructType schema = new StructType()
+                .add("id", DataTypes.LongType, false)
+                .add("s", DataTypes.createArrayType(DataTypes.StringType, false), false);
+        long cap = 256 << 10;
+        VortexOutputWriter writer = writer(
+                "wide-rows.vortex",
+                schema,
+                Map.of("vortex.write.batch.size", "65536", "vortex.write.batch.bytes", Long.toString(cap)));
+        String wide = "x".repeat(4096);
+        int rows = 1000;
+        for (long i = 0; i < rows; i++) {
+            UTF8String[] values = new UTF8String[4];
+            Arrays.setAll(values, k -> UTF8String.fromString(wide));
+            writer.write(new GenericInternalRow(new Object[] {i, new GenericArrayData(values)}));
+        }
+        writer.close();
+
+        VortexOutputWriteSummary summary = writer.summary().orElseThrow();
+        // A row takes just over 16 KiB, so every batch, not only the first, ends after 16 rows: 63 batches. Vectors
+        // keep the capacity of earlier batches, so a cap measured on capacity would cut later batches after one row.
+        assertEquals((rows + 15) / 16, summary.batchCount(), summary.toString());
+        // The batch ends at the row that reaches the cap, so it overshoots by less than one row.
+        assertTrue(summary.peakBatchBytes() >= cap && summary.peakBatchBytes() < cap + (17 << 10), summary.toString());
+        assertEquals(rows, readRows(writer.path()).size());
+    }
+
+    @Test
+    void closeSummarizesTheFile() throws IOException {
+        StructType schema =
+                new StructType().add("id", DataTypes.LongType, false).add("s", DataTypes.StringType, true);
+        VortexOutputWriter writer = writer("summary.vortex", schema, Map.of("vortex.write.batch.size", "100"));
+        assertTrue(writer.summary().isEmpty());
+        int rows = 250;
+        for (long i = 0; i < rows; i++) {
+            writer.write(new GenericInternalRow(new Object[] {i, UTF8String.fromString("row-" + i)}));
+        }
+        writer.close();
+
+        VortexOutputWriteSummary summary = writer.summary().orElseThrow();
+        assertEquals(rows, summary.rowCount());
+        assertEquals(Files.size(tempDir.resolve("summary.vortex")), summary.fileSize());
+        assertEquals(3, summary.batchCount());
+        assertTrue(summary.peakBatchBytes() > 0, summary.toString());
+        assertTrue(summary.peakBufferedBytes() >= 0, summary.toString());
+        assertEquals(2, summary.fileSummary().columnStatistics().size());
+    }
+
+    @Test
+    void aFailedWriteLeavesNoSummary() {
+        StructType schema = new StructType().add("s", DataTypes.StringType, true);
+        VortexOutputWriter writer = writer("no-summary.vortex", schema, Map.of());
+        // A java.lang.String is not a UTF8String.
+        assertThrows(ClassCastException.class, () -> writer.write(new GenericInternalRow(new Object[] {"a"})));
+        writer.close();
+
+        assertTrue(writer.summary().isEmpty());
     }
 
     /**
