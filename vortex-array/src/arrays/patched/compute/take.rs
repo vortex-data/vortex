@@ -19,7 +19,12 @@ impl TakeExecute for Patched {
     ) -> VortexResult<Option<ArrayRef>> {
         let base = array.inner().take(indices.clone())?;
         // The base take already supplies nulls for null indices.
-        super::select_rows(array, base, array.patches().take(indices, ctx)?, ctx)
+        super::select_rows(
+            array,
+            base,
+            array.absolute_patches(ctx)?.take(indices, ctx)?,
+            ctx,
+        )
     }
 }
 

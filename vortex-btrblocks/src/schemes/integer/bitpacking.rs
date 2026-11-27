@@ -37,6 +37,7 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::patches::compress_external_patches;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum BitPackingSchemeMode {
@@ -115,11 +116,11 @@ impl Scheme for BitPackingScheme {
         }
     }
 
-    /// Children: block offsets=0 in v2 mode.
+    /// Children: block offsets in v2, then external patch positions when enabled.
     fn num_children(&self) -> usize {
         match self.mode {
-            BitPackingSchemeMode::V1 => 0,
-            BitPackingSchemeMode::V2 => 1,
+            BitPackingSchemeMode::V1 => usize::from(use_experimental_patches()),
+            BitPackingSchemeMode::V2 => 1 + usize::from(use_experimental_patches()),
         }
     }
 
@@ -204,11 +205,17 @@ impl Scheme for BitPackingScheme {
 
         match patches {
             None => Ok(array.with_stats_set(packed_stats).into_array()),
-            Some(p) => Ok(
-                Patched::from_array_and_patches(array.into_array(), &p, exec_ctx)?
-                    .with_stats_set(packed_stats)
-                    .into_array(),
-            ),
+            Some(p) => Ok(compress_external_patches(
+                array.into_array(),
+                &p,
+                compressor,
+                &compress_ctx,
+                self.id(),
+                self.num_children() - 1,
+                exec_ctx,
+            )?
+            .with_stats_set(packed_stats)
+            .into_array()),
         }
     }
 }

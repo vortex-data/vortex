@@ -21,10 +21,11 @@ use crate::arrays::patched::IntegerPatchStrategy;
 use crate::arrays::patched::PatchStrategy;
 use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedSlots;
-use crate::arrays::patched::validate_chunk_index;
+use crate::arrays::patched::indices::visit_chunks;
+use crate::dtype::PType;
 use crate::patches::PATCH_CHUNK_SIZE;
-use crate::patches::Patches;
 use crate::patches::PatchesMetadata;
 
 /// The first four children are base, indices, patch values and chunk offsets. Replacement
@@ -37,10 +38,18 @@ use crate::patches::PatchesMetadata;
 /// strategy may be ignored, so they can carry optional indexes or statistics.
 #[derive(Clone, prost::Message)]
 struct PatchedMetadata {
-    #[prost(message, optional, tag = "1")]
-    patches: Option<PatchesMetadata>,
+    // Reserve field 1 for absolute indices. Only the chunk-relative layout is implemented.
+    #[prost(oneof = "IndexLayout", tags = "5")]
+    indices: Option<IndexLayout>,
     #[prost(oneof = "Strategy", tags = "2, 3")]
     strategy: Option<Strategy>,
+}
+
+#[derive(Clone, prost::Oneof)]
+enum IndexLayout {
+    /// Local u16 positions and a prefix index, starting at zero, over physical chunks.
+    #[prost(message, tag = "5")]
+    ChunkRelative(PatchesMetadata),
 }
 
 #[derive(Clone, prost::Oneof)]
@@ -69,7 +78,14 @@ impl ArrayPlugin for Patched {
             PatchStrategy::Float(op) => Strategy::Float(op as i32),
         };
         let metadata = PatchedMetadata {
-            patches: Some(view.patches().to_metadata(array.len(), array.dtype())?),
+            indices: Some(IndexLayout::ChunkRelative(PatchesMetadata::new(
+                view.patch_indices().len(),
+                view.offset,
+                PType::U16,
+                Some(view.patch_chunk_offsets().len()),
+                Some(view.patch_chunk_offsets().dtype().as_ptype()),
+                None,
+            ))),
             strategy: Some(strategy),
         };
         Ok(Some(ArraySerialization::from_array(
@@ -102,9 +118,9 @@ impl ArrayPlugin for Patched {
             ),
         };
         strategy.validate(parts.dtype)?;
-        let metadata = metadata
-            .patches
-            .ok_or_else(|| vortex_err!("Missing patches metadata"))?;
+        let IndexLayout::ChunkRelative(metadata) = metadata
+            .indices
+            .ok_or_else(|| vortex_err!("Missing or unsupported patch index layout"))?;
         let count = metadata.len()?;
         vortex_ensure!((1..=parts.len).contains(&count));
         let offsets_dtype = metadata
@@ -127,23 +143,17 @@ impl ArrayPlugin for Patched {
         let values = children.get(PatchedSlots::PATCH_VALUES, parts.dtype, count)?;
         let offsets = children.get(PatchedSlots::PATCH_CHUNK_OFFSETS, &offsets_dtype, chunks)?;
         let mut ctx = session.create_execution_ctx();
-        validate_chunk_index(
+        vortex_ensure_eq!(indices.dtype().as_ptype(), PType::U16);
+        vortex_ensure_eq!(metadata.offset_within_chunk(), 0);
+        visit_chunks::<true>(
             &indices,
             &offsets,
             offset,
-            metadata.offset_within_chunk(),
-            end,
-            &mut ctx,
-        )?;
-        let patches = Patches::from_metadata(
             parts.len,
-            &metadata,
-            indices,
-            values,
-            Some(offsets),
             &mut ctx,
+            |_, _, _| {},
         )?;
-        Ok(Self::from_indexed_patches(inner, &patches, strategy)?.into_array())
+        Ok(Self::from_relative(inner, indices, values, offsets, offset, strategy)?.into_array())
     }
 }
 
@@ -153,6 +163,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
+    use super::IndexLayout;
     use super::PatchedMetadata;
     use super::Strategy;
     use crate::ArrayDeserialization;
@@ -166,14 +177,14 @@ mod tests {
     #[test]
     fn float_metadata_golden() {
         let metadata = PatchedMetadata {
-            patches: Some(PatchesMetadata::new(
+            indices: Some(IndexLayout::ChunkRelative(PatchesMetadata::new(
                 3,
                 1025,
                 PType::U16,
                 Some(2),
                 Some(PType::U16),
-                Some(1),
-            )),
+                None,
+            ))),
             strategy: Some(Strategy::Float(0)),
         };
         check_metadata("patched.metadata", &metadata.encode_to_vec());
@@ -184,7 +195,7 @@ mod tests {
         let session = VortexSession::empty();
         let children = [
             buffer![0u8; 2050].into_array(),
-            buffer![1u16, 1024].into_array(),
+            buffer![1u16, 0].into_array(),
             buffer![2u8, 3].into_array(),
             buffer![0u8, 1, 2].into_array(),
         ];
@@ -203,9 +214,9 @@ mod tests {
             );
             ArrayPlugin::deserialize(&Patched, parts, &session)
         };
-        let integer = |patches| {
+        let integer = |patches: Option<PatchesMetadata>| {
             PatchedMetadata {
-                patches,
+                indices: patches.map(IndexLayout::ChunkRelative),
                 strategy: Some(Strategy::Integer(0)),
             }
             .encode_to_vec()
@@ -223,25 +234,36 @@ mod tests {
         }
         reject(
             PatchedMetadata {
-                patches: Some(valid),
+                indices: Some(IndexLayout::ChunkRelative(valid)),
                 strategy: Some(Strategy::Float(0)),
             }
             .encode_to_vec(),
         );
         let mut future_family = PatchedMetadata {
-            patches: Some(valid),
+            indices: Some(IndexLayout::ChunkRelative(valid)),
             strategy: None,
         }
         .encode_to_vec();
         future_family.extend_from_slice(&[0x20, 0]); // field 4: a future family's Replace
         reject(future_family);
-        for indices in [[1024u16, 1], [1, 1], [1, 2050]] {
+        for indices in [[1024u16, 1], [1, 1024], [1, 2050]] {
             let mut malformed = children.clone();
             malformed[1] = buffer![indices[0], indices[1]].into_array();
             assert!(decode(integer(Some(valid)), &malformed).is_err());
         }
+        let mut duplicate = children.clone();
+        duplicate[1] = buffer![3u16, 3].into_array();
+        duplicate[3] = buffer![0u8, 2, 2].into_array();
+        assert!(decode(integer(Some(valid)), &duplicate).is_err());
+        let mut absolute = Vec::new();
+        absolute.push(0x0a); // field 1, reserved for absolute indices
+        let payload = valid.encode_to_vec();
+        absolute.push(u8::try_from(payload.len()).unwrap());
+        absolute.extend(payload);
+        absolute.extend([0x10, 0]);
+        reject(absolute);
         let mut inconsistent = children;
-        inconsistent[3] = buffer![0u8, 1, 1].into_array();
+        inconsistent[3] = buffer![0u8, 2, 1].into_array();
         assert!(decode(integer(Some(valid)), &inconsistent).is_err());
     }
 }

@@ -5,6 +5,7 @@
 
 mod array;
 mod compute;
+mod indices;
 mod vtable;
 
 use std::env;
