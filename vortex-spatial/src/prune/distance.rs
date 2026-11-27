@@ -86,9 +86,13 @@ impl StatsRewriteRule for SpatialDistancePrune {
         let Ok(radius) = f64::try_from(radius) else {
             return Ok(None);
         };
-        // A NaN radius has no sound proof: `distance <op> NaN` is not a total order, so the chunk
-        // must be scanned, not pruned.
-        if radius.is_nan() || (!zeros_equal && radius == 0.0) {
+        // A NaN radius has no sound proof, and a positive radius whose square overflows to `+Inf`
+        // or underflows to `0.0` would falsify comparisons against `min_dist_sq`/`max_dist_sq`.
+        let r2 = radius * radius;
+        if radius.is_nan()
+            || (radius > 0.0 && (!r2.is_finite() || r2 == 0.0))
+            || (!zeros_equal && radius == 0.0)
+        {
             return Ok(None);
         }
 
@@ -166,7 +170,9 @@ mod tests {
     use crate::prune::test_harness::aabb_zone_map;
     use crate::prune::test_harness::empty_zone_map;
     use crate::scalar_fn::distance::SpatialDistance;
+    use crate::test_harness::linestring_column;
     use crate::test_harness::point_column;
+    use crate::test_harness::rect_column;
     use crate::test_harness::spatial_session;
 
     /// Run the rule against `SpatialDistance(root, origin) <operator> radius`, operands swapped when
@@ -350,10 +356,63 @@ mod tests {
         Ok(())
     }
 
-    /// A NaN radius must not prune - the scan's total-order compare treats `dist <= NaN` as true.
-    #[test]
-    fn nan_radius_never_prunes() -> VortexResult<()> {
-        assert!(falsify_distance(CompareOperator::Lte, true, f64::NAN)?.is_none());
+    /// A NaN radius or a positive radius whose square overflows (`+Inf`, `1e200`) or underflows
+    /// (`1e-200`) must decline pruning across all ordered comparisons.
+    #[rstest]
+    #[case::nan(f64::NAN)]
+    #[case::pos_inf(f64::INFINITY)]
+    #[case::square_overflow(1e200)]
+    #[case::square_underflow(1e-200)]
+    fn non_finite_or_degenerate_squared_radius_never_prunes(
+        #[case] radius: f64,
+        #[values(
+            CompareOperator::Lte,
+            CompareOperator::Lt,
+            CompareOperator::Gte,
+            CompareOperator::Gt
+        )]
+        operator: CompareOperator,
+    ) -> VortexResult<()> {
+        assert!(falsify_distance(operator, true, radius)?.is_none());
+        Ok(())
+    }
+
+    /// A query geometry containing any `NaN` ordinate (including `POINT EMPTY`, a partial `NaN`
+    /// coordinate, a `LineString` with one `NaN` vertex, or a `Rect` with a `NaN` corner) must
+    /// decline pruning rather than propagating `NaN` into `min_dist_sq`/`max_dist_sq`.
+    #[rstest]
+    fn nan_query_geometry_never_prunes(
+        #[values(
+            CompareOperator::Lte,
+            CompareOperator::Lt,
+            CompareOperator::Gte,
+            CompareOperator::Gt
+        )]
+        operator: CompareOperator,
+    ) -> VortexResult<()> {
+        let session = spatial_session();
+        let mut ctx = session.create_execution_ctx();
+        let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+
+        let queries = [
+            point_column(vec![f64::NAN], vec![f64::NAN])?.execute_scalar(0, &mut ctx)?,
+            point_column(vec![f64::NAN], vec![0.0])?.execute_scalar(0, &mut ctx)?,
+            linestring_column(vec![vec![(0.0, 0.0), (f64::NAN, 1.0)]])?
+                .execute_scalar(0, &mut ctx)?,
+            rect_column(vec![(0.0, 0.0, f64::NAN, 1.0)])?.execute_scalar(0, &mut ctx)?,
+        ];
+        for query in queries {
+            let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(query)]);
+            let predicate = Compare
+                .new_expr(operator.into(), [distance, lit(1.0f64)])
+                .bind(&scope)?;
+            assert!(
+                SpatialDistancePrune
+                    .falsify(&predicate, &session)?
+                    .is_none(),
+                "NaN query must not produce a prune proof for {operator}"
+            );
+        }
         Ok(())
     }
 

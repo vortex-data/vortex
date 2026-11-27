@@ -58,13 +58,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -115,7 +115,11 @@ pub(crate) fn flatten_coordinates(
         .storage_array()
         .clone();
     while node.dtype().is_list() {
-        node = node.execute::<ListViewArray>(ctx)?.elements().clone();
+        node = node
+            .execute::<ListViewArray>(ctx)?
+            .rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, ctx)?
+            .elements()
+            .clone();
     }
     node.execute::<StructArray>(ctx)
 }
@@ -196,18 +200,6 @@ pub(crate) fn geometries(
     } else {
         vortex_bail!("spatial: unsupported geometry extension {}", array.dtype())
     }
-}
-
-/// Decode a constant operand scalar to one geometry, a constant of any
-/// supported geometry type is decoded exactly like a column.
-pub(crate) fn single_geometry(
-    scalar: &Scalar,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Geometry<f64>> {
-    let array = ConstantArray::new(scalar.clone(), 1).into_array();
-    geometries(&array, ctx)?
-        .pop()
-        .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
 }
 
 /// Decode a WKB geometry literal (DuckDB's wire form for `GEOMETRY` constants) to its native

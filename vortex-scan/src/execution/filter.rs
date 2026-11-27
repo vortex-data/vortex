@@ -15,6 +15,10 @@ use vortex_error::vortex_ensure_eq;
 use vortex_expr::BoundExpression;
 use vortex_expr::stats::StatsSessionExt;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_expr::stats::stat_fn::StatFn;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
 use vortex_functions::between::Between;
 use vortex_functions::between::find_between;
 use vortex_io::request::IoBatch;
@@ -38,8 +42,10 @@ use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
+use crate::plan::Eval;
 use crate::plan::FilterPlan;
 use crate::plan::PlanRef;
+use crate::plan::RowIdx;
 use crate::plan::Zoned;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
@@ -151,7 +157,8 @@ impl FilterPlans {
     }
 }
 
-/// A pruning plan must not fetch data when its requested statistics are unavailable.
+/// A pruning plan must not fetch data, materialize row indices, or execute unresolved statistics
+/// when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
         .as_opt::<Zoned>()
@@ -159,7 +166,12 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     {
         return Ok(true);
     }
-    if plan.is_data_source() {
+    if plan.is_data_source() || plan.is::<RowIdx>() {
+        return Ok(false);
+    }
+    if let Some(eval) = plan.as_opt::<Eval>()
+        && contains_stat_fn(eval.expression())?
+    {
         return Ok(false);
     }
     for child in plan.children() {
@@ -168,6 +180,25 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
         }
     }
     Ok(true)
+}
+
+fn contains_stat_fn(expression: &BoundExpression) -> VortexResult<bool> {
+    let mut found = false;
+    expression.clone().transform_down(|node| {
+        if node
+            .as_scalar()
+            .is_some_and(|scalar_fn| scalar_fn.is::<StatFn>())
+        {
+            found = true;
+            return Ok(Transformed {
+                value: node,
+                order: TraversalOrder::Skip,
+                changed: false,
+            });
+        }
+        Ok(Transformed::no(node))
+    })?;
+    Ok(found)
 }
 
 /// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.

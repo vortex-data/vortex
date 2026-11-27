@@ -14,6 +14,9 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -94,6 +97,62 @@ fn aabb_of(xs: &[f64], ys: &[f64]) -> Option<SpatialRect<f64>> {
 
     let [xmin, ymin, xmax, ymax] = box_corners(xs, ys);
     Some(SpatialRect::new((xmin, ymin), (xmax, ymax)))
+}
+
+/// Union two optional bounding boxes.
+fn union_rects(
+    lhs: Option<SpatialRect<f64>>,
+    rhs: Option<SpatialRect<f64>>,
+) -> Option<SpatialRect<f64>> {
+    match (lhs, rhs) {
+        (Some(a), Some(b)) => Some(SpatialRect::new(
+            (a.min().x.min(b.min().x), a.min().y.min(b.min().y)),
+            (a.max().x.max(b.max().x), a.max().y.max(b.max().y)),
+        )),
+        (some, None) | (None, some) => some,
+    }
+}
+
+/// Compute the 2D AABB over all valid geometries in a native geometry array, or `None` when empty
+/// or all-null. Any `NaN` ordinate widens the result to the whole plane.
+pub(crate) fn aabb_of_array(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<SpatialRect<f64>>> {
+    // Drop null rows before reading coordinates: a null geometry's storage holds placeholder
+    // coordinates (e.g. `(0, 0)`) that would otherwise widen the zone box and drag it toward
+    // the origin. `filter` collapses an all-true mask back to the input, so a null-free batch
+    // passes through unchanged.
+    let valid = array.validity()?.execute_mask(array.len(), ctx)?;
+    let array = array.filter(valid)?;
+    if array.is_empty() {
+        return Ok(None);
+    }
+
+    if array
+        .dtype()
+        .as_extension_opt()
+        .is_some_and(|ext| ext.is::<Rect>())
+    {
+        let storage = array
+            .execute::<ExtensionArray>(ctx)?
+            .storage_array()
+            .clone()
+            .execute::<StructArray>(ctx)?;
+        let xmins = ordinates(&storage, "xmin", ctx)?;
+        let ymins = ordinates(&storage, "ymin", ctx)?;
+        let xmaxs = ordinates(&storage, "xmax", ctx)?;
+        let ymaxs = ordinates(&storage, "ymax", ctx)?;
+        return Ok(union_rects(
+            aabb_of(&xmins, &ymins),
+            aabb_of(&xmaxs, &ymaxs),
+        ));
+    }
+
+    let coords = flatten_coordinates(&array, ctx)?;
+    let xs = ordinates(&coords, "x", ctx)?;
+    let ys = ordinates(&coords, "y", ctx)?;
+    Ok(aabb_of(&xs, &ys))
 }
 
 /// Read an AABB stat scalar (a nullable native `geoarrow.box`) into a [`SpatialRect`], or `None` when
@@ -229,24 +288,7 @@ impl AggregateFnVTable for GeometryAabb {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        // Drop null rows before reading coordinates: a null geometry's storage holds placeholder
-        // coordinates (e.g. `(0, 0)`) that would otherwise widen the zone box and drag it toward
-        // the origin. `filter` collapses an all-true mask back to the input, so a null-free batch
-        // passes through unchanged.
-        //
-        // TODO(perf): on nullable data this `filter` compacts the whole column even for a single
-        // null before we min/max it. A validity-aware min/max straight over the raw x/y buffers
-        // would skip that copy. Left as-is for now: this is a write-time zone stat, and the common
-        // non-nullable case already costs nothing (the all-true mask makes `filter` a no-op).
-        let valid = array.validity()?.execute_mask(array.len(), ctx)?;
-        let array = array.filter(valid)?;
-        // Null rows are gone, so every coordinate below belongs to a present geometry — the
-        // `unmasked_field_by_name` reads are therefore safe. Min/max the raw x/y buffers directly:
-        // cheap, and avoids `to_geometry`'s panic on empty points (which decoding would hit).
-        let coords = flatten_coordinates(&array, ctx)?;
-        let xs = ordinates(&coords, "x", ctx)?;
-        let ys = ordinates(&coords, "y", ctx)?;
-        if let Some(rect) = aabb_of(&xs, &ys) {
+        if let Some(rect) = aabb_of_array(&array, ctx)? {
             partial.merge(rect);
         }
         Ok(())
@@ -277,6 +319,7 @@ mod tests {
     use geo::Rect as SpatialRect;
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::Accumulator;
     use vortex_array::aggregate_fn::AggregateDTypes;
@@ -284,23 +327,35 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::AabbPartial;
     use super::GeometryAabb;
     use super::rect_from_storage;
+    use crate::extension::LineString;
+    use crate::extension::Rect;
+    use crate::extension::SpatialMetadata;
+    use crate::extension::coordinate::Dimension;
     use crate::test_harness::linestring_column;
     use crate::test_harness::multilinestring_column;
     use crate::test_harness::multipoint_column;
     use crate::test_harness::multipolygon_column;
     use crate::test_harness::nullable_point_column;
+    use crate::test_harness::nullable_rect_column;
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
+    use crate::test_harness::rect_column;
     use crate::test_harness::spatial_session;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -509,13 +564,121 @@ mod tests {
         Ok(())
     }
 
+    /// `Rect` columns (2D, 3D, nullable, and with `NaN` corners) accumulate their union AABB.
+    #[test]
+    fn rect_aabb_accumulates_2d_3d_nullable_and_nan() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let rects = rect_column(vec![(1.0, 2.0, 3.0, 4.0), (-2.0, 5.0, 0.0, 6.0)])?;
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, rects.dtype().clone())?;
+        acc.accumulate(&rects, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (-2.0, 2.0, 3.0, 6.0));
+
+        // Null rows carry (0, 0, 0, 0) placeholders that must not pull the box toward the origin.
+        let nullable = nullable_rect_column(vec![
+            Some((5.0, 6.0, 7.0, 8.0)),
+            None,
+            Some((9.0, 10.0, 11.0, 12.0)),
+        ])?;
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, nullable.dtype().clone())?;
+        acc.accumulate(&nullable, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (5.0, 6.0, 11.0, 12.0));
+
+        // 3D `Rect` ignores z bounds and computes the 2D XY extent.
+        let ordinate = |value: f64| PrimitiveArray::from_iter([value]).into_array();
+        let storage = StructArray::from_fields(&[
+            ("xmin", ordinate(1.0)),
+            ("ymin", ordinate(2.0)),
+            ("zmin", ordinate(-99.0)),
+            ("xmax", ordinate(3.0)),
+            ("ymax", ordinate(4.0)),
+            ("zmax", ordinate(99.0)),
+        ])?
+        .into_array();
+        let ext = ExtDType::<Rect>::try_new(
+            SpatialMetadata::default().with_dimension(Dimension::Xyz),
+            Nullability::NonNullable,
+        )?;
+        let xyz = ExtensionArray::try_new(ext.erased(), storage)?.into_array();
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, xyz.dtype().clone())?;
+        acc.accumulate(&xyz, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (1.0, 2.0, 3.0, 4.0));
+
+        // A `NaN` corner widens the AABB to the whole plane.
+        let nan_rect = rect_column(vec![(0.0, 0.0, f64::NAN, 1.0)])?;
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, nan_rect.dtype().clone())?;
+        acc.accumulate(&nan_rect, &mut ctx)?;
+        assert_eq!(
+            aabb(&acc.finish()?)?,
+            (
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY
+            )
+        );
+        Ok(())
+    }
+
+    /// Unreferenced coordinates in a `ListView` backing buffer (from slicing, filtered null rows,
+    /// or non-contiguous `ListView` gaps) must not widen the AABB.
+    #[test]
+    fn listview_unreferenced_coordinates_are_ignored() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // 1. Sliced `LineString`: rows 0 and 2 hold outliers outside the slice window.
+        let lines = linestring_column(vec![
+            vec![(-1000.0, -1000.0), (1000.0, 1000.0)],
+            vec![(1.0, 2.0), (3.0, 4.0)],
+            vec![(500.0, 500.0), (600.0, 600.0)],
+        ])?
+        .slice(1..2)?;
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, lines.dtype().clone())?;
+        acc.accumulate(&lines, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (1.0, 2.0, 3.0, 4.0));
+
+        // 2. Non-contiguous `ListView` with both a gap element (100, 100) and a null row pointing
+        // to (-999, -999) in the backing elements buffer.
+        let elements = StructArray::from_fields(&[
+            (
+                "x",
+                PrimitiveArray::from_iter([-999.0f64, 1.0, 2.0, 100.0, 3.0]).into_array(),
+            ),
+            (
+                "y",
+                PrimitiveArray::from_iter([-999.0f64, 4.0, 5.0, 100.0, 6.0]).into_array(),
+            ),
+        ])?
+        .into_array();
+        let list_view = ListViewArray::try_new(
+            elements,
+            PrimitiveArray::from_iter([0u32, 1, 4]).into_array(),
+            PrimitiveArray::from_iter([1u32, 2, 1]).into_array(),
+            Validity::from_iter([false, true, true]),
+            &mut ctx,
+        )?
+        .into_array();
+        let ext = ExtDType::<LineString>::try_new(
+            SpatialMetadata::default().with_dimension(Dimension::Xy),
+            Nullability::Nullable,
+        )?;
+        let gapped = ExtensionArray::try_new(ext.erased(), list_view)?.into_array();
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, gapped.dtype().clone())?;
+        acc.accumulate(&gapped, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (1.0, 4.0, 3.0, 6.0));
+        Ok(())
+    }
+
     /// After `initialize`, the registry yields a default zone statistic for every native geometry
     /// type (so the zoned writer stores it) but none for ordinary numeric columns.
     #[test]
     fn registered_as_geometry_zone_default() -> VortexResult<()> {
         let session = spatial_session();
 
-        for column in every_native_column(&[(0.0, 0.0), (1.0, 1.0)])? {
+        for column in every_native_column(&[(0.0, 0.0), (1.0, 1.0)])?
+            .into_iter()
+            .chain(std::iter::once(rect_column(vec![(0.0, 0.0, 1.0, 1.0)])?))
+        {
             assert!(
                 !session
                     .aggregate_fns()

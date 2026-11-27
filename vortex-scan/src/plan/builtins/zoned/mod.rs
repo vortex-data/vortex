@@ -22,6 +22,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_expr::BoundExpression;
 use vortex_expr::stats::stat_fn::StatFn;
@@ -403,6 +404,11 @@ fn expand_zones(
     let zone_len = plan.zone_len();
     let start_zone = usize::try_from(rows.start / zone_len)?;
     let end_zone = usize::try_from(rows.end.div_ceil(zone_len))?;
+    vortex_ensure!(
+        end_zone <= pruned.len(),
+        "Zoned pruning mask has {} zones, fewer than required {end_zone} for rows {rows:?}",
+        pruned.len()
+    );
     let selected_zones = pruned.slice(start_zone..end_zone);
     if selected_zones.all_true() || selected_zones.all_false() {
         let scalar = Scalar::from(selected_zones.all_true()).cast(plan.dtype())?;
@@ -412,7 +418,7 @@ fn expand_zones(
     let mut row = rows.start;
     while row < rows.end {
         let zone = usize::try_from(row / zone_len).vortex_expect("zone index must fit in usize");
-        let zone_end = ((row / zone_len) + 1) * zone_len;
+        let zone_end = (row / zone_len).saturating_add(1).saturating_mul(zone_len);
         let end = zone_end.min(rows.end);
         bits.append_n(
             pruned.value(zone),
