@@ -289,3 +289,41 @@ fn test_f16_nullable_roundtrip() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn test_chunk_metas_nbytes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let empty = PrimitiveArray::from_iter(Vec::<i32>::new());
+    let empty_pco = Pco::from_primitive(empty.as_view(), 3, 0, &mut ctx)?;
+    assert!(empty_pco.chunk_metas().is_empty());
+    assert_eq!(empty_pco.chunk_metas_nbytes(), 0);
+
+    let single_chunk = PrimitiveArray::from_iter(0..1024_i32);
+    let single_pco = Pco::from_primitive(single_chunk.as_view(), 3, 0, &mut ctx)?;
+    assert_eq!(single_pco.chunk_metas().len(), 1);
+    assert_eq!(
+        single_pco.chunk_metas_nbytes(),
+        single_pco.chunk_metas()[0].len() as u64
+    );
+    assert!(single_pco.chunk_metas_nbytes() > 0);
+    assert!(single_pco.chunk_metas_nbytes() < single_pco.as_array().nbytes());
+
+    let multi_chunk = PrimitiveArray::from_iter(0..200_i32);
+    let multi_data =
+        PcoData::from_primitive_with_values_per_chunk(multi_chunk.as_view(), 3, 50, 25, &mut ctx)?;
+    let multi_pco = Pco::try_new(
+        multi_chunk.dtype().clone(),
+        multi_data,
+        Validity::NonNullable,
+    )?;
+    assert_eq!(multi_pco.chunk_metas().len(), 4);
+    let expected_sum: u64 = multi_pco
+        .chunk_metas()
+        .iter()
+        .map(|meta| meta.len() as u64)
+        .sum();
+    assert_eq!(multi_pco.chunk_metas_nbytes(), expected_sum);
+
+    Ok(())
+}
