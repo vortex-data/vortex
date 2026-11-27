@@ -234,11 +234,20 @@ where
     // so identical NaNs do not trigger spurious transitions and `-0.0` vs `+0.0` stay distinct.
     if !count_distinct_values && matches!(validity.bit_buffer(), AllOr::All) {
         let slice = buff.as_slice();
-        let equal_pairs: u64 = slice
-            .iter()
-            .zip(&slice[1..])
-            .map(|(&a, &b)| u64::from(a.is_eq(b)))
-            .sum();
+        let mut prev = slice[0];
+        let mut equal_pairs: u64 = 0;
+        let (chunks, remainder) = slice[1..].as_chunks::<4>();
+        for &[a, b, c, d] in chunks {
+            equal_pairs += u64::from(prev.is_eq(a))
+                + u64::from(a.is_eq(b))
+                + u64::from(b.is_eq(c))
+                + u64::from(c.is_eq(d));
+            prev = d;
+        }
+        for &v in remainder {
+            equal_pairs += u64::from(prev.is_eq(v));
+            prev = v;
+        }
         runs += slice.len() as u64 - 1 - equal_pairs;
     } else {
         let head_idx = validity
