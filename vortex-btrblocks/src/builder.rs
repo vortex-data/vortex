@@ -293,8 +293,10 @@ mod tests {
     use vortex_array::arrays::Masked;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBin;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -441,6 +443,15 @@ mod tests {
     )]
     #[case::all_invalid(
         PrimitiveArray::new(buffer![0u64; 1024], Validity::AllInvalid).into_array()
+    )]
+    #[case::all_invalid_struct(
+        StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array()],
+            1024,
+            Validity::AllInvalid,
+        )?
+        .into_array()
     )]
     #[case::nullable_constant(
         PrimitiveArray::new(
