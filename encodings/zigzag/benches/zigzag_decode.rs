@@ -16,6 +16,8 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::session::ArraySession;
+#[cfg(not(codspeed))]
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
@@ -95,8 +97,7 @@ fn bench_pco_runs(bencher: Bencher, fused: bool, nullable: bool) {
     let array = ZigZag::try_new(pco.into_array()).unwrap().into_array();
     #[cfg(not(codspeed))]
     {
-        let trace =
-            vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION).unwrap();
+        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
         assert_eq!(
             trace.contains("fuse start array=vortex.pco"),
             nullable,

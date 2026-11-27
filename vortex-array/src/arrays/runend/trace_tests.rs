@@ -109,7 +109,7 @@ fn trace_filter_on_runend() -> VortexResult<()> {
       iter 0 current=vortex.filter(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.filter(i32, len=4) child=vortex.runend(i32, len=9) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
+        Done array=vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
       return output=vortex.primitive(i32, len=4)
     ");
@@ -139,7 +139,7 @@ fn trace_take_on_runend() -> VortexResult<()> {
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.runend(i32, len=9) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
+        Done array=vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
       return output=vortex.primitive(i32, len=4)
     ");

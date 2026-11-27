@@ -31,6 +31,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
+#[cfg(not(codspeed))]
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_array::validity::Validity;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArrayExt;
@@ -136,8 +138,7 @@ fn run(bencher: Bencher, array: ArrayRef, fused: bool, source: &str) {
     let _ = source;
     #[cfg(not(codspeed))]
     {
-        let trace =
-            vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION).unwrap();
+        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
         assert!(
             trace.contains(&format!("fuse start array={source}")),
             "{trace}"
@@ -302,8 +303,7 @@ fn bench_patched_readings(bencher: Bencher, fusion: bool, wrapper: bool) {
         .into_array();
     #[cfg(not(codspeed))]
     {
-        let trace =
-            vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION).unwrap();
+        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
         assert_eq!(
             trace.contains("fuse absorb parent=vortex.patched"),
             wrapper,

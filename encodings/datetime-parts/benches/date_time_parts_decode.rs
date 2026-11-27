@@ -28,6 +28,8 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
+#[cfg(not(codspeed))]
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::DateTimePartsArraySlotsExt;
 use vortex_fastlanes::FoR;
@@ -136,8 +138,7 @@ fn bench_timestamps(bencher: Bencher, days: ArrayRef, fused: bool) {
     .into_array();
     #[cfg(not(codspeed))]
     {
-        let trace =
-            vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION).unwrap();
+        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
         assert!(trace.contains(&expected_source), "{trace}");
     }
     bencher
@@ -204,8 +205,7 @@ fn intraday(bencher: Bencher, pack_seconds: bool, fused: bool) {
         .into_array();
     #[cfg(not(codspeed))]
     {
-        let trace =
-            vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION).unwrap();
+        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
         assert!(
             trace.contains("fuse start array=fastlanes.bitpacked"),
             "{trace}"

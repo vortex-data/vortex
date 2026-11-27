@@ -34,6 +34,8 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::Patches;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
+#[cfg(not(codspeed))]
+use vortex_array::test_harness::trace::trace_op;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -863,10 +865,8 @@ fn bench_patched_packed(
     let make_ctx = || SESSION.create_execution_ctx().with_block_fusion(fusion);
     #[cfg(not(codspeed))]
     {
-        let traced = vortex_array::test_harness::trace::trace_op(|| {
-            patched.clone().execute::<PrimitiveArray>(&mut make_ctx())
-        })
-        .unwrap();
+        let traced =
+            trace_op(|| patched.clone().execute::<PrimitiveArray>(&mut make_ctx())).unwrap();
         let trace = traced.trace.to_string();
         let direct = fusion && storage == PatchStorage::Wrapper;
         assert_eq!(
@@ -960,12 +960,10 @@ fn sparse_patch_full_decode(bencher: Bencher, case: &str) {
     };
     #[cfg(not(codspeed))]
     if generic || case.ends_with("_fused") {
-        let trace = vortex_array::test_harness::trace::trace_op(|| {
-            array.clone().execute::<PrimitiveArray>(&mut make_ctx())
-        })
-        .unwrap()
-        .trace
-        .to_string();
+        let trace = trace_op(|| array.clone().execute::<PrimitiveArray>(&mut make_ctx()))
+            .unwrap()
+            .trace
+            .to_string();
         assert_eq!(
             trace.contains("fuse absorb parent=vortex.patched"),
             !generic,

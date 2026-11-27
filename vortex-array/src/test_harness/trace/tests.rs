@@ -605,7 +605,7 @@ fn trace_take_on_chunked() -> VortexResult<()> {
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.chunked(i32, len=5) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=4)
+        Done array=vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
       return output=vortex.primitive(i32, len=4)
     ");

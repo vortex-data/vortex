@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![cfg(not(codspeed))]
+#![cfg(all(test, not(codspeed)))]
 
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;

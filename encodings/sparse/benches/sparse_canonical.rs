@@ -27,6 +27,8 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
+#[cfg(not(codspeed))]
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -264,8 +266,8 @@ fn patched_sparse_readings(bencher: Bencher, fusion: bool) {
         .vortex_expect("unaligned sensor window");
     #[cfg(not(codspeed))]
     {
-        let trace = vortex_array::test_harness::fusion::fusion_trace(array.clone(), &SESSION)
-            .vortex_expect("blockwise and full decode agree");
+        let trace =
+            fusion_trace(array.clone(), &SESSION).vortex_expect("blockwise and full decode agree");
         assert!(
             !trace.contains("fuse extend parent=vortex.patched"),
             "{trace}"
