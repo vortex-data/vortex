@@ -121,25 +121,21 @@ impl VectorRef {
         unsafe { cpp::duckdb_vector_flatten(self.as_ptr()) }
     }
 
-    /// Sets the logical element count of the vector (and any nested struct/array children) to
-    /// `count` and converts it into a flat uncompressed vector.
-    ///
-    /// Needed when a constant vector (which DuckDB's C API initializes with size
-    /// `STANDARD_VECTOR_SIZE`) must be flattened across more than `STANDARD_VECTOR_SIZE` elements,
-    /// such as the child vector of a DuckDB `ARRAY` (`FixedSizeList`) vector.
+    /// Sets the logical element count of the vector (and any nested struct/array children) via
+    /// `FlatVector::SetSize`.
     ///
     /// # Safety
     ///
     /// `FlatVector::SetSize` throws an uncaught C++ `duckdb::InternalException` across the
-    /// `extern "C"` boundary if any of the following preconditions are violated:
+    /// `extern "C"` boundary if preconditions are violated:
     ///
-    /// - If the vector (or any nested struct/array child) is a flat vector, its capacity must be
-    ///   at least `count` (or `count * array_size` for array children).
-    /// - If the vector (or any nested struct/array child) is neither flat nor constant (e.g. a
-    ///   dictionary or sequence vector), its existing size must already equal `count`.
-    /// - The vector buffer must not be null (even when `count == 0`).
-    pub(crate) unsafe fn flatten_with_count(&mut self, count: usize) {
-        unsafe { cpp::duckdb_vx_vector_flatten_with_count(self.as_ptr(), count as idx_t) }
+    /// - If `size > 0`, the vector buffer must not be null.
+    /// - Flat vectors (including nested struct/array children) must have capacity >= `size`
+    ///   (or `size * array_size` for array children).
+    /// - Non-flat, non-constant vectors (e.g. dictionary or sequence) must already have size
+    ///   equal to `size`.
+    pub(crate) unsafe fn set_size(&mut self, size: usize) {
+        unsafe { cpp::duckdb_vx_vector_set_size(self.as_ptr(), size as idx_t) }
     }
 
     // NOTE(ngates): vector doesn't hold its own length. Which makes writing a safe
@@ -642,26 +638,5 @@ mod tests {
         vector.flatten();
 
         assert_eq!(vector.as_slice_with_len::<i32>(3), &[100, 200, 100]);
-    }
-
-    #[test]
-    fn test_flatten_with_count_constant_exceeding_vector_size() {
-        let count = duckdb_vector_size() * 2;
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-
-        let mut vector = Vector::with_capacity(&logical_type, count);
-        vector.reference_value(&Value::from(42i32));
-        // SAFETY: `vector` is a non-null constant vector, which DuckDB can resize to any `count`.
-        unsafe { vector.flatten_with_count(count) };
-
-        assert_eq!(vector.as_slice_with_len::<i32>(count), vec![42i32; count]);
-        assert!((0..count).all(|i| !vector.row_is_null(i as u64)));
-
-        let mut null_vector = Vector::with_capacity(&logical_type, count);
-        null_vector.reference_value(&Value::null(&logical_type));
-        // SAFETY: `null_vector` is a non-null constant vector, which DuckDB can resize to any `count`.
-        unsafe { null_vector.flatten_with_count(count) };
-
-        assert!((0..count).all(|i| null_vector.row_is_null(i as u64)));
     }
 }

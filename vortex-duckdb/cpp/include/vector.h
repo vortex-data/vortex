@@ -31,7 +31,7 @@ void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t st
 
 void duckdb_vector_flatten(duckdb_vector vector);
 
-void duckdb_vx_vector_flatten_with_count(duckdb_vector ffi_vector, idx_t count);
+void duckdb_vx_vector_set_size(duckdb_vector ffi_vector, idx_t size);
 
 duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index);
 

@@ -81,20 +81,13 @@ impl ColumnExporter for FixedSizeListExporter {
         self.elements_exporter
             .export(offset * list_size, num_elements, elements_vector, ctx)?;
 
-        // We must flatten the child vector to ensure any child dictionary views (namely UTF-8
-        // string views in dictionaries) are materialized, and pass the explicit element count so
-        // constant vectors (whose C API default size is STANDARD_VECTOR_SIZE) flatten across all
-        // `len * list_size` elements instead of truncating at 2048.
-        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
-        // detailed explanation on why we need this for now.
+        // Flatten the child vector so dictionary views are materialized, sizing it to
+        // `num_elements` first so constant children flatten past `STANDARD_VECTOR_SIZE` (2048).
+        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825.
         //
-        // SAFETY: `elements_vector` is the child of a DuckDB ARRAY vector with capacity for at
-        // least `len * list_size` (`num_elements`) entries, and `elements_exporter` populated
-        // `num_elements` entries (so flat children have capacity >= `num_elements`, dictionary and
-        // sequence children already have size `num_elements`, and constant vectors/children can be
-        // resized to `num_elements`).
-        // `ListExporter` does not need this because it slices rather than flattening its child.
-        unsafe { elements_vector.flatten_with_count(num_elements) };
+        // SAFETY: `elements_exporter` populated `num_elements` entries in `elements_vector`.
+        unsafe { elements_vector.set_size(num_elements) };
+        elements_vector.flatten();
 
         Ok(())
     }
