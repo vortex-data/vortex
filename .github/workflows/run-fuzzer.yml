@@ -172,6 +172,7 @@ jobs:
 
       - name: Check for crashes
         id: check
+        if: always()
         run: .github/scripts/check-fuzz-crashes.sh
 
       - name: Reproduce crash for full output
@@ -180,7 +181,7 @@ jobs:
 
       - name: Archive crash artifacts
         id: upload_artifacts
-        if: steps.check.outputs.crashes_found == 'true'
+        if: always() && steps.check.outputs.crashes_found == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-crash-artifacts
