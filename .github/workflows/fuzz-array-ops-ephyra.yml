@@ -7,6 +7,9 @@ on:
   workflow_run:
     workflows: ["Fuzz Build"]
     types: [completed]
+  # TEMPORARY: a 30-minute search from this branch before merge; remove before merging.
+  push:
+    branches: [ji/funny-wozniak-ejefg3]
   workflow_dispatch:
     inputs:
       max_minutes:
@@ -19,7 +22,7 @@ jobs:
   fuzz:
     name: "Array Operations Fuzz (ephyra)"
     if: >-
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' || github.event_name == 'push'
       || github.event.workflow_run.conclusion == 'success'
     permissions:
       actions: read
@@ -28,4 +31,4 @@ jobs:
     uses: ./.github/workflows/run-ephyra-fuzzer.yml
     with:
       target: array_ops
-      max_minutes: ${{ inputs.max_minutes || 150 }}
+      max_minutes: ${{ github.event_name == 'push' && 30 || inputs.max_minutes || 150 }}
