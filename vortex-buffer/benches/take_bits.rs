@@ -60,7 +60,7 @@ fn take_u16_from_4096(bencher: Bencher, count: usize) {
     bencher.bench(|| take_bits(bits.as_view(), &indices, None));
 }
 
-#[vortex_bench_support::cpu_features]
+#[vortex_bench_support::cpu_features(exclude = ["avx2"])]
 #[divan::bench(args = [1_024])]
 fn take_u16_from_4096_short(bencher: Bencher, count: usize) {
     let bits = make_bits(4096);
@@ -68,7 +68,7 @@ fn take_u16_from_4096_short(bencher: Bencher, count: usize) {
     bencher.bench(|| take_bits(bits.as_view(), &indices, None));
 }
 
-#[vortex_bench_support::cpu_features]
+#[vortex_bench_support::cpu_features(exclude = ["avx2"])]
 #[divan::bench(args = [65_536])]
 fn take_u8_from_256(bencher: Bencher, count: usize) {
     let bits = make_bits(256);
@@ -100,7 +100,7 @@ fn take_u16_single_zero(bencher: Bencher, count: usize) {
     bencher.bench(|| take_bits(bits.as_view(), &indices, None));
 }
 
-#[vortex_bench_support::cpu_features]
+#[vortex_bench_support::cpu_features(exclude = ["avx2"])]
 #[divan::bench(args = [65_536])]
 fn take_u16_nullable_from_1000(bencher: Bencher, count: usize) {
     let bits = make_bits(1000);
