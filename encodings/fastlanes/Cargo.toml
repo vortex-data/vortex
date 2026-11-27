@@ -89,6 +89,10 @@ name = "bitpack_compare_sweep"
 harness = false
 
 [[bench]]
+name = "block_vs_fused"
+harness = false
+
+[[bench]]
 name = "bitpack_blocked"
 harness = false
 
