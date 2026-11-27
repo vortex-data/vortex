@@ -260,9 +260,10 @@ impl Scheme for FoRScheme {
 
         // Immediately bitpack when residuals satisfy BitPacking's non-negative precondition.
         // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
-        // residuals; hand the input back for the size check to reject rather than materializing
-        // an uncompressed FoR array larger than the input.
-        if has_negative_residuals(&biased, exec_ctx) {
+        // residuals; only scan when the cached global span exceeds `T::MAX`, and hand the input
+        // back for the size check to reject rather than materializing an uncompressed FoR array
+        // larger than the input.
+        if span_exceeds_signed_max(data, exec_ctx) && has_negative_residuals(&biased, exec_ctx) {
             return Ok(Encoded::leaf(data.array().clone()));
         }
         let biased_data =
@@ -419,15 +420,27 @@ where
         .is_some_and(|min| min < T::default())
 }
 
+/// Returns true when `data` is a signed integer array whose cached global span `max - min`
+/// exceeds `T::MAX`, meaning FoR subtraction may wrap a residual into negative values.
+fn span_exceeds_signed_max(data: &ArrayAndStats, exec_ctx: &mut ExecutionCtx) -> bool {
+    let ptype = data.array_as_primitive().ptype();
+    if !ptype.is_signed_int() {
+        return false;
+    }
+    let signed_max = u64::MAX >> (u64::BITS as usize - (ptype.bit_width() - 1));
+    data.integer_stats(exec_ctx).erased().max_minus_min() > signed_max
+}
+
 /// Bit-packs `residuals` when they satisfy BitPacking's non-negative precondition; returns `None`
 /// when signed wrapping subtraction produced negative residuals.
 fn try_bitpack_residuals(
     compressor: &CascadingCompressor,
     residuals: PrimitiveArray,
+    might_wrap: bool,
     compress_ctx: &CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    if has_negative_residuals(&residuals, exec_ctx) {
+    if might_wrap && has_negative_residuals(&residuals, exec_ctx) {
         return Ok(None);
     }
     let data = ArrayAndStats::new(residuals.into_array(), compress_ctx.merged_stats_options());
@@ -484,11 +497,13 @@ fn evaluate_v2_on_sample(
         return Ok(None);
     };
 
+    let might_wrap = span_exceeds_signed_max(data, exec_ctx);
     let biased_v2 = for_v2
         .encoded()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?;
-    let Some(packed_v2) = try_bitpack_residuals(compressor, biased_v2, compress_ctx, exec_ctx)?
+    let Some(packed_v2) =
+        try_bitpack_residuals(compressor, biased_v2, might_wrap, compress_ctx, exec_ctx)?
     else {
         return Ok(None);
     };
@@ -544,7 +559,7 @@ fn evaluate_v2_on_sample(
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?;
         if let Some(packed_v1) =
-            try_bitpack_residuals(compressor, biased_v1, compress_ctx, exec_ctx)?
+            try_bitpack_residuals(compressor, biased_v1, might_wrap, compress_ctx, exec_ctx)?
         {
             let v1_patches = extract_patch_count(&packed_v1);
             let for_v1_compressed = match for_v1.references() {
