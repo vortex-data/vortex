@@ -288,75 +288,84 @@ fn timestamp_ms_in_us_compresses_smaller_in_v2() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::time_ms(TimeUnit::Milliseconds, 1)]
-#[case::time_us(TimeUnit::Microseconds, 1_000)]
-#[case::time_ns_ms(TimeUnit::Nanoseconds, 1_000_000)]
-#[case::time_ns_us(TimeUnit::Nanoseconds, 1_000)]
-fn nullable_time_with_dirty_null_slots_roundtrips(
-    #[case] unit: TimeUnit,
-    #[case] expected_divisor: u32,
-) -> VortexResult<()> {
+#[test]
+fn nullable_time_with_dirty_null_slots_roundtrips() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..4096).map(|i| i % 9 != 0));
-    let array = match unit {
-        TimeUnit::Milliseconds => {
-            let values: Buffer<i32> = (0..4096i32)
-                .map(|i| {
-                    if i % 9 == 0 {
-                        // Dirty null slot
-                        123_456_789
-                    } else {
-                        ((i * 7_919) % 86_400) * 1_000
-                    }
-                })
-                .collect();
-            TemporalArray::new_time(PrimitiveArray::new(values, validity).into_array(), unit)
+    for (unit, expected_divisor) in [
+        (TimeUnit::Milliseconds, 1u32),
+        (TimeUnit::Microseconds, 1_000),
+        (TimeUnit::Nanoseconds, 1_000_000),
+        (TimeUnit::Nanoseconds, 1_000),
+    ] {
+        let array = match unit {
+            TimeUnit::Milliseconds => {
+                let values: Buffer<i32> = (0..4096i32)
+                    .map(|i| {
+                        if i % 9 == 0 {
+                            // Dirty null slot
+                            123_456_789
+                        } else {
+                            ((i * 7_919) % 86_400) * 1_000
+                        }
+                    })
+                    .collect();
+                TemporalArray::new_time(
+                    PrimitiveArray::new(values, validity.clone()).into_array(),
+                    unit,
+                )
                 .into_array()
-        }
-        TimeUnit::Microseconds => {
-            let values: Buffer<i64> = (0..4096i64)
-                .map(|i| {
-                    if i % 9 == 0 {
-                        // Dirty non-multiple negative null slot
-                        -999_123
-                    } else {
-                        ((i * 7_919) % 86_400) * 1_000_000 + ((i * 131) % 1_000) * 1_000
-                    }
-                })
-                .collect();
-            TemporalArray::new_time(PrimitiveArray::new(values, validity).into_array(), unit)
+            }
+            TimeUnit::Microseconds => {
+                let values: Buffer<i64> = (0..4096i64)
+                    .map(|i| {
+                        if i % 9 == 0 {
+                            // Dirty non-multiple negative null slot
+                            -999_123
+                        } else {
+                            ((i * 7_919) % 86_400) * 1_000_000 + ((i * 131) % 1_000) * 1_000
+                        }
+                    })
+                    .collect();
+                TemporalArray::new_time(
+                    PrimitiveArray::new(values, validity.clone()).into_array(),
+                    unit,
+                )
                 .into_array()
-        }
-        TimeUnit::Nanoseconds => {
-            let step = i64::from(expected_divisor);
-            let sub_mod = 1_000_000_000 / step;
-            let values: Buffer<i64> = (0..4096i64)
-                .map(|i| {
-                    if i % 9 == 0 {
-                        -777_777_777
-                    } else {
-                        ((i * 7_919) % 86_400) * 1_000_000_000 + ((i * 131) % sub_mod) * step
-                    }
-                })
-                .collect();
-            TemporalArray::new_time(PrimitiveArray::new(values, validity).into_array(), unit)
+            }
+            TimeUnit::Nanoseconds => {
+                let step = i64::from(expected_divisor);
+                let sub_mod = 1_000_000_000 / step;
+                let values: Buffer<i64> = (0..4096i64)
+                    .map(|i| {
+                        if i % 9 == 0 {
+                            -777_777_777
+                        } else {
+                            ((i * 7_919) % 86_400) * 1_000_000_000 + ((i * 131) % sub_mod) * step
+                        }
+                    })
+                    .collect();
+                TemporalArray::new_time(
+                    PrimitiveArray::new(values, validity.clone()).into_array(),
+                    unit,
+                )
                 .into_array()
-        }
-        _ => unreachable!(),
-    };
+            }
+            _ => unreachable!(),
+        };
 
-    let compressed = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION)
-        .build()
-        .compress(&array, &mut ctx)?;
-    let dtp = compressed
-        .as_opt::<DateTimeParts>()
-        .ok_or_else(|| vortex_err!("expected DateTimeParts, got {}", compressed.display_tree()))?;
-    assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+        let compressed = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION)
+            .build()
+            .compress(&array, &mut ctx)?;
+        let dtp = compressed.as_opt::<DateTimeParts>().ok_or_else(|| {
+            vortex_err!("expected DateTimeParts, got {}", compressed.display_tree())
+        })?;
+        assert_eq!(dtp.subseconds_divisor(), expected_divisor);
 
-    let (id, decoded) = serde_round_trip(&compressed)?;
-    assert_eq!(id, datetime_parts_v2_id());
-    assert_arrays_eq!(decoded, array, &mut ctx);
+        let (id, decoded) = serde_round_trip(&compressed)?;
+        assert_eq!(id, datetime_parts_v2_id());
+        assert_arrays_eq!(decoded, array, &mut ctx);
+    }
     Ok(())
 }
 

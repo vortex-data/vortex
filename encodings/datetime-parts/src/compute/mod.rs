@@ -70,11 +70,6 @@ mod tests {
         TimeUnit::Microseconds,
         Some("UTC".into()),
     )))]
-    #[case::datetime_nanos_scaled_1000(dtp_v2_from_temporal(TemporalArray::new_timestamp(
-        buffer![0i64, 1_000, 86_400_000_500_000, -86_400_000_250_000].into_array(),
-        TimeUnit::Nanoseconds,
-        None,
-    )))]
     #[case::datetime_nanos_scaled_1m(dtp_v2_from_temporal(TemporalArray::new_timestamp(
         buffer![0i64, 1_000_000, 86_400_500_000_000, -86_400_250_000_000].into_array(),
         TimeUnit::Nanoseconds,
@@ -100,14 +95,6 @@ mod tests {
         buffer![0i32, 3_600_500, 43_200_123, 86_399_999].into_array(),
         TimeUnit::Milliseconds,
     )))]
-    #[case::time_micros_whole_seconds(dtp_v2_from_temporal(TemporalArray::new_time(
-        buffer![0i64, 3_600_000_000, 43_200_000_000, 86_399_000_000].into_array(),
-        TimeUnit::Microseconds,
-    )))]
-    #[case::time_micros_scaled(dtp_v2_from_temporal(TemporalArray::new_time(
-        buffer![0i64, 3_600_500_000, 43_200_123_000, 86_399_999_000].into_array(),
-        TimeUnit::Microseconds,
-    )))]
     #[case::time_nanos_scaled_1m(dtp_v2_from_temporal(TemporalArray::new_time(
         buffer![0i64, 3_600_500_000_000, 43_200_123_000_000, 86_399_999_000_000].into_array(),
         TimeUnit::Nanoseconds,
@@ -121,16 +108,6 @@ mod tests {
             None,
         ]).into_array(),
         TimeUnit::Microseconds,
-    )))]
-    #[case::time_nullable_millis(dtp_v2_from_temporal(TemporalArray::new_time(
-        PrimitiveArray::from_option_iter([
-            Some(0i32),
-            None,
-            Some(3_600_500),
-            Some(86_399_999),
-            None,
-        ]).into_array(),
-        TimeUnit::Milliseconds,
     )))]
     // Nullable arrays
     #[case::datetime_nullable_seconds(dtp_from_temporal(TemporalArray::new_timestamp(

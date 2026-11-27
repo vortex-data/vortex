@@ -175,6 +175,12 @@ impl ArrayPlugin for DateTimePartsPlugin {
                     metadata_v2.subseconds_divisor
                 );
                 let metadata = DateTimePartsMetadata::decode(metadata)?;
+                vortex_ensure_eq!(
+                    children.len(),
+                    3,
+                    "Expected 3 children for datetime-parts encoding, found {}",
+                    children.len()
+                );
                 (
                     metadata.get_days_ptype()?,
                     metadata.get_seconds_ptype()?,
@@ -184,6 +190,11 @@ impl ArrayPlugin for DateTimePartsPlugin {
             } else if serialized_id == datetime_parts_v2_id() {
                 let metadata = DateTimePartsV2Metadata::decode(metadata)?;
                 validate_subseconds_divisor(kind.unit(), metadata.subseconds_divisor)?;
+                vortex_ensure!(
+                    children.len() >= 3,
+                    "Expected at least 3 children for datetime-parts v2 encoding, found {}",
+                    children.len()
+                );
                 (
                     metadata.get_days_ptype()?,
                     metadata.get_seconds_ptype()?,
@@ -195,13 +206,6 @@ impl ArrayPlugin for DateTimePartsPlugin {
                     "DateTimeParts plugin does not recognize the serialized ID {serialized_id}"
                 );
             };
-
-        if children.len() != 3 {
-            vortex_bail!(
-                "Expected 3 children for datetime-parts encoding, found {}",
-                children.len()
-            )
-        }
 
         let days = children.get(0, &DType::Primitive(days_ptype, dtype.nullability()), len)?;
         let seconds = children.get(
@@ -233,7 +237,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use prost::Message;
-    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayId;
@@ -305,74 +308,105 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case::micros_ms_precision(TimeUnit::Microseconds, 1_000, &[0i64, 1_000, 86_400_000_000 + 42_000, -500_000])]
-    #[case::nanos_us_precision(TimeUnit::Nanoseconds, 1_000, &[0i64, 1_000, 86_400_000_000_000 + 123_000, -7_000])]
-    #[case::nanos_ms_precision(TimeUnit::Nanoseconds, 1_000_000, &[0i64, 1_000_000, 86_400_000_000_000 + 456_000_000, -9_000_000])]
-    fn test_timestamp_scaled_uses_v2_wire_format(
-        #[case] unit: TimeUnit,
-        #[case] expected_divisor: u32,
-        #[case] values: &[i64],
-    ) -> VortexResult<()> {
+    #[test]
+    fn test_timestamp_scaled_uses_v2_wire_format() -> VortexResult<()> {
+        let cases: &[(TimeUnit, u32, &[i64])] = &[
+            (
+                TimeUnit::Microseconds,
+                1_000,
+                &[0, 1_000, 86_400_000_000 + 42_000, -500_000],
+            ),
+            (
+                TimeUnit::Nanoseconds,
+                1_000,
+                &[0, 1_000, 86_400_000_000_000 + 123_000, -7_000],
+            ),
+            (
+                TimeUnit::Nanoseconds,
+                1_000_000,
+                &[0, 1_000_000, 86_400_000_000_000 + 456_000_000, -9_000_000],
+            ),
+        ];
         let mut ctx = SESSION.create_execution_ctx();
-        let temporal = TemporalArray::new_timestamp(
-            PrimitiveArray::from_iter(values.iter().copied()).into_array(),
-            unit,
-            Some("UTC".into()),
-        );
-        let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
-        assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+        for &(unit, expected_divisor, values) in cases {
+            let temporal = TemporalArray::new_timestamp(
+                PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+                unit,
+                Some("UTC".into()),
+            );
+            let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+            assert_eq!(dtp.subseconds_divisor(), expected_divisor);
 
-        let (id, decoded) = serde_roundtrip(&dtp.into_array())?;
-        assert_eq!(id, datetime_parts_v2_id());
-        assert_eq!(
-            decoded.as_::<DateTimeParts>().subseconds_divisor(),
-            expected_divisor
-        );
-        assert_arrays_eq!(decoded, temporal, &mut ctx);
+            let (id, decoded) = serde_roundtrip(&dtp.into_array())?;
+            assert_eq!(id, datetime_parts_v2_id());
+            assert_eq!(
+                decoded.as_::<DateTimeParts>().subseconds_divisor(),
+                expected_divisor
+            );
+            assert_arrays_eq!(decoded, temporal, &mut ctx);
+        }
         Ok(())
     }
 
-    #[rstest]
-    #[case::time_s(
-        TemporalArray::new_time(buffer![0i32, 3_600, 86_399].into_array(), TimeUnit::Seconds),
-        1
-    )]
-    #[case::time_ms(
-        TemporalArray::new_time(buffer![0i32, 3_600_500, 86_399_999].into_array(), TimeUnit::Milliseconds),
-        1
-    )]
-    #[case::time_us_whole_seconds(
-        TemporalArray::new_time(buffer![0i64, 3_600_000_000, 86_399_000_000].into_array(), TimeUnit::Microseconds),
-        1
-    )]
-    #[case::time_us_ms_precision(
-        TemporalArray::new_time(buffer![0i64, 3_600_500_000, 86_399_123_000].into_array(), TimeUnit::Microseconds),
-        1_000
-    )]
-    #[case::time_ns_ms_precision(
-        TemporalArray::new_time(buffer![0i64, 3_600_500_000_000, 86_399_123_000_000].into_array(), TimeUnit::Nanoseconds),
-        1_000_000
-    )]
-    #[case::time_ns_us_precision(
-        TemporalArray::new_time(buffer![0i64, 3_600_500_123_000, 86_399_123_456_000].into_array(), TimeUnit::Nanoseconds),
-        1_000
-    )]
-    fn test_time_uses_v2_wire_format(
-        #[case] temporal: TemporalArray,
-        #[case] expected_divisor: u32,
-    ) -> VortexResult<()> {
+    #[test]
+    fn test_time_uses_v2_wire_format() -> VortexResult<()> {
+        let cases = [
+            (
+                TemporalArray::new_time(
+                    buffer![0i32, 3_600, 86_399].into_array(),
+                    TimeUnit::Seconds,
+                ),
+                1,
+            ),
+            (
+                TemporalArray::new_time(
+                    buffer![0i32, 3_600_500, 86_399_999].into_array(),
+                    TimeUnit::Milliseconds,
+                ),
+                1,
+            ),
+            (
+                TemporalArray::new_time(
+                    buffer![0i64, 3_600_000_000, 86_399_000_000].into_array(),
+                    TimeUnit::Microseconds,
+                ),
+                1,
+            ),
+            (
+                TemporalArray::new_time(
+                    buffer![0i64, 3_600_500_000, 86_399_123_000].into_array(),
+                    TimeUnit::Microseconds,
+                ),
+                1_000,
+            ),
+            (
+                TemporalArray::new_time(
+                    buffer![0i64, 3_600_500_000_000, 86_399_123_000_000].into_array(),
+                    TimeUnit::Nanoseconds,
+                ),
+                1_000_000,
+            ),
+            (
+                TemporalArray::new_time(
+                    buffer![0i64, 3_600_500_123_000, 86_399_123_456_000].into_array(),
+                    TimeUnit::Nanoseconds,
+                ),
+                1_000,
+            ),
+        ];
         let mut ctx = SESSION.create_execution_ctx();
-        let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
-        assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+        for (temporal, expected_divisor) in cases {
+            let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+            assert_eq!(dtp.subseconds_divisor(), expected_divisor);
 
-        let (id, decoded) = serde_roundtrip(&dtp.into_array())?;
-        assert_eq!(id, datetime_parts_v2_id());
-        assert_eq!(
-            decoded.as_::<DateTimeParts>().subseconds_divisor(),
-            expected_divisor
-        );
-        assert_arrays_eq!(decoded, temporal, &mut ctx);
+            let (id, decoded) = serde_roundtrip(&dtp.into_array())?;
+            assert_eq!(id, datetime_parts_v2_id());
+            assert_eq!(
+                decoded.as_::<DateTimeParts>().subseconds_divisor(),
+                expected_divisor
+            );
+            assert_arrays_eq!(decoded, temporal, &mut ctx);
+        }
         Ok(())
     }
 
@@ -440,28 +474,111 @@ mod tests {
         assert!(err.to_string().contains("subseconds_divisor"), "{err}");
     }
 
-    #[rstest]
-    #[case::zero(TimeUnit::Microseconds, 0)]
-    #[case::seven(TimeUnit::Microseconds, 7)]
-    #[case::ten(TimeUnit::Microseconds, 10)]
-    #[case::seconds_1000(TimeUnit::Seconds, 1_000)]
-    #[case::millis_1000(TimeUnit::Milliseconds, 1_000)]
-    #[case::micros_1m(TimeUnit::Microseconds, 1_000_000)]
-    #[case::nanos_1b(TimeUnit::Nanoseconds, 1_000_000_000)]
-    fn test_v2_deserialize_rejects_invalid_divisor(#[case] unit: TimeUnit, #[case] divisor: u32) {
-        let dtype = DType::Extension(Timestamp::new(unit, Nullability::NonNullable).erased());
+    #[test]
+    fn test_v2_deserialize_rejects_invalid_divisor() {
+        let cases = [
+            (TimeUnit::Microseconds, 0),
+            (TimeUnit::Microseconds, 7),
+            (TimeUnit::Microseconds, 10),
+            (TimeUnit::Seconds, 1_000),
+            (TimeUnit::Milliseconds, 1_000),
+            (TimeUnit::Microseconds, 1_000_000),
+            (TimeUnit::Nanoseconds, 1_000_000_000),
+        ];
+        for (unit, divisor) in cases {
+            let dtype = DType::Extension(Timestamp::new(unit, Nullability::NonNullable).erased());
+            let metadata = DateTimePartsV2Metadata {
+                days_ptype: PType::I32 as i32,
+                seconds_ptype: PType::I32 as i32,
+                subseconds_ptype: PType::I32 as i32,
+                subseconds_divisor: divisor,
+            }
+            .encode_to_vec();
+            let children: [ArrayRef; 3] = [
+                ConstantArray::new(0i32, 2).into_array(),
+                ConstantArray::new(0i32, 2).into_array(),
+                ConstantArray::new(0i32, 2).into_array(),
+            ];
+            let err = DateTimePartsPlugin
+                .deserialize(
+                    ArrayDeserialization::new(
+                        datetime_parts_v2_id(),
+                        &dtype,
+                        2,
+                        &metadata,
+                        &[],
+                        &children,
+                    ),
+                    &SESSION,
+                )
+                .unwrap_err();
+            assert!(err.to_string().contains("subseconds_divisor"), "{err}");
+
+            // Direct construction also rejects the invalid divisor.
+            let err = DateTimeParts::try_new_with_divisor(
+                dtype,
+                ConstantArray::new(0i32, 2).into_array(),
+                ConstantArray::new(0i32, 2).into_array(),
+                ConstantArray::new(0i32, 2).into_array(),
+                divisor,
+            )
+            .unwrap_err();
+            assert!(err.to_string().contains("subseconds_divisor"), "{err}");
+        }
+    }
+
+    #[test]
+    fn test_v2_deserialize_ignores_trailing_children() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Extension(
+            Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
+        );
         let metadata = DateTimePartsV2Metadata {
             days_ptype: PType::I32 as i32,
             seconds_ptype: PType::I32 as i32,
             subseconds_ptype: PType::I32 as i32,
-            subseconds_divisor: divisor,
+            subseconds_divisor: 1_000,
         }
         .encode_to_vec();
-        let children: [ArrayRef; 3] = [
-            ConstantArray::new(0i32, 2).into_array(),
-            ConstantArray::new(0i32, 2).into_array(),
-            ConstantArray::new(0i32, 2).into_array(),
+        let base_children: [ArrayRef; 3] = [
+            buffer![0i32, 1].into_array(),
+            buffer![10i32, 20].into_array(),
+            buffer![5i32, 500].into_array(),
         ];
+        // A fourth trailing child with an unrelated dtype must be ignored without decoding.
+        let extra_children: [ArrayRef; 4] = [
+            base_children[0].clone(),
+            base_children[1].clone(),
+            base_children[2].clone(),
+            buffer![7u8, 8].into_array(),
+        ];
+
+        let actual = DateTimePartsPlugin.deserialize(
+            ArrayDeserialization::new(
+                datetime_parts_v2_id(),
+                &dtype,
+                2,
+                &metadata,
+                &[],
+                &extra_children,
+            ),
+            &SESSION,
+        )?;
+        let expected = DateTimePartsPlugin.deserialize(
+            ArrayDeserialization::new(
+                datetime_parts_v2_id(),
+                &dtype,
+                2,
+                &metadata,
+                &[],
+                &base_children,
+            ),
+            &SESSION,
+        )?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+
+        // Fewer than 3 children must still fail.
+        let too_few: &[ArrayRef] = &base_children[..2];
         let err = DateTimePartsPlugin
             .deserialize(
                 ArrayDeserialization::new(
@@ -470,23 +587,13 @@ mod tests {
                     2,
                     &metadata,
                     &[],
-                    &children,
+                    &too_few,
                 ),
                 &SESSION,
             )
             .unwrap_err();
-        assert!(err.to_string().contains("subseconds_divisor"), "{err}");
-
-        // Direct construction also rejects the invalid divisor.
-        let err = DateTimeParts::try_new_with_divisor(
-            dtype,
-            ConstantArray::new(0i32, 2).into_array(),
-            ConstantArray::new(0i32, 2).into_array(),
-            ConstantArray::new(0i32, 2).into_array(),
-            divisor,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("subseconds_divisor"), "{err}");
+        assert!(err.to_string().contains("at least 3 children"), "{err}");
+        Ok(())
     }
 
     #[test]

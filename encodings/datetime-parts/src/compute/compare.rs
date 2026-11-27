@@ -876,72 +876,76 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case::micros_div_1000(TimeUnit::Microseconds, 1_000)]
-    #[case::nanos_div_1000(TimeUnit::Nanoseconds, 1_000)]
-    #[case::nanos_div_1m(TimeUnit::Nanoseconds, 1_000_000)]
-    fn scaled_timestamp_compare_in_between_constants(
-        #[case] unit: TimeUnit,
-        #[case] expected_divisor: u32,
-        #[values(Validity::NonNullable, Validity::from_iter([true, false, true, true, false, true, true, true, true, true]), Validity::AllInvalid)]
-        validity: Validity,
-    ) -> VortexResult<()> {
+    #[test]
+    fn scaled_timestamp_compare_in_between_constants() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let tps = timestamp::ticks_per_second(unit)?;
-        let day = 86_400 * tps;
-        let step = i64::from(expected_divisor);
-
-        // Positive, zero, and pre-epoch negative timestamps, all multiples of `step`.
-        let values = vec![
-            -day - tps - 2 * step,
-            -day,
-            -tps - step,
-            -step,
-            0,
-            step,
-            2 * step,
-            tps - step,
-            tps,
-            day + tps + 3 * step,
+        let validities = [
+            Validity::NonNullable,
+            Validity::from_iter([true, false, true, true, false, true, true, true, true, true]),
+            Validity::AllInvalid,
         ];
-        let temporal = TemporalArray::new_timestamp(
-            PrimitiveArray::new(Buffer::from(values.clone()), validity.clone()).into_array(),
-            unit,
-            Some("UTC".into()),
-        );
-        let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
-        if !matches!(validity, Validity::AllInvalid) {
-            assert_eq!(dtp.subseconds_divisor(), expected_divisor);
-        }
+        for (unit, expected_divisor) in [
+            (TimeUnit::Microseconds, 1_000u32),
+            (TimeUnit::Nanoseconds, 1_000),
+            (TimeUnit::Nanoseconds, 1_000_000),
+        ] {
+            let tps = timestamp::ticks_per_second(unit)?;
+            let day = 86_400 * tps;
+            let step = i64::from(expected_divisor);
 
-        // Exact multiples AND in-between values (`-1`, `+1`, `+step/2`, `-step/2`) around every
-        // stored value, both positive and negative.
-        let half = step / 2;
-        let mut constants = Vec::new();
-        for &v in &values {
-            constants.extend([v - half, v - 1, v, v + 1, v + half]);
-        }
-        constants.extend([-tps + 1, -tps + half, -1, 1, tps - 1]);
+            // Positive, zero, and pre-epoch negative timestamps, all multiples of `step`.
+            let values = vec![
+                -day - tps - 2 * step,
+                -day,
+                -tps - step,
+                -step,
+                0,
+                step,
+                2 * step,
+                tps - step,
+                tps,
+                day + tps + 3 * step,
+            ];
+            let half = step / 2;
+            let mut constants = Vec::new();
+            for &v in &values {
+                constants.extend([v - half, v - 1, v, v + 1, v + half]);
+            }
+            constants.extend([-tps + 1, -tps + half, -1, 1, tps - 1]);
 
-        for constant in constants {
-            let rhs = timestamp_constant(&dtp, constant, dtp.len());
-            for operator in ALL_OPERATORS {
-                let actual = <DateTimeParts as CompareKernel>::compare(
-                    dtp.as_view(),
-                    &rhs,
-                    operator,
-                    &mut ctx,
-                )?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "datetime-parts compare must engage for {operator:?} on constant {constant}"
-                    )
-                });
-                let expected = temporal
-                    .clone()
-                    .into_array()
-                    .compare(rhs.clone(), operator)?;
-                assert_arrays_eq!(actual, expected, &mut ctx);
+            for validity in &validities {
+                let temporal = TemporalArray::new_timestamp(
+                    PrimitiveArray::new(Buffer::from(values.clone()), validity.clone())
+                        .into_array(),
+                    unit,
+                    Some("UTC".into()),
+                );
+                let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+                if !matches!(validity, Validity::AllInvalid) {
+                    assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+                }
+
+                for &constant in &constants {
+                    let rhs = timestamp_constant(&dtp, constant, dtp.len());
+                    for operator in ALL_OPERATORS {
+                        let actual = <DateTimeParts as CompareKernel>::compare(
+                            dtp.as_view(),
+                            &rhs,
+                            operator,
+                            &mut ctx,
+                        )?
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "datetime-parts compare must engage for {operator:?} on constant {constant}"
+                            )
+                        });
+                        let expected = temporal
+                            .clone()
+                            .into_array()
+                            .compare(rhs.clone(), operator)?;
+                        assert_arrays_eq!(actual, expected, &mut ctx);
+                    }
+                }
             }
         }
         Ok(())
@@ -960,75 +964,78 @@ mod tests {
         ConstantArray::new(Scalar::extension::<Time>(unit, storage), len).into_array()
     }
 
-    #[rstest]
-    #[case::time_seconds(TimeUnit::Seconds, 1)]
-    #[case::time_millis(TimeUnit::Milliseconds, 1)]
-    #[case::time_micros_unscaled(TimeUnit::Microseconds, 1)]
-    #[case::time_micros_scaled(TimeUnit::Microseconds, 1_000)]
-    #[case::time_nanos_scaled_1k(TimeUnit::Nanoseconds, 1_000)]
-    #[case::time_nanos_scaled_1m(TimeUnit::Nanoseconds, 1_000_000)]
-    fn time_compare_matches_temporal(
-        #[case] unit: TimeUnit,
-        #[case] expected_divisor: u32,
-        #[values(false, true)] nullable: bool,
-    ) -> VortexResult<()> {
+    #[test]
+    fn time_compare_matches_temporal() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let tps = timestamp::ticks_per_second(unit)?;
-        let step = i64::from(expected_divisor);
-        let raw_values = vec![
-            0,
-            step,
-            tps,
-            3_600 * tps + 2 * step,
-            43_200 * tps + 5 * step,
-            86_399 * tps,
-        ];
-        let validity = if nullable {
-            Validity::from_iter([true, false, true, true, false, true])
-        } else {
-            Validity::NonNullable
-        };
-        let storage = match unit {
-            TimeUnit::Seconds | TimeUnit::Milliseconds => PrimitiveArray::new(
-                Buffer::from_iter(raw_values.iter().map(|&v| i32::try_from(v).unwrap())),
-                validity,
-            )
-            .into_array(),
-            TimeUnit::Microseconds | TimeUnit::Nanoseconds => {
-                PrimitiveArray::new(Buffer::from(raw_values.clone()), validity).into_array()
-            }
-            TimeUnit::Days => unreachable!(),
-        };
-        let temporal = TemporalArray::new_time(storage, unit);
-        let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
-        assert_eq!(dtp.subseconds_divisor(), expected_divisor);
-
-        let max_time = 86_400 * tps - 1;
-        let half = (step / 2).max(1);
-        let mut constants = Vec::new();
-        for &v in &raw_values {
-            for candidate in [v - half, v - 1, v, v + 1, v + half] {
-                if (0..=max_time).contains(&candidate) {
-                    constants.push(candidate);
+        for (unit, expected_divisor) in [
+            (TimeUnit::Seconds, 1u32),
+            (TimeUnit::Milliseconds, 1),
+            (TimeUnit::Microseconds, 1),
+            (TimeUnit::Microseconds, 1_000),
+            (TimeUnit::Nanoseconds, 1_000),
+            (TimeUnit::Nanoseconds, 1_000_000),
+        ] {
+            let tps = timestamp::ticks_per_second(unit)?;
+            let step = i64::from(expected_divisor);
+            let raw_values = vec![
+                0,
+                step,
+                tps,
+                3_600 * tps + 2 * step,
+                43_200 * tps + 5 * step,
+                86_399 * tps,
+            ];
+            let max_time = 86_400 * tps - 1;
+            let half = (step / 2).max(1);
+            let mut constants = Vec::new();
+            for &v in &raw_values {
+                for candidate in [v - half, v - 1, v, v + 1, v + half] {
+                    if (0..=max_time).contains(&candidate) {
+                        constants.push(candidate);
+                    }
                 }
             }
-        }
 
-        for constant in constants {
-            let rhs = time_constant(unit, constant, dtp.len());
-            for operator in ALL_OPERATORS {
-                let actual = <DateTimeParts as CompareKernel>::compare(
-                    dtp.as_view(),
-                    &rhs,
-                    operator,
-                    &mut ctx,
-                )?
-                .unwrap_or_else(|| panic!("compare must engage for Time {unit} {operator:?}"));
-                let expected = temporal
-                    .clone()
-                    .into_array()
-                    .compare(rhs.clone(), operator)?;
-                assert_arrays_eq!(actual, expected, &mut ctx);
+            for nullable in [false, true] {
+                let validity = if nullable {
+                    Validity::from_iter([true, false, true, true, false, true])
+                } else {
+                    Validity::NonNullable
+                };
+                let storage = match unit {
+                    TimeUnit::Seconds | TimeUnit::Milliseconds => PrimitiveArray::new(
+                        Buffer::from_iter(raw_values.iter().map(|&v| i32::try_from(v).unwrap())),
+                        validity,
+                    )
+                    .into_array(),
+                    TimeUnit::Microseconds | TimeUnit::Nanoseconds => {
+                        PrimitiveArray::new(Buffer::from(raw_values.clone()), validity).into_array()
+                    }
+                    TimeUnit::Days => unreachable!(),
+                };
+                let temporal = TemporalArray::new_time(storage, unit);
+                let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+                assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+
+                for &constant in &constants {
+                    let rhs = time_constant(unit, constant, dtp.len());
+                    for operator in ALL_OPERATORS {
+                        let actual = <DateTimeParts as CompareKernel>::compare(
+                            dtp.as_view(),
+                            &rhs,
+                            operator,
+                            &mut ctx,
+                        )?
+                        .unwrap_or_else(|| {
+                            panic!("compare must engage for Time {unit} {operator:?}")
+                        });
+                        let expected = temporal
+                            .clone()
+                            .into_array()
+                            .compare(rhs.clone(), operator)?;
+                        assert_arrays_eq!(actual, expected, &mut ctx);
+                    }
+                }
             }
         }
         Ok(())
