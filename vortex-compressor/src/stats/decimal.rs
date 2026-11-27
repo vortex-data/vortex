@@ -46,6 +46,8 @@ pub struct DecimalStats {
 struct Distinct {
     /// The count of distinct valid values.
     count: u32,
+    /// The number of runs of equal consecutive valid values.
+    run_count: u32,
     /// The average length of runs of equal consecutive valid values.
     average_run_length: u32,
 }
@@ -102,6 +104,12 @@ impl DecimalStats {
     pub fn average_run_length(&self) -> Option<u32> {
         self.distinct.map(|distinct| distinct.average_run_length)
     }
+
+    /// Returns the number of runs of equal consecutive valid values, if computed with the distinct
+    /// values.
+    pub fn run_count(&self) -> Option<u32> {
+        self.distinct.map(|distinct| distinct.run_count)
+    }
 }
 
 /// Computes the stats of decimals stored in the integer type `T` with the integer statistics,
@@ -118,6 +126,7 @@ fn integer_stats<T: NativeDecimalType + NativePType>(
         value_count: stats.value_count(),
         distinct: stats.distinct_count().map(|count| Distinct {
             count,
+            run_count: stats.run_count(),
             average_run_length: stats.average_run_length(),
         }),
     })
@@ -140,12 +149,14 @@ fn wide_stats(
     } else if value_count == 0 {
         Some(Distinct {
             count: 0,
+            run_count: 0,
             average_run_length: 0,
         })
     } else {
         let (count, runs) = distinct(input, &validity)?;
         Some(Distinct {
             count,
+            run_count: runs,
             average_run_length: value_count / runs,
         })
     };

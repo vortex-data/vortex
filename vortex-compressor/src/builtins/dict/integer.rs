@@ -67,13 +67,14 @@ impl Scheme for IntDictScheme {
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let bit_width = data.array_as_primitive().ptype().bit_width();
+        let bit_width = data.array_as_primitive().ptype().bit_width() as u64;
         let stats = data.integer_stats(exec_ctx);
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
+        if value_count == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -82,31 +83,50 @@ impl Scheme for IntDictScheme {
         );
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count > stats.value_count() / 2 {
+        if distinct_values_count == 0 || distinct_values_count > value_count / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Ignore nulls encoding for the estimate. We only focus on values.
+        let array_len = u64::from(value_count) + u64::from(stats.null_count());
+        let validity_bits = if stats.null_count() > 0 { array_len } else { 0 };
+        let finished_cascading = compress_ctx.finished_cascading();
 
-        let values_size = bit_width * distinct_values_count as usize;
+        let uncompressed_values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
+        let values_bits = if finished_cascading {
+            uncompressed_values_bits
+        } else {
+            // `FoR + BitPacked` compresses `values` to the `max - min` span width (padded to
+            // 1024-element FastLanes blocks plus one reference scalar) when it beats raw storage.
+            let values_bw = u64::from(u64::BITS - stats.erased().max_minus_min().leading_zeros());
+            if values_bw + super::BITPACKING_MIN_BITS_SAVED <= bit_width {
+                let packed_values_bits = u64::from(distinct_values_count)
+                    .next_multiple_of(super::FASTLANES_BLOCK_LEN)
+                    .saturating_mul(values_bw)
+                    .saturating_add(bit_width);
+                uncompressed_values_bits.min(packed_values_bits)
+            } else {
+                uncompressed_values_bits
+            }
+        };
 
-        // TODO(connor): Should we just hardcode this instead of let the compressor choose?
-        // Assume codes are compressed RLE + BitPacking.
-        let codes_bw = u32::BITS - distinct_values_count.leading_zeros();
+        let (histogram, _max_bw) = integer_code_bit_width_histogram(&stats, distinct_values_count);
+        let codes_bits = super::estimate_codes_bits(
+            array_len,
+            u64::from(value_count),
+            distinct_values_count,
+            stats.run_count(),
+            Some(&histogram),
+            finished_cascading,
+        );
 
-        let n_runs = (stats.value_count() / stats.average_run_length()) as usize;
+        let before = array_len
+            .saturating_mul(bit_width)
+            .saturating_add(validity_bits);
+        let after = values_bits
+            .saturating_add(codes_bits)
+            .saturating_add(validity_bits);
 
-        // Assume that codes will either be BitPack or RLE-BitPack.
-        let codes_size_bp = codes_bw as usize * stats.value_count() as usize;
-        let codes_size_rle_bp = usize::checked_mul(codes_bw as usize + 32, n_runs);
-
-        let codes_size = usize::min(codes_size_bp, codes_size_rle_bp.unwrap_or(usize::MAX));
-
-        let before = stats.value_count() as usize * bit_width;
-
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            before as f64 / (values_size + codes_size) as f64,
-        ))
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(before as f64 / after as f64))
     }
 
     /// Children: values=0, codes=1. The codes carry the validity.
@@ -157,6 +177,34 @@ pub fn dictionary_encode(
     }
 }
 
+/// Computes the bit-width histogram of frequency-ordered dictionary codes from [`IntegerStats`].
+fn integer_code_bit_width_histogram(stats: &IntegerStats, distinct_count: u32) -> ([u64; 33], u32) {
+    match stats.erased() {
+        IntegerErasedStats::U8(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::U16(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::U32(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::U64(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::I8(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::I16(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::I32(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        IntegerErasedStats::I64(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+    }
+}
+
+/// Computes the bit-width histogram of frequency-ordered dictionary codes from typed integer stats.
+fn typed_code_bit_width_histogram<T>(
+    typed: &IntegerTypedStats<T>,
+    distinct_count: u32,
+) -> ([u64; 33], u32) {
+    let distinct = typed.distinct().vortex_expect(
+        "this must be present since `DictScheme` declared that we need distinct values",
+    );
+    super::frequency_code_bit_width_histogram(
+        distinct.distinct_values().values().copied(),
+        distinct_count,
+    )
+}
+
 /// Encodes a typed integer array into a [`DictArray`] ordered by descending frequency, breaking
 /// ties by ascending value order.
 fn dictionary_encode_typed<T: IntegerPType>(
@@ -194,11 +242,22 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::IntDictScheme;
     use super::dictionary_encode;
+    use crate::builtins::dict::frequency_code_bit_width_histogram;
+    use crate::builtins::dict::min_code_bit_width;
+    use crate::scheme::CompressionEstimate;
+    use crate::scheme::CompressorContext;
+    use crate::scheme::EstimateVerdict;
+    use crate::scheme::MAX_CASCADE;
+    use crate::scheme::Scheme;
+    use crate::scheme::SchemeExt;
+    use crate::stats::ArrayAndStats;
     use crate::stats::GenerateStatsOptions;
     use crate::stats::IntegerStats;
 
@@ -293,5 +352,191 @@ mod tests {
         assert_arrays_eq!(dict_a, array_a, &mut ctx);
         assert_arrays_eq!(dict_b, array_b, &mut ctx);
         Ok(())
+    }
+
+    fn estimate_ratio(array: PrimitiveArray, compress_ctx: CompressorContext) -> f64 {
+        let mut ctx = SESSION.create_execution_ctx();
+        let data = ArrayAndStats::new(array.into_array(), IntDictScheme.stats_options());
+        match IntDictScheme.expected_compression_ratio(&data, compress_ctx, &mut ctx) {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => ratio,
+            other => panic!("expected Ratio verdict, got {other:?}"),
+        }
+    }
+
+    #[rstest]
+    #[case(1, 0)]
+    #[case(2, 1)]
+    #[case(3, 2)]
+    #[case(4, 2)]
+    #[case(5, 3)]
+    #[case(256, 8)]
+    #[case(257, 9)]
+    #[case(65_536, 16)]
+    #[case(65_537, 17)]
+    fn min_code_bit_width_handles_power_of_two_boundaries(
+        #[case] distinct: u32,
+        #[case] expected_bw: u32,
+    ) {
+        assert_eq!(min_code_bit_width(distinct), expected_bw);
+    }
+
+    #[test]
+    fn frequency_histogram_matches_sorted_reference() -> VortexResult<()> {
+        let counts = [3u32, 50, 1, 20, 10, 5, 1, 20, 7, 2];
+        let (hist, max_bw) = frequency_code_bit_width_histogram(
+            counts.iter().copied(),
+            u32::try_from(counts.len())?,
+        );
+        assert_eq!(max_bw, 4);
+
+        let mut sorted = counts.to_vec();
+        sorted.sort_unstable_by(|a, b| b.cmp(a));
+        let mut expected = [0u64; 33];
+        for (code, &count) in sorted.iter().enumerate() {
+            let bw = if code == 0 {
+                0
+            } else {
+                (u32::BITS - u32::try_from(code)?.leading_zeros()) as usize
+            };
+            expected[bw] += u64::from(count);
+        }
+        assert_eq!(hist, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::two_values(2, 60.0, 64.0)]
+    #[case::four_values(4, 30.0, 32.0)]
+    fn power_of_two_cardinality_does_not_overestimate_code_width(
+        #[case] distinct: i64,
+        #[case] min_ratio: f64,
+        #[case] max_ratio: f64,
+    ) {
+        let len = 4096usize;
+        let array = PrimitiveArray::from_iter((0..len).map(|i| (i as i64 % distinct) * 1_000_000));
+        let ratio = estimate_ratio(array, CompressorContext::new());
+        assert!(
+            ratio > min_ratio && ratio < max_ratio,
+            "expected ratio in ({min_ratio}, {max_ratio}), got {ratio}"
+        );
+    }
+
+    #[test]
+    fn skewed_distribution_reflects_patched_bitpacking_and_values_narrowing() {
+        let len = 100_000usize;
+        let distinct = 2_000i64;
+        // 98% of rows hit the top 16 values, 2% hit the remaining 1,984 values.
+        let skewed_narrow = PrimitiveArray::from_iter((0..len).map(|i| {
+            if i % 50 == 0 {
+                16 + ((i / 50) as i64 % (distinct - 16))
+            } else {
+                (i as i64) % 16
+            }
+        }));
+        let skewed_wide = PrimitiveArray::from_iter((0..len).map(|i| {
+            let id = if i % 50 == 0 {
+                16 + ((i / 50) as i64 % (distinct - 16))
+            } else {
+                (i as i64) % 16
+            };
+            id.wrapping_mul(0x0123_4567_89ab_cdef)
+        }));
+        let uniform_narrow = PrimitiveArray::from_iter((0..len).map(|i| i as i64 % distinct));
+
+        let skewed_narrow_ratio = estimate_ratio(skewed_narrow, CompressorContext::new());
+        let skewed_wide_ratio = estimate_ratio(skewed_wide, CompressorContext::new());
+        let uniform_narrow_ratio = estimate_ratio(uniform_narrow, CompressorContext::new());
+
+        // Patched 4-bit codes (~4.96 bpv) + narrowed 11-bit values (~0.23 bpv) => ~12.3x.
+        assert!(
+            skewed_narrow_ratio > 10.0,
+            "expected skewed ratio > 10.0, got {skewed_narrow_ratio}"
+        );
+        assert!(
+            skewed_narrow_ratio > skewed_wide_ratio,
+            "narrow values ({skewed_narrow_ratio}) should estimate higher than wide values ({skewed_wide_ratio})"
+        );
+        // Uniform 2,000-value column needs 11-bit codes (~5.7x), well below skewed.
+        assert!(
+            uniform_narrow_ratio < 6.0,
+            "expected uniform ratio < 6.0, got {uniform_narrow_ratio}"
+        );
+    }
+
+    #[test]
+    fn nullable_dense_array_includes_validity_cost() {
+        let len = 16_384usize;
+        let values = (0..len).map(|i| (i % 256) as i64).collect::<Vec<_>>();
+        let validity = Validity::from_iter((0..len).map(|i| i % 10 != 0));
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+
+        // BitPacking on nullable i64 (8 bpv + 1-bit validity) achieves 65/9 = 7.222x.
+        // IntDict must also pay the 1-bit validity + dictionary table, so it must stay below 7.22.
+        let ratio = estimate_ratio(array, CompressorContext::new());
+        assert!(
+            ratio < 7.2,
+            "expected nullable dense IntDict ratio < 7.2, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn nullable_long_runs_with_scattered_nulls_do_not_over_credit_rle() {
+        // 100K rows of runs of 1,000 over 4 wide values, with 10% scattered nulls.
+        // `run_count` ignoring nulls is 100, but each scattered null splits a run in `codes`,
+        // so RLE cannot compress to ~100 runs; codes fall back to 2-bit BitPacked + 1-bit validity
+        // (~65 / 3 = 21.67x), not RLE's ~64x.
+        let len = 100_000usize;
+        let values: Vec<i64> = (0..len)
+            .map(|i| ((i / 1_000) % 4) as i64 * 1_000_000_000)
+            .collect();
+        let validity = Validity::from_iter((0..len).map(|i| i % 10 != 0));
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+
+        let ratio = estimate_ratio(array, CompressorContext::new());
+        assert!(
+            ratio > 20.0 && ratio < 22.5,
+            "expected BitPacked-bounded ratio ~21.6x, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn bit_width_rejection_mirrors_bitpacking_argmin_order() {
+        // 100 distinct values (u8 codes, max_bw = 7): 96% hit codes 0..64 (<= 6 bits), 4% hit
+        // codes 64..100 (7 bits). `find_best_bit_width` compares 6 + 0.04 * 40 = 7.6 bpv vs
+        // 7 + 0 = 7.0 bpv, picks 7, and `should_pack` rejects 7 (8 - 7 < 2), leaving codes as
+        // uncompressed u8 (8 bpv => ~8.0x on i64, not 64 / 7.6 = 8.42x).
+        let len = 100_000usize;
+        let array = PrimitiveArray::from_iter((0..len).map(|i| {
+            let code = if i % 25 == 0 {
+                64 + ((i / 25) % 36)
+            } else {
+                i % 64
+            };
+            (code as i64).wrapping_mul(0x0123_4567_89ab_cdef)
+        }));
+
+        let ratio = estimate_ratio(array, CompressorContext::new());
+        assert!(
+            ratio > 7.8 && ratio < 8.05,
+            "expected uncompressed u8 ratio ~7.99x, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn finished_cascading_uses_uncompressed_narrowed_codes_and_values() {
+        let len = 4096usize;
+        let array = PrimitiveArray::from_iter((0..len).map(|i| (i % 2) as i64 * 1_000_000));
+        let mut ctx = CompressorContext::new();
+        for _ in 0..MAX_CASCADE {
+            ctx = ctx.descend_with_scheme(IntDictScheme.id(), 0);
+        }
+        assert!(ctx.finished_cascading());
+
+        // Without cascading, codes stay u8 (8 bpv) and values stay i64 (2 * 64 bits), so ratio ~8x.
+        let ratio = estimate_ratio(array, ctx);
+        assert!(
+            ratio > 7.5 && ratio < 8.1,
+            "expected ~8x ratio when cascading is exhausted, got {ratio}"
+        );
     }
 }
