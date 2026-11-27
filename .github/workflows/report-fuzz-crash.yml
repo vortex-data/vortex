@@ -31,6 +31,9 @@ on:
       issue_created:
         description: "Whether this run created a new issue, rather than matching an existing one"
         value: ${{ jobs.report.outputs.issue_created }}
+      fix_issue_number:
+        description: "An issue that needs a fix attempt, or empty if no reported issue needs one"
+        value: ${{ jobs.report.outputs.fix_issue_number }}
     secrets:
       gh_token:
         required: true
@@ -45,6 +48,7 @@ jobs:
     outputs:
       issue_number: ${{ steps.report.outputs.issue_number }}
       issue_created: ${{ steps.report.outputs.issue_created }}
+      fix_issue_number: ${{ steps.report.outputs.fix_issue_number }}
 
     steps:
       - name: Checkout repository
