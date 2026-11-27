@@ -18,8 +18,8 @@ use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_fastlanes::FL_CHUNK_SIZE;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
@@ -29,6 +29,7 @@ use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 
 use super::BitPackingScheme;
+use super::bitpacking::MIN_BITS_SAVED;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::Child;
@@ -171,9 +172,9 @@ impl Scheme for FoRScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // FoR only subtracts the min. Without further compression (e.g. BitPacking), the output is
-        // the same size.
-        if compress_ctx.finished_cascading() {
+        // V1 fuses single-reference FoR with BitPacking directly inside `encode` and needs no
+        // further cascade step; V2 registers per-chunk references as a child to compress.
+        if self.mode == FoRSchemeMode::V2 && compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -192,7 +193,7 @@ impl Scheme for FoRScheme {
         // Difference between max and min.
         let for_bitwidth = match stats.erased().max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
-            // If max-min == 0, the we should be compressing this as a constant array.
+            // If max-min == 0, then we should be compressing this as a constant array.
             None => return CompressionEstimate::Verdict(EstimateVerdict::Skip),
         };
 
@@ -211,15 +212,34 @@ impl Scheme for FoRScheme {
             }
         }
 
-        let full_width: u32 = data
-            .array_as_primitive()
-            .ptype()
-            .bit_width()
-            .try_into()
-            .vortex_expect("bit width must fit in u32");
+        let ptype = data.array_as_primitive().ptype();
+
+        // `BitPackingScheme::try_encode` refuses to pack unless at least `MIN_BITS_SAVED` bits are
+        // saved per value, so skip here rather than winning selection and returning raw data.
+        if ptype.bit_width().saturating_sub(for_bitwidth as usize) < MIN_BITS_SAVED {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
+
+        // Price the FastLanes-padded bit-packed payload plus any validity bitmap (matching
+        // `FoRArray::nbytes`, where a global reference lives in metadata) so short arrays don't
+        // outscore schemes like Sequence and then fail the compressor's size check.
+        let len = data.array_len();
+        let elem_bytes = ptype.byte_width();
+        let validity_bytes = if stats.null_count() > 0 {
+            len.div_ceil(8)
+        } else {
+            0
+        };
+        let uncompressed_bytes = len * elem_bytes + validity_bytes;
+        let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
+        let packed_bytes = (padded_len / 8) * for_bitwidth as usize;
+        let compressed_bytes = packed_bytes + validity_bytes;
+        if compressed_bytes >= uncompressed_bytes {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
 
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            full_width as f64 / for_bitwidth as f64,
+            uncompressed_bytes as f64 / compressed_bytes as f64,
         ))
     }
 
@@ -295,15 +315,102 @@ impl Scheme for FoRScheme {
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_compressor::scheme::CompressionEstimate;
+    use vortex_compressor::scheme::EstimateVerdict;
+    use vortex_error::VortexResult;
+    use vortex_fastlanes::FoR;
     use vortex_fastlanes::bitpacked_v2_id;
     use vortex_fastlanes::for_v1_id;
     use vortex_fastlanes::for_v2_id;
+    use vortex_sequence::Sequence;
 
     use super::BitPackingScheme;
     use super::FOR_V1;
     use super::FOR_V2;
+    use crate::ArrayAndStats;
+    use crate::BtrBlocksCompressorBuilder;
+    use crate::CascadingCompressor;
+    use crate::Child;
+    use crate::CompressorContext;
+    use crate::Encoded;
+    use crate::SESSION;
     use crate::Scheme;
     use crate::SchemeExt;
+    use crate::schemes::integer::IntDictScheme;
+    use crate::schemes::integer::SequenceScheme;
+
+    /// Pass-through test scheme that consumes one cascade level before delegating to child 0.
+    #[derive(Debug)]
+    struct CascadeBurner(&'static str);
+
+    impl Scheme for CascadeBurner {
+        fn scheme_name(&self) -> &'static str {
+            self.0
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            canonical.dtype().is_int()
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn num_children(&self) -> usize {
+            1
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            if compress_ctx.finished_cascading() {
+                CompressionEstimate::Verdict(EstimateVerdict::Skip)
+            } else {
+                CompressionEstimate::Verdict(EstimateVerdict::Ratio(1_000_000.0))
+            }
+        }
+
+        fn encode(
+            &self,
+            data: &ArrayAndStats,
+            _compress_ctx: &CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Encoded> {
+            Ok(Encoded::new(
+                vec![Child::new(self, 0, data.array().clone())],
+                Vec::new(),
+                |children, _| {
+                    let [inner] = children.compressed()?;
+                    Ok(inner)
+                },
+            ))
+        }
+
+        #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            unimplemented!()
+        }
+    }
+
+    static BURN_1: CascadeBurner = CascadeBurner("vortex.test.for.burn.1");
+    static BURN_2: CascadeBurner = CascadeBurner("vortex.test.for.burn.2");
+    static BURN_3: CascadeBurner = CascadeBurner("vortex.test.for.burn.3");
 
     /// Both variants refine to v2 exactly when the v2 ID is allowed.
     #[rstest]
@@ -342,5 +449,87 @@ mod tests {
             refined.produced_encodings().contains(&bitpacked_v2_id()),
             allow_v2
         );
+    }
+
+    #[test]
+    fn test_for_skips_when_saving_fewer_than_min_bits_saved() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 64 distinct u8 values split across 1..=32 and 97..=128: biased span is 127 (7 bits,
+        // saving only 1 bit on u8) and half the values require bit 6, so BitPacking refuses to
+        // pack (< MIN_BITS_SAVED). FoR must skip instead of outscoring IntDict (~1.12x vs 8/7)
+        // and falling back to uncompressed data.
+        let values: Vec<u8> = (0..4_096)
+            .map(|i| {
+                let idx = (i % 64) as u8;
+                if idx < 32 { idx + 1 } else { idx + 65 }
+            })
+            .collect();
+        let input = PrimitiveArray::from_iter(values).into_array();
+
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&FOR_V1)
+            .with_new_scheme(&IntDictScheme)
+            .with_new_scheme(&super::super::BITPACKING_V1)
+            .build();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            !compressed.is::<FoR>() && !compressed.is_canonical(),
+            "expected IntDict rather than FoR/uncompressed, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < input.nbytes());
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_for_prices_fastlanes_padding_on_short_arrays() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 10 u64 values take 80 bytes uncompressed, whereas a 1024-padded 4-bit FastLanes block
+        // takes 512 + 8 bytes. Sequence must win instead of FoR outscoring it and failing size.
+        let input = PrimitiveArray::from_iter(1000u64..1010).into_array();
+
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&FOR_V1)
+            .with_new_scheme(&SequenceScheme)
+            .build();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<Sequence>(),
+            "expected Sequence, got {}",
+            compressed.encoding_id()
+        );
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_for_v1_succeeds_at_exhausted_cascade_depth() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input =
+            PrimitiveArray::from_iter((0..2_048u64).map(|i| 1_000_000 + (i % 16))).into_array();
+
+        // Three burners exhaust `MAX_CASCADE` (3), leaving `allowed_cascading == 0` for FoR.
+        // Use `CascadingCompressor::new` directly so `FOR_V1` is not refined to `FOR_V2`.
+        let v1_compressor = CascadingCompressor::new(vec![&BURN_1, &BURN_2, &BURN_3, &FOR_V1]);
+        let v1_compressed = v1_compressor.compress(&input, &mut ctx)?;
+        assert!(
+            v1_compressed.is::<FoR>(),
+            "expected FoR v1 at exhausted cascade depth, got {}",
+            v1_compressed.encoding_id()
+        );
+        assert!(v1_compressed.nbytes() < input.nbytes() / 4);
+        assert_arrays_eq!(v1_compressed, input, &mut ctx);
+
+        // V2 still skips at exhausted cascade depth because its per-chunk references child needs
+        // cascading.
+        let v2_compressor = CascadingCompressor::new(vec![&BURN_1, &BURN_2, &BURN_3, &FOR_V2]);
+        let v2_compressed = v2_compressor.compress(&input, &mut ctx)?;
+        assert!(
+            !v2_compressed.is::<FoR>(),
+            "expected FoR v2 to skip at exhausted cascade depth"
+        );
+        assert_arrays_eq!(v2_compressed, input, &mut ctx);
+        Ok(())
     }
 }

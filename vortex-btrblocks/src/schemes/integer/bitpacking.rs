@@ -235,7 +235,7 @@ impl Scheme for BitPackingScheme {
 }
 
 /// The fewest bits per value that packing must save.
-const MIN_BITS_SAVED: usize = 2;
+pub(super) const MIN_BITS_SAVED: usize = 2;
 
 fn should_pack(ptype: PType, bit_width: u8) -> bool {
     ptype.bit_width() - usize::from(bit_width) >= MIN_BITS_SAVED
