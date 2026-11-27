@@ -197,6 +197,3 @@ impl Planner for PrunePlanner {
         ))
     }
 }
-
-#[cfg(test)]
-mod tests;

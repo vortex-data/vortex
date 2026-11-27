@@ -3,6 +3,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI32;
 use std::sync::atomic::Ordering;
 
@@ -13,6 +14,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -21,6 +23,9 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
@@ -28,13 +33,16 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_expr::Expression;
+use vortex_expr::and;
 use vortex_expr::eq;
 use vortex_expr::get_item;
 use vortex_expr::gt;
 use vortex_expr::lit;
+use vortex_expr::lt;
 use vortex_expr::or;
 use vortex_expr::root;
 use vortex_functions::expr::dynamic;
+use vortex_io::request::IoIntent;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -51,6 +59,7 @@ use crate::planning::driver::Progress;
 use crate::planning::driver::Run;
 use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
+use crate::planning::planner::State;
 use crate::planning::planner::WorkScope;
 use crate::prepare::ScanBuilder;
 use crate::prepare::filtered_rows_per_chunk;
@@ -260,6 +269,9 @@ async fn collect_scan(dtype: DType, builder: ScanBuilder) -> VortexResult<ArrayR
     gt(get_item("ints", root()), lit(10)),
     1_048_576
 )]
+#[case::bool_only(get_item("flags", root()), get_item("flags", root()), 1_048_576)]
+#[case::mixed_fields(get_item("ints", root()), get_item("flags", root()), 131_072)]
+#[case::constant_expressions(lit(1i32), lit(true), 131_072)]
 #[case::filter_string(lit(true), eq(get_item("strings", root()), lit("row 10")), 131_072)]
 #[case::project_string(
     get_item("strings", root()),
@@ -272,10 +284,19 @@ fn filtered_chunk_sizing(
     #[case] filter: Expression,
     #[case] expected: usize,
 ) -> VortexResult<()> {
-    let array = table_chunk(0)?;
-    let dtype = array.dtype();
+    let dtype = DType::struct_(
+        [
+            (
+                "ints",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ),
+            ("flags", DType::Bool(Nullability::NonNullable)),
+            ("strings", DType::Utf8(Nullability::NonNullable)),
+        ],
+        Nullability::NonNullable,
+    );
     assert_eq!(
-        filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
+        filtered_rows_per_chunk(&dtype, &projection.bind(&dtype)?, &filter.bind(&dtype)?)?,
         expected,
     );
     Ok(())
@@ -346,7 +367,7 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
             segments.flat(&PrimitiveArray::from_iter(start..end).into_array())
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let dtype = DType::Primitive(PType::I32, false.into());
     let ints = ConcatPlan::try_new(dtype, arrays)?.into_plan();
     // Codes index the same values across fixed work chunks and stored chunk boundaries.
     let layout = dict(ints.clone(), ints);
@@ -437,7 +458,7 @@ async fn primitive_column() -> VortexResult<()> {
     let (segments, layout) = source(&session, Strategy::Table).await?;
     let dtype = layout.dtype().clone();
     let actual = collect_scan(
-        DType::Primitive(vortex_array::dtype::PType::I32, false.into()),
+        DType::Primitive(PType::I32, false.into()),
         builder(&session, &segments, &layout)?
             .with_projection(get_item("ints", root()).bind(&dtype)?)
             .with_row_range(990..1010),
@@ -476,7 +497,7 @@ async fn chunked_ints(_session: &VortexSession, segments: &Arc<Store>) -> Vortex
             segments.flat(&PrimitiveArray::from_iter(index * 10..index * 10 + 10).into_array())
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let dtype = DType::Primitive(PType::I32, false.into());
     Ok(ConcatPlan::try_new(dtype, arrays)?.into_plan())
 }
 
@@ -948,5 +969,266 @@ async fn row_idx_filters_bypass_metadata_only_pruning(
         .map(|array| array.len())
         .sum();
     assert_eq!(rows, expected_rows);
+    Ok(())
+}
+
+/// Builds a 16-row table `{a: i32, b: i32}` with 4 zones of 4 rows each:
+/// - `a`: zones `[0..3], [4..7], [8..11], [12..15]` (optionally with null stats for `a_null_zone`)
+/// - `b`: zones `[12..15], [8..11], [4..7], [0..3]` (reverse order)
+fn zoned_two_column_input(
+    with_zones: bool,
+    a_null_zone: Option<i32>,
+) -> VortexResult<(ScanInput, Arc<Store>)> {
+    const ZONE_ROWS: i32 = 4;
+    const ZONES: i32 = 4;
+    const TOTAL_ROWS: u64 = 16;
+
+    let store = Arc::new(Store::default());
+    let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let min_fn = Min.bind(NumericalAggregateOpts::skip_nans());
+    let max_fn = Max.bind(NumericalAggregateOpts::skip_nans());
+
+    let make_col = |zone_order: &[i32],
+                    bounds: &[(Option<i32>, Option<i32>)]|
+     -> VortexResult<PlanRef> {
+        let chunks = zone_order
+            .iter()
+            .map(|&z| {
+                let start = z * ZONE_ROWS;
+                store.flat(&PrimitiveArray::from_iter(start..start + ZONE_ROWS).into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let data = ConcatPlan::try_new(i32_dtype.clone(), chunks)?.into_plan();
+        if !with_zones {
+            return Ok(data);
+        }
+        let mins = PrimitiveArray::from_option_iter(bounds.iter().map(|(lo, _)| *lo)).into_array();
+        let maxs = PrimitiveArray::from_option_iter(bounds.iter().map(|(_, hi)| *hi)).into_array();
+        let table = StructArray::from_fields(&[
+            (min_fn.to_string().as_str(), mins),
+            (max_fn.to_string().as_str(), maxs),
+        ])?
+        .into_array();
+        let zones = store.flat(&table)?;
+        Ok(ZonedPlan::new(
+            data,
+            zones,
+            u64::try_from(ZONE_ROWS)?,
+            vec![min_fn.clone(), max_fn.clone()].into(),
+        )
+        .into_plan())
+    };
+
+    let a_zones: Vec<i32> = (0..ZONES).collect();
+    let b_zones: Vec<i32> = (0..ZONES).rev().collect();
+    let a_bounds: Vec<_> = a_zones
+        .iter()
+        .map(|&z| {
+            if a_null_zone == Some(z) {
+                (None, None)
+            } else {
+                let lo = z * ZONE_ROWS;
+                (Some(lo), Some(lo + ZONE_ROWS - 1))
+            }
+        })
+        .collect();
+    let b_bounds: Vec<_> = b_zones
+        .iter()
+        .map(|&z| {
+            let lo = z * ZONE_ROWS;
+            (Some(lo), Some(lo + ZONE_ROWS - 1))
+        })
+        .collect();
+
+    let dtype = DType::Struct(
+        StructFields::from_iter([("a", i32_dtype.clone()), ("b", i32_dtype.clone())]),
+        Nullability::NonNullable,
+    );
+    let plan = struct_plan(
+        TOTAL_ROWS,
+        dtype,
+        vec![
+            make_col(&a_zones, &a_bounds)?,
+            make_col(&b_zones, &b_bounds)?,
+        ],
+    );
+    Ok((store.input(plan), store))
+}
+
+fn zoned_two_column_scan(
+    filter: Option<Expression>,
+    with_zones: bool,
+    a_null_zone: Option<i32>,
+) -> VortexResult<(Arc<PreparedScan>, Arc<Store>)> {
+    let (input, store) = zoned_two_column_input(with_zones, a_null_zone)?;
+    let dtype = input.dtype.clone();
+    let mut builder = ScanBuilder::new(SESSION.clone(), input);
+    if let Some(expr) = filter {
+        builder = builder.with_some_filter(Some(expr.bind(&dtype)?));
+    }
+    Ok((Arc::new(builder.prepare()?), store))
+}
+
+#[tokio::test]
+async fn prune_masks_cover_conjunction_disjunction_unknown_stats_and_subranges() -> VortexResult<()>
+{
+    let cases = [
+        // `a > 3 AND b > 3`: `a` keeps zones 1..=3 (4..16), `b` keeps zones 0..=2 (0..12) -> 4..12.
+        (
+            and(
+                gt(get_item("a", root()), lit(3i32)),
+                gt(get_item("b", root()), lit(3i32)),
+            ),
+            None,
+            0..16,
+            Mask::from_iter((0..16).map(|row| (4..12).contains(&row))),
+        ),
+        // `a < 4 OR a > 11`: zones 1 and 2 excluded; zones 0 and 3 survive.
+        (
+            or(
+                lt(get_item("a", root()), lit(4i32)),
+                gt(get_item("a", root()), lit(11i32)),
+            ),
+            None,
+            0..16,
+            Mask::from_iter((0..16).map(|row| !(4..12).contains(&row))),
+        ),
+        // Zone 0 has null stats so `a > 11` conservatively keeps zone 0 and zone 3; subrange 2..14
+        // clips both ends.
+        (
+            gt(get_item("a", root()), lit(11i32)),
+            Some(0),
+            2..14,
+            Mask::from_iter((2..14).map(|row| !(4..12).contains(&row))),
+        ),
+    ];
+
+    for (filter, a_null_zone, rows, expected) in cases {
+        let (scan, _) = zoned_two_column_scan(Some(filter), true, a_null_zone)?;
+        assert_eq!(prune(&scan, rows).await?, Some(expected));
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn all_pruned_first_conjunct_short_circuits_second_conjunct_and_continuation()
+-> VortexResult<()> {
+    // Wrap the store so fetching column `b`'s zone map returns corrupt bytes: prefetch IO still
+    // succeeds, but evaluating the second conjunct would fail to decode it.
+    struct CorruptSecondZoneMap {
+        inner: Arc<Store>,
+        corrupt_segment: crate::source::SegmentId,
+    }
+    impl SegmentSource for CorruptSecondZoneMap {
+        fn request(&self, id: crate::source::SegmentId) -> crate::source::SegmentFuture {
+            if id == self.corrupt_segment {
+                return Box::pin(futures::future::ready(Ok(
+                    vortex_array::buffer::BufferHandle::new_host(vortex_buffer::ByteBuffer::from(
+                        vec![0u8; 4],
+                    )),
+                )));
+            }
+            self.inner.request(id)
+        }
+    }
+
+    let filter = and(
+        gt(get_item("a", root()), lit(100i32)),
+        gt(get_item("b", root()), lit(0i32)),
+    );
+    let (mut input, store) = zoned_two_column_input(true, None)?;
+    // `zoned_two_column_input` appends `b`'s zone map as the last segment in `store`.
+    let b_zone_seg = crate::source::SegmentId::try_from(store.len() - 1)?;
+    let dtype = input.dtype.clone();
+    input.segments = Arc::new(CorruptSecondZoneMap {
+        inner: Arc::clone(&store),
+        corrupt_segment: b_zone_seg,
+    });
+    let scan = Arc::new(
+        ScanBuilder::new(SESSION.clone(), input)
+            .with_some_filter(Some(filter.bind(&dtype)?))
+            .prepare()?,
+    );
+
+    let called = Arc::new(AtomicBool::new(false));
+    let next = {
+        let scan = Arc::clone(&scan);
+        let called = Arc::clone(&called);
+        move |_mask: Option<Mask>| -> Box<dyn Planner> {
+            called.store(true, Ordering::SeqCst);
+            let selection = scan.selection().clone();
+            Box::new(ChunkPlanner::new(scan, 0..0, selection, None))
+        }
+    };
+    let io = scan.io();
+    let mut run = Run::new();
+    run.admit(
+        Box::new(PrunePlanner::new(Arc::clone(&scan), 0..16, Box::new(next))),
+        WorkScope {
+            file_ordinal: 0,
+            rows: 0..16,
+        },
+        io.session(),
+    );
+    loop {
+        match run.advance()? {
+            Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
+            Progress::Spawn(scope, planner) => {
+                run.admit(planner, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    assert!(
+        !called.load(Ordering::SeqCst),
+        "continuation must not run when the first conjunct prunes every row"
+    );
+    Ok(())
+}
+
+#[test]
+fn prune_planner_handles_unprunable_scans_and_prefetches_all_zone_maps() -> VortexResult<()> {
+    // Unprunable scan continues immediately with `None` and issues zero IO.
+    let (unprunable, store) =
+        zoned_two_column_scan(Some(gt(get_item("a", root()), lit(5i32))), false, None)?;
+    let kept = Arc::new(parking_lot::Mutex::new(Some(Mask::new_true(0))));
+    let next = {
+        let scan = Arc::clone(&unprunable);
+        let kept = Arc::clone(&kept);
+        Box::new(move |mask| {
+            *kept.lock() = mask;
+            let selection = scan.selection().clone();
+            Box::new(ChunkPlanner::new(scan, 0..0, selection, None)) as Box<dyn Planner>
+        })
+    };
+    let mut planner = PrunePlanner::new(Arc::clone(&unprunable), 0..16, next);
+    assert_eq!(planner.state(), State::NeedsCompute);
+    let PlannerOutput::Planner(scope, _) = planner.compute()? else {
+        vortex_bail!("unprunable filter must continue immediately to next planner");
+    };
+    assert_eq!(scope.rows, 0..16);
+    assert!(kept.lock().is_none());
+    assert_eq!(store.requests(), 0);
+
+    // Prunable conjunction publishes prefetch hints for both columns' zone maps on first compute.
+    let filter = and(
+        gt(get_item("a", root()), lit(3i32)),
+        gt(get_item("b", root()), lit(3i32)),
+    );
+    let (prunable, _) = zoned_two_column_scan(Some(filter), true, None)?;
+    let mut planner = PrunePlanner::new(
+        prunable,
+        0..16,
+        Box::new(|_| unreachable!("not reached before IO")),
+    );
+    let PlannerOutput::NeedsIO(batch) = planner.compute()? else {
+        vortex_bail!("expected prefetch hints for both columns' zone maps");
+    };
+    assert_eq!(batch.len(), 2);
+    assert!(batch.iter().all(|req| req.intent == IoIntent::Prefetch));
+    assert_ne!(batch[0].request, batch[1].request);
+    assert_ne!(batch[0].target, batch[1].target);
     Ok(())
 }

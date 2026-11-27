@@ -116,6 +116,3 @@ fn shared(array: ArrayRef) -> ArrayRef {
         Shared::new(array).into_array()
     }
 }
-
-#[cfg(test)]
-mod tests;

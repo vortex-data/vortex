@@ -5,10 +5,14 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use futures::TryStreamExt;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -20,9 +24,12 @@ use vortex_expr::get_item;
 use vortex_expr::gt;
 use vortex_expr::lit;
 use vortex_expr::root;
+use vortex_io::session::RuntimeSessionExt;
 
 use super::*;
+use crate::execution::driver::ScanDriver;
 use crate::plan::LazyPlanRef;
+use crate::row_idx::row_idx;
 use crate::test::NoSegments;
 use crate::test::SESSION;
 use crate::test::Store;
@@ -35,29 +42,41 @@ fn struct_input(store: &Arc<Store>, rows: usize) -> VortexResult<ScanInput> {
     Ok(store.input(plan))
 }
 
-#[test]
-fn builder_dtype_tracks_projection_and_row_range_clamps_inverted_bounds() -> VortexResult<()> {
+#[tokio::test]
+async fn builder_dtype_tracks_projection_and_row_range_clamps_inverted_bounds() -> VortexResult<()>
+{
     let store = Arc::new(Store::default());
     let input = struct_input(&store, 10)?;
     let root_dtype = input.dtype.clone();
-    let builder = ScanBuilder::new(SESSION.clone(), input);
+    let builder = ScanBuilder::new(SESSION.clone(), input.clone());
     assert_eq!(builder.dtype(), &root_dtype);
 
     let projection = get_item("ints", root()).bind(&root_dtype)?;
-    let builder = builder
+    let clamped = builder
         .with_projection(projection.clone())
-        .with_row_range(Range { start: 8, end: 3 })
+        .with_row_range(Range { start: 8, end: 3 });
+    assert_eq!(clamped.dtype(), projection.dtype());
+    let prepared = clamped.prepare()?;
+    assert_eq!(prepared.rows(), &(8..8));
+
+    // Verify row_offset and selection end-to-end on a nonempty scan projecting `row_idx()`.
+    let session = SESSION.clone().with_tokio();
+    let row_idx_proj = row_idx().bind(&root_dtype)?;
+    let nonempty = ScanBuilder::new(session.clone(), input)
+        .with_projection(row_idx_proj.clone())
         .with_row_offset(42)
         .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![1u64, 4]))?);
-    assert_eq!(builder.dtype(), projection.dtype());
-
-    let prepared = builder.prepare()?;
-    assert_eq!(prepared.rows(), &(8..8));
-    assert_eq!(prepared.row_offset, 42);
-    assert!(matches!(
-        prepared.selection(),
-        Selection::IncludeByIndex(indices) if indices.as_slice() == [1, 4]
-    ));
+    assert_eq!(nonempty.dtype(), row_idx_proj.dtype());
+    let batches: Vec<_> = ScanDriver::new(session.handle(), 1, true)
+        .run(nonempty)
+        .try_collect()
+        .await?;
+    let actual = ChunkedArray::try_new(batches, row_idx_proj.dtype().clone())?.into_array();
+    assert_arrays_eq!(
+        actual,
+        Buffer::from(vec![43u64, 46]).into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
     Ok(())
 }
 
@@ -183,33 +202,5 @@ fn unfiltered_chunk_rows_scales_only_for_identity_projection() -> VortexResult<(
         .with_projection(get_item("ints", root()).bind(&dtype)?)
         .prepare()?;
     assert_eq!(projected.chunk_rows, MAX_ROWS_PER_CHUNK);
-    Ok(())
-}
-
-#[test]
-fn filtered_rows_per_chunk_edge_cases() -> VortexResult<()> {
-    let store = Arc::new(Store::default());
-    let input = struct_input(&store, 4)?;
-    let cases = [
-        (
-            get_item("flags", root()),
-            get_item("flags", root()),
-            128 * ROW_BLOCK_SIZE,
-        ),
-        (
-            get_item("ints", root()),
-            get_item("flags", root()),
-            FILTERED_ROWS_PER_CHUNK,
-        ),
-        (lit(1i32), lit(true), FILTERED_ROWS_PER_CHUNK),
-    ];
-    for (projection, filter, expected) in cases {
-        let actual = filtered_rows_per_chunk(
-            &input.dtype,
-            &projection.bind(&input.dtype)?,
-            &filter.bind(&input.dtype)?,
-        )?;
-        assert_eq!(actual, expected);
-    }
     Ok(())
 }

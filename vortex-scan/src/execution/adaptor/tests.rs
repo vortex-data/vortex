@@ -122,16 +122,20 @@ fn multi_piece_scan_numbers_pieces_sequentially() -> VortexResult<()> {
 #[test]
 fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
     let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+    let store = Arc::new(Store::default());
+    let first_values = Buffer::from(vec![10u64, 11]).into_array();
+    let second_values = Buffer::from(vec![20u64, 21]).into_array();
     // Chunk 0 reads segment 0, chunk 1 reads segment 1, chunk 2 emits without IO.
     let plan = ConcatPlan::try_new(
         dtype,
         vec![
-            RowSource::plan(2, vec![2], Some(SegmentId::from(0)), false),
-            RowSource::plan(2, vec![2], Some(SegmentId::from(1)), false),
+            store.flat(&first_values)?,
+            store.flat(&second_values)?,
             RowSource::plan(2, vec![2], None, false),
         ],
     )?
     .into_plan();
+    let locs = store.input(plan.clone()).locations;
     // Split 0 hits the in-memory chunk; split 1 needs segments 0 and 1. Because Scan runs
     // active splits LIFO, split 1 issues both reads first and split 0 immediately emits an
     // output that ScanAdaptor retains in `pending` alongside the NeedsIO batch.
@@ -150,8 +154,7 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
         ],
     )?
     .with_max_active(2);
-    let locs = locations(&[(100, 16, 8), (200, 32, 64)]);
-    let mut adaptor = ScanAdaptor::new(scan, locs);
+    let mut adaptor = ScanAdaptor::new(scan, Arc::clone(&locs));
 
     // First compute coalesces both reads into one NeedsIO batch and retains split 0's output.
     let AdaptorStep::NeedsIO(batch) = adaptor.compute()? else {
@@ -159,8 +162,7 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
     };
     assert_eq!(batch.len(), 2);
     assert!(batch.iter().all(|req| req.intent == IoIntent::Fetch));
-    let req_ids = [batch[0].request, batch[1].request];
-    assert_ne!(req_ids[0], req_ids[1]);
+    assert_ne!(batch[0].request, batch[1].request);
     let mut targets: Vec<_> = batch.iter().map(|req| req.target).collect();
     targets.sort_by_key(|target| match target {
         IoTarget::Range { offset, .. } => *offset,
@@ -170,14 +172,14 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
         targets,
         vec![
             IoTarget::Range {
-                offset: 100,
-                len: 16,
-                alignment: Alignment::new(8),
+                offset: locs[0].offset,
+                len: usize::try_from(locs[0].length)?,
+                alignment: locs[0].alignment,
             },
             IoTarget::Range {
-                offset: 200,
-                len: 32,
-                alignment: Alignment::new(64),
+                offset: locs[1].offset,
+                len: usize::try_from(locs[1].length)?,
+                alignment: locs[1].alignment,
             },
         ]
     );
@@ -187,19 +189,38 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
         vortex_bail!("expected pending output piece before reads complete");
     };
     assert_eq!(in_memory_piece.rows, 0..1);
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         in_memory_piece.array,
         Buffer::from(vec![0u64, 1]).into_array(),
-        &mut SESSION.create_execution_ctx()
+        &mut ctx
     );
 
     // Now nothing is runnable until segments 0 and 1 arrive.
     assert!(matches!(adaptor.compute()?, AdaptorStep::Yield));
     assert_eq!(adaptor.state(), State::Waiting);
 
-    adaptor.set_io_result(req_ids[0], IoResult::Bytes(empty_segment()));
+    // Deliver the two reads in reverse order, choosing bytes from each request's target so a
+    // swapped request-to-read mapping would decode the wrong array.
+    let bytes_for = |target: IoTarget| -> VortexResult<BufferHandle> {
+        let IoTarget::Range { offset, .. } = target else {
+            vortex_bail!("expected range target");
+        };
+        let seg_idx = locs
+            .iter()
+            .position(|loc| loc.offset == offset)
+            .ok_or_else(|| vortex_err!("unexpected target offset {offset}"))?;
+        Ok(store.read(SegmentId::try_from(seg_idx)?))
+    };
+    adaptor.set_io_result(
+        batch[1].request,
+        IoResult::Bytes(bytes_for(batch[1].target)?),
+    );
     assert_eq!(adaptor.state(), State::NeedsCompute);
-    adaptor.set_io_result(req_ids[1], IoResult::Bytes(empty_segment()));
+    adaptor.set_io_result(
+        batch[0].request,
+        IoResult::Bytes(bytes_for(batch[0].target)?),
+    );
 
     let mut remaining = Vec::new();
     while adaptor.state() != State::Done {
@@ -211,7 +232,9 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
     }
     assert_eq!(remaining.len(), 2);
     assert_eq!(remaining[0].rows, 1..2);
+    assert_arrays_eq!(remaining[0].array, first_values, &mut ctx);
     assert_eq!(remaining[1].rows, 2..3);
+    assert_arrays_eq!(remaining[1].array, second_values, &mut ctx);
     Ok(())
 }
 

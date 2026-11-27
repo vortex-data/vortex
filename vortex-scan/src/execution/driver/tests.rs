@@ -175,6 +175,7 @@ impl Executor for ControlledRuntime {
 #[derive(Default)]
 struct GatedSegmentsState {
     pending: VecDeque<(SegmentId, oneshot::Sender<()>)>,
+    started: usize,
     peak: usize,
 }
 
@@ -187,6 +188,10 @@ struct GatedSegments {
 impl GatedSegments {
     fn pending_count(&self) -> usize {
         self.state.lock().pending.len()
+    }
+
+    fn started(&self) -> usize {
+        self.state.lock().started
     }
 
     fn peak(&self) -> usize {
@@ -229,6 +234,7 @@ impl SegmentSource for GatedSegments {
         let (tx, rx) = oneshot::channel();
         {
             let mut state = self.state.lock();
+            state.started += 1;
             state.pending.push_back((id, tx));
             let in_flight = state.pending.len();
             state.peak = state.peak.max(in_flight);
@@ -302,11 +308,16 @@ fn concurrency_bounds_chunks_in_flight_in_total(
         .spawn_local_with_handle(driver.run_prepared(prepared, Ok).try_collect::<Vec<_>>())
         .map_err(|err| vortex_err!("spawn scan: {err}"))?;
 
-    for _ in 0..(chunks / concurrency) {
+    // Release one read at a time so each freed slot must be refilled without waiting for
+    // the other in-flight reads to finish.
+    for completed in 0..chunks {
         runtime.run_until_stalled(&mut pool);
-        assert_eq!(segments.pending_count(), concurrency);
+        let expected_started = (completed + concurrency).min(chunks);
+        let expected_pending = expected_started - completed;
+        assert_eq!(segments.started(), expected_started);
+        assert_eq!(segments.pending_count(), expected_pending);
         assert_eq!(segments.peak(), concurrency);
-        segments.complete(concurrency);
+        segments.complete(1);
     }
 
     runtime.run_until_stalled(&mut pool);
@@ -367,13 +378,17 @@ fn shared_budget_bounds_chunks_in_flight_across_drivers() -> VortexResult<()> {
         ))
         .map_err(|err| vortex_err!("spawn scans: {err}"))?;
 
-    // Two full waves of 3 saturate both drivers' own slots plus the shared slot, followed by
-    // the remaining 2 chunks.
-    for wave in [limit, limit, drivers * chunks - 2 * limit] {
+    // Release one read at a time so freed slots are reused across both drivers without
+    // waiting for a full wave to drain.
+    let total = drivers * chunks;
+    for completed in 0..total {
         runtime.run_until_stalled(&mut pool);
-        assert_eq!(segments.pending_count(), wave);
+        let expected_started = (completed + limit).min(total);
+        let expected_pending = expected_started - completed;
+        assert_eq!(segments.started(), expected_started);
+        assert_eq!(segments.pending_count(), expected_pending);
         assert_eq!(segments.peak(), limit);
-        segments.complete(wave);
+        segments.complete(1);
     }
 
     runtime.run_until_stalled(&mut pool);
@@ -413,119 +428,75 @@ async fn shared_budget_lets_scans_finish_while_another_stalls() -> VortexResult<
     Ok(())
 }
 
-/// Ordered scans sort batches by starting row even when a later chunk finishes first.
+/// Ordered scans hold chunk 1 until chunk 0 finishes and yield `[chunk 0, chunk 1]`;
+/// unordered scans deliver chunk 1 to the consumer while chunk 0 is still blocked on I/O.
 #[test]
-fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
-    let mut pool = LocalPool::new();
-    let runtime = Arc::new(ControlledRuntime::default());
-    let segments = Arc::new(GatedSegments::default());
+fn chunk_ordering_with_out_of_order_completion() -> VortexResult<()> {
     let second_chunk_len = MAX_ROWS_PER_CHUNK / 2;
-    let builder = gated_chunked_builder(
-        runtime.handle(),
-        Arc::clone(&segments),
-        &[MAX_ROWS_PER_CHUNK, second_chunk_len],
-    )?;
-    let mapped_lens = Arc::new(Mutex::new(Vec::new()));
-    let map_fn = {
-        let mapped_lens = Arc::clone(&mapped_lens);
-        move |batch: ArrayRef| {
-            mapped_lens.lock().push(batch.len());
-            Ok(batch)
+
+    for ordered in [true, false] {
+        let mut pool = LocalPool::new();
+        let runtime = Arc::new(ControlledRuntime::default());
+        let segments = Arc::new(GatedSegments::default());
+        let builder = gated_chunked_builder(
+            runtime.handle(),
+            Arc::clone(&segments),
+            &[MAX_ROWS_PER_CHUNK, second_chunk_len],
+        )?;
+        let mapped = Arc::new(Mutex::new(Vec::new()));
+        let map_fn = {
+            let mapped = Arc::clone(&mapped);
+            move |batch: ArrayRef| {
+                mapped.lock().push(batch.len());
+                Ok(batch)
+            }
+        };
+        let mut stream =
+            ScanDriver::new(runtime.handle(), 2, ordered).run_prepared(builder.prepare()?, map_fn);
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let consumer = {
+            let delivered = Arc::clone(&delivered);
+            pool.spawner()
+                .spawn_local_with_handle(async move {
+                    while let Some(batch) = stream.try_next().await? {
+                        delivered.lock().push(batch.len());
+                    }
+                    VortexResult::Ok(())
+                })
+                .map_err(|err| vortex_err!("spawn consumer: {err}"))?
+        };
+
+        runtime.run_until_stalled(&mut pool);
+        assert_eq!(segments.pending_count(), 2);
+        assert!(mapped.lock().is_empty());
+        assert!(delivered.lock().is_empty());
+
+        // Complete chunk 1 while chunk 0 remains blocked on I/O.
+        segments.complete_segment(SegmentId::from(1));
+        runtime.run_until_stalled(&mut pool);
+        assert_eq!(segments.pending_count(), 1);
+        assert_eq!(*mapped.lock(), vec![second_chunk_len]);
+        if ordered {
+            assert!(delivered.lock().is_empty());
+        } else {
+            assert_eq!(*delivered.lock(), vec![second_chunk_len]);
         }
-    };
-    let scan = pool
-        .spawner()
-        .spawn_local_with_handle(
-            ScanDriver::new(runtime.handle(), 2, true)
-                .run_prepared(builder.prepare()?, map_fn)
-                .try_collect::<Vec<_>>(),
-        )
-        .map_err(|err| vortex_err!("spawn ordered scan: {err}"))?;
 
-    runtime.run_until_stalled(&mut pool);
-    assert_eq!(segments.pending_count(), 2);
-
-    // Complete chunk 1's I/O and drain all ready work so chunk 1 finishes before chunk 0 unblocks.
-    segments.complete_segment(SegmentId::from(1));
-    runtime.run_until_stalled(&mut pool);
-    assert_eq!(segments.pending_count(), 1);
-    assert_eq!(*mapped_lens.lock(), vec![second_chunk_len]);
-
-    segments.complete_segment(SegmentId::from(0));
-    runtime.run_until_stalled(&mut pool);
-    assert_eq!(
-        *mapped_lens.lock(),
-        vec![second_chunk_len, MAX_ROWS_PER_CHUNK]
-    );
-    let batches = scan
-        .now_or_never()
-        .ok_or_else(|| vortex_err!("ordered scan did not finish after all reads completed"))??;
-    let lens: Vec<usize> = batches.iter().map(ArrayRef::len).collect();
-    assert_eq!(lens, vec![MAX_ROWS_PER_CHUNK, second_chunk_len]);
-    Ok(())
-}
-
-/// Unordered scans yield chunk 1 to the caller while chunk 0 is still blocked on I/O.
-#[test]
-fn unordered_scan_yields_ready_chunk_while_earlier_chunk_blocks_on_io() -> VortexResult<()> {
-    let runtime = Arc::new(ControlledRuntime::default());
-    let mut pool = LocalPool::new();
-    let segments = Arc::new(GatedSegments::default());
-
-    let second_chunk_len = MAX_ROWS_PER_CHUNK / 2;
-    let builder = gated_chunked_builder(
-        runtime.handle(),
-        Arc::clone(&segments),
-        &[MAX_ROWS_PER_CHUNK, second_chunk_len],
-    )?;
-    let mut stream =
-        ScanDriver::new(runtime.handle(), 2, false).run_prepared(builder.prepare()?, Ok);
-
-    let first_fut = pool
-        .spawner()
-        .spawn_local_with_handle(async move {
-            let first = stream
-                .next()
-                .await
-                .transpose()?
-                .ok_or_else(|| vortex_err!("expected first batch"))?;
-            Ok::<_, vortex_error::VortexError>((first, stream))
-        })
-        .map_err(|err| vortex_err!("spawn first: {err}"))?;
-
-    runtime.run_until_stalled(&mut pool);
-    assert_eq!(segments.pending_count(), 2);
-
-    // Complete chunk 1's I/O while chunk 0 stays pending; unordered mode yields chunk 1 now.
-    segments.complete_segment(SegmentId::from(1));
-    runtime.run_until_stalled(&mut pool);
-    let (first, mut stream) = first_fut.now_or_never().ok_or_else(|| {
-        vortex_err!("unordered scan did not yield chunk 1 while chunk 0 blocked")
-    })??;
-    assert_eq!(first.len(), second_chunk_len);
-    assert_eq!(segments.pending_count(), 1);
-
-    // Completing chunk 0's I/O yields chunk 0 and ends the stream.
-    let rest_fut = pool
-        .spawner()
-        .spawn_local_with_handle(async move {
-            let second = stream
-                .next()
-                .await
-                .transpose()?
-                .ok_or_else(|| vortex_err!("expected second batch"))?;
-            let end = stream.next().await;
-            Ok::<_, vortex_error::VortexError>((second, end))
-        })
-        .map_err(|err| vortex_err!("spawn rest: {err}"))?;
-
-    segments.complete_segment(SegmentId::from(0));
-    runtime.run_until_stalled(&mut pool);
-    let (second, end) = rest_fut.now_or_never().ok_or_else(|| {
-        vortex_err!("unordered scan did not yield chunk 0 after its read completed")
-    })??;
-    assert_eq!(second.len(), MAX_ROWS_PER_CHUNK);
-    assert!(end.is_none());
+        // Complete chunk 0 and verify final delivery order.
+        segments.complete_segment(SegmentId::from(0));
+        runtime.run_until_stalled(&mut pool);
+        consumer.now_or_never().ok_or_else(|| {
+            vortex_err!("consumer did not finish for ordered={ordered} after all reads completed")
+        })??;
+        assert_eq!(segments.pending_count(), 0);
+        assert_eq!(*mapped.lock(), vec![second_chunk_len, MAX_ROWS_PER_CHUNK]);
+        let expected_delivered = if ordered {
+            vec![MAX_ROWS_PER_CHUNK, second_chunk_len]
+        } else {
+            vec![second_chunk_len, MAX_ROWS_PER_CHUNK]
+        };
+        assert_eq!(*delivered.lock(), expected_delivered);
+    }
     Ok(())
 }
 
