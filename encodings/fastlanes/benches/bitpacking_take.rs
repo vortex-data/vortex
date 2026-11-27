@@ -94,7 +94,7 @@ fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
 #[vortex_bench_support::cpu_features(exclude = ["neon"])]
 #[divan::bench(
     args = [64, 80].into_iter().filter(|&count| {
-        env!("VORTEX_BENCH_VARIANT") != "avx2" || count != 80
+        env!("VORTEX_BENCH_VARIANT") != "v3" || count != 80
     }),
     sample_size = 16,
 )]

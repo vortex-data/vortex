@@ -367,7 +367,7 @@ fn take_indices(case: Case) -> ArrayRef {
 
 // Materialization can grow mimalloc's page map through system calls. Measure its full cost.
 // The x86 variants still vary between processes with larger samples. Keep those runs local.
-#[vortex_bench_support::cpu_features(exclude = ["avx2", "avx512"])]
+#[vortex_bench_support::cpu_features(exclude = ["v3", "avx512"])]
 #[divan::bench(args = cases(), sample_size = 16)]
 fn take(bencher: Bencher, case: Case) {
     let values = chunked_values(case);

@@ -17,11 +17,11 @@ fn take_avx2_if_supported<V: FixedWidthTakeValue, I: UnsignedPType>(
     values: &[V],
     indices: &[I],
 ) -> Option<Buffer<V>> {
-    if !is_x86_feature_detected!("avx2") {
+    if !vortex_buffer::is_x86_64_v3_detected() {
         return None;
     }
 
-    // SAFETY: AVX2 support was detected above, and `FixedWidthTakeValue` guarantees that every
+    // SAFETY: x86-64-v3 support was detected above, and `FixedWidthTakeValue` guarantees that every
     // byte in the values is initialized.
     Some(unsafe { take_avx2(values, indices, &BufferAllocatorRef::statically_allocated()) })
 }
@@ -31,11 +31,11 @@ where
     V: FixedWidthTakeValue + RefUnwindSafe,
     I: UnsignedPType + RefUnwindSafe,
 {
-    if !is_x86_feature_detected!("avx2") {
+    if !vortex_buffer::is_x86_64_v3_detected() {
         return;
     }
 
-    // SAFETY: AVX2 support was detected above, and `FixedWidthTakeValue` guarantees that every
+    // SAFETY: x86-64-v3 support was detected above, and `FixedWidthTakeValue` guarantees that every
     // byte in the values is initialized.
     let result = catch_unwind(|| unsafe {
         take_avx2(values, indices, &BufferAllocatorRef::statically_allocated())

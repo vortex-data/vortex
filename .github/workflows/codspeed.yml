@@ -126,7 +126,7 @@ jobs:
           - name: Build benchmarks
             if: steps.shard.outputs.active == 'true'
             env:
-              RUSTFLAGS: "-C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
+              RUSTFLAGS: "-C target-cpu=x86-64-v3 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
               # Benchmarks carrying `#[cpu_features]` belong to a walltime leg below and are
               # skipped here. Untagged ones run as they always have, under bare names, so this
               # job's CodSpeed history is unaffected.
@@ -245,13 +245,13 @@ jobs:
       fail-fast: false
       matrix: &cpu-feature-matrix
         include:
-          # avx2 and avx512 share a family so the only difference between the two series is
+          # v3 and avx512 share a family so the only difference between the two series is
           # the build flags, not the silicon. c7i.metal-24xl is the smaller of the two c7i
           # metal sizes: Sapphire Rapids, and AVX-512 capable.
-          - features: avx2
+          - features: v3
             runner: amd64-codspeed-walltime
             build-runner: amd64-codspeed-build
-            rustflags: "-C target-feature=+avx2 -C force-frame-pointers=yes"
+            rustflags: "-C target-cpu=x86-64-v3 -C force-frame-pointers=yes"
           # Every AVX-512 extension Sapphire Rapids implements, not just the two the current
           # `cfg(target_feature)` gates test for. Those gates decide which kernel the code
           # under test selects, but the rest of the build — anything the compiler
@@ -261,6 +261,7 @@ jobs:
             runner: amd64-codspeed-walltime
             build-runner: amd64-codspeed-build
             rustflags: >-
+              -C target-cpu=x86-64-v3
               -C target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx512ifma,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg,+avx512vpopcntdq,+avx512bf16,+avx512fp16
               -C force-frame-pointers=yes
           # Graviton3 supports SVE, so this family can also host a future SVE leg.

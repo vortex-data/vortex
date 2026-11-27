@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::X86_64_V3;
 use vortex_error::VortexExpect;
 
 use crate::arrays::PrimitiveArray;
 use crate::match_each_ptype_width;
 
-cfg_if::cfg_if! {
-    if #[cfg(target_feature = "avx2")] {
-        pub const IS_CONST_LANE_WIDTH: usize = 32;
-    } else {
-        pub const IS_CONST_LANE_WIDTH: usize = 16;
-    }
-}
+/// Width in bytes of a comparison group for the compilation target.
+pub const IS_CONST_LANE_WIDTH: usize = if X86_64_V3 { 32 } else { 16 };
 
 /// Checks whether every value equals the first value, comparing in groups of `WIDTH`.
 ///

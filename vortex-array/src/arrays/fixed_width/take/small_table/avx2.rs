@@ -28,7 +28,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
 use super::super::FixedWidthTakeValue;
-use super::super::HAS_AVX2;
 use super::super::take_values_fallback;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -76,7 +75,7 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
         || values.len() > 16
         || size_of::<T>() != 1
         || indices.len() < 64
-        || !*HAS_AVX2
+        || !vortex_buffer::is_x86_64_v3_detected()
     {
         return take_values_fallback(values, indices, allocator);
     }
@@ -84,12 +83,12 @@ fn take<T: FixedWidthTakeValue, I: UnsignedPType>(
     // SAFETY: the sealed index type is u8, as checked above.
     let indices: &[u8] =
         unsafe { std::slice::from_raw_parts(indices.as_ptr().cast(), indices.len()) };
-    // SAFETY: AVX2 was detected above. Values are one byte with no uninitialized bytes,
+    // SAFETY: x86-64-v3 was detected above. Values are one byte with no uninitialized bytes,
     // and the table contains between 1 and 16 values.
     unsafe { take_avx2(values, indices, allocator) }
 }
 
-#[target_feature(enable = "avx2")]
+#[vortex_buffer::target_cpu_v3]
 unsafe fn take_avx2<T: FixedWidthTakeValue>(
     values: &[T],
     indices: &[u8],

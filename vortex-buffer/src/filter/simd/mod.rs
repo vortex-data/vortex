@@ -15,11 +15,11 @@
 //! | ----------------------- | ------------ | ------------ | ----------- | ------------------ |
 //! | x86 AVX-512 VBMI2       | `d >= 0.00`  | `d >= 0.15`  | `d >= 0.25` | `d >= 0.30`        |
 //! | x86 AVX-512F (no VBMI2) | `d >= 0.15`* | `d >= 0.25`* | `d >= 0.25` | `d >= 0.30`        |
-//! | x86 AVX2                | `d >= 0.15`  | `d >= 0.25`  | `d >= 0.25` | `d >= 0.45`        |
+//! | x86-64-v3               | `d >= 0.15`  | `d >= 0.25`  | `d >= 0.25` | `d >= 0.45`        |
 //! | aarch64 NEON            | `d >= 0.15`  | `d >= 0.15`  | `d >= 0.30` | `0.50 <= d < 0.80` |
 //! | other                   | —            | —            | —           | —                  |
 //!
-//! \* The 1- and 2-byte fallbacks require AVX2.
+//! \* The 1- and 2-byte fallbacks require x86-64-v3.
 //!
 //! On x86, the widest available kernel is considered first for each width. When no entry matches,
 //! control returns to [`filter`](super) for scalar selection.

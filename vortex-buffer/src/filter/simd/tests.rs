@@ -123,18 +123,25 @@ fn engages_on_supported_cpus() {
     let bits = make_bits(256, 0, |i| i % 2 == 0);
 
     #[cfg(target_arch = "x86_64")]
-    let expected = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("popcnt");
+    let (narrow, wide) = {
+        let v3 = crate::is_x86_64_v3_detected();
+        let avx512 = is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("popcnt");
+        let vbmi2 = avx512
+            && is_x86_feature_detected!("avx512bw")
+            && is_x86_feature_detected!("avx512vbmi2");
+        (v3 || vbmi2, v3 || avx512)
+    };
     #[cfg(target_arch = "aarch64")]
-    let expected = true;
+    let (narrow, wide) = (true, true);
 
     check_engagement(
         &(0..256).map(|i| i as u8).collect::<Vec<_>>(),
         &bits,
-        expected,
+        narrow,
     );
-    check_engagement(&(0u16..256).collect::<Vec<_>>(), &bits, expected);
-    check_engagement(&(0u32..256).collect::<Vec<_>>(), &bits, expected);
-    check_engagement(&(0u64..256).collect::<Vec<_>>(), &bits, expected);
+    check_engagement(&(0u16..256).collect::<Vec<_>>(), &bits, narrow);
+    check_engagement(&(0u32..256).collect::<Vec<_>>(), &bits, wide);
+    check_engagement(&(0u64..256).collect::<Vec<_>>(), &bits, wide);
 }
 
 #[test]
@@ -152,7 +159,7 @@ fn declines_sparse_and_short_masks() {
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 #[test]
 fn avx2_kernels_match_scalar() {
-    if !(is_x86_feature_detected!("avx2") && is_x86_feature_detected!("popcnt")) {
+    if !crate::is_x86_64_v3_detected() {
         return;
     }
 
@@ -165,7 +172,7 @@ fn avx2_kernels_match_scalar() {
         let expected = expected(values, bits);
 
         let mut out = vec![T::default(); bits.true_count() + SLACK_BYTES / size_of::<T>()];
-        // SAFETY: AVX2 and POPCNT were detected above and the output has a vector of slack.
+        // SAFETY: v3 was detected above and the output has a vector of slack.
         let written = unsafe {
             kernel_out_of_place(
                 values.as_ptr().cast(),
@@ -178,7 +185,7 @@ fn avx2_kernels_match_scalar() {
 
         let mut compacted = values.to_vec();
         let ptr = compacted.as_mut_ptr().cast::<u8>();
-        // SAFETY: AVX2 and POPCNT were detected above; in-place compaction stays within the slice.
+        // SAFETY: v3 was detected above; in-place compaction stays within the slice.
         let written = unsafe { kernel_in_place(ptr.cast_const(), ptr, MaskBits::Bitmap(bits)) };
         assert_eq!(written, bits.true_count());
         assert_eq!(&compacted[..written], expected.as_slice());

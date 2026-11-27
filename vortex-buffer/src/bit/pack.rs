@@ -46,7 +46,7 @@ where
 
 /// Body of [`collect_bool_words`](crate::bit::collect_bool_words) (and, via a one-word slice,
 /// of [`collect_bool_word`](crate::bit::collect_bool_word)): the word loop with the widest
-/// pack kernel enabled *at compile time* — SSE2 on stock x86-64 (AVX2/AVX-512BW when built
+/// pack kernel enabled *at compile time* — SSE2 on stock x86-64 (x86-64-v3/AVX-512BW when built
 /// with e.g. `-C target-cpu=native`), NEON on aarch64, SWAR elsewhere and under Miri.
 ///
 /// Statically-enabled kernels are part of every function's feature set, so this loop
@@ -79,16 +79,13 @@ where
     }
     #[cfg(all(
         target_arch = "x86_64",
-        target_feature = "avx2",
         not(all(target_feature = "avx512f", target_feature = "avx512bw")),
         not(miri)
     ))]
-    {
-        // SAFETY: AVX2 is statically enabled for this build.
-        collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_avx2(bools) })
-    }
-    #[cfg(all(target_arch = "x86_64", not(target_feature = "avx2"), not(miri)))]
-    {
+    if crate::X86_64_V3 {
+        // SAFETY: the full x86-64-v3 feature set is statically enabled.
+        collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_v3(bools) })
+    } else {
         // SAFETY: SSE2 is part of the x86-64 baseline instruction set.
         collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_sse2(bools) })
     }
@@ -101,7 +98,7 @@ where
     collect_bool_words_with(words, len, f, pack_bool_word_swar)
 }
 
-/// Word loop with the *widest* pack kernel the CPU offers (AVX-512BW, then AVX2, then the
+/// Word loop with the *widest* pack kernel the CPU offers (AVX-512BW, then x86-64-v3, then the
 /// baseline), for predicates known to be cheap.
 ///
 /// The wide loop copies live behind a `#[target_feature]` function boundary that cannot inline
@@ -151,9 +148,9 @@ where
             // SAFETY: runtime detection guarantees the required target features.
             return unsafe { collect_bool_words_avx512(words, len, f) };
         }
-        if is_x86_feature_detected!("avx2") {
+        if crate::is_x86_64_v3_detected() {
             // SAFETY: runtime detection guarantees the required target features.
-            return unsafe { collect_bool_words_avx2(words, len, f) };
+            return unsafe { collect_bool_words_v3(words, len, f) };
         }
     }
     collect_bool_words_inline(words, len, f)
@@ -229,22 +226,33 @@ pub unsafe fn collect_bool_words_sse2<F: FnMut(usize) -> bool>(
     collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_sse2(bools) })
 }
 
-/// AVX2 copy of the [`collect_bool_words`](crate::bit::collect_bool_words) word loop.
+/// x86-64-v3 copy of the [`collect_bool_words`](crate::bit::collect_bool_words) word loop.
 ///
 /// `words` must hold at least `len.div_ceil(64)` entries and `f` is invoked with `0..len`.
 ///
 /// # Safety
 ///
+/// The caller must ensure the CPU supports x86-64-v3.
+#[cfg(target_arch = "x86_64")]
+#[crate::target_cpu_v3]
+pub unsafe fn collect_bool_words_v3<F: FnMut(usize) -> bool>(words: &mut [u64], len: usize, f: F) {
+    // SAFETY: the caller guarantees x86-64-v3 support.
+    collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_v3(bools) })
+}
+
+/// Compatibility wrapper for [`collect_bool_words_multiversioned`].
+///
+/// # Safety
+///
 /// The caller must ensure the CPU supports AVX2.
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
+#[inline]
 pub unsafe fn collect_bool_words_avx2<F: FnMut(usize) -> bool>(
     words: &mut [u64],
     len: usize,
     f: F,
 ) {
-    // SAFETY: the caller guarantees AVX2 support.
-    collect_bool_words_with(words, len, f, |bools| unsafe { pack_bool_word_avx2(bools) })
+    collect_bool_words_multiversioned(words, len, f);
 }
 
 /// AVX-512BW copy of the [`collect_bool_words`](crate::bit::collect_bool_words) word loop.
@@ -339,11 +347,11 @@ pub unsafe fn pack_bool_word_sse2(bools: &[bool; 64]) -> u64 {
 ///
 /// # Safety
 ///
-/// The caller must ensure the CPU supports AVX2.
+/// The caller must ensure the CPU supports x86-64-v3.
 #[cfg(target_arch = "x86_64")]
 #[inline]
-#[target_feature(enable = "avx2")]
-pub unsafe fn pack_bool_word_avx2(bools: &[bool; 64]) -> u64 {
+#[crate::target_cpu_v3]
+pub unsafe fn pack_bool_word_v3(bools: &[bool; 64]) -> u64 {
     use std::arch::x86_64::__m256i;
     use std::arch::x86_64::_mm256_cmpeq_epi8;
     use std::arch::x86_64::_mm256_loadu_si256;
@@ -362,6 +370,23 @@ pub unsafe fn pack_bool_word_avx2(bools: &[bool; 64]) -> u64 {
     let lo_mask = !(_mm256_movemask_epi8(_mm256_cmpeq_epi8(lo, zero)) as u32) as u64;
     let hi_mask = !(_mm256_movemask_epi8(_mm256_cmpeq_epi8(hi, zero)) as u32) as u64;
     lo_mask | (hi_mask << 32)
+}
+
+/// Packs a word with [`pack_bool_word_v3`] when supported, or SSE2 otherwise.
+///
+/// # Safety
+///
+/// The caller must ensure the CPU supports AVX2.
+#[cfg(target_arch = "x86_64")]
+#[inline]
+pub unsafe fn pack_bool_word_avx2(bools: &[bool; 64]) -> u64 {
+    if crate::is_x86_64_v3_detected() {
+        // SAFETY: the CPU supports the full v3 tier.
+        unsafe { pack_bool_word_v3(bools) }
+    } else {
+        // SAFETY: SSE2 is part of the x86-64 baseline.
+        unsafe { pack_bool_word_sse2(bools) }
+    }
 }
 
 /// AVX-512BW byte→bit pack kernel: a single 64-byte `vptestmb` produces the whole word.
@@ -489,13 +514,13 @@ mod tests {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     #[test]
     fn avx2_matches_scalar() {
-        if !is_x86_feature_detected!("avx2") {
+        if !crate::is_x86_64_v3_detected() {
             return;
         }
         for bools in patterns() {
-            // SAFETY: runtime detection guarantees AVX2.
+            // SAFETY: runtime detection guarantees x86-64-v3.
             assert_eq!(
-                unsafe { super::pack_bool_word_avx2(&bools) },
+                unsafe { super::pack_bool_word_v3(&bools) },
                 reference(&bools)
             );
         }

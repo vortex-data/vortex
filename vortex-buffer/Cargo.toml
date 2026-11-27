@@ -33,6 +33,7 @@ serde = { workspace = true, optional = true }
 simdutf8 = { workspace = true }
 tracing = { workspace = true, optional = true }
 vortex-error = { workspace = true }
+vortex-macros = { workspace = true }
 
 [lints]
 workspace = true

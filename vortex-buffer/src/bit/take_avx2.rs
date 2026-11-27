@@ -90,7 +90,7 @@ pub(super) fn take<I: AsPrimitive<usize>>(
 /// on validity. take(), the first function, is called from two places, one
 /// with validity and one without. Consequently, there are different gather
 /// instructions depending on whether validity is present.
-#[target_feature(enable = "avx2")]
+#[crate::target_cpu_v3]
 unsafe fn take_group<I: AsPrimitive<usize>>(
     bits: BitBufferView<'_>,
     indices: &[I],
@@ -161,7 +161,7 @@ unsafe fn take_group<I: AsPrimitive<usize>>(
     }
 }
 
-#[target_feature(enable = "avx2")]
+#[crate::target_cpu_v3]
 unsafe fn take_lanes<I>(
     bits: BitBufferView<'_>,
     indices: &[I],
