@@ -11947,6 +11947,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-index-ivf"
+version = "0.1.0"
+dependencies = [
+ "parking_lot 0.12.5",
+ "roaring",
+ "rstest",
+ "tokio",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-file",
+ "vortex-index",
+ "vortex-layout",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
