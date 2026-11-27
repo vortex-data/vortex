@@ -435,11 +435,19 @@ fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
         Arc::clone(&segments),
         &[MAX_ROWS_PER_CHUNK, second_chunk_len],
     )?;
+    let mapped_lens = Arc::new(Mutex::new(Vec::new()));
+    let map_fn = {
+        let mapped_lens = Arc::clone(&mapped_lens);
+        move |batch: ArrayRef| {
+            mapped_lens.lock().push(batch.len());
+            Ok(batch)
+        }
+    };
     let scan = pool
         .spawner()
         .spawn_local_with_handle(
             ScanDriver::new(runtime.handle(), 2, true)
-                .run_prepared(builder.prepare()?, Ok)
+                .run_prepared(builder.prepare()?, map_fn)
                 .try_collect::<Vec<_>>(),
         )
         .map_err(|err| vortex_err!("spawn ordered scan: {err}"))?;
@@ -451,9 +459,14 @@ fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
     segments.complete_segment(SegmentId::from(1));
     runtime.run_until_stalled(&mut pool);
     assert_eq!(segments.pending_count(), 1);
+    assert_eq!(*mapped_lens.lock(), vec![second_chunk_len]);
 
     segments.complete_segment(SegmentId::from(0));
     runtime.run_until_stalled(&mut pool);
+    assert_eq!(
+        *mapped_lens.lock(),
+        vec![second_chunk_len, MAX_ROWS_PER_CHUNK]
+    );
     let batches = scan
         .now_or_never()
         .ok_or_else(|| vortex_err!("ordered scan did not finish after all reads completed"))??;
