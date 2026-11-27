@@ -15,13 +15,9 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::assert_arrays_eq;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
 use vortex_expr::ArrayExprExt;
 use vortex_file::OpenOptionsSessionExt;
-use vortex_file::WriteOptionsSessionExt;
-use vortex_file::WriteStrategyBuilder;
-use vortex_fuzz::CompressorStrategy;
 use vortex_fuzz::FuzzFileAction;
 use vortex_fuzz::RUNTIME;
 use vortex_fuzz::SESSION;
@@ -33,7 +29,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         array,
         projection_expr,
         filter_expr,
-        compressor_strategy,
+        write_settings,
     } = fuzz;
     let array_data = array;
 
@@ -59,16 +55,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
-    let write_options = match compressor_strategy {
-        CompressorStrategy::Default => SESSION.write_options(),
-        CompressorStrategy::Compact => SESSION.write_options().with_strategy(
-            WriteStrategyBuilder::from_session(&SESSION)
-                .with_btrblocks_builder(
-                    BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-                )
-                .build(),
-        ),
-    };
+    let write_options = write_settings.write_options();
 
     let mut full_buff = Vec::new();
     let _footer = write_options

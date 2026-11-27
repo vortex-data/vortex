@@ -8,6 +8,7 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
+use arrow_array::Float64Array;
 use arrow_array::Int8Array;
 use arrow_array::Int32Array;
 use arrow_array::Int64Array;
@@ -53,14 +54,19 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::BinaryExpr as DFBinaryExpr;
+use datafusion_physical_plan::expressions::Column as DFColumn;
+use datafusion_physical_plan::expressions::Literal as DFLiteral;
 use insta::assert_snapshot;
 use rstest::rstest;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray as VortexStructArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtDTypeRef;
@@ -601,8 +607,11 @@ fn test_native_in_list_float(
     )])?;
     assert_in_list_matches(
         Arc::new(df_expr::Column::new("a", 0)),
+        // The list holds one zero and the values hold both: DataFusion makes the zeros equal,
+        // and so must the pushed list.
         vec![
-            Arc::new(df_expr::Literal::new(scalar(Some(-0.0))?)),
+            Arc::new(df_expr::Literal::new(scalar(Some(0.0))?)),
+            Arc::new(df_expr::Literal::new(scalar(Some(f64::INFINITY))?)),
             Arc::new(df_expr::Literal::new(scalar(Some(f64::NAN))?)),
         ],
         negated,
@@ -1130,6 +1139,151 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     Ok(())
 }
 
+/// DataFusion compares floats in total order after it replaces `-0.0` with `+0.0`, so a pushed
+/// float comparison makes the zeros equal.
+#[test]
+fn test_float_comparison_uses_datafusion_compare_mode() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("value", DataType::Float64, false)]);
+    let expr = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        DFOperator::Lt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(0.0)))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert_eq!(
+        convert(expr, &schema)?,
+        compare_with_mode(
+            CompareOperator::Lt,
+            CompareMode::new(FloatOrder::ZerosEqual),
+            get_item("value", root()),
+            lit(0.0f64)
+        ),
+    );
+    Ok(())
+}
+
+/// DataFusion does not replace `-0.0` in the values of a dictionary, but replaces it in a plain
+/// float, so their comparison stays in DataFusion.
+#[test]
+fn test_dictionary_float_comparison_is_unsupported() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "value",
+        DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Float64)),
+        false,
+    )]);
+    let expr = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(0.0)))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
+/// Nested encodings over floats (such as a run-end encoded dictionary) still compare float bits
+/// in DataFusion, so comparisons that can distinguish `-0.0` from `+0.0` stay in DataFusion.
+#[test]
+fn test_ree_dictionary_float_comparison_is_unsupported() -> DFResult<()> {
+    let ree_dict = DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", DataType::Int32, false)),
+        Arc::new(Field::new(
+            "values",
+            DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Float64)),
+            true,
+        )),
+    );
+    let schema = Schema::new(vec![
+        Field::new("a", ree_dict.clone(), true),
+        Field::new("b", ree_dict, true),
+    ]);
+
+    let col_eq_col = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Column::new("b", 1)),
+    )) as Arc<dyn PhysicalExpr>;
+    assert!(!converts(&col_eq_col, &schema)?);
+
+    let col_eq_plain_zero = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(0.0)))),
+    )) as Arc<dyn PhysicalExpr>;
+    assert!(!converts(&col_eq_plain_zero, &schema)?);
+
+    Ok(())
+}
+
+/// A float list without a zero gives the rows that DataFusion gives, for a list of any length.
+#[rstest]
+fn test_float_in_list_matches_datafusion(
+    #[values(2, 8)] len: usize,
+    #[values(false, true)] negated: bool,
+) -> anyhow::Result<()> {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Float64,
+        true,
+    )]));
+    let values = Float64Array::from(vec![
+        Some(-0.0),
+        Some(0.0),
+        Some(f64::NAN),
+        Some(-f64::NAN),
+        Some(1.0),
+        None,
+    ]);
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(values)])?;
+
+    let list = [1.0, f64::NAN, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0][..len]
+        .iter()
+        .map(|value| {
+            Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(*value))))
+                as Arc<dyn PhysicalExpr>
+        })
+        .collect();
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        list,
+        negated,
+        &schema,
+    )?);
+
+    assert_native_matches(expr, batch)
+}
+
+/// A pushed list that holds one float zero matches both zeros, as DataFusion's `IN` does.
+#[rstest]
+fn test_float_in_list_makes_zeros_equal(#[values(0.0, -0.0)] zero: f64) -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("value", DataType::Float64, false)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        vec![
+            Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(zero)))),
+            Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(1.0)))),
+        ],
+        false,
+        &schema,
+    )?) as Arc<dyn PhysicalExpr>;
+    let converted = convert(expr, &schema)?;
+
+    let session = VortexSession::default();
+    let mut ctx = session.create_execution_ctx();
+    let values = VortexStructArray::from_fields(&[(
+        "value",
+        PrimitiveArray::from_iter([-0.0f64, 0.0, 1.0, 2.0]).into_array(),
+    )])?
+    .into_array();
+
+    assert_arrays_eq!(
+        values.apply(&converted)?,
+        BoolArray::from_iter([true, true, true, false]),
+        &mut ctx
+    );
+    Ok(())
+}
+
 #[rstest]
 #[case::like_normal(false, false)]
 #[case::like_negated(true, false)]
@@ -1336,7 +1490,10 @@ fn test_unsupported_field_is_declined_only_when_referenced(
         ));
         assert_eq!(
             convert(expr, &schema)?,
-            Compare.new_expr(CompareOperator::Eq, [get_item("id", root()), lit(42i32)]),
+            Compare.new_expr(
+                CompareOperator::Eq.into(),
+                [get_item("id", root()), lit(42i32)]
+            ),
         );
     }
     Ok(())
@@ -2358,7 +2515,9 @@ fn test_encoded_comparison_matches_datafusion(
             &value_type,
         )?
     } else {
-        let ints = Int64Array::from(vec![0, 1, 2, 3]);
+        // DataFusion compares the bits of encoded floats, so a comparison with a float zero is
+        // not pushed down.
+        let ints = Int64Array::from(vec![1, 2, 3, 4]);
         cast(&ints, &value_type).or_else(|_| cast(&cast(&ints, &DataType::Int32)?, &value_type))?
     };
     // Rows: v0, v0, NULL, v1, v1, v0. The dictionary also holds values no key references.
@@ -3449,6 +3608,143 @@ fn test_timestamp_cast_from_schema_adapter() -> DFResult<()> {
     assert_eq!(
         DefaultExpressionConverter::default().try_convert(&cast, &schema)?,
         Some(ts_to_ms())
+    );
+    Ok(())
+}
+
+struct ExactConverter(DefaultExpressionConverter);
+
+impl ExpressionConverter for ExactConverter {
+    fn try_convert(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.0.try_convert(expr, schema)
+    }
+}
+
+#[test]
+fn advisory_conversion_default_requires_infallible_evaluation() -> DFResult<()> {
+    let converter = ExactConverter(DefaultExpressionConverter::default());
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+    let column: Arc<dyn PhysicalExpr> = Arc::new(DFColumn::new("a", 0));
+    let comparison: Arc<dyn PhysicalExpr> = Arc::new(DFBinaryExpr::new(
+        Arc::clone(&column),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert_dynamic(&comparison, &schema)?
+            .is_some()
+    );
+
+    let arithmetic_comparison: Arc<dyn PhysicalExpr> = Arc::new(DFBinaryExpr::new(
+        Arc::new(DFBinaryExpr::new(
+            column,
+            DFOperator::Plus,
+            Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+        )),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert(&arithmetic_comparison, &schema)?
+            .is_some()
+    );
+    assert!(
+        converter
+            .try_convert_dynamic(&arithmetic_comparison, &schema)?
+            .is_none()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projection_evaluates_duplicate_expressions_once() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, false),
+        Field::new("b", DataType::Int32, false),
+    ]);
+    let column = |name: &str, index| Arc::new(df_expr::Column::new(name, index));
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column("b", 1), "first"),
+        ProjectionExpr::new(column("a", 0), "other"),
+        ProjectionExpr::new(column("b", 1), "second"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("first", get_item("b", root())),
+                ("other", get_item("a", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(
+        processed.scan_reference_schema,
+        output_schema.project(&[0, 1])?
+    );
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(column("first", 0), "first"),
+            ProjectionExpr::new(column("other", 1), "other"),
+            ProjectionExpr::new(column("first", 0), "second"),
+        ]),
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projection_keeps_distinct_arrow_types_separate() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("s", DataType::Utf8, true)]);
+    let column = Arc::new(df_expr::Column::new("s", 0)) as Arc<dyn PhysicalExpr>;
+    let view = Arc::new(df_expr::CastExpr::new(
+        Arc::clone(&column),
+        DataType::Utf8View,
+        None,
+    )) as Arc<dyn PhysicalExpr>;
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column, "plain"),
+        ProjectionExpr::new(view, "view"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("plain", get_item("s", root())),
+                ("view", get_item("s", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(processed.scan_reference_schema, output_schema);
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("plain", 0)), "plain"),
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("view", 1)), "view"),
+        ]),
     );
     Ok(())
 }

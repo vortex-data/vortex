@@ -87,4 +87,29 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn overflowing_row_count_returns_error() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3].into_array();
+        let dtype = array.dtype().clone();
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        let parts = encoder.encode(EncoderMessage::Array(&array))?;
+        let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
+
+        let mut reader = BufMessageReader::new(Bytes::from(full));
+        let DecoderMessage::Array((array_parts, ctx, row_count)) =
+            reader.next().vortex_expect("expected Array message")?
+        else {
+            unreachable!("encoded message is Array");
+        };
+
+        let overflowing_row_count = row_count ^ (1usize << 62);
+        assert!(
+            array_parts
+                .decode(&dtype, overflowing_row_count, &ctx, &SESSION)
+                .is_err()
+        );
+
+        Ok(())
+    }
 }

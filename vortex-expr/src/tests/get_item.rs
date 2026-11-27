@@ -7,6 +7,7 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Filter;
@@ -37,6 +38,7 @@ use crate::Expression;
 use crate::checked_add;
 use crate::get_item;
 use crate::lit;
+use crate::mask;
 use crate::pack;
 use crate::proto::ExprSerializeProtoExt;
 use crate::root;
@@ -239,6 +241,47 @@ fn get_item_pushes_through_masked() -> VortexResult<()> {
         PrimitiveArray::from_option_iter([Some(0i32), None, Some(2)]),
         &mut SESSION.create_execution_ctx()
     );
+    Ok(())
+}
+
+/// A field read from a masked struct moves below every mask, where a layout reader can read the
+/// field without its siblings, and keeps the nulls of the struct and of each mask.
+#[test]
+fn get_item_reduces_below_masks() -> VortexResult<()> {
+    let s = StructArray::try_new(
+        FieldNames::from(["a", "b"]),
+        vec![
+            buffer![0i32, 1, 2, 3].into_array(),
+            buffer![4i64, 5, 6, 7].into_array(),
+        ],
+        4,
+        Validity::from_iter([true, true, false, true]),
+    )?;
+    let input = StructArray::from_fields(&[
+        ("s", s.into_array()),
+        (
+            "v",
+            BoolArray::from_iter([true, false, true, true]).into_array(),
+        ),
+        (
+            "w",
+            BoolArray::from_iter([true, true, true, false]).into_array(),
+        ),
+    ])?
+    .into_array();
+    let masks = |input: Expression| mask(mask(input, get_item("v", root())), get_item("w", root()));
+    let read = get_item("a", masks(get_item("s", root())));
+
+    let optimized = read.bind(input.dtype())?.optimize_recursive()?;
+    let expected = masks(get_item("a", get_item("s", root()))).bind(input.dtype())?;
+    assert_eq!(optimized, expected);
+
+    assert_arrays_eq!(
+        input.apply(&read)?,
+        PrimitiveArray::from_option_iter([Some(0i32), None, None, None]),
+        &mut SESSION.create_execution_ctx()
+    );
+
     Ok(())
 }
 

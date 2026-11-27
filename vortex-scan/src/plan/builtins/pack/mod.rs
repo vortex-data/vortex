@@ -21,7 +21,6 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::builtin::pack::Pack as PackFn;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -30,10 +29,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_expr as unbound;
 use vortex_expr::Expression;
-use vortex_expr::bound;
-use vortex_expr::traversal::NodeExt;
-use vortex_expr::traversal::NodeRewriter;
-use vortex_expr::traversal::Transformed;
 use vortex_functions::is_null::IsNull;
 use vortex_functions::select::FieldSelection;
 use vortex_functions::select::Select;
@@ -346,8 +341,8 @@ impl PackPlan {
 ///
 /// ```text
 /// $.address.zip          // Original projection.
-/// mask($.0, $.1).zip     // Partitioning still feeds the whole address into the mask.
-/// mask($.0.zip, $.1)     // The rewriter moves the lookup onto the address child.
+/// mask($.0, $.1).zip     // Partitioning feeds the whole address into the mask.
+/// mask($.0.zip, $.1)     // Optimizing the combiner moves the lookup below the mask.
 /// ```
 ///
 /// The next pass pushes the lookup into the `address` child as `$.zip`. The scan can
@@ -383,15 +378,11 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             PartitionedExpression::Many(partitioned) => partitioned,
         };
         let Partitions {
-            mut combiner,
+            combiner,
             partitions,
         } = partitioned;
 
         let nullable = child.dtype().is_nullable();
-        if nullable {
-            combiner = combiner.rewrite(&mut ProjectMaskedFields)?.into_inner();
-        }
-
         // The combiner's root is non-nullable even when it uses every original field.
         let mut pack_changed = nullable || partitions.len() != fields.nfields();
         let mut partition_fields = Vec::with_capacity(partitions.len());
@@ -424,37 +415,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             EvalPlan::try_new(combiner, combiner_input)?.into_plan(),
         ))
     }
-}
-
-/// Moves a field lookup inside the masks on its input struct.
-///
-/// A field of a null struct is null, so applying the same masks to just the field
-/// preserves the result.
-struct ProjectMaskedFields;
-
-impl NodeRewriter for ProjectMaskedFields {
-    type NodeTy = BoundExpression;
-
-    fn visit_up(&mut self, node: BoundExpression) -> VortexResult<Transformed<BoundExpression>> {
-        let Some(field) = node.as_opt::<GetItem>() else {
-            return Ok(Transformed::no(node));
-        };
-        let input = node.child(0);
-        if !input.is::<MaskFn>() {
-            return Ok(Transformed::no(node));
-        }
-
-        Ok(Transformed::yes(project_field_through_masks(field, input)))
-    }
-}
-
-fn project_field_through_masks(field: &FieldName, input: &BoundExpression) -> BoundExpression {
-    if !input.is::<MaskFn>() {
-        return bound::get_item(field.clone(), input.clone());
-    }
-
-    let projected = project_field_through_masks(field, input.child(0));
-    bound::mask(projected, input.child(1).clone())
 }
 
 fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> bool {
@@ -781,7 +741,7 @@ mod partition_tests {
         assert_snapshot!(partition(expr, &scope)?, @"
         partition 1 scope={c=i32, d=i32}: $
         partition validity scope=bool: pack(0: $, 1: vortex.not($))
-        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0, $.1.0).d > 0i32))
+        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0.d, $.1.0) > 0i32))
         ");
         Ok(())
     }

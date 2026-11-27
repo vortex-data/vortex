@@ -237,9 +237,8 @@ impl<T: SetInteger> IntegerSet<T> {
 
 /// Primitive integers, or floats by their bit patterns.
 ///
-/// A float is a member exactly when the compare kernel would call it equal to an element, which
-/// is when their bit patterns match — distinguishing `-0.0` from `0.0` and one NaN payload from
-/// another — so floats are looked up by their bits, as integers.
+/// Floats are looked up by their bits, as integers. `normalize.rs` maps the equality of each
+/// compare mode onto those bits before the lookup.
 struct PrimitiveSet<T>(IntegerSet<T>);
 
 impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
