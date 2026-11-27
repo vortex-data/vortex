@@ -60,8 +60,8 @@ use crate::session::session_ref;
 /// Opaque scan handle. Holds a three-state machine: either the scan is pending (not yet
 /// realized as a stream), actively streaming partitions, or finished.
 ///
-/// The scan's `split_concurrency`, if set, also bounds how many of each partition's arrays are
-/// converted to Arrow ahead of Java, so the conversion stays within the scan's bound.
+/// The scan's `split_concurrency` from Java, if set, bounds how many of each partition's arrays
+/// are converted to Arrow ahead of Java.
 #[allow(dead_code)]
 pub(crate) enum NativeScan {
     Pending(Box<dyn DataSourceScan>, Option<NonZeroUsize>),
@@ -93,7 +93,7 @@ fn build_scan_request(
     limit: jlong,
     ordered: jboolean,
     split_concurrency: jint,
-) -> VortexResult<ScanRequest> {
+) -> VortexResult<(ScanRequest, Option<NonZeroUsize>)> {
     let projection = if projection_ptr == 0 {
         root()
     } else {
@@ -152,7 +152,7 @@ fn build_scan_request(
             vortex_err!("split concurrency must not be negative, got {split_concurrency}")
         })?);
 
-    Ok(ScanRequest {
+    let request = ScanRequest {
         projection,
         filter,
         row_range,
@@ -161,8 +161,8 @@ fn build_scan_request(
         limit,
         partition_selection: Selection::All,
         partition_range: None,
-        split_concurrency,
-    })
+    };
+    Ok((request, split_concurrency))
 }
 
 fn deserialize_roaring_selection(bytes: &[u8]) -> VortexResult<roaring::RoaringTreemap> {
@@ -221,7 +221,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
             env.convert_byte_array(&selection_roaring_bitmap)?
         };
 
-        let request = build_scan_request(
+        let (request, split_concurrency) = build_scan_request(
             projection_ptr,
             filter_ptr,
             has_row_range_begin,
@@ -237,7 +237,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
             split_concurrency,
         )?;
 
-        let split_concurrency = request.split_concurrency;
         let scan = RUNTIME.block_on(async { ds.inner().scan(request).await })?;
         Ok(Box::into_raw(Box::new(NativeScan::Pending(scan, split_concurrency))) as jlong)
     })
@@ -528,7 +527,7 @@ mod tests {
         #[case] expected_range: Option<std::ops::Range<u64>>,
         #[case] expected_limit: Option<u64>,
     ) -> vortex::error::VortexResult<()> {
-        let request = super::build_scan_request(
+        let (request, _) = super::build_scan_request(
             0,
             0,
             begin.is_some(),
