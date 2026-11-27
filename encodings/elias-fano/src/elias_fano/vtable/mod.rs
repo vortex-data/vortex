@@ -18,11 +18,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
+use vortex_array::block::BlockOp;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::require_child;
+use vortex_array::require_spine;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -165,11 +167,23 @@ impl VTable for EliasFano {
         } else {
             require_child!(array, array.upper(), EliasFanoSlots::UPPER => Primitive)
         };
-        let array = require_child!(array, array.lower(), EliasFanoSlots::LOWER => Primitive);
+        let array = require_spine!(array, array.lower(), EliasFanoSlots::LOWER => Primitive);
 
         Ok(ExecutionResult::done(
             elias_fano_decode(&array)?.into_array(),
         ))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        if slot_idx != EliasFanoSlots::LOWER {
+            return Ok(None);
+        }
+        super::decode::lower_block_op(array)
     }
 }
 
