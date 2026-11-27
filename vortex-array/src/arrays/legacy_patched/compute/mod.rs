@@ -17,7 +17,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::Patched;
+    use crate::arrays::legacy_patched::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;

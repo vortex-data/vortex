@@ -200,7 +200,7 @@ fn patched_with_chunked_indices() -> ArrayRef {
         .into_array();
     let slots = PatchedSlots {
         inner: patched.inner().clone(),
-        lane_offsets: patched.lane_offsets().clone(),
+        patch_chunk_offsets: patched.patch_chunk_offsets().clone(),
         patch_indices: chunked,
         patch_values: patched.patch_values().clone(),
     };

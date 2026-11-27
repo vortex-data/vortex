@@ -107,6 +107,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Patched;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::NativePType;
     use vortex_array::match_each_integer_ptype;
@@ -120,6 +121,7 @@ mod tests {
 
     use crate::ALP;
     use crate::ALPArrayExt;
+    use crate::ALPArrayOwnedExt;
     use crate::ALPArraySlotsExt;
     use crate::alp_encode;
 
@@ -218,6 +220,18 @@ block_op 0 copy {}->{} scratch0 -> output",
                 ptype(&float),
             )
         );
+        Ok(())
+    }
+
+    #[test]
+    fn external_replacements_extend_the_decode_chain() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let alp = alp_for_bp(true, true, false)?.downcast::<ALP>();
+        let (encoded, exponents, patches) = alp.into_parts();
+        let base = ALP::try_new(encoded, exponents, None)?.into_array();
+        let array = Patched::from_array_and_patches(base, &patches.unwrap(), &mut ctx)?;
+        let trace = fusion_trace(array.into_array(), &SESSION)?;
+        assert!(trace.contains("fuse extend parent=vortex.patched.v2"), "{trace}");
         Ok(())
     }
 

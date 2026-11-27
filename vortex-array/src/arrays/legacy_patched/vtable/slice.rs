@@ -8,10 +8,10 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::Patched;
-use crate::arrays::patched::PatchedArrayExt;
-use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::arrays::patched::PatchedSlots;
+use crate::arrays::legacy_patched::Patched;
+use crate::arrays::legacy_patched::PatchedArrayExt;
+use crate::arrays::legacy_patched::PatchedArraySlotsExt;
+use crate::arrays::legacy_patched::PatchedSlots;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Patched {
@@ -69,7 +69,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::Patched;
+    use crate::arrays::legacy_patched::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::NativePType;

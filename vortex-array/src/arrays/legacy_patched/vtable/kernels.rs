@@ -5,7 +5,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayVTable;
 use crate::arrays::Dict;
-use crate::arrays::Patched;
+use crate::arrays::legacy_patched::Patched;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;

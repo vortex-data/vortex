@@ -1,108 +1,202 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! An array that partially "patches" another array with new values.
-//!
-//! # Background
-//!
-//! This is meant to be the foundation of a fully data-parallel patching strategy, based on the
-//! work published in ["G-ALP" from Hepkema et al.](https://ir.cwi.nl/pub/35205/35205.pdf)
-//!
-//! Patching is common when an encoding almost completely covers an array save a few exceptions.
-//! In that case, rather than avoid the encoding entirely, it's preferable to
-//!
-//! * Replace unencodable values with fillers (zeros, frequent values, nulls, etc.)
-//! * Wrap the array with a `PatchedArray` signaling that when the original array is executed,
-//!   some of the decoded values must be overwritten.
-//!
-//! In Vortex, the FastLanes bit-packing encoding is often the terminal node in an encoding tree,
-//! and FastLanes has an intrinsic chunking of 1024 elements. Thus, 1024 elements is pervasively
-//! a useful unit of chunking throughout Vortex, and so we use 1024 as a chunk size here
-//! as well.
-//!
-//! # Details
-//!
-//! To patch an array, we first divide it into a set of chunks of length 1024, and then within
-//! each chunk, we assign each position to a lane. The number of lanes depends on the width of
-//! the underlying type.
-//!
-//! Thus, rather than sorting patch indices and values by their global offset, they are sorted
-//! primarily by their chunk, and then subsequently by their lanes.
-//!
-//! The Patched array layout has 4 children
-//!
-//! * `inner`: the inner array is the one containing encoded values, including the filler values
-//!   that need to be patched over at execution time
-//! * `lane_offsets`: this is an indexing buffer that allows you to see into ranges of the other
-//!   two children
-//! * `indices`: An array of `u16` chunk indices, indicating where within the chunk should the value
-//!   be overwritten by the patch value
-//! * `values`: The child array containing the patch values, which should be inserted over
-//!   the values of the `inner` at the locations provided by `indices`
-//!
-//! `indices` and `values` are aligned and accessed together.
-//!
-//! ```text
-//! 
-//!                  chunk 0      chunk 0      chunk 0     chunk 0       chunk 0     chunk 0
-//!                  lane  0      lane 1       lane  2     lane 3        lane  4     lane  5
-//!              ┌────────────┬────────────┬────────────┬────────────┬────────────┬────────────┐
-//! lane_offsets │     0      │     0      │     2      │     2      │     3      │     5      │  ...
-//!              └─────┬──────┴─────┬──────┴─────┬──────┴──────┬─────┴──────┬─────┴──────┬─────┘
-//!                    │            │            │             │            │            │
-//!                    │            │            │             │            │            │
-//!              ┌─────┴────────────┘            └──────┬──────┘     ┌──────┘            └─────┐
-//!              │                                      │            │                         │
-//!              │                                      │            │                         │
-//!              │                                      │            │                         │
-//!              ▼────────────┬────────────┬────────────▼────────────▼────────────┬────────────▼
-//!    indices   │            │            │            │            │            │            │
-//!              │            │            │            │            │            │            │
-//!              ├────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
-//!    values    │            │            │            │            │            │            │
-//!              │            │            │            │            │            │            │
-//!              └────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
-//! ```
-//!
-//! It turns out that this layout is optimal for executing patching on GPUs, because the
-//! `lane_offsets` allows each thread in a warp to seek to its patches in constant time.
+//! A primitive base array with sorted replacement patches.
 
-mod array;
-mod compute;
-mod vtable;
+mod execute;
+mod plugin;
+#[cfg(test)]
+mod tests;
 
 use std::env;
+use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::LazyLock;
 
-pub use array::*;
-use vortex_buffer::ByteBuffer;
-pub use vtable::*;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_session::VortexSession;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
-    vtable::initialize(session);
-    compute::rules::register_parent_rules(session);
+use crate::Array;
+use crate::ArrayEq;
+use crate::ArrayHash;
+use crate::ArrayParts;
+use crate::ArrayRef;
+use crate::ArrayVTable;
+use crate::EqMode;
+use crate::ExecutionCtx;
+use crate::array::TypedArrayRef;
+use crate::array_slots;
+use crate::arrays::Slice;
+use crate::arrays::slice::SliceExecuteAdaptor;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::patches::PatchSlotIndices;
+use crate::patches::Patches;
+use crate::patches::PatchesData;
+
+/// Sorted patches over a base array of the same logical type.
+#[derive(Clone, Debug)]
+pub struct Patched;
+
+/// An array using the sorted patch encoding.
+pub type PatchedArray = Array<Patched>;
+
+/// Strategy families can grow independently, e.g. numeric addition or integer bit composition.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PatchStrategy {
+    /// Operations on integer values.
+    Integer(IntegerPatchStrategy),
+    /// Operations on floating-point values.
+    Float(FloatPatchStrategy),
 }
 
-/// Patches that have been transposed into GPU format.
-struct TransposedPatches {
-    n_lanes: usize,
-    lane_offsets: ByteBuffer,
-    indices: ByteBuffer,
-    values: ByteBuffer,
+/// Operations available for integer patches.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, prost::Enumeration)]
+#[repr(i32)]
+pub enum IntegerPatchStrategy {
+    /// Replace both value and validity.
+    Replace = 0,
 }
 
-/// Number of lanes used at patch time for a value of type `V`.
-///
-/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this is going to
-/// correspond to how many "lanes" we will end up copying data on.
-///
-/// When applied on the CPU, this configuration doesn't really matter. On the GPU, it is based
-/// on the number of patches involved here.
-const fn patch_lanes<V: Sized>() -> usize {
-    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
-    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
-    // from shared to global memory.
-    if size_of::<V>() < 8 { 32 } else { 16 }
+/// Operations available for floating-point patches.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, prost::Enumeration)]
+#[repr(i32)]
+pub enum FloatPatchStrategy {
+    /// Replace both value and validity.
+    Replace = 0,
+}
+
+impl PatchStrategy {
+    fn replace(dtype: &DType) -> VortexResult<Self> {
+        if dtype.is_int() {
+            Ok(Self::Integer(IntegerPatchStrategy::Replace))
+        } else if dtype.is_float() {
+            Ok(Self::Float(FloatPatchStrategy::Replace))
+        } else {
+            vortex_bail!("Unsupported patched dtype {dtype}")
+        }
+    }
+}
+
+/// Scalar metadata accompanying the four child arrays.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct PatchedData {
+    patches: PatchesData,
+    strategy: PatchStrategy,
+}
+
+impl fmt::Display for PatchedData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}, offset={}", self.strategy, self.patches.offset())
+    }
+}
+
+impl ArrayHash for PatchedData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _mode: EqMode) {
+        self.hash(state);
+    }
+}
+
+impl ArrayEq for PatchedData {
+    fn array_eq(&self, other: &Self, _mode: EqMode) -> bool {
+        self == other
+    }
+}
+
+#[array_slots(Patched)]
+pub struct PatchedSlots {
+    /// Base array, also the spine of a fused decode.
+    #[slot(0)]
+    pub inner: ArrayRef,
+    /// Strictly increasing unsigned patch positions.
+    #[slot(1)]
+    pub patch_indices: ArrayRef,
+    /// Replacement values and their validity.
+    #[slot(2)]
+    pub patch_values: ArrayRef,
+    /// Starting patch position for each physical patch chunk.
+    #[slot(3)]
+    pub patch_chunk_offsets: ArrayRef,
+}
+
+const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: PatchedSlots::PATCH_INDICES,
+    values: PatchedSlots::PATCH_VALUES,
+    chunk_offsets: PatchedSlots::PATCH_CHUNK_OFFSETS,
+};
+
+/// Access the patch description on an owned or borrowed array.
+pub trait PatchedArrayExt: TypedArrayRef<Patched> {
+    /// The original sorted patch children and their slice offsets.
+    fn patches(&self) -> Patches {
+        PatchesData::patches_from_slots(Some(&self.patches), self.len(), self.slots(), PATCH_SLOTS)
+            .vortex_expect("Patched has required patch slots")
+    }
+
+    /// How patch values combine with the base.
+    fn strategy(&self) -> PatchStrategy {
+        self.strategy
+    }
+}
+
+impl<T: TypedArrayRef<Patched>> PatchedArrayExt for T {}
+
+impl Patched {
+    /// Replace the selected base rows, including their validity.
+    pub fn from_array_and_patches(
+        inner: ArrayRef,
+        patches: &Patches,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<PatchedArray> {
+        let strategy = PatchStrategy::replace(inner.dtype())?;
+        Self::with_strategy(inner, patches, strategy, ctx)
+    }
+
+    /// Construct a patched array with an explicit dtype-specific strategy.
+    pub fn with_strategy(
+        inner: ArrayRef,
+        patches: &Patches,
+        strategy: PatchStrategy,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<PatchedArray> {
+        let dtype = inner.dtype().clone();
+        vortex_ensure!(strategy == PatchStrategy::replace(&dtype)?);
+        vortex_ensure_eq!(inner.len(), patches.array_len());
+        vortex_ensure!(dtype.eq_with_nullability_superset(patches.dtype()));
+        let patches = patches.clone().with_chunk_offsets(ctx)?;
+        let data = PatchedData {
+            patches: PatchesData::from_patches(&patches),
+            strategy,
+        };
+        let slots = PatchedSlots {
+            inner,
+            patch_indices: patches.indices().clone(),
+            patch_values: patches.values().cast(dtype.clone())?,
+            patch_chunk_offsets: patches
+                .chunk_offsets()
+                .clone()
+                .vortex_expect("offsets supplied"),
+        };
+        Array::try_from_parts(ArrayParts::new(
+            Self,
+            dtype,
+            patches.array_len(),
+            data,
+            slots.into_slots(),
+        ))
+    }
+}
+
+pub(crate) fn initialize(session: &VortexSession) {
+    session
+        .kernels()
+        .register_execute_parent_kernel(Slice.id(), Patched, SliceExecuteAdaptor(Patched));
 }
 
 /// Flag indicating if experimental patched array support is enabled.

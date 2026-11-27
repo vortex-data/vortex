@@ -4,7 +4,7 @@
 use vortex_session::VortexSession;
 
 use crate::arrays::Filter;
-use crate::arrays::Patched;
+use crate::arrays::legacy_patched::Patched;
 use crate::arrays::Slice;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;

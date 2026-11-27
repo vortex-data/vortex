@@ -11,7 +11,9 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
@@ -32,6 +34,7 @@ use crate::CompressorContext;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::sparse_from_children;
 
 /// Sparse encoding for single-value-dominated arrays.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -47,7 +50,11 @@ impl Scheme for SparseScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id(), Constant.id()]
+        if use_experimental_patches() {
+            vec![Patched.id(), Constant.id()]
+        } else {
+            vec![Sparse.id(), Constant.id()]
+        }
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {
@@ -200,14 +207,13 @@ impl Scheme for SparseScheme {
                 exec_ctx,
             )?;
 
-            Sparse::try_new(
+            sparse_from_children(
                 compressed_indices,
                 compressed_values,
                 sparse.len(),
                 sparse.fill_scalar().clone(),
                 exec_ctx,
             )
-            .map(|a| a.into_array())
         } else {
             Ok(sparse_encoded)
         }

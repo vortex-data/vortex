@@ -200,6 +200,7 @@ pub fn register_default_encodings(session: &VortexSession) {
 
     vortex_pco::initialize(session);
     if use_experimental_patches() {
+        session.arrays().register(vortex_array::arrays::legacy_patched::Patched);
         session.arrays().register(Patched);
     }
 

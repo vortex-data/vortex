@@ -12,9 +12,9 @@ use crate::array::OperationsVTable;
 use crate::array::ProbeChildren;
 use crate::array::ProbeState;
 use crate::arrays::Primitive;
-use crate::arrays::patched::Patched;
-use crate::arrays::patched::PatchedArrayExt;
-use crate::arrays::patched::PatchedSlots;
+use crate::arrays::legacy_patched::Patched;
+use crate::arrays::legacy_patched::PatchedArrayExt;
+use crate::arrays::legacy_patched::PatchedSlots;
 use crate::scalar::Scalar;
 
 // The constructor's 16/32-lane layouts span at most 64 positions; larger lanes stay uncached.
@@ -226,11 +226,11 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::Patched;
+    use crate::arrays::legacy_patched::Patched;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::patched::PatchedArrayExt;
-    use crate::arrays::patched::PatchedArraySlotsExt;
-    use crate::arrays::patched::PatchedSlots;
+    use crate::arrays::legacy_patched::PatchedArrayExt;
+    use crate::arrays::legacy_patched::PatchedArraySlotsExt;
+    use crate::arrays::legacy_patched::PatchedSlots;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;

@@ -5,9 +5,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::Scalar;
+use vortex_sparse::Sparse;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
@@ -53,4 +57,21 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         chunk_offsets,
         ctx,
     )
+}
+
+/// Build the selected sparse representation from the compressed patch children.
+pub(super) fn sparse_from_children(
+    indices: ArrayRef,
+    values: ArrayRef,
+    len: usize,
+    fill: Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if use_experimental_patches() {
+        let patches = Patches::new(len, 0, indices, values, None, ctx)?;
+        let base = ConstantArray::new(fill, len).into_array();
+        Ok(Patched::from_array_and_patches(base, &patches, ctx)?.into_array())
+    } else {
+        Ok(Sparse::try_new(indices, values, len, fill, ctx)?.into_array())
+    }
 }

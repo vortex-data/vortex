@@ -9,9 +9,9 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::FilterArray;
-use crate::arrays::Patched;
+use crate::arrays::legacy_patched::Patched;
 use crate::arrays::filter::FilterReduce;
-use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::legacy_patched::PatchedArrayExt;
 
 impl FilterReduce for Patched {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
@@ -72,7 +72,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::Patched;
+    use crate::arrays::legacy_patched::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;

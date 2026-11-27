@@ -19,11 +19,11 @@ use crate::ArrayRef;
 use crate::ArraySerialization;
 use crate::IntoArray;
 use crate::VTable;
-use crate::arrays::Patched;
-use crate::arrays::patched::PatchedArrayExt;
-use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::arrays::patched::PatchedData;
-use crate::arrays::patched::PatchedSlots;
+use crate::arrays::legacy_patched::Patched;
+use crate::arrays::legacy_patched::PatchedArrayExt;
+use crate::arrays::legacy_patched::PatchedArraySlotsExt;
+use crate::arrays::legacy_patched::PatchedData;
+use crate::arrays::legacy_patched::PatchedSlots;
 use crate::dtype::PType;
 
 impl ArrayPlugin for Patched {

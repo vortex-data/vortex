@@ -9,7 +9,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -24,6 +27,7 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::sparse_from_children;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
 
 /// Sparse encoding for null-dominated float arrays.
@@ -42,7 +46,11 @@ impl Scheme for NullDominatedSparseScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id()]
+        if use_experimental_patches() {
+            vec![Patched.id(), Constant.id()]
+        } else {
+            vec![Sparse.id()]
+        }
     }
 
     /// Children: indices=0.
@@ -107,14 +115,13 @@ impl Scheme for NullDominatedSparseScheme {
                 exec_ctx,
             )?;
 
-            Sparse::try_new(
+            sparse_from_children(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
                 sparse.fill_scalar().clone(),
                 exec_ctx,
             )
-            .map(|a| a.into_array())
         } else {
             Ok(sparse_encoded)
         }
