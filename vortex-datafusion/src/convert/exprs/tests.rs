@@ -68,6 +68,7 @@ use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray as VortexStructArray;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::dtype::DecimalDType;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtDTypeRef;
 use vortex::dtype::session::DTypeSessionExt;
@@ -3888,11 +3889,15 @@ fn test_strict_variant_get_stays_in_datafusion() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Vortex converts Booleans, numbers and strings as Arrow does, so these targets convert.
+/// Vortex converts Booleans, numbers, decimals and strings as Arrow does, so these targets convert.
 #[rstest]
 #[case::boolean(DataType::Boolean, DType::Bool(Nullability::Nullable))]
 #[case::integer(DataType::Int64, DType::Primitive(PType::I64, Nullability::Nullable))]
 #[case::float(DataType::Float64, DType::Primitive(PType::F64, Nullability::Nullable))]
+#[case::decimal(
+    DataType::Decimal128(12, 2),
+    DType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
+)]
 #[case::string(DataType::Utf8, DType::Utf8(Nullability::Nullable))]
 fn test_variant_get_converts_targets_that_convert_as_arrow(
     #[case] return_type: DataType,
@@ -3911,13 +3916,11 @@ fn test_variant_get_converts_targets_that_convert_as_arrow(
     Ok(())
 }
 
-/// Arrow converts doubles and strings to decimals and rounds decimals, where Vortex gives nulls,
-/// so a decimal target stays in DataFusion. So do nested targets.
+/// Nested targets stay in DataFusion.
 #[rstest]
-#[case::decimal(DataType::Decimal128(12, 2))]
 #[case::list(DataType::List(Arc::new(Field::new("item", DataType::Int64, true))))]
 #[case::struct_(DataType::Struct(vec![Field::new("b", DataType::Int64, true)].into()))]
-fn test_variant_get_keeps_other_targets_in_datafusion(
+fn test_variant_get_keeps_nested_targets_in_datafusion(
     #[case] return_type: DataType,
 ) -> anyhow::Result<()> {
     let (schema, expr) = variant_get_expr_named("try_variant_get", "$.a", return_type)?;

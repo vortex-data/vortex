@@ -103,15 +103,11 @@ const DATAFUSION_MODE: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
 const TRY_VARIANT_GET: &str = "try_variant_get";
 
 /// Returns whether Vortex's `variant_get` converts a Variant value to `dtype` as Arrow's Variant
-/// conversion does, which datafusion-variant uses.
-///
-/// Arrow converts doubles and strings to decimals, and rounds a decimal to a smaller scale. Vortex
-/// gives a null for these values, so a decimal target stays in DataFusion, as do the other types
-/// that this does not accept.
+/// conversion does, which datafusion-variant uses. Nested targets stay in DataFusion.
 fn converts_as_arrow(dtype: &DType) -> bool {
     matches!(
         dtype,
-        DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_)
+        DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) | DType::Utf8(_)
     )
 }
 
