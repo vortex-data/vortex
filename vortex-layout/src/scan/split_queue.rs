@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! The queue of splits behind an opened layout scan.
+
+use std::iter;
+use std::sync::Arc;
+use std::vec;
+
+use futures::StreamExt;
+use futures::future;
+use futures::future::BoxFuture;
+use futures::stream;
+use futures::stream::BoxStream;
+use parking_lot::Mutex;
+use vortex_array::ArrayRef;
+use vortex_error::VortexResult;
+use vortex_io::runtime::Handle;
+use vortex_scan::stream::ExhaustedFlag;
+
+use crate::scan::repeated_scan::ScanTasks;
+
+/// One split of a scan, which returns the split's array, or `None` when the filter removes all
+/// of its rows.
+type SplitTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+
+/// A queue of the split futures of [`RepeatedScan::execute`], in row order, which the streams of
+/// an opened scan share. Each stream polls one worker over the queue.
+///
+/// Each worker claims splits from the queue and keeps up to `per_worker` of its own in
+/// flight, spawned on the session's runtime, yielding them as they finish. This is the scan's
+/// stream pipeline with its in-flight bound split across workers: `per_worker` is the per-thread
+/// count that the stream multiplies by the cores, so a host polling one worker per core keeps as
+/// many splits in flight as the stream does.
+///
+/// A worker yields only the splits it claimed, and claims a split only when it has room for one,
+/// so no worker waits on a split another one claimed.
+///
+/// A worker with room for one split has nothing to overlap it with, so it polls the split itself
+/// rather than spawning it. The split then runs on the thread that polls the worker, which also
+/// consumes its array, and no other thread driving the runtime picks it up.
+///
+/// [`RepeatedScan::execute`]: crate::scan::repeated_scan::RepeatedScan::execute
+pub(crate) struct SplitQueue {
+    handle: Handle,
+    per_worker: usize,
+    splits: Mutex<vec::IntoIter<SplitTask>>,
+    /// Set once the last split is claimed.
+    exhausted: ExhaustedFlag,
+}
+
+impl SplitQueue {
+    pub(crate) fn new(
+        handle: Handle,
+        per_worker: usize,
+        splits: ScanTasks<ArrayRef>,
+        exhausted: ExhaustedFlag,
+    ) -> Self {
+        if splits.is_empty() {
+            exhausted.set();
+        }
+        Self {
+            handle,
+            per_worker: per_worker.max(1),
+            splits: Mutex::new(splits.into_iter()),
+            exhausted,
+        }
+    }
+
+    /// Claims the next split, if any is left, and marks the queue exhausted when it claims the
+    /// last.
+    fn claim(&self) -> Option<SplitTask> {
+        let mut splits = self.splits.lock();
+        let split = splits.next()?;
+        if splits.len() == 0 {
+            self.exhausted.set();
+        }
+        Some(split)
+    }
+
+    /// A new worker over the shared queue, which one stream of the scan polls.
+    pub(crate) fn worker(self: Arc<Self>) -> BoxStream<'static, VortexResult<ArrayRef>> {
+        let handle = self.handle.clone();
+        let per_worker = self.per_worker;
+        let splits = stream::iter(iter::from_fn(move || self.claim()));
+        if per_worker == 1 {
+            return splits
+                .then(|split| split)
+                .filter_map(|array| future::ready(array.transpose()))
+                .boxed();
+        }
+        // `buffer_unordered` pulls a split only when it has room, so a worker claims no more
+        // than it runs.
+        splits
+            .map(move |split| handle.spawn(split))
+            .buffer_unordered(per_worker)
+            .filter_map(|array| future::ready(array.transpose()))
+            .boxed()
+    }
+}

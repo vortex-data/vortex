@@ -20,7 +20,7 @@ use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
+use vortex_array::stats::Precision;
 use vortex_array::stream::ArrayStream;
 use vortex_error::VortexResult;
 
@@ -208,7 +208,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::Precision;
+    use vortex_array::stats::Precision;
     use vortex_array::stream::ArrayStreamAdapter;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::stream::SendableArrayStream;
