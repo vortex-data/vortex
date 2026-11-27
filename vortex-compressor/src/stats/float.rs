@@ -236,7 +236,7 @@ where
         let slice = buff.as_slice();
         let mut prev = slice[0];
         let mut equal_pairs: u64 = 0;
-        let (chunks, remainder) = slice[1..].as_chunks::<4>();
+        let (chunks, remainder) = slice.as_chunks::<4>();
         for &[a, b, c, d] in chunks {
             equal_pairs += u64::from(prev.is_eq(a))
                 + u64::from(a.is_eq(b))
@@ -248,7 +248,9 @@ where
             equal_pairs += u64::from(prev.is_eq(v));
             prev = v;
         }
-        runs += slice.len() as u64 - 1 - equal_pairs;
+        // The first comparison checks `slice[0].is_eq(slice[0])` (always true bitwise), adding
+        // 1 to `equal_pairs`, which cancels the `- 1` in `slice.len() - 1 - actual_equal_pairs`.
+        runs += slice.len() as u64 - equal_pairs;
     } else {
         let head_idx = validity
             .first()
@@ -447,8 +449,9 @@ mod tests {
     fn test_float_stats_nan_and_signed_zero_runs() {
         let mut ctx = SESSION.create_execution_ctx();
         let single_nan = PrimitiveArray::from_iter([f32::NAN]);
-        let leading_nan = PrimitiveArray::from_iter([f64::NAN, f64::NAN, 1.0, 2.0]);
-        let signed_zeros = PrimitiveArray::from_iter([0.0f64, -0.0, 0.0, -0.0]);
+        let leading_nan =
+            PrimitiveArray::from_iter([f64::NAN, f64::NAN, 1.0, 1.0, f64::NAN, 2.0, 2.0]);
+        let signed_zeros = PrimitiveArray::from_iter([0.0f64, -0.0, 0.0, -0.0, -0.0, 0.0]);
 
         for count_distinct_values in [false, true] {
             let opts = GenerateStatsOptions {
@@ -462,13 +465,13 @@ mod tests {
             assert_eq!(stats.distinct_count(), count_distinct_values.then_some(1));
 
             let stats = FloatStats::generate_opts(&leading_nan, opts, &mut ctx);
-            assert_eq!(stats.run_count(), 3);
+            assert_eq!(stats.run_count(), 4);
             assert_eq!(stats.average_run_length(), 1);
             assert_eq!(stats.distinct_count(), count_distinct_values.then_some(3));
 
             // +0.0 and -0.0 have distinct bit patterns and must count as separate runs.
             let stats = FloatStats::generate_opts(&signed_zeros, opts, &mut ctx);
-            assert_eq!(stats.run_count(), 4);
+            assert_eq!(stats.run_count(), 5);
             assert_eq!(stats.average_run_length(), 1);
             assert_eq!(stats.distinct_count(), count_distinct_values.then_some(2));
         }
