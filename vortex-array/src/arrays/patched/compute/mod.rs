@@ -7,7 +7,6 @@ mod filter;
 mod property_tests;
 mod take;
 mod validity;
-pub(super) use validity::PatchValidity;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;

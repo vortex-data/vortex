@@ -16,6 +16,7 @@ use crate::ArraySerialization;
 use crate::IntoArray;
 use crate::VTable;
 use crate::VortexSessionExecute;
+use crate::arrays::patched::BoolPatchStrategy;
 use crate::arrays::patched::FloatPatchStrategy;
 use crate::arrays::patched::IntegerPatchStrategy;
 use crate::arrays::patched::PatchStrategy;
@@ -41,7 +42,7 @@ struct PatchedMetadata {
     // Reserve field 1 for absolute indices. Only the chunk-relative layout is implemented.
     #[prost(oneof = "IndexLayout", tags = "5")]
     indices: Option<IndexLayout>,
-    #[prost(oneof = "Strategy", tags = "2, 3")]
+    #[prost(oneof = "Strategy", tags = "2, 3, 6")]
     strategy: Option<Strategy>,
 }
 
@@ -54,6 +55,8 @@ enum IndexLayout {
 
 #[derive(Clone, prost::Oneof)]
 enum Strategy {
+    #[prost(enumeration = "BoolPatchStrategy", tag = "6")]
+    Bool(i32),
     #[prost(enumeration = "IntegerPatchStrategy", tag = "2")]
     Integer(i32),
     #[prost(enumeration = "FloatPatchStrategy", tag = "3")]
@@ -74,6 +77,7 @@ impl ArrayPlugin for Patched {
             .as_opt::<Self>()
             .ok_or_else(|| vortex_err!("Expected Patched array"))?;
         let strategy = match view.strategy() {
+            PatchStrategy::Bool(op) => Strategy::Bool(op as i32),
             PatchStrategy::Integer(op) => Strategy::Integer(op as i32),
             PatchStrategy::Float(op) => Strategy::Float(op as i32),
         };
@@ -108,6 +112,10 @@ impl ArrayPlugin for Patched {
             .strategy
             .ok_or_else(|| vortex_err!("Missing patch strategy"))?
         {
+            Strategy::Bool(op) => PatchStrategy::Bool(
+                BoolPatchStrategy::try_from(op)
+                    .map_err(|_| vortex_err!("Unknown boolean patch strategy {op}"))?,
+            ),
             Strategy::Integer(op) => PatchStrategy::Integer(
                 IntegerPatchStrategy::try_from(op)
                     .map_err(|_| vortex_err!("Unknown integer patch strategy {op}"))?,
@@ -145,14 +153,7 @@ impl ArrayPlugin for Patched {
         let mut ctx = session.create_execution_ctx();
         vortex_ensure_eq!(indices.dtype().as_ptype(), PType::U16);
         vortex_ensure_eq!(metadata.offset_within_chunk(), 0);
-        visit_chunks::<true>(
-            &indices,
-            &offsets,
-            offset,
-            parts.len,
-            &mut ctx,
-            |_, _, _| {},
-        )?;
+        visit_chunks::<true>(&indices, &offsets, offset, parts.len, &mut ctx, |_, _| {})?;
         Ok(Self::from_relative(inner, indices, values, offsets, offset, strategy)?.into_array())
     }
 }

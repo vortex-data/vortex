@@ -9,6 +9,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::patched::BoolPatchStrategy;
 use crate::arrays::patched::FloatPatchStrategy;
 use crate::arrays::patched::IntegerPatchStrategy;
 use crate::arrays::patched::PatchStrategy;
@@ -26,7 +27,8 @@ impl CompareKernel for Patched {
         op: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        let (PatchStrategy::Bool(BoolPatchStrategy::Replace)
+        | PatchStrategy::Integer(IntegerPatchStrategy::Replace)
         | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         let Some(constant) = rhs.as_constant() else {
             return Ok(None);

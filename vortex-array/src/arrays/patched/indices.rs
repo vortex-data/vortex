@@ -16,7 +16,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::PATCH_CHUNK_SIZE;
-use crate::search_sorted::decode_sorted_positions;
 
 #[expect(
     clippy::cast_possible_truncation,
@@ -78,40 +77,50 @@ pub(super) fn lower_bound(
     Ok(lo)
 }
 
-/// Visit each chunk with its physical row origin, first patch entry and local positions.
+/// Visit each chunk with its physical row origin and local positions.
 pub(super) fn visit_chunks<const VALIDATE: bool>(
     indices: &ArrayRef,
     offsets: &ArrayRef,
     offset: usize,
     len: usize,
     ctx: &mut ExecutionCtx,
-    mut visit: impl FnMut(usize, usize, &[u16]),
+    mut visit: impl FnMut(usize, &[u16]),
 ) -> VortexResult<()> {
     let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
     let local = indices.as_slice::<u16>();
-    let starts = decode_sorted_positions(offsets, ctx)?;
+    let offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
     let end = offset
         .checked_add(len)
         .ok_or_else(|| vortex_err!("Patch range overflow"))?;
     let first_chunk = offset / PATCH_CHUNK_SIZE;
-    vortex_ensure_eq!(starts.len(), end.div_ceil(PATCH_CHUNK_SIZE) - first_chunk);
-    vortex_ensure!(starts.first() == Some(&0));
-    for (chunk, &start) in starts.iter().enumerate() {
-        let stop = starts.get(chunk + 1).copied().unwrap_or(local.len() as u64);
-        let entries = local
-            .get(usize::try_from(start)?..usize::try_from(stop)?)
-            .ok_or_else(|| vortex_err!("Invalid patch chunk range"))?;
-        let base = (first_chunk + chunk) * PATCH_CHUNK_SIZE;
-        if VALIDATE {
-            vortex_ensure!(entries.is_sorted_by(|a, b| a < b));
-            if let (Some(&first), Some(&last)) = (entries.first(), entries.last()) {
-                vortex_ensure!(usize::from(last) < PATCH_CHUNK_SIZE);
-                vortex_ensure!(
-                    base + usize::from(first) >= offset && base + usize::from(last) < end
-                );
+    vortex_ensure_eq!(offsets.len(), end.div_ceil(PATCH_CHUNK_SIZE) - first_chunk);
+    match_each_unsigned_integer_ptype!(offsets.ptype(), |I| {
+        let starts = offsets.as_slice::<I>();
+        vortex_ensure!(starts.first() == Some(&0));
+        let mut start = 0;
+        let ends = starts
+            .iter()
+            .skip(1)
+            .map(|n| n.to_usize())
+            .chain(std::iter::once(Some(local.len())));
+        for (chunk, stop) in ends.enumerate() {
+            let stop = stop.ok_or_else(|| vortex_err!("Chunk offset exceeds usize"))?;
+            let entries = local
+                .get(start..stop)
+                .ok_or_else(|| vortex_err!("Invalid patch chunk range"))?;
+            let base = (first_chunk + chunk) * PATCH_CHUNK_SIZE;
+            if VALIDATE {
+                vortex_ensure!(entries.is_sorted_by(|a, b| a < b));
+                if let (Some(&first), Some(&last)) = (entries.first(), entries.last()) {
+                    vortex_ensure!(usize::from(last) < PATCH_CHUNK_SIZE);
+                    vortex_ensure!(
+                        base + usize::from(first) >= offset && base + usize::from(last) < end
+                    );
+                }
             }
+            visit(base, entries);
+            start = stop;
         }
-        visit(base, usize::try_from(start)?, entries);
-    }
-    Ok(())
+        Ok(())
+    })
 }

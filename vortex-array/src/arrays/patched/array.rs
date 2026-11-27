@@ -44,10 +44,21 @@ pub type PatchedArray = Array<Patched>;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum PatchStrategy {
+    /// Operations on boolean values.
+    Bool(BoolPatchStrategy),
     /// Operations on integer values.
     Integer(IntegerPatchStrategy),
     /// Operations on floating-point values.
     Float(FloatPatchStrategy),
+}
+
+/// Operations available for boolean patches.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, prost::Enumeration)]
+#[repr(i32)]
+#[non_exhaustive]
+pub enum BoolPatchStrategy {
+    /// Replace both value and validity.
+    Replace = 0,
 }
 
 /// Operations available for integer patches.
@@ -71,7 +82,8 @@ pub enum FloatPatchStrategy {
 impl fmt::Display for PatchStrategy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Integer(IntegerPatchStrategy::Replace)
+            Self::Bool(BoolPatchStrategy::Replace)
+            | Self::Integer(IntegerPatchStrategy::Replace)
             | Self::Float(FloatPatchStrategy::Replace) => f.write_str("replace"),
         }
     }
@@ -80,6 +92,7 @@ impl fmt::Display for PatchStrategy {
 impl PatchStrategy {
     pub(super) fn validate(self, dtype: &DType) -> VortexResult<()> {
         let supported = match self {
+            Self::Bool(BoolPatchStrategy::Replace) => dtype.is_boolean(),
             Self::Integer(IntegerPatchStrategy::Replace) => dtype.is_int(),
             Self::Float(FloatPatchStrategy::Replace) => dtype.is_float(),
         };
@@ -88,7 +101,9 @@ impl PatchStrategy {
     }
 
     fn replace(dtype: &DType) -> VortexResult<Self> {
-        if dtype.is_int() {
+        if dtype.is_boolean() {
+            Ok(Self::Bool(BoolPatchStrategy::Replace))
+        } else if dtype.is_int() {
             Ok(Self::Integer(IntegerPatchStrategy::Replace))
         } else if dtype.is_float() {
             Ok(Self::Float(FloatPatchStrategy::Replace))
@@ -151,7 +166,7 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
             self.offset,
             self.len(),
             ctx,
-            |base, _, local| rows.extend(local.iter().map(|&i| base as u64 + u64::from(i))),
+            |base, local| rows.extend(local.iter().map(|&i| base as u64 + u64::from(i))),
         )?;
         // SAFETY: Patched construction validates sorted positions, value count, and chunk starts.
         // Chunk starts are normalized to this view, including a partial first chunk.
