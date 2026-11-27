@@ -282,8 +282,6 @@ impl Scheme for FoRScheme {
                 (vec![Child::new(self, 0, references.clone())], None)
             }
         };
-        // The bit-packed children are compressed in our own context, not a leaf one, so a v2
-        // child's block offsets can cascade.
         Ok(
             packed.wrap(compress, Vec::new(), move |packed, children, _| {
                 // TODO(connor): This should really be `new_unchecked`.
