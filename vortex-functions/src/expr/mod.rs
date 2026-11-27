@@ -806,21 +806,7 @@ pub fn bound_variant_get(
 /// `complete` says whether every shredded path is absent from `core`; see
 /// [`VariantPackOptions::complete`].
 pub fn variant_pack(core: Expression, shredded: Expression, complete: bool) -> Expression {
-    VariantPack.new_expr(VariantPackOptions::new(complete), vec![core, shredded])
-}
-
-/// Creates a Variant expression from core storage, a non-nullable shredded struct, and the
-/// struct's validity.
-pub fn variant_pack_with_validity(
-    core: Expression,
-    shredded: Expression,
-    validity: Expression,
-    complete: bool,
-) -> Expression {
-    VariantPack.new_expr(
-        VariantPackOptions::with_shredded_validity(complete),
-        vec![core, shredded, validity],
-    )
+    VariantPack.new_expr(VariantPackOptions::new(complete), [core, shredded])
 }
 
 // ---- Like ----

@@ -1227,21 +1227,20 @@ fn variant_get_extracts_from_masked_variants(#[case] as_core_storage: bool) -> V
 }
 
 #[test]
-fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexResult<()> {
+fn variant_get_root_struct_respects_shredded_struct_validity() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let core = variant_rows([
         Scalar::variant(variant_object([])),
-        Scalar::null(DType::Variant(Nullability::Nullable)),
+        Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
     ])?;
     let shredded = StructArray::try_new(
         FieldNames::from_iter(["a"]),
-        vec![PrimitiveArray::from_option_iter([Some(10i32), None]).into_array()],
+        vec![PrimitiveArray::from_option_iter([Some(10i32), Some(11)]).into_array()],
         2,
-        Validity::NonNullable,
+        Validity::from_iter([true, false]),
     )?
     .into_array();
-    let validity = BoolArray::from_iter([true, false]).into_array();
-    let packed = VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
+    let packed = VariantPack::try_new(core, shredded, true)?.into_array();
 
     let target = DType::struct_(
         [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
@@ -1281,9 +1280,8 @@ enum Reduced {
 /// the pack is not complete, the core storage also holds `a` for the third row, where the
 /// shredded `a` is null.
 ///
-/// Returns the core storage, the shredded struct, and the struct's validity, which is false for
-/// the string row.
-fn pack_over_core(complete: bool) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)> {
+/// Returns the core storage and the shredded struct, which is null for the string row.
+fn pack_over_core(complete: bool) -> VortexResult<(ArrayRef, ArrayRef)> {
     let b = |value: i32| Scalar::primitive(value, Nullability::NonNullable);
     let third_row = if complete {
         variant_object([("b", b(3))])
@@ -1318,11 +1316,10 @@ fn pack_over_core(complete: bool) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)
             ])?,
         ],
         4,
-        Validity::NonNullable,
+        Validity::from_iter([true, true, true, false]),
     )?
     .into_array();
-    let validity = BoolArray::from_iter([true, true, true, false]).into_array();
-    Ok((core, fields, validity))
+    Ok((core, fields))
 }
 
 /// A test function over Variant data that fails when it is executed, which shows that a rule
@@ -1361,9 +1358,7 @@ impl ScalarFnVTable for Unreadable {
 }
 
 /// Each rule of [`VariantGet::reduce`] over a [`VariantPack`] extracts what the Variant that
-/// the pack builds gives, and reads only the child that the rule says it reads. A pack whose
-/// shredded struct has its validity as a third child reduces as the pack over a nullable struct
-/// does, except at the root, where it keeps the pack.
+/// the pack builds gives, and reads only the child that the rule says it reads.
 #[rstest]
 #[case::shredded_field_of_complete_pack(&["a"], nullable(PType::I32), true, Reduced::ToShredded)]
 #[case::shredded_field_of_partial_pack(&["a"], nullable(PType::I32), false, Reduced::No)]
@@ -1388,33 +1383,19 @@ fn variant_get_over_variant_pack_reduces(
     #[case] dtype: DType,
     #[case] complete: bool,
     #[case] reduced: Reduced,
-    #[values(false, true)] with_validity: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let (core, fields, validity) = pack_over_core(complete)?;
-    let reduced = match reduced {
-        Reduced::ToShredded if with_validity && path.is_empty() => Reduced::No,
-        reduced => reduced,
-    };
-
+    let (core, fields) = pack_over_core(complete)?;
     let packed_core = match reduced {
         Reduced::ToShredded => {
-            ScalarFnArray::try_new(Unreadable.bind(EmptyOptions), [core.clone()])?.into_array()
+            let core = core
+                .clone()
+                .cast(DType::Variant(Nullability::NonNullable))?;
+            ScalarFnArray::try_new(Unreadable.bind(EmptyOptions), [core])?.into_array()
         }
         Reduced::ToCore | Reduced::No => core.clone(),
     };
-    let packed = if with_validity {
-        VariantPack::try_new_with_validity(
-            packed_core.clone(),
-            fields.clone(),
-            validity.clone(),
-            complete,
-        )?
-    } else {
-        let nullable = fields.clone().mask(validity.clone())?;
-        VariantPack::try_new(packed_core.clone(), nullable, complete)?
-    }
-    .into_array();
+    let packed = VariantPack::try_new(packed_core.clone(), fields.clone(), complete)?.into_array();
 
     let expr = variant_get(
         root(),
@@ -1442,11 +1423,34 @@ fn variant_get_over_variant_pack_reduces(
         Reduced::No => assert!(has_pack, "{actual}"),
     }
 
-    let expected = VariantArray::try_new(core, Some(fields.mask(validity)?))?
+    let expected = VariantArray::try_new(core, Some(fields))?
         .into_array()
         .apply(&expr)?
         .execute::<ArrayRef>(&mut ctx)?;
     assert_arrays_eq!(actual.execute::<ArrayRef>(&mut ctx)?, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn complete_pack_respects_both_validities() -> VortexResult<()> {
+    let core = variant_rows([
+        Scalar::null(DType::Variant(Nullability::Nullable)),
+        Scalar::variant(variant_object([])),
+        Scalar::variant(variant_object([])),
+    ])?;
+    let fields = StructArray::from_fields(&[("a", buffer![7i32, 8, 9].into_array())])?.into_array();
+    let validity = BoolArray::from_iter([true, false, true]).into_array();
+    let packed = VariantPack::try_new(core, fields.mask(validity)?, true)?.into_array();
+    let expr = variant_get(root(), VariantPath::field("a"), Some(nullable(PType::I32)));
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(
+        packed
+            .apply(&expr)?
+            .optimize_ctx(&ctx)?
+            .execute::<ArrayRef>(&mut ctx)?,
+        PrimitiveArray::from_option_iter([None, None, Some(9i32)]),
+        &mut ctx
+    );
     Ok(())
 }
 

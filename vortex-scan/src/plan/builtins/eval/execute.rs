@@ -3,6 +3,8 @@
 
 //! Applying an expression to each batch.
 
+use vortex_array::VortexSessionExecute;
+use vortex_functions::variant_get::decode_for_repeated_extraction;
 use vortex_error::VortexResult;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::BoundExpression;
@@ -24,10 +26,15 @@ impl EvalStage {
 }
 
 impl Operator for EvalStage {
-    fn compute(&mut self, input: Input, _cx: &mut Cx<'_>) -> VortexResult<Step> {
+    fn compute(&mut self, input: Input, cx: &mut Cx<'_>) -> VortexResult<Step> {
         let Input::Batch(batch) = input else {
             return Ok(Step::End);
         };
+        let batch = decode_for_repeated_extraction(
+            batch,
+            &self.expression,
+            &mut cx.session().create_execution_ctx(),
+        )?;
         Ok(Step::Final(batch.apply_bound(&self.expression)?))
     }
 }

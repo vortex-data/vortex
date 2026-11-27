@@ -528,16 +528,22 @@ mod tests {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
+    use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
+    use vortex_functions::variant_pack::VariantPack;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::ExecuteArrowExt;
@@ -749,6 +755,77 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         assert_eq!(result.inner().null_count(), 2);
+        Ok(())
+    }
+
+    /// A partially shredded field read from a file is a lazy pack of its stored columns. It must
+    /// export as a `{value, typed_value}` field, as the canonical Variant does, and not as a
+    /// typed leaf of Variant storage.
+    #[rstest]
+    fn test_export_lazy_nested_residual(session: VortexSession) -> VortexResult<()> {
+        let core =
+            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 2).into_array();
+        let nested = shredded_with_nested_residual()?;
+        let nested = nested.as_::<Struct>();
+        let a = nested.unmasked_field_by_name("a")?.as_::<Variant>();
+        let a_shredded = VortexStructArray::try_new(
+            FieldNames::from_iter(["y"]),
+            vec![PrimitiveArray::from_option_iter([Some(5i32), None]).into_array()],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let shredded = |a: ArrayRef| -> VortexResult<ArrayRef> {
+            Ok(VortexStructArray::try_new(
+                FieldNames::from_iter(["a"]),
+                vec![a],
+                2,
+                Validity::NonNullable,
+            )?
+            .into_array())
+        };
+        let canonical = VariantArray::try_new(a.core_storage().clone(), Some(a_shredded.clone()))?;
+        let lazy = VariantPack::try_new(
+            a.core_storage().clone(),
+            a_shredded,
+            false,
+        )?;
+        let expected =
+            VariantArray::try_new(core.clone(), Some(shredded(canonical.into_array())?))?;
+        let actual = VariantArray::try_new(core, Some(shredded(lazy.into_array())?))?;
+
+        let expected = export_variant(&session, expected.into_array())?;
+        let actual = export_variant(&session, actual.into_array())?;
+
+        assert_struct_arrays_eq(actual.inner(), expected.inner());
+        Ok(())
+    }
+
+    /// A shredded list read from a file is a list view. Its elements must export as
+    /// `{value, typed_value}` fields, as those of a list do.
+    #[rstest]
+    fn test_export_list_view_shredding(session: VortexSession) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+            PrimitiveArray::from_iter([0u32, 2, 3]).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let list_view = list
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)?
+            .into_array();
+
+        let expected = VariantArray::try_new(variant_null_core(2), Some(list))?;
+        let actual = VariantArray::try_new(variant_null_core(2), Some(list_view))?;
+
+        let expected = export_variant(&session, expected.into_array())?;
+        let actual = export_variant(&session, actual.into_array())?;
+
+        assert_struct_arrays_eq(actual.inner(), expected.inner());
         Ok(())
     }
 

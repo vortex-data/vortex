@@ -64,8 +64,6 @@ pub struct VariantGetOpts {
 pub struct VariantPackOpts {
     #[prost(bool, tag = "1")]
     pub complete: bool,
-    #[prost(bool, tag = "2")]
-    pub shredded_validity: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct VariantPathElement {

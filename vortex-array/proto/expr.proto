@@ -57,7 +57,8 @@ message VariantGetOpts {
 // Options for `vortex.variant_pack`
 message VariantPackOpts {
   bool complete = 1;
-  bool shredded_validity = 2;
+  reserved 2;
+  reserved "shredded_validity";
 }
 
 message VariantPathElement {

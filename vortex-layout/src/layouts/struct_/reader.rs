@@ -52,6 +52,7 @@ use crate::analysis::make_bound_free_field_annotator;
 use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::variant::VariantStorage;
 use crate::segments::SegmentSource;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -89,6 +90,13 @@ pub struct StructReader {
     /// for every f in fields.
     expanded_root_expr: BoundExpression,
 
+    /// For a stored Variant, the Variant as an expression over the stored struct.
+    ///
+    /// Every expression over the Variant is rewritten with the Variant replaced by this
+    /// expression. Optimizing that turns an extraction of a shredded path into a read of the
+    /// field that holds it, which is then partitioned like any other.
+    variant: Option<BoundExpression>,
+
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: WeakExprCache<Arc<OnceLock<Partitioned>>>,
 }
@@ -113,7 +121,8 @@ impl StructReader {
                 .collect()
         });
 
-        let nullable = layout.dtype().is_nullable();
+        let storage_dtype = layout.storage_dtype().clone();
+        let nullable = storage_dtype.is_nullable();
         let extra = nullable as usize;
 
         let mut dtypes: Vec<DType> = Vec::with_capacity(struct_dt.nfields() + extra);
@@ -135,7 +144,12 @@ impl StructReader {
         );
 
         // Create an expanded root expression that contains all fields of the struct.
-        let expanded_root_expr = expanded_struct_root(layout.dtype(), struct_dt)?;
+        let expanded_root_expr = expanded_struct_root(&storage_dtype, struct_dt)?;
+        let variant = layout
+            .data()
+            .as_ref()
+            .map(VariantStorage::variant)
+            .transpose()?;
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
@@ -144,6 +158,7 @@ impl StructReader {
             name,
             session,
             expanded_root_expr,
+            variant,
             lazy_children,
             field_lookup,
             partitioned_expr_cache: WeakExprCache::with_shard_amount(8),
@@ -212,14 +227,34 @@ impl StructReader {
         Ok(CachedPartitioned(cell))
     }
 
-    fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        let expanded =
-            expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
+    /// Rewrites `expr`, over a stored Variant, to an expression over the stored struct.
+    fn over_storage(&self, expr: &BoundExpression) -> VortexResult<BoundExpression> {
+        let Some(variant) = &self.variant else {
+            return Ok(expr.clone());
+        };
+        let expr = expr.clone().transform_down(|expr| {
+            if !expr.is_root() {
+                return Ok(Transformed::no(expr));
+            }
+            Ok(Transformed {
+                value: variant.clone(),
+                order: TraversalOrder::Skip,
+                changed: true,
+            })
+        })?;
+        Ok(expr.into_inner())
+    }
 
-        // Expansion can turn `$.a.b` into `mask($.a, is_not_null($)).b`. Optimizing moves the
-        // field read below the mask so the partition reads only `a.b`. The scan has already
-        // declared its dtype, so keep the expanded expression if optimization changes its dtype.
-        let expr = if self.dtype().is_nullable()
+    fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
+        let expanded = expand_struct_root(
+            self.over_storage(expr)?,
+            &self.expanded_root_expr,
+            self.struct_fields(),
+        )?;
+
+        // Fold extractions through the Variant pack and field reads through nullable struct
+        // masks. The scan has already declared the result dtype, including its nullability.
+        let expr = if (self.variant.is_some() || self.dtype().is_nullable())
             && let Some(optimized) = expanded.try_optimize_recursive()?
             && optimized.dtype() == expanded.dtype()
         {
@@ -230,10 +265,7 @@ impl StructReader {
 
         // Partition the expression into expressions that can be evaluated
         // over individual coordinates.
-        let fields = self
-            .dtype()
-            .as_struct_fields_opt()
-            .vortex_expect("struct dtype");
+        let fields = self.struct_fields();
         let mut partitioned = partition_bound(expr.clone(), make_struct_item_annotator(fields))?;
 
         if partitioned.partitions.len() == 1 {
@@ -474,6 +506,14 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
+        // A field of a stored Variant can be in any of the stored fields.
+        let all = [FieldMask::All];
+        let field_mask: &[FieldMask] = if self.variant.is_some() {
+            &all
+        } else {
+            field_mask
+        };
+
         if splits.mode() == BoundaryMode::PositionsOnly {
             if let Some(validity_ref) = self.validity()? {
                 validity_ref.register_splits(field_mask, split_range, splits)?;
