@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod conformance;
-mod slots;
-
 use rstest::rstest;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
@@ -11,11 +8,6 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-use super::FloatPatchStrategy;
-use super::PatchStrategy;
-use super::Patched;
-use super::PatchedArrayExt;
-use super::PatchedArraySlotsExt;
 use crate::ArrayContext;
 use crate::ArrayDeserialization;
 use crate::ArrayPlugin;
@@ -24,6 +16,11 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::patched::FloatPatchStrategy;
+use crate::arrays::patched::PatchStrategy;
+use crate::arrays::patched::Patched;
+use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::slice::SliceKernel;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;

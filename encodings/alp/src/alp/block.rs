@@ -109,7 +109,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
     use vortex_array::match_each_integer_ptype;
@@ -247,23 +246,21 @@ block_op 0 copy {}->{} scratch0 -> output",
         let mut ctx = SESSION.create_execution_ctx().with_block_fusion(true);
         let base = alp_for_bp(false, true, false)?;
         let patches = Patches::new(
-            LEN,
+            LEN + 13,
             0,
-            buffer![1u16, 1024, 1027].into_array(),
+            buffer![1u16, 1037, 1040].into_array(),
             PrimitiveArray::from_option_iter([Some(1.0f64), None, Some(7.0)]).into_array(),
             None,
             &mut ctx,
         )?;
-        let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
-        let rows = 13..2050;
-        let sliced =
-            <Patched as SliceKernel>::slice(array.as_view(), rows.clone(), &mut ctx)?.unwrap();
+        let patches = patches.slice(13..LEN + 13, &mut ctx)?.unwrap();
+        let sliced = Patched::from_array_and_patches(base, &patches, &mut ctx)?.into_array();
         let trace = fusion_trace(sliced.clone(), &SESSION)?;
         assert!(
             trace.contains("fuse extend parent=vortex.patched"),
             "{trace}"
         );
-        let expected = PrimitiveArray::from_option_iter(rows.map(|row| match row {
+        let expected = PrimitiveArray::from_option_iter((0..LEN).map(|row| match row {
             1024 => None,
             1027 => Some(7.0),
             _ => (!row.is_multiple_of(13)).then_some(100.0 + (row % 1000) as f64 * 0.25),

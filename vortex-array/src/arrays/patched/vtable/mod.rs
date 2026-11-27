@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
+pub(super) mod kernels;
+mod operations;
+mod plugin;
+mod slice;
+#[cfg(test)]
+mod tests;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -11,16 +15,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
-use super::FloatPatchStrategy;
-use super::IntegerPatchStrategy;
-use super::PATCH_SLOTS;
-use super::PatchStrategy;
-use super::Patched;
-use super::PatchedArrayExt;
-use super::PatchedArraySlotsExt;
-use super::PatchedData;
-use super::PatchedSlots;
-use super::PatchedSlotsView;
 use crate::Array;
 use crate::ArrayId;
 use crate::ArrayParts;
@@ -29,14 +23,18 @@ use crate::ArrayView;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::array::OperationsVTable;
-use crate::array::ProbeState;
 use crate::array::VTable;
-use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::Primitive;
-use crate::arrays::scalar_fn::ValidityArray;
-use crate::arrays::slice::SliceKernel;
+use crate::arrays::patched::FloatPatchStrategy;
+use crate::arrays::patched::IntegerPatchStrategy;
+use crate::arrays::patched::PatchStrategy;
+use crate::arrays::patched::Patched;
+use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::arrays::patched::PatchedData;
+use crate::arrays::patched::PatchedSlots;
+use crate::arrays::patched::PatchedSlotsView;
 use crate::block::Block;
 use crate::block::BlockOp;
 use crate::block::BlockPatches;
@@ -46,14 +44,9 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
-use crate::optimizer::ArrayOptimizer;
 use crate::patches::PATCH_CHUNK_SIZE;
-use crate::patches::PatchesProbeState;
 use crate::require_child;
 use crate::require_spine;
-use crate::scalar::Scalar;
-use crate::validity::Validity;
 
 impl VTable for Patched {
     type TypedArrayData = PatchedData;
@@ -164,78 +157,5 @@ impl<T: NativePType> BlockOp for Replace<T> {
         self.0
             .apply(start, written.as_mut_slice::<T>(), &mut block.validity);
         Ok(written)
-    }
-}
-
-impl OperationsVTable<Patched> for Patched {
-    type ProbeState = PatchesProbeState;
-
-    fn probe_scalar(
-        state: &mut ProbeState<'_, Self>,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        let array = state.array();
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
-        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
-        if let Some(indices) = array.patch_indices().as_opt::<Primitive>()
-            && indices.buffer_handle().is_on_host()
-        {
-            // Search the existing buffer directly, without decoding or slicing a chunk per probe.
-            let row = array.data().patches.offset() + index;
-            let position = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-                I::try_from(row)
-                    .ok()
-                    .and_then(|needle| indices.as_slice::<I>().binary_search(&needle).ok())
-            });
-            if let Some(position) = position {
-                return state
-                    .slot(PatchedSlots::PATCH_VALUES)?
-                    .vortex_expect("required patch values")
-                    .execute_scalar(position, ctx);
-            }
-        } else if let Some(value) = array
-            .patches()
-            .probe_patched(state, PATCH_SLOTS, index, ctx)?
-        {
-            return Ok(value);
-        }
-        state
-            .slot(PatchedSlots::INNER)?
-            .vortex_expect("required base")
-            .execute_scalar(index, ctx)
-    }
-
-    fn scalar_at(
-        array: ArrayView<'_, Self>,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Scalar> {
-        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
-    }
-}
-
-impl ValidityVTable<Patched> for Patched {
-    fn validity(array: ArrayView<'_, Self>) -> VortexResult<Validity> {
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
-        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
-        match (array.inner().validity()?, array.patch_values().validity()?) {
-            (Validity::AllValid, Validity::AllValid) => Ok(Validity::AllValid),
-            (Validity::AllInvalid, Validity::AllInvalid) => Ok(Validity::AllInvalid),
-            _ => Ok(Validity::Array(
-                ValidityArray::new(array.array().clone()).into_array(),
-            )),
-        }
-    }
-}
-
-impl SliceKernel for Patched {
-    fn slice(
-        array: ArrayView<'_, Self>,
-        range: Range<usize>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let inner = array.inner().slice(range.clone())?.optimize_ctx(ctx)?;
-        super::compute::select_rows(array, inner, array.patches().slice(range, ctx)?, ctx)
     }
 }
