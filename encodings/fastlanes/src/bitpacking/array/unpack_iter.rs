@@ -393,9 +393,9 @@ impl<'a, T: BitPacked> BitUnpackIterator<'a, T> {
 
         let dst: &mut [MaybeUninit<T>] = self.buffer;
         unsafe {
-            let dst: &mut [T::Physical] = mem::transmute(dst);
-
-            BitPacking::unchecked_unpack(self.bit_width, chunk, dst);
+            // Logical and physical integers have the same layout.
+            let dst: &mut [MaybeUninit<T::Physical>] = mem::transmute(dst);
+            BitPacking::unchecked_unpack_uninit(self.bit_width, chunk, dst);
         }
         self.idx += 1;
         // SAFETY: The buffer was fully initialized by the unpack above.

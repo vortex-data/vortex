@@ -191,14 +191,14 @@ fn decode_blocks<T: BitPackedUnpack>(
             // type, and `dst` holds exactly one block. `T` and its physical type have the same
             // layout.
             unsafe {
-                let dst: &mut [T::Physical] = mem::transmute(dst);
-                BitPacking::unchecked_unpack(bit_width, block, dst);
+                let dst: &mut [MaybeUninit<T::Physical>] = mem::transmute(dst);
+                BitPacking::unchecked_unpack_uninit(bit_width, block, dst);
             }
         } else {
             // SAFETY: As above, with the scratch block as the destination.
             unsafe {
-                let unpacked: &mut [T::Physical] = mem::transmute(&mut scratch[..]);
-                BitPacking::unchecked_unpack(bit_width, block, unpacked);
+                let unpacked: &mut [MaybeUninit<T::Physical>] = mem::transmute(&mut scratch[..]);
+                BitPacking::unchecked_unpack_uninit(bit_width, block, unpacked);
             }
             dst.copy_from_slice(&scratch[skip..][..len]);
         }
