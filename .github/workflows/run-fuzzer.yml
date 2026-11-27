@@ -176,8 +176,6 @@ jobs:
 
       - name: Reproduce crash for full output
         if: steps.check.outputs.crashes_found == 'true'
-        env:
-          FIRST_CRASH: ${{ steps.check.outputs.first_crash }}
         run: .github/scripts/reproduce-fuzz-crash.sh
 
       - name: Archive crash artifacts
@@ -194,7 +192,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: ${{ env.FUZZ_NAME }}-logs
-          path: fuzz_output.log
+          path: |
+            fuzz_output.log
+            fuzz_repro
           retention-days: ${{ steps.check.outputs.crashes_found == 'true' && 90 || 7 }}
 
       - name: Persist corpus
@@ -224,7 +224,6 @@ jobs:
     uses: ./.github/workflows/report-fuzz-crash.yml
     with:
       fuzz_target: ${{ inputs.fuzz_target }}
-      crash_file: ${{ needs.fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.fuzz.outputs.artifact_url }}
       artifact_name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-crash-artifacts
       logs_artifact_name: ${{ inputs.fuzz_name || inputs.fuzz_target }}-logs
