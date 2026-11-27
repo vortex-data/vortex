@@ -655,6 +655,7 @@ fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResu
             | DType::Decimal(..)
             | DType::Utf8(_)
             | DType::Binary(_)
+            | DType::FixedSizeBinary(..)
             | DType::Variant(_) => Ok(()),
         }
     }

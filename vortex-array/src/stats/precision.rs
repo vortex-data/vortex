@@ -254,18 +254,16 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
                     IntersectionResult::Empty
                 }
             }
-            (Precision::Exact(exact), Precision::Inexact(inexact))
-            | (Precision::Inexact(inexact), Precision::Exact(exact)) => {
-                if exact.partial_cmp(inexact)?.is_lt() {
-                    IntersectionResult::Value(Precision::Inexact(exact.clone()))
-                } else {
-                    IntersectionResult::Value(Precision::Exact(exact.clone()))
-                }
+            (Precision::Exact(exact), Precision::Inexact(_))
+            | (Precision::Inexact(_), Precision::Exact(exact)) => {
+                IntersectionResult::Value(Precision::Exact(exact.clone()))
             }
             (Precision::Inexact(lhs), Precision::Inexact(rhs)) => {
                 IntersectionResult::Value(Precision::Inexact(partial_min(lhs, rhs)?.clone()))
             }
-            (_, Precision::Absent) | (Precision::Absent, _) => IntersectionResult::Empty,
+            (other, Precision::Absent) | (Precision::Absent, other) => {
+                IntersectionResult::Value(other.clone())
+            }
         })
     }
 
@@ -274,5 +272,36 @@ impl<T: PartialOrd + Clone> StatBound<T> for Precision<T> {
             Precision::Exact(val) => Some(val),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::stats::IntersectionResult;
+    use crate::stats::Precision;
+    use crate::stats::StatBound;
+
+    #[test]
+    fn intersection_exact_and_absent() {
+        assert_eq!(
+            Precision::Exact(false).intersection(&Precision::Inexact(true)),
+            Some(IntersectionResult::Value(Precision::Exact(false)))
+        );
+        assert_eq!(
+            Precision::Inexact(true).intersection(&Precision::Exact(false)),
+            Some(IntersectionResult::Value(Precision::Exact(false)))
+        );
+        assert_eq!(
+            Precision::Exact(true).intersection(&Precision::Exact(false)),
+            Some(IntersectionResult::Empty)
+        );
+        assert_eq!(
+            Precision::Exact(true).intersection(&Precision::Absent),
+            Some(IntersectionResult::Value(Precision::Exact(true)))
+        );
+        assert_eq!(
+            Precision::Absent.intersection(&Precision::Inexact(false)),
+            Some(IntersectionResult::Value(Precision::Inexact(false)))
+        );
     }
 }

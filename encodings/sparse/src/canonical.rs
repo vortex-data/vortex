@@ -299,6 +299,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
 
     // Patches are already resolved (offset subtracted) by SparseParts::resolve_patches().
     Ok(match &dtype {
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Null => {
             assert!(fill_value.is_null());
             NullArray::new(len).into_array()

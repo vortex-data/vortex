@@ -607,29 +607,29 @@ mod tests {
             StructArray::from_fields(&[
                 (
                     "max",
-                    PrimitiveArray::new(buffer![5.0f32, 5.0], Validity::AllValid).into_array(),
+                    PrimitiveArray::from_option_iter([Some(5.0f32), Some(5.0), None]).into_array(),
                 ),
                 (
                     "max_is_truncated",
-                    BoolArray::from_iter([false, false]).into_array(),
+                    BoolArray::from_iter([false, false, false]).into_array(),
                 ),
                 (
                     "min",
-                    PrimitiveArray::new(buffer![5.0f32, 5.0], Validity::AllValid).into_array(),
+                    PrimitiveArray::from_option_iter([Some(5.0f32), Some(5.0), None]).into_array(),
                 ),
                 (
                     "min_is_truncated",
-                    BoolArray::from_iter([false, false]).into_array(),
+                    BoolArray::from_iter([false, false, false]).into_array(),
                 ),
                 (
                     "nan_count",
-                    PrimitiveArray::new(buffer![1u64, 0], Validity::AllValid).into_array(),
+                    PrimitiveArray::new(buffer![1u64, 0, 0], Validity::AllValid).into_array(),
                 ),
             ])
             .unwrap(),
             Arc::new([Stat::Max, Stat::Min, Stat::NaNCount]),
             4,
-            8,
+            12,
         )
         .unwrap();
 
@@ -640,7 +640,7 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, true]),
+            BoolArray::from_iter([false, true, false]),
             &mut SESSION.create_execution_ctx()
         );
     }

@@ -12,6 +12,7 @@ use arbitrary::Unstructured;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -118,6 +119,7 @@ fn random_array_chunk(
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
     match dtype {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Ok(NullArray::new(
             chunk_len
                 .map(Ok)

@@ -136,6 +136,7 @@ impl Scalar {
 
         // From here onwards, we know that the value is not null.
         match dtype {
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => {
                 vortex_bail!("null dtype cannot hold a non-null value {value}");
             }

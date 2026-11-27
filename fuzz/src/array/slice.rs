@@ -22,6 +22,7 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 pub fn slice_canonical_array(
     array: &ArrayRef,
@@ -40,6 +41,7 @@ pub fn slice_canonical_array(
     };
 
     match array.dtype() {
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let sliced_bools = bool_array.to_bit_buffer().slice(start..stop);

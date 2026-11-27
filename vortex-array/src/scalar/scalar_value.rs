@@ -54,6 +54,7 @@ impl ScalarValue {
     /// Returns the non-null zero value for `dtype`, or [`None`] if no such value exists.
     pub(super) fn try_zero_value(dtype: &DType) -> Option<Self> {
         Some(match dtype {
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => return None,
             DType::Bool(_) => Self::Bool(false),
             DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(ptype)),
@@ -106,6 +107,7 @@ impl ScalarValue {
         }
 
         let value = match dtype {
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => return Some(None),
             DType::Bool(_) => Self::Bool(false),
             DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(ptype)),
