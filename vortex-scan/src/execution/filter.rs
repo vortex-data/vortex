@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
+use parking_lot::Mutex;
 use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
@@ -56,7 +57,14 @@ pub struct FilterPlans {
     pruning: Vec<Option<PlanRef>>,
     /// A metadata-only plan proving the rows every dynamic conjunct keeps, where it has one.
     satisfying: Vec<Option<PlanRef>>,
+    /// Per conjunct, the dynamic version of its last proof and the proofs that failed in a row at
+    /// that version.
+    failed_proofs: Vec<Mutex<(u64, u32)>>,
 }
+
+/// The proofs of a dynamic conjunct that can fail in a row before the conjunct is evaluated
+/// without one, until its dynamic values change.
+const FAILED_PROOFS_BEFORE_SKIP: u32 = 4;
 
 impl FilterPlans {
     /// Plans `expression`'s conjuncts over `root`.
@@ -104,12 +112,14 @@ impl FilterPlans {
                 Some(_) => metadata_plan(expr.satisfy(session)?, root, session),
                 None => Ok(None),
             })
-            .collect::<VortexResult<_>>()?;
+            .collect::<VortexResult<Vec<_>>>()?;
+        let failed_proofs = satisfying.iter().map(|_| Mutex::new((0, 0))).collect();
         Ok(Self {
             expression,
             predicates,
             pruning,
             satisfying,
+            failed_proofs,
         })
     }
 
@@ -145,6 +155,73 @@ impl FilterPlans {
             .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
             .filter_map(|(_, plan)| plan.as_ref())
+    }
+
+    /// The plan proving the rows a dynamic conjunct keeps at dynamic `version`, when it is worth
+    /// running before the conjunct in a scan of `rows` rows.
+    ///
+    /// A proof reads the conjunct's zone maps, like its pruning plan. For the reason that
+    /// [`Self::pruning_over`] gives, a scan of at most one filtered chunk evaluates the conjunct
+    /// without a proof. A conjunct whose last proofs at `version` failed, or whose zone maps
+    /// prove no row of the scan, is evaluated without one too: for example, a join's key bounds
+    /// that no chunk falls inside.
+    pub(crate) fn satisfying_over(
+        &self,
+        conjunct_idx: usize,
+        rows: u64,
+        version: Option<u64>,
+    ) -> Option<&PlanRef> {
+        if rows <= FILTERED_ROWS_PER_CHUNK as u64 {
+            return None;
+        }
+        if let Some(version) = version {
+            let (failed_version, failed) = *self.failed_proofs[conjunct_idx].lock();
+            if failed_version == version && failed >= FAILED_PROOFS_BEFORE_SKIP {
+                return None;
+            }
+        }
+        self.satisfying[conjunct_idx].as_ref()
+    }
+
+    /// The proofs worth running over all of a scan of `rows` rows before its chunks start, with
+    /// the conjunct each one proves and that conjunct's dynamic version.
+    ///
+    /// A chunk does not prefetch the column of a conjunct that it proves, so a proof that fails
+    /// reads the column late. Where the zone maps prove no row of the scan, its chunks evaluate
+    /// the conjunct without a proof and prefetch its column.
+    pub(crate) fn proofs_over(&self, rows: u64) -> Vec<(usize, Option<u64>, PlanRef)> {
+        (0..self.satisfying.len())
+            .filter(|idx| !self.expression.is_switched_off(*idx))
+            .filter_map(|idx| {
+                let version = self.expression.dynamic_version(idx);
+                self.satisfying_over(idx, rows, version)
+                    .map(|plan| (idx, version, plan.clone()))
+            })
+            .collect()
+    }
+
+    /// Records that the zone maps prove no row of a scan for a dynamic conjunct at dynamic
+    /// `version`, so its chunks evaluate it without a proof.
+    pub(crate) fn report_unproved_scan(&self, conjunct_idx: usize, version: Option<u64>) {
+        if let Some(version) = version {
+            *self.failed_proofs[conjunct_idx].lock() = (version, FAILED_PROOFS_BEFORE_SKIP);
+        }
+    }
+
+    /// Records whether a proof of a dynamic conjunct at dynamic `version` succeeded.
+    fn report_proof(&self, conjunct_idx: usize, version: Option<u64>, proved: bool) {
+        let Some(version) = version else {
+            return;
+        };
+        let mut state = self.failed_proofs[conjunct_idx].lock();
+        if state.0 != version {
+            *state = (version, 0);
+        }
+        if proved {
+            state.1 = 0;
+        } else {
+            state.1 = state.1.saturating_add(1);
+        }
     }
 }
 
@@ -288,15 +365,26 @@ impl FilterPlanner {
         let input = selected.mask.true_count();
         vortex_ensure_eq!(result.len(), input);
         if proving {
-            if result.all_true() {
+            let proved = result.all_true();
+            self.filter.report_proof(index, version, proved);
+            if proved {
                 tracing::debug!(
                     row_start = selected.scope.rows.start,
                     row_end = selected.scope.rows.end,
                     conjunct = index,
                     "v2 filter conjunct satisfied by statistics"
                 );
+                // The conjunct keeps every selected row, so it can be switched off like a
+                // conjunct whose evaluation keeps them all.
+                self.report_selectivity(index, version, 1.0);
                 return Ok(false);
             }
+            tracing::debug!(
+                row_start = selected.scope.rows.start,
+                row_end = selected.scope.rows.end,
+                conjunct = index,
+                "v2 filter conjunct not proved by statistics"
+            );
             self.active = Some(Active {
                 index,
                 version,
@@ -315,6 +403,12 @@ impl FilterPlanner {
             "v2 filter conjunct evaluated"
         );
         let selectivity = selected.mask.true_count() as f64 / input as f64;
+        self.report_selectivity(index, version, selectivity);
+        Ok(false)
+    }
+
+    /// Records the fraction of the selected rows that a conjunct kept.
+    fn report_selectivity(&self, index: usize, version: Option<u64>, selectivity: f64) {
         self.filter
             .expression
             .report_selectivity(index, selectivity);
@@ -323,7 +417,6 @@ impl FilterPlanner {
                 .expression
                 .report_dynamic_selectivity(index, version, selectivity);
         }
-        Ok(false)
     }
 
     /// The scan of `plan` over the chunk's selected rows.
@@ -371,17 +464,21 @@ impl Planner for FilterPlanner {
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
             let expression = &self.filter.expression;
+            let scan_rows = self.scan.rows.end - self.scan.rows.start;
             let predicates = segments_read(
                 session,
                 self.filter
                     .predicates
                     .iter()
-                    .zip(&self.filter.satisfying)
                     .enumerate()
                     .filter(|(idx, _)| !expression.is_switched_off(*idx))
                     // A conjunct that can be proved reads its zone maps first, and its column
                     // only when they do not prove it.
-                    .map(|(_, (plan, satisfying))| satisfying.as_ref().unwrap_or(plan)),
+                    .map(|(idx, plan)| {
+                        self.filter
+                            .satisfying_over(idx, scan_rows, expression.dynamic_version(idx))
+                            .unwrap_or(plan)
+                    }),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -454,7 +551,8 @@ impl Planner for FilterPlanner {
             }
             // A dynamic conjunct whose current values the zone maps prove for every selected row
             // is not evaluated. It is proved again on each chunk, so a later version is too.
-            let (proving, plan) = match &self.filter.satisfying[index] {
+            let scan_rows = self.scan.rows.end - self.scan.rows.start;
+            let (proving, plan) = match self.filter.satisfying_over(index, scan_rows, version) {
                 Some(satisfying) => (true, satisfying),
                 None => (false, &self.filter.predicates[index]),
             };

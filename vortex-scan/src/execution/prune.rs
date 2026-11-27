@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Evaluates a filter's pruning plans once over a scan's rows, before any chunk is planned.
+//! Evaluates a filter's pruning plans once over a scan's rows, before any chunk is planned, and
+//! then the proofs of its dynamic conjuncts.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -36,9 +37,11 @@ use crate::planning::planner::WorkScope;
 pub type PruneNext = Box<dyn FnOnce(Option<Mask>) -> Box<dyn Planner> + Send>;
 
 /// Evaluates the filter's pruning plans over the scan's rows and emits the planner it was
-/// built to continue into, with the rows no plan pruned. The zone maps are the only reads,
-/// started together. Rows every plan prunes end the scan here: nothing is emitted. A filter
-/// without pruning plans emits the next planner at once.
+/// built to continue into, with the rows no plan pruned. Then, over the kept rows, it runs the
+/// proofs of the dynamic conjuncts, and records each conjunct that its zone maps prove for no
+/// row. The zone maps are the only reads, started together. Rows every plan prunes end the scan
+/// here: nothing is emitted. A filter without pruning plans or proofs emits the next planner at
+/// once.
 pub struct PrunePlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
@@ -49,7 +52,13 @@ pub struct PrunePlanner {
     /// The rows no pruning plan has excluded yet, over `rows`.
     mask: Mask,
     pruning: IntoIter<PlanRef>,
+    /// The proofs of dynamic conjuncts to run over the kept rows, with the conjunct each one
+    /// proves and that conjunct's dynamic version.
+    proofs: IntoIter<(usize, Option<u64>, PlanRef)>,
+    /// The scan of the plan being evaluated.
     active: Option<ScanAdaptor>,
+    /// The conjunct and dynamic version that the active scan proves, when it runs a proof.
+    proving: Option<(usize, Option<u64>)>,
     pieces: Vec<Mask>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -65,6 +74,11 @@ impl PrunePlanner {
             .iter()
             .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
             .collect();
+        let proofs = scan
+            .filter
+            .as_ref()
+            .map(|filter| filter.proofs_over(rows.end - rows.start))
+            .unwrap_or_default();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
             scan,
@@ -73,7 +87,9 @@ impl PrunePlanner {
             pruned: false,
             mask: Mask::new_true(len),
             pruning: pruning.into_iter(),
+            proofs: proofs.into_iter(),
             active: None,
+            proving: None,
             pieces: Vec::new(),
             announced: false,
             next_hint: u32::MAX,
@@ -111,7 +127,10 @@ impl Planner for PrunePlanner {
             // result and lists no segment, so only unpruned plans prefetch their zone maps.
             let segments = segments_read(
                 &self.scan.session,
-                self.pruning.as_slice().iter(),
+                self.pruning
+                    .as_slice()
+                    .iter()
+                    .chain(self.proofs.as_slice().iter().map(|(_, _, plan)| plan)),
                 self.rows.clone(),
                 &self.mask,
             )?;
@@ -141,25 +160,46 @@ impl Planner for PrunePlanner {
                 });
             }
             let input = self.mask.true_count();
-            let excluded = Mask::concat(self.pieces.iter())?;
-            vortex_ensure_eq!(excluded.len(), input);
-            self.mask = self.mask.intersect_by_rank(&!excluded);
-            tracing::debug!(
-                row_start = self.rows.start,
-                row_end = self.rows.end,
-                input_rows = input,
-                output_rows = self.mask.true_count(),
-                "v2 pruning plan evaluated"
-            );
+            let result = Mask::concat(self.pieces.iter())?;
+            vortex_ensure_eq!(result.len(), input);
             self.active = None;
             self.pieces.clear();
-            self.pruned = true;
+            if let Some((conjunct, version)) = self.proving.take() {
+                if result.all_false() {
+                    tracing::debug!(
+                        row_start = self.rows.start,
+                        row_end = self.rows.end,
+                        conjunct,
+                        "v2 filter conjunct not proved over the scan"
+                    );
+                    if let Some(filter) = &self.scan.filter {
+                        filter.report_unproved_scan(conjunct, version);
+                    }
+                }
+            } else {
+                self.mask = self.mask.intersect_by_rank(&!result);
+                tracing::debug!(
+                    row_start = self.rows.start,
+                    row_end = self.rows.end,
+                    input_rows = input,
+                    output_rows = self.mask.true_count(),
+                    "v2 pruning plan evaluated"
+                );
+                self.pruned = true;
+            }
         }
         if self.mask.all_false() {
             self.done = true;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(plan) = self.pruning.next() {
+        let plan = match self.pruning.next() {
+            Some(plan) => Some(plan),
+            None => self.proofs.next().map(|(conjunct, version, plan)| {
+                self.proving = Some((conjunct, version));
+                plan
+            }),
+        };
+        if let Some(plan) = plan {
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 plan,
@@ -173,7 +213,7 @@ impl Planner for PrunePlanner {
             self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);
         }
-        // Every pruning plan has run: the planner this one continues into gets the kept rows.
+        // Every plan has run: the planner this one continues into gets the kept rows.
         self.done = true;
         tracing::debug!(
             row_start = self.rows.start,
