@@ -19,6 +19,7 @@ parking_lot = { workspace = true }
 prost = { workspace = true }
 smallvec = { workspace = true }
 tracing = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }

@@ -9,13 +9,13 @@ use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use rstest::rstest;
+use vortex_aggregates::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;

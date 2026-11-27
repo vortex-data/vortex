@@ -1,0 +1,51 @@
+[package]
+name = "vortex-aggregates"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex aggregate functions beyond those backing array statistics"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+cfg-if = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-session = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+divan = { workspace = true }
+enum-iterator = { workspace = true }
+mimalloc = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[[bench]]
+name = "aggregate_grouped"
+harness = false
+
+[[bench]]
+name = "accumulator_construction"
+harness = false
+
+[[bench]]
+name = "aggregate_max"
+harness = false
+
+[[bench]]
+name = "aggregate_sum"
+harness = false

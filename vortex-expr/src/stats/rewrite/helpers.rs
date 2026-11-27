@@ -5,17 +5,17 @@
 //! implementations: stat references over bound expressions and the NaN guards that keep
 //! min/max comparisons sound for floating-point values.
 
+use vortex_aggregates::all_nan::AllNan;
+use vortex_aggregates::all_non_nan::AllNonNan;
+use vortex_aggregates::all_non_null::AllNonNull;
+use vortex_aggregates::all_null::AllNull;
+use vortex_aggregates::max::Max;
+use vortex_aggregates::min::Min;
+use vortex_aggregates::nan_count::NanCount;
+use vortex_aggregates::null_count::NullCount;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::builtin::cast::Cast;

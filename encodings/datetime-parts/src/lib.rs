@@ -11,9 +11,9 @@ mod compute;
 mod ops;
 mod timestamp;
 
+use vortex_aggregates::is_constant::IsConstant;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;

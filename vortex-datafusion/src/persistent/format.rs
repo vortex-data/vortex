@@ -47,7 +47,7 @@ use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
-use vortex::aggregate_fn::fns::is_constant::IsConstant;
+use vortex::aggregates::is_constant::IsConstant;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;

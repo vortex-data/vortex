@@ -32,6 +32,7 @@ pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
 pub(crate) use schema::default_bounded_stat_max_bytes;
 pub(crate) use schema::legacy_stats_to_aggregates;
+use vortex_aggregates::stat_aggregate_fn;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -475,7 +476,7 @@ impl ZonedData {
         match &self.zone_map_schema {
             ZoneMapSchema::LegacyStats(stats) => stats
                 .iter()
-                .filter_map(Stat::aggregate_fn)
+                .filter_map(|stat| stat_aggregate_fn(*stat))
                 .collect::<Vec<_>>()
                 .into(),
             ZoneMapSchema::AggregateFns(aggregate_fns) => Arc::clone(aggregate_fns),
@@ -487,7 +488,7 @@ fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
     match schema {
         ZoneMapSchema::LegacyStats(stats) => stats
             .iter()
-            .filter_map(Stat::aggregate_fn)
+            .filter_map(|stat| stat_aggregate_fn(*stat))
             .map(|aggregate_fn| aggregate_fn.to_string())
             .collect::<Vec<_>>()
             .into(),
@@ -604,14 +605,14 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::bounded_max::BoundedMax;
+    use vortex_aggregates::bounded_max::BoundedMaxOptions;
+    use vortex_aggregates::max::Max;
+    use vortex_aggregates::min::Min;
+    use vortex_aggregates::sum::Sum;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
-    use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -673,6 +674,7 @@ mod tests {
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;
         let session = VortexSession::empty().with::<AggregateFnSession>();
+        vortex_aggregates::initialize(&session);
         let aggregate_fns = try_aggregate_fns_from_specs(&deserialized.aggregate_specs, &session)?
             .expect("known aggregates resolve");
 
@@ -689,7 +691,9 @@ mod tests {
         let metadata = ZonedMetadata::deserialize(bytes)?;
         assert_eq!(metadata.zone_len, 8);
 
-        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, &SESSION)?
+        let session = VortexSession::empty().with::<AggregateFnSession>();
+        vortex_aggregates::initialize(&session);
+        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, &session)?
             .expect("known aggregates resolve");
         assert_eq!(
             aggregate_fns.as_ref(),

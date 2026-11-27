@@ -19,6 +19,7 @@ workspace = true
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 uuid = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }

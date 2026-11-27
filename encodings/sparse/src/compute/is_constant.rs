@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::is_constant::IsConstant;
+use vortex_aggregates::is_constant::is_constant;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
@@ -69,9 +69,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::is_constant::is_constant;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;

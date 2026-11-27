@@ -5,13 +5,13 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use itertools::Itertools;
+use vortex_aggregates::is_constant::IsConstant;
+use vortex_aggregates::is_constant::primitive::IS_CONST_LANE_WIDTH;
+use vortex_aggregates::is_constant::primitive::compute_is_constant;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_constant::primitive::IS_CONST_LANE_WIDTH;
-use vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_constant;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::IntegerPType;
@@ -193,13 +193,13 @@ mod tests {
     use std::ops::Range;
 
     use rstest::rstest;
+    use vortex_aggregates::is_constant::IsConstant;
+    use vortex_aggregates::is_constant::is_constant;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
-    use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::slice::SliceKernel;

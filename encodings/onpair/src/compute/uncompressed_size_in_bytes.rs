@@ -4,12 +4,12 @@
 use std::mem::size_of;
 
 use num_traits::ToPrimitive;
+use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -108,13 +108,13 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+    use vortex_aggregates::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
     use vortex_array::ArrayRef;
     use vortex_array::ArrayVTable;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTable;
-    use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-    use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod integer_bounds;
 pub use array::PrimitiveArrayExt;
 pub use array::PrimitiveArraySlotsExt;
 pub use array::PrimitiveData;
@@ -9,6 +10,10 @@ pub use array::PrimitiveDataParts;
 pub use array::PrimitiveSlots;
 pub use array::chunk_range;
 pub use array::patch_chunk;
+pub use integer_bounds::IntegerBounds;
+pub use integer_bounds::integer_bounds;
+pub use integer_bounds::integer_is_sorted;
+pub use integer_bounds::integer_is_strict_sorted;
 pub use vtable::PrimitiveArray;
 
 pub(crate) mod compute;

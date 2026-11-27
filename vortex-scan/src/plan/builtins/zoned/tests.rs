@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::max::Max;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;

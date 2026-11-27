@@ -26,8 +26,6 @@ use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::ArrayDeserialization;
 use crate::array::ArrayPlugin;
 use crate::arrays::BoolArray;
@@ -270,15 +268,6 @@ fn invalid_stored_value_errors_on_access(
             .to_string()
             .contains("does not fit in precision"),
         "{scalar_error}"
-    );
-
-    let aggregate_error =
-        min_max(&node.array, &mut ctx, NumericalAggregateOpts::default()).unwrap_err();
-    assert!(
-        aggregate_error
-            .to_string()
-            .contains("does not fit in precision"),
-        "{aggregate_error}"
     );
 
     Ok(())

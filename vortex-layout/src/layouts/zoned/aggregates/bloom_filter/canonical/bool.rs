@@ -11,7 +11,7 @@ use vortex_mask::AllOr;
 
 use super::BloomPartial;
 
-/// Similar to `accumulate_bool` implementation in [vortex_array::aggregate_fn::fns::min_max]
+/// Similar to `accumulate_bool` implementation in [vortex_aggregates::min_max]
 pub(super) fn accumulate_bool(
     array: &BoolArray,
     partial: &mut BloomPartial,

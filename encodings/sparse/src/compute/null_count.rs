@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::null_count::NullCount;
+use vortex_aggregates::null_count::null_count;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
-use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::scalar::Scalar;
@@ -58,9 +58,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::null_count::null_count;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::null_count::null_count;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;

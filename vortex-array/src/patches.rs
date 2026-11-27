@@ -42,6 +42,8 @@ use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::contiguous_runs;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
+#[cfg(debug_assertions)]
+use crate::arrays::primitive::integer_is_strict_sorted;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -340,9 +342,8 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
                 assert!(
-                    is_strict_sorted(&indices, ctx).unwrap_or(false),
+                    integer_is_strict_sorted(&indices, ctx).unwrap_or(false),
                     "Patch indices must be strictly increasing"
                 );
             }

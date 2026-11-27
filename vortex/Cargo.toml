@@ -19,6 +19,7 @@ all-features = true
 workspace = true
 
 [dependencies]
+vortex-aggregates = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }

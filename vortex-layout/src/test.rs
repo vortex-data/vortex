@@ -16,6 +16,7 @@ pub fn new_session() -> VortexSession {
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
     vortex_functions::initialize(&session);
+    vortex_aggregates::initialize(&session);
     session
 }
 
