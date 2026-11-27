@@ -46,7 +46,8 @@ pub fn fill_null_canonical_array(
         Canonical::VarBinView(array) => {
             fill_varbinview_array(array, fill_value, result_nullability, ctx)
         }
-        Canonical::Struct(_)
+        Canonical::FixedSizeBinary(_)
+        | Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::Map(_)
         | Canonical::FixedSizeList(_)

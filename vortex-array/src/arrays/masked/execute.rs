@@ -12,6 +12,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeBinaryArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
@@ -24,6 +25,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
@@ -53,6 +55,9 @@ pub fn mask_validity_canonical(
         Canonical::Primitive(a) => Canonical::Primitive(mask_validity_primitive(a, validity)?),
         Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity)?),
         Canonical::VarBinView(a) => Canonical::VarBinView(mask_validity_varbinview(a, validity)?),
+        Canonical::FixedSizeBinary(a) => {
+            Canonical::FixedSizeBinary(mask_validity_fixed_size_binary(a, validity)?)
+        }
         Canonical::List(a) => Canonical::List(mask_validity_listview(a, validity)?),
         Canonical::Map(a) => Canonical::Map(mask_validity_map(a, validity)?),
         Canonical::FixedSizeList(a) => {
@@ -94,6 +99,22 @@ fn mask_validity_decimal(array: DecimalArray, validity: Validity) -> VortexResul
             array.buffer_handle().clone(),
             array.values_type(),
             array.decimal_dtype(),
+            new_validity,
+        )
+    })
+}
+
+fn mask_validity_fixed_size_binary(
+    array: FixedSizeBinaryArray,
+    validity: Validity,
+) -> VortexResult<FixedSizeBinaryArray> {
+    let new_validity = Validity::and(array.validity()?, validity)?;
+    // SAFETY: We're only changing validity, not the data structure.
+    Ok(unsafe {
+        FixedSizeBinaryArray::new_unchecked_handle(
+            array.buffer_handle().clone(),
+            array.byte_width(),
+            array.len(),
             new_validity,
         )
     })

@@ -60,6 +60,7 @@ mod child;
 mod decimal;
 pub mod dict;
 mod extension;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list;
 mod listview;
@@ -75,6 +76,7 @@ pub use bool::*;
 pub(crate) use child::ChildBuilder;
 pub use decimal::*;
 pub use extension::*;
+pub use fixed_size_binary::*;
 pub use fixed_size_list::*;
 pub use list::*;
 pub use listview::*;
@@ -420,7 +422,9 @@ pub fn builder_with_capacity_in(
     allocator: &BufferAllocatorRef,
 ) -> Box<dyn ArrayBuilder> {
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        DType::FixedSizeBinary(byte_width, n) => Box::new(
+            FixedSizeBinaryBuilder::with_capacity_in(capacity, *byte_width, *n, allocator),
+        ),
         DType::Null => Box::new(NullBuilder::new()),
         DType::Bool(n) => Box::new(BoolBuilder::with_capacity_in(*n, capacity, allocator)),
         DType::Primitive(ptype, n) => {

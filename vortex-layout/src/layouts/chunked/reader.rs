@@ -462,7 +462,6 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -671,13 +670,12 @@ mod test {
         .into_layout()
     }
 
-    /// A layout with a dtype that has no empty canonical form yet must return an error, not
-    /// panic, when the reader has no rows to decode.
+    /// A reader with no rows to decode returns an empty array of its dtype.
     #[rstest]
     #[case::flat_no_rows_selected(fixed_size_binary_flat(0), 0..5)]
     #[case::chunked_no_rows_selected(fixed_size_binary_chunked(), 0..10)]
     #[case::chunked_empty_row_range(fixed_size_binary_chunked(), 0..0)]
-    fn test_fixed_size_binary_without_rows_returns_error(
+    fn test_fixed_size_binary_without_rows_is_empty(
         #[case] layout: LayoutRef,
         #[case] row_range: Range<u64>,
     ) -> VortexResult<()> {
@@ -693,15 +691,11 @@ mod test {
                 row_range.end - row_range.start,
             )?));
 
-            let result = match reader.projection_evaluation(&row_range, &expr, mask) {
-                Ok(array) => array.await,
-                Err(err) => Err(err),
-            };
-
-            let err = result
-                .err()
-                .ok_or_else(|| vortex_err!("projection of FixedSizeBinary must fail"))?;
-            assert!(err.to_string().contains("FixedSizeBinary"), "{err}");
+            let array = reader
+                .projection_evaluation(&row_range, &expr, mask)?
+                .await?;
+            assert!(array.is_empty());
+            assert_eq!(array.dtype(), &DType::FixedSizeBinary(16, NonNullable));
             Ok(())
         })
     }

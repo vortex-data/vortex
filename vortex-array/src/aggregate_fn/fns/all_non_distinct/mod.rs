@@ -5,6 +5,7 @@ mod bool;
 mod decimal;
 mod extension;
 mod filter;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list;
 mod map;
@@ -27,6 +28,7 @@ use self::bool::check_bool_identical;
 use self::decimal::check_decimal_identical;
 use self::extension::check_extension_identical;
 use self::filter::shared_validity_mask;
+use self::fixed_size_binary::check_fixed_size_binary_identical;
 use self::fixed_size_list::check_fixed_size_list_identical;
 use self::list::check_list_identical;
 use self::map::check_map_identical;
@@ -318,6 +320,9 @@ fn check_canonical_identical(
         (Canonical::Decimal(lhs), Canonical::Decimal(rhs)) => check_decimal_identical(lhs, rhs),
         (Canonical::VarBinView(lhs), Canonical::VarBinView(rhs)) => {
             check_varbinview_identical(lhs, rhs)
+        }
+        (Canonical::FixedSizeBinary(lhs), Canonical::FixedSizeBinary(rhs)) => {
+            Ok(check_fixed_size_binary_identical(lhs, rhs))
         }
         (Canonical::Struct(lhs), Canonical::Struct(rhs)) => check_struct_identical(lhs, rhs, ctx),
         (Canonical::List(lhs), Canonical::List(rhs)) => check_list_identical(lhs, rhs, ctx),

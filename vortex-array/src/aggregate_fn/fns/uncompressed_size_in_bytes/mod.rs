@@ -239,6 +239,9 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
         Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
+        Canonical::FixedSizeBinary(_) => {
+            vortex_bail!("UncompressedSizeInBytes is not supported for FixedSizeBinary arrays yet")
+        }
         Canonical::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
         }

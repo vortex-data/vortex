@@ -435,6 +435,9 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::Map(m) => check_map_constant(m, ctx)?,
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
+                    Canonical::FixedSizeBinary(_) => {
+                        vortex_bail!("FixedSizeBinary arrays don't support IsConstant yet")
+                    }
                     Canonical::Union(_) => {
                         vortex_bail!("TODO(connor)[Union]: implement IsConstant for Union arrays")
                     }
