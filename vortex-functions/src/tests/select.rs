@@ -7,6 +7,7 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
@@ -30,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::Expression;
 use vortex_expr::get_item;
+use vortex_expr::mask;
 use vortex_expr::proto::ExprSerializeProtoExt;
 use vortex_expr::root;
 use vortex_expr::test_harness;
@@ -222,6 +224,46 @@ fn test_remove_select_rule_exclude_fields() {
         result_dtype,
         &DType::struct_([("a", I32), ("b", I32)], Nullable)
     );
+}
+
+/// A selection from a masked struct moves below the mask, where a layout reader can read only the
+/// selected fields, and keeps the nulls of the struct and of the mask.
+#[test]
+fn select_reduces_below_mask() -> VortexResult<()> {
+    let s = StructArray::try_new(
+        FieldNames::from(["a", "b"]),
+        vec![
+            buffer![0i32, 1, 2].into_array(),
+            buffer![4i32, 5, 6].into_array(),
+        ],
+        3,
+        Validity::from_iter([true, true, false]),
+    )?;
+    let input = StructArray::from_fields(&[
+        ("s", s.into_array()),
+        ("v", BoolArray::from_iter([true, false, true]).into_array()),
+    ])?
+    .into_array();
+    let selection = select(["a"], mask(get_item("s", root()), get_item("v", root())));
+
+    let optimized = selection.bind(input.dtype())?.optimize_recursive()?;
+    let expected =
+        mask(select(["a"], get_item("s", root())), get_item("v", root())).bind(input.dtype())?;
+    assert_eq!(optimized, expected);
+
+    let expected_values = StructArray::try_new(
+        FieldNames::from(["a"]),
+        vec![buffer![0i32, 1, 2].into_array()],
+        3,
+        Validity::from_iter([true, false, false]),
+    )?;
+    assert_arrays_eq!(
+        input.apply(&selection)?,
+        expected_values,
+        &mut SESSION.create_execution_ctx()
+    );
+
+    Ok(())
 }
 
 #[test]

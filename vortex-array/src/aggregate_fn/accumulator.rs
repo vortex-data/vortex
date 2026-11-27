@@ -18,7 +18,6 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
-use crate::executor::max_iterations;
 use crate::scalar::Scalar;
 use crate::stats::Precision;
 use crate::stats::Stat;
@@ -143,7 +142,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
         //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
         let mut batch = batch.clone();
-        for _ in 0..max_iterations() {
+        for _ in 0..ctx.max_iterations() {
             if batch.is::<AnyColumnar>() {
                 break;
             }

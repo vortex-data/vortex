@@ -33,9 +33,8 @@ use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
-use vortex::expr::eq;
 use vortex::expr::get_item;
-use vortex::expr::in_list_of;
+use vortex::expr::in_list_of_with_mode;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -68,6 +67,9 @@ use vortex_spatial::scalar_fn::distance::SpatialDistance;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::SESSION;
+use crate::convert::compare::between_with_mode;
+use crate::convert::compare::compare;
+use crate::convert::compare::compare_mode;
 use crate::convert::dtype::FromLogicalType;
 use crate::convert::table_filter::dynamic_filter_expr;
 use crate::cpp::DUCKDB_TYPE;
@@ -242,7 +244,10 @@ fn try_from_spatial_function(
                 return Ok(None);
             };
             let spatial_distance = SpatialDistance.new_expr(ScalarEmptyOptions, operands);
-            Compare.new_expr(CompareOperator::Lte, [spatial_distance, lit(distance)])
+            Compare.new_expr(
+                CompareOperator::Lte.into(),
+                [spatial_distance, lit(distance)],
+            )
         }
         "st_distance" => {
             if children.len() != 2 {
@@ -427,12 +432,14 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
 }
 
 /// Lower `IS NOT DISTINCT FROM`, which unlike `=` is never NULL.
-fn not_distinct_from(left: Expression, right: Expression) -> Expression {
+///
+/// The equality compares operands of `dtype` with the float semantics of DuckDB.
+fn not_distinct_from(dtype: &DType, left: Expression, right: Expression) -> Expression {
     // TODO(ayush): use NULL-safe equality once `eq` has a mode for it.
     let both_null = and(is_null(left.clone()), is_null(right.clone()));
     let both_equal = and(
         and(is_not_null(left.clone()), is_not_null(right.clone())),
-        eq(left, right),
+        compare(CompareOperator::Eq, dtype, left, right),
     );
     or(both_null, both_equal)
 }
@@ -693,50 +700,27 @@ fn try_from_expression_inner(
             col(name)
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
-        BoundComparison(compare) => {
-            let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
+        BoundComparison(comparison) => {
+            let dtype = operand_dtype(comparison.left);
+
+            let Some(left) = try_from_expression_inner(comparison.left, ctx)? else {
                 return Ok(None);
             };
-            let Some(right) = try_from_expression_inner(compare.right, ctx)? else {
+            let Some(right) = try_from_expression_inner(comparison.right, ctx)? else {
                 return Ok(None);
             };
 
-            match compare.op {
+            match comparison.op {
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_DISTINCT_FROM => {
-                    not_distinct_from(left, right)
+                    not_distinct_from(&dtype, left, right)
                 }
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_DISTINCT_FROM => {
-                    not(not_distinct_from(left, right))
+                    not(not_distinct_from(&dtype, left, right))
                 }
-                op => Compare.new_expr(CompareOperator::try_from(op)?, [left, right]),
+                op => compare(CompareOperator::try_from(op)?, &dtype, left, right),
             }
         }
-        BoundBetween(between) => {
-            let Some(array) = try_from_expression_inner(between.input, ctx)? else {
-                return Ok(None);
-            };
-            let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
-                return Ok(None);
-            };
-            let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
-                return Ok(None);
-            };
-            Between.new_expr(
-                BetweenOptions {
-                    lower_strict: if between.lower_inclusive {
-                        StrictComparison::NonStrict
-                    } else {
-                        StrictComparison::Strict
-                    },
-                    upper_strict: if between.upper_inclusive {
-                        StrictComparison::NonStrict
-                    } else {
-                        StrictComparison::Strict
-                    },
-                },
-                [array, lower, upper],
-            )
-        }
+        BoundBetween(between) => return try_from_between(&between, ctx),
         ExpressionClass::BoundOperator(operator) => match operator.op {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
@@ -805,6 +789,56 @@ fn try_from_expression_inner(
     }))
 }
 
+/// Returns the dtype of a comparison operand, or [`DType::Null`] when it has no Vortex dtype. The
+/// dtype only selects the float semantics of the comparison.
+fn operand_dtype(operand: &ExpressionRef) -> DType {
+    DType::from_logical_type(operand.return_type(), Nullability::Nullable).unwrap_or(DType::Null)
+}
+
+fn try_from_between(
+    between: &duckdb::BoundBetween<'_>,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<Expression>> {
+    let Some(array) = try_from_expression_inner(between.input, ctx)? else {
+        return Ok(None);
+    };
+    let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
+        return Ok(None);
+    };
+    let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
+        return Ok(None);
+    };
+
+    let dtype = operand_dtype(between.input);
+    let mode = compare_mode(&dtype);
+    if !mode.is_total_order() {
+        return Ok(Some(between_with_mode(
+            mode,
+            array,
+            lower,
+            between.lower_inclusive,
+            upper,
+            between.upper_inclusive,
+        )));
+    }
+
+    let strict = |inclusive: bool| {
+        if inclusive {
+            StrictComparison::NonStrict
+        } else {
+            StrictComparison::Strict
+        }
+    };
+
+    Ok(Some(Between.new_expr(
+        BetweenOptions {
+            lower_strict: strict(between.lower_inclusive),
+            upper_strict: strict(between.upper_inclusive),
+        },
+        [array, lower, upper],
+    )))
+}
+
 fn try_from_compare_in(
     operator: BoundOperator,
     ctx: ConvertCtx<'_>,
@@ -831,7 +865,8 @@ fn try_from_compare_in(
         return Ok(None);
     };
     let element_dtype = list_elements[0].dtype().clone();
-    let expr = in_list_of(element, element_dtype, list_elements)?;
+    let mode = compare_mode(&element_dtype);
+    let expr = in_list_of_with_mode(element, element_dtype, list_elements, mode)?;
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 

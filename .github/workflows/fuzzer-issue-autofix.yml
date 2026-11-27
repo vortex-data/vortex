@@ -112,13 +112,14 @@ jobs:
     name: "Autofix Fuzzer Issue"
     needs: gate
     if: needs.gate.outputs.should_run == 'true'
-    # Keyed on the issue so repeat fuzzer-label triggers for the same issue
-    # collapse into a single fix attempt. This sits on the job, not the
-    # workflow, because every label event starts a run: at workflow level, a
-    # second label added during a fix would cancel the fix and then skip.
+    # Keyed on the issue so only one fix attempt per issue runs at a time; a
+    # repeat fuzzer-label trigger waits for the running attempt instead of
+    # cancelling it. This sits on the job, not the workflow, because every
+    # label event starts a run: at workflow level, every other label event on
+    # the issue would wait behind the fix only to be skipped.
     concurrency:
       group: fuzzer-fix-${{ github.event.issue.number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       # The reusable workflow downloads the crash artifact (actions: read) and
       # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and

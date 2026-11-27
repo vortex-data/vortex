@@ -13,20 +13,26 @@
 //! is stored as 16 bytes in big-endian (network) byte order, matching [RFC 4122] and Arrow's
 //! [canonical UUID extension].
 //!
-//! [`initialize`] registers the extension dtype, the Arrow import/export plugins that map it to
-//! Arrow's `arrow.uuid` extension type over `FixedSizeBinary[16]` storage, and `is_sorted` and
-//! `min_max` over its storage, since big-endian bytes order like the UUIDs they encode.
+//! [`initialize`] registers the extension dtype, the [`parse_uuid`] (`vortex.parse_uuid`) and
+//! [`format_uuid`] (`vortex.format_uuid`) scalar functions, the Arrow import/export plugins that
+//! map it to Arrow's `arrow.uuid` extension type over `FixedSizeBinary[16]` storage, and
+//! `is_sorted` and `min_max` over its storage, since big-endian bytes order like the UUIDs they
+//! encode.
 //!
 //! [RFC 4122]: https://www.rfc-editor.org/rfc/rfc4122
 //! [canonical UUID extension]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#uuid
 
 mod arrow;
 mod metadata;
+mod text;
 mod vtable;
 
 pub use metadata::UuidMetadata;
+pub use text::format_uuid;
+pub use text::parse_uuid;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
@@ -36,11 +42,15 @@ pub struct Uuid;
 
 /// Register UUID extension support with a session.
 ///
-/// This registers the `vortex.uuid` extension dtype along with the Arrow exporter and importer
-/// for Arrow's canonical `arrow.uuid` extension type. UUIDs are stored big-endian, so they compare
-/// like their storage bytes, and `is_sorted` and `min_max` are pushed down into the storage.
+/// This registers the `vortex.uuid` extension dtype, the `vortex.parse_uuid` and
+/// `vortex.format_uuid` scalar functions (constructed via [`parse_uuid`] and [`format_uuid`]), and
+/// the Arrow exporter and importer for Arrow's canonical `arrow.uuid` extension type. UUIDs are
+/// stored big-endian, so they compare like their storage bytes, and `is_sorted` and `min_max` are
+/// pushed down into the storage.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Uuid);
+    session.scalar_fns().register(text::ParseUuid);
+    session.scalar_fns().register(text::FormatUuid);
     session.aggregate_fns().register_storage_ordered(Uuid);
     session.arrow().register_extension(Uuid);
 }
