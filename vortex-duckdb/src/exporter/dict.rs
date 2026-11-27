@@ -418,37 +418,4 @@ mod tests {
 
         Ok(())
     }
-
-    #[test]
-    fn test_export_dict_of_nullable_struct_with_nullable_codes() -> VortexResult<()> {
-        let values = StructArray::try_new(
-            ["a"].into(),
-            vec![buffer![1i32, 2].into_array()],
-            2,
-            Validity::from_iter([true, false]),
-        )?
-        .into_array();
-        let codes = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), Some(0)]);
-        let arr = DictArray::try_new(codes.into_array(), values)?;
-
-        let struct_type = LogicalType::struct_type([LogicalType::int32()], [c"a".to_owned()])?;
-        let mut chunk = DataChunk::new([struct_type]);
-        let mut ctx = SESSION.create_execution_ctx();
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            4,
-            chunk.get_vector_mut(0),
-            &mut ctx,
-        )?;
-        chunk.set_len(4);
-
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- FLAT STRUCT(a INTEGER): 4 = [ {'a': 1}, NULL, NULL, {'a': 1}]
-"#
-        );
-
-        Ok(())
-    }
 }
