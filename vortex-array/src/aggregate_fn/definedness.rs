@@ -285,6 +285,9 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProviderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -604,10 +607,6 @@ mod tests {
     /// defined batches never cache a statistic on the batch.
     #[test]
     fn only_fully_defined_batches_cache_statistics() -> VortexResult<()> {
-        use crate::stats::Precision;
-        use crate::stats::Stat;
-        use crate::stats::StatsProviderExt;
-
         let mut ctx = ctx();
         let min = Min.bind(NumericalAggregateOpts::default());
 

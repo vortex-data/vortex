@@ -349,6 +349,7 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::varbinview::BinaryView;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
@@ -765,6 +766,47 @@ mod tests {
                 .iter()
                 .all(|(block, defined)| block.len() == defined.len())
         );
+        Ok(())
+    }
+
+    /// A split chunk with mixed definedness gives each part the definedness of its rows, and the
+    /// remainder that stays in the buffer holds its own reservation.
+    #[test]
+    fn split_chunk_keeps_definedness_and_reserves_remainder() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let tracker = SizeScope::new();
+        let mut buf = ChunksBuffer::new(0, 4, tracker.clone());
+        buf.push_back(
+            buffer![1i32, 2].into_array(),
+            Mask::from_iter([true, false]),
+            &mut ctx,
+        )?;
+        buf.push_back(
+            buffer![3i32, 4, 5, 6].into_array(),
+            Mask::from_iter([false, true, true, false]),
+            &mut ctx,
+        )?;
+        assert_eq!(tracker.uncompressed_bytes(), 24);
+
+        let (blocks, reservations) = buf.collect_exact_blocks(&mut ctx)?;
+        let defined_masks: Vec<_> = blocks.iter().map(|(_, defined)| defined.clone()).collect();
+        assert_eq!(
+            Mask::concat(defined_masks.iter())?,
+            Mask::from_iter([true, false, false, true])
+        );
+        assert_eq!(tracker.uncompressed_bytes(), 32);
+
+        drop(reservations);
+        assert_eq!(tracker.uncompressed_bytes(), 8);
+
+        let (remainder, defined, reservation) = buf
+            .pop_front()
+            .vortex_expect("remainder stays in the buffer");
+        assert_arrays_eq!(remainder, buffer![5i32, 6].into_array(), &mut ctx);
+        assert_eq!(defined, Mask::from_iter([true, false]));
+
+        drop(reservation);
+        assert_eq!(tracker.uncompressed_bytes(), 0);
         Ok(())
     }
 }

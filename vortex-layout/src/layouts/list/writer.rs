@@ -26,12 +26,15 @@ use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar::NumericOperator;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -314,32 +317,53 @@ fn drop_absent_elements(
     if lists.all_true() {
         return Ok(list);
     }
+    // Execute the offsets one time. Sliced lists can hold a lazy subtraction from `reset_offsets`,
+    // and the element selection and the kept offsets both read the offsets.
+    let offsets = list.offsets().clone().execute::<PrimitiveArray>(exec_ctx)?;
+    // SAFETY: The executed offsets hold the same values as the offsets of `list`.
+    let list = unsafe {
+        ListArray::new_unchecked(
+            list.elements().clone(),
+            offsets.clone().into_array(),
+            validity.clone(),
+        )
+    };
+
     let elements = list_elements_mask(&list, &lists, exec_ctx)?;
     if elements.all_true() {
         return Ok(list);
     }
 
-    let offsets = list
-        .offsets()
-        .clone()
-        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-        .execute::<PrimitiveArray>(exec_ctx)?;
-    let mut kept = BufferMut::<u64>::with_capacity(offsets.len());
-    kept.push(0);
-    let mut end = 0u64;
-    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
-        if lists.value(row) {
-            end += bounds[1] - bounds[0];
-        }
-        kept.push(end);
-    }
+    // Offsets are non-negative, so they can be read as unsigned.
+    let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+    let kept = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+        kept_offsets(offsets.as_slice::<O>(), &lists)
+    });
+
     // Writers serialize what they receive, so the filter is executed rather than left lazy.
     let elements = list
         .elements()
         .filter(elements)?
         .execute::<Canonical>(exec_ctx)?
         .into_array();
-    ListArray::try_new(elements, kept.freeze().into_array(), validity, exec_ctx)
+    ListArray::try_new(elements, kept.into_array(), validity, exec_ctx)
+}
+
+/// The `u64` offsets of the lists after the elements of the lists that `lists` does not select are
+/// dropped. Those lists become empty.
+fn kept_offsets<O: Copy + Into<u64>>(offsets: &[O], lists: &Mask) -> Buffer<u64> {
+    let mut kept = BufferMut::<u64>::with_capacity(offsets.len());
+    kept.push(0);
+
+    let mut end = 0u64;
+    for (row, bounds) in offsets.windows(2).enumerate() {
+        if lists.value(row) {
+            end += bounds[1].into() - bounds[0].into();
+        }
+        kept.push(end);
+    }
+
+    kept.freeze()
 }
 
 /// Canonicalize a list-dtype array into a [`ListArray`].
