@@ -805,8 +805,7 @@ fn variant_get_untyped_merges_shredded_leaf_values(
     Ok(())
 }
 
-/// A row with a typed list reads it from the shredded child, where its core storage holds no
-/// value. A row whose typed list is null reads its value from the core storage.
+/// A typed row reads from the shredded child, and a null typed row from core storage.
 #[rstest]
 #[case::list(false)]
 #[case::fixed_size_list(true)]
@@ -1140,7 +1139,6 @@ fn variant_get_extracts_from_lazy_constants(
     Ok(())
 }
 
-/// Dropping more digits than an `i128` holds rounds every value to zero, as Arrow does.
 #[test]
 fn converts_decimals_to_zero_when_every_digit_is_dropped() {
     let value = Scalar::decimal(

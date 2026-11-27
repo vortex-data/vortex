@@ -198,8 +198,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             return make_fallback(ctx).map(Some);
         }
 
-        // The core storage holds no value of a row that the typed child holds, so a typed value
-        // of another dtype than the requested one converts from the typed child.
+        // Core storage holds no value of a typed row, so convert the typed child itself.
         let typed = convert_typed(typed, parent.dtype(), ctx)?;
         fill_absent_from_core(typed, typed_mask, array.core_storage(), parent.options, ctx)
             .map(Some)
@@ -264,7 +263,8 @@ fn scatter_absent(
 
 /// Returns the shredded struct or list `typed` with each nested Variant replaced by its shredded
 /// child, and the rows of it whose every leaf holds a value. A null leaf can have its value in
-/// core storage. Returns `None` if no row can be read from `typed` alone.
+/// core storage. Returns `None` if `typed` holds an object in a nested Variant, or a list with an
+/// incomplete element.
 fn complete_rows(
     typed: &ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -274,9 +274,8 @@ fn complete_rows(
         DType::Variant(_) => {
             let variant = typed.clone().execute::<Array<Variant>>(ctx)?;
 
-            // The core storage holds no value of a row that holds a shredded value other than
-            // an object, so such a row is complete if its shredded value is. An object can keep
-            // some of its fields in core storage.
+            // A shredded value other than an object leaves no value in core storage. An object
+            // can keep some of its fields there.
             let Some(shredded) = variant
                 .shredded()
                 .filter(|shredded| !shredded.dtype().is_struct())
@@ -430,10 +429,8 @@ fn mask_with_validity(array: ArrayRef, validity: &Validity) -> VortexResult<Arra
 }
 
 /// Walks `path` through the shredded tree, returning the array it reaches and the elements of
-/// `path` that are left.
-///
-/// The walk stops early at a shredded Variant child, which holds the rest of the path itself.
-/// Returns `None` if the shredded tree does not represent the path.
+/// `path` that are left. The walk stops at a shredded Variant child. Returns `None` if the
+/// shredded tree does not represent the path.
 fn typed_shredded_path<'a>(
     shredded: &ArrayRef,
     path: &'a [VariantPathElement],
@@ -570,8 +567,7 @@ mod tests {
         DType::Primitive(PType::I32, Nullability::Nullable)
     }
 
-    /// A typed value of another dtype than the requested one converts from the typed child, as
-    /// a single value converts. A value that does not convert is a null.
+    /// A value that does not convert is a null.
     #[rstest]
     #[case::narrower(
         PrimitiveArray::from_option_iter([Some(1i64), Some(-300), None]),
@@ -659,8 +655,6 @@ mod tests {
         Ok(())
     }
 
-    /// A row that the shredded child does not hold reads its value from core storage, and the
-    /// other rows keep their typed values.
     #[test]
     fn fills_absent_rows_from_core() -> VortexResult<()> {
         let typed = PrimitiveArray::from_option_iter([Some(10i32), None, None]).into_array();
@@ -689,8 +683,6 @@ mod tests {
         Filtered,
     }
 
-    /// A slice or a filter of a shredded Variant keeps the typed rows and reads the other rows
-    /// from core storage.
     #[rstest]
     #[case::sliced(Shape::Sliced, [Some(5i32), Some(30), Some(7)])]
     #[case::filtered(Shape::Filtered, [Some(10i32), Some(5), Some(7)])]
@@ -781,8 +773,6 @@ mod tests {
         shredded("items", items, core)
     }
 
-    /// An index into a shredded list reads the shredded elements and the elements in core
-    /// storage, with and without a requested dtype.
     #[rstest]
     #[case::typed(Some(nullable_i32()))]
     #[case::untyped(None)]
@@ -807,8 +797,6 @@ mod tests {
         Ok(())
     }
 
-    /// A shredded list of the requested dtype gives its rows in bulk, and a row that only core
-    /// storage holds reads from there.
     #[test]
     fn reads_shredded_list() -> VortexResult<()> {
         let dtype = DType::List(
@@ -829,8 +817,7 @@ mod tests {
         Ok(())
     }
 
-    /// A shredded struct of the requested dtype gives the rows whose every field it holds. A row
-    /// with a null field merges the shredded child with core storage, and a row whose whole
+    /// A row with a null field merges the shredded child with core storage, and a row whose whole
     /// struct is only in core storage reads from there.
     #[test]
     fn reads_shredded_struct() -> VortexResult<()> {

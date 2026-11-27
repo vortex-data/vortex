@@ -195,10 +195,7 @@ impl ScalarFnVTable for VariantGet {
 }
 
 /// Returns whether `canonical` only wraps `input` again, as a constant canonicalizes to a Variant
-/// array over itself.
-///
-/// The kernel of such an array extracts from its core storage, which is `input`. That builds the
-/// same extraction again, so the caller must extract row by row.
+/// array over itself. Extracting from it would build the same extraction again.
 fn wraps_input(canonical: &VariantArray, input: &ArrayRef) -> bool {
     canonical.shredded().is_none() && ArrayRef::ptr_eq(canonical.core_storage(), input)
 }
@@ -325,10 +322,8 @@ fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Opti
         .or_else(|| convert_to_decimal(&value, output_dtype)))
 }
 
-/// Converts a number or a string to a Boolean as Arrow's Variant conversion does. A Vortex cast
-/// converts neither to a Boolean.
-///
-/// Zero is false and any other number is true. A string converts as [`string_as_bool`] reads it.
+/// Converts a number or a string to a Boolean as Arrow's Variant conversion does: zero is false,
+/// and a string converts as [`string_as_bool`] reads it.
 pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
     if !dtype.is_boolean() {
         return None;
@@ -348,8 +343,8 @@ pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> 
     Some(Scalar::bool(boolean, dtype.nullability()))
 }
 
-/// Converts a float, a decimal or a string to a decimal as Arrow's Variant conversion does, where
-/// a Vortex cast fails: each rounds half away from zero. Returns `None` if the result does not fit.
+/// Converts a float, a decimal or a string to a decimal as Arrow's Variant conversion does,
+/// rounding half away from zero. Returns `None` if the result does not fit.
 pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
     let DType::Decimal(target, nullability) = dtype else {
         return None;

@@ -62,9 +62,8 @@ fn parse_mantissa(mantissa: &[u8], scale: i64) -> Option<i128> {
         return None;
     }
 
-    // A non-negative scale keeps every integer digit and `scale` fractional digits. A negative
-    // scale drops the last `-scale` integer digits, and a value with fewer integer digits than
-    // that rounds to zero.
+    // A negative scale drops the last `-scale` integer digits. A value with fewer integer digits
+    // than that rounds to zero.
     let (integer_kept, fraction_kept, round) = if scale >= 0 {
         let fraction_kept = usize::try_from(scale).unwrap_or(usize::MAX);
         (integer.len(), fraction_kept.min(fraction.len()), true)
