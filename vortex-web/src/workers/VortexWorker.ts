@@ -57,6 +57,10 @@ export class VortexWorker {
     };
   }
 
+  get isClosed(): boolean {
+    return this.closedError !== null;
+  }
+
   private failAllPending(err: Error): void {
     if (this.closedError) return;
     this.closedError = err;
@@ -75,7 +79,12 @@ export class VortexWorker {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ ...payload, id });
+      try {
+        this.worker.postMessage({ ...payload, id });
+      } catch (err) {
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -123,6 +132,7 @@ export class VortexWorker {
   }
 
   closeFile(): void {
+    if (this.closedError) return;
     this.worker.postMessage({ type: 'close' });
   }
 

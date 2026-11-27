@@ -28,6 +28,7 @@ use vortex::array::stream::ArrayStream;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VERSION;
 use vortex::file::VortexFile;
@@ -79,6 +80,20 @@ impl Future for SendFuture {
     }
 }
 
+/// Format a JavaScript exception value into a readable message without panicking.
+fn format_js_error(err: JsValue) -> String {
+    if let Some(s) = err.as_string() {
+        return s;
+    }
+    if let Some(e) = err.dyn_ref::<js_sys::Error>() {
+        return String::from(e.to_string());
+    }
+    if let Some(obj) = err.dyn_ref::<js_sys::Object>() {
+        return String::from(obj.to_string());
+    }
+    format!("{err:?}")
+}
+
 impl VortexReadAt for BlobReadAt {
     fn concurrency(&self) -> usize {
         4
@@ -99,19 +114,40 @@ impl VortexReadAt for BlobReadAt {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let Some(end_u64) = offset.checked_add(length as u64) else {
+            return futures::future::ready(Err(vortex_err!(
+                "Blob read range overflow: offset={offset}, length={length}"
+            )))
+            .boxed();
+        };
         let start = offset as f64;
-        let end = (offset + length as u64) as f64;
-        let slice = self
-            .blob
-            .slice_with_f64_and_f64(start, end)
-            .expect("Blob.slice() failed");
+        let end = end_u64 as f64;
+        let slice = match self.blob.slice_with_f64_and_f64(start, end) {
+            Ok(slice) => slice,
+            Err(err) => {
+                let message = format_js_error(err);
+                return futures::future::ready(Err(vortex_err!("Blob.slice() failed: {message}")))
+                    .boxed();
+            }
+        };
         // SAFETY: WasmRuntime polls and drops this future on its creating Web Worker.
         let future = SendFuture(JsFuture::from(slice.array_buffer()));
         async move {
-            let array_buffer = future.await.expect("Blob.arrayBuffer() failed");
+            let array_buffer = future.await.map_err(|err| {
+                vortex_err!("Blob.arrayBuffer() failed: {}", format_js_error(err))
+            })?;
             let uint8 = js_sys::Uint8Array::new(&array_buffer);
-            let mut buffer =
-                ByteBufferMut::with_capacity_aligned(uint8.length() as usize, alignment);
+            let actual_len = uint8.length() as usize;
+            if actual_len != length {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "Blob read at offset {offset} returned {actual_len} bytes, expected {length}"
+                    ),
+                )
+                .into());
+            }
+            let mut buffer = ByteBufferMut::with_capacity_aligned(actual_len, alignment);
             buffer.extend_from_slice(&uint8.to_vec());
             Ok(BufferHandle::new_host(buffer.freeze()))
         }
