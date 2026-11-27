@@ -93,9 +93,8 @@ impl Scheme for FloatDictScheme {
     /// [`FloatStats`], like `IntDictScheme` and `DecimalDictScheme`.
     ///
     /// Sampling under-rates medium-cardinality dictionaries (e.g. thousands of distinct values in
-    /// a 100K–1M row chunk): a 2,048-row sample either exceeds the 50% distinctness cutoff and
-    /// skips the scheme altogether, or charges the entire sampled dictionary table against only
-    /// 2,048 rows.
+    /// a 100K–1M row chunk) because compressing the sample charges the sampled dictionary table
+    /// against far fewer rows than the full chunk.
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -520,7 +519,7 @@ mod tests {
     #[case::two_values(2, 60.0, 64.0)]
     #[case::four_values(4, 30.0, 32.0)]
     #[case::eight_values(8, 20.0, 22.0)]
-    fn analytical_ratio_handles_power_of_two_cardinalities(
+    fn test_analytical_ratio_handles_power_of_two_cardinalities(
         #[case] distinct: usize,
         #[case] min_ratio: f64,
         #[case] max_ratio: f64,
@@ -534,7 +533,7 @@ mod tests {
     }
 
     #[test]
-    fn analytical_ratio_rewards_skewed_medium_cardinality_and_stays_conservative_on_high_cardinality()
+    fn test_analytical_ratio_rewards_skewed_medium_cardinality_and_stays_conservative_on_high_cardinality()
      {
         // 100K rows, 5,000 distinct prices where 95% hit the top 16 prices (4-bit patched codes)
         // and 5% cover all 4,984 tail prices.
@@ -573,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn finished_cascading_uses_uncompressed_narrowed_codes_and_values() {
+    fn test_finished_cascading_uses_uncompressed_narrowed_codes_and_values() {
         let array = PrimitiveArray::from_iter((0..4096).map(|i| (i % 2) as f64 * 2.5));
         let mut ctx = CompressorContext::new();
         for _ in 0..MAX_CASCADE {
@@ -589,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn nullable_and_nan_leading_floats_estimate_cleanly() {
+    fn test_nullable_and_nan_leading_floats_estimate_cleanly() {
         // Leading NaN and repeated NaNs must not trigger zero-run-length issues.
         let nan_array = PrimitiveArray::from_iter(
             (0..4096usize).map(|i| if i % 4 == 0 { f64::NAN } else { (i % 4) as f64 }),

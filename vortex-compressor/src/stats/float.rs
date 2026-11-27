@@ -232,41 +232,41 @@ where
         .first()
         .vortex_expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
-    // Compare bit patterns via `NativeValue` (matching `distinct_values` and FastLanes RLE) so
-    // identical NaNs do not trigger spurious transitions and `-0.0` vs `+0.0` stay distinct.
-    let mut prev = NativeValue(buff[head_idx]);
+    // `count_transitions` compares bit patterns via `NativePType::is_eq` (matching
+    // `distinct_values` and FastLanes RLE) so identical NaNs do not trigger spurious transitions
+    // and `-0.0` vs `+0.0` stay distinct.
+    let mut prev = buff[head_idx];
 
     // The nulls before the head are skipped, so the loop can start at 0.
     for_each_chunk(buff.as_slice(), &validity, |chunk, valid| match valid {
         // All nulls -> no stats to update.
         0 => {}
         u64::MAX => {
-            let native_chunk = chunk.map(NativeValue);
             if count_distinct_values {
-                for &value in &native_chunk {
-                    *distinct_values.entry(value).or_insert(0) += 1;
+                for &value in chunk {
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                 }
             }
-            runs += u32::from(count_transitions(&prev, &native_chunk));
-            prev = native_chunk[63];
+            runs += count_transitions(prev, chunk);
+            prev = chunk[63];
         }
         // Gather valid values into a compact prefix so their transitions are counted branch-free.
         _ => {
-            let mut gathered = [prev; 64];
+            let mut gathered = *chunk;
             let mut n = 0;
             let mut bits = valid;
             while bits != 0 {
-                gathered[n] = NativeValue(chunk[bits.trailing_zeros() as usize]);
+                gathered[n] = chunk[bits.trailing_zeros() as usize];
                 n += 1;
                 bits &= bits - 1;
             }
             let gathered = &gathered[..n];
             if count_distinct_values {
                 for &value in gathered {
-                    *distinct_values.entry(value).or_insert(0) += 1;
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                 }
             }
-            runs += u32::from(count_transitions(&prev, gathered));
+            runs += count_transitions(prev, gathered);
             prev = gathered[n - 1];
         }
     });

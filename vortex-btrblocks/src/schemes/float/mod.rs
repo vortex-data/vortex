@@ -33,6 +33,7 @@ mod tests {
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_compressor::CascadingCompressor;
+    use vortex_compressor::scheme::Scheme;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPacked;
     use vortex_fastlanes::BitPackedArrayExt;
@@ -97,8 +98,8 @@ mod tests {
         Ok(())
     }
 
-    fn float_compressor() -> CascadingCompressor {
-        CascadingCompressor::new(vec![
+    fn float_compressor_schemes() -> Vec<&'static dyn Scheme> {
+        vec![
             &ALPScheme,
             &ALPRDScheme,
             &FloatDictScheme,
@@ -111,14 +112,18 @@ mod tests {
             &IntDictScheme,
             &RunEndScheme,
             &IntRLEScheme,
-        ])
+        ]
+    }
+
+    fn float_compressor() -> CascadingCompressor {
+        CascadingCompressor::new(float_compressor_schemes())
     }
 
     /// On medium-cardinality skewed decimal floats (Bimbo.Venta_hoy-style: 100K rows drawing
     /// Zipfian prices from 5,000 distinct 0.01-stepped f64s), FloatDict must beat ALP and produce
     /// a strictly smaller compressed array than ALP without FloatDict.
     #[test]
-    fn skewed_medium_cardinality_decimal_floats_select_dict_over_alp() -> VortexResult<()> {
+    fn test_skewed_medium_cardinality_decimal_floats_select_dict_over_alp() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // 100K rows, 5,000 distinct 0.01-stepped prices across $0.00..$50,000.00:
         // 90% hit the top 16 prices, 5% hit the next 48 prices, 5% cover all remaining 4,936.
@@ -138,14 +143,12 @@ mod tests {
         let array = PrimitiveArray::from_iter(values).into_array();
 
         let compressed = float_compressor().compress(&array, &mut ctx)?;
-        let alp_without_dict = CascadingCompressor::new(vec![
-            &ALPScheme,
-            &ALPRDScheme,
-            &FOR_V1,
-            &ZigZagScheme,
-            &BITPACKING,
-            &SparseScheme,
-        ])
+        let without_float_dict = CascadingCompressor::new(
+            float_compressor_schemes()
+                .into_iter()
+                .filter(|s| s.scheme_name() != FloatDictScheme.scheme_name())
+                .collect(),
+        )
         .compress(&array, &mut ctx)?;
 
         let dict = compressed.as_opt::<Dict>().unwrap_or_else(|| {
@@ -156,10 +159,10 @@ mod tests {
         });
         assert_eq!(dict.values().len(), 5_000);
         assert!(
-            compressed.nbytes() < alp_without_dict.nbytes(),
-            "expected FloatDict ({} B) < ALP ({} B)",
+            compressed.nbytes() < without_float_dict.nbytes(),
+            "expected FloatDict ({} B) < without FloatDict ({} B)",
             compressed.nbytes(),
-            alp_without_dict.nbytes()
+            without_float_dict.nbytes()
         );
         assert_arrays_eq!(compressed, array, &mut ctx);
         Ok(())
@@ -168,7 +171,7 @@ mod tests {
     /// On high-cardinality uniform ALP-friendly floats (100K rows with 45,000 distinct 0.01-stepped
     /// prices), ALP without Dict is strictly smaller and must still beat FloatDict.
     #[test]
-    fn high_cardinality_uniform_alp_floats_still_select_alp_over_dict() -> VortexResult<()> {
+    fn test_high_cardinality_uniform_alp_floats_still_select_alp_over_dict() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<f64> = (0..100_000usize)
             .map(|i| (i % 45_000) as f64 / 100.0)
@@ -176,20 +179,28 @@ mod tests {
         let array = PrimitiveArray::from_iter(values).into_array();
 
         let compressed = float_compressor().compress(&array, &mut ctx)?;
-        let dict_only = CascadingCompressor::new(vec![&FloatDictScheme, &FOR_V1, &BITPACKING])
-            .compress(&array, &mut ctx)?;
+        let without_alp = CascadingCompressor::new(
+            float_compressor_schemes()
+                .into_iter()
+                .filter(|s| {
+                    s.scheme_name() != ALPScheme.scheme_name()
+                        && s.scheme_name() != ALPRDScheme.scheme_name()
+                })
+                .collect(),
+        )
+        .compress(&array, &mut ctx)?;
 
         assert!(
             compressed.is::<ALP>(),
             "expected ALP on high-cardinality uniform decimal floats, got:\n{}",
             compressed.display_tree()
         );
-        assert!(dict_only.is::<Dict>(), "{}", dict_only.display_tree());
+        assert!(without_alp.is::<Dict>(), "{}", without_alp.display_tree());
         assert!(
-            compressed.nbytes() < dict_only.nbytes(),
+            compressed.nbytes() < without_alp.nbytes(),
             "expected ALP ({} B) < FloatDict ({} B)",
             compressed.nbytes(),
-            dict_only.nbytes()
+            without_alp.nbytes()
         );
         assert_arrays_eq!(compressed, array, &mut ctx);
         Ok(())
