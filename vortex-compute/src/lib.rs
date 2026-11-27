@@ -13,3 +13,4 @@
 //! [`IndexedSink`]: lane_kernels::IndexedSink
 
 pub mod lane_kernels;
+pub mod prefetch;

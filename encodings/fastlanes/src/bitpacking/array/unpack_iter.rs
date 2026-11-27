@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use fastlanes::BitPacking;
 use vortex_array::dtype::PhysicalPType;
+use vortex_compute::prefetch::prefetch_write;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -270,6 +271,9 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
 
             unsafe {
                 let uninit_dst = &mut output[local_idx..local_idx + CHUNK_SIZE];
+                // The unpack is quicker than fetching the lines it writes, so start fetching them
+                // first.
+                prefetch_write(uninit_dst);
                 // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
                 let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
                 self.strategy.unpack_chunk(self.bit_width, chunk, dst);

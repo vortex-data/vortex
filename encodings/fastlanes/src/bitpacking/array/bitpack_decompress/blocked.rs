@@ -21,6 +21,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::Buffer;
+use vortex_compute::prefetch::prefetch_write;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -186,6 +187,8 @@ fn decode_blocks<T: BitPackedUnpack>(
         let block = &packed[start / size_of::<T>()..end / size_of::<T>()];
         let len = (FL_CHUNK_SIZE - skip).min(output.len() - written);
         let dst = &mut output[written..][..len];
+        // The unpack is quicker than fetching the lines it writes, so start fetching them first.
+        prefetch_write(dst);
         if len == FL_CHUNK_SIZE {
             // SAFETY: The boundaries have been validated against the packed length and physical
             // type, and `dst` holds exactly one block. `T` and its physical type have the same

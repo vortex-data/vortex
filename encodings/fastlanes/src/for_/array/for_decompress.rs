@@ -31,6 +31,7 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_compute::prefetch::prefetch_write;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -343,6 +344,8 @@ fn unpack_chunks<
         // `range` counts from the start of the first chunk, and the output starts at `offset`.
         let skip = offset.saturating_sub(range.start);
         let dst = &mut output[range.start + skip - offset..range.end - offset];
+        // The unpack is quicker than fetching the lines it writes, so start fetching them first.
+        prefetch_write(dst);
         if dst.len() == FL_CHUNK_SIZE {
             // SAFETY: `packed` holds one chunk at `bit_width` and `dst` has room for a chunk.
             unsafe { unfor_pack_into(bit_width, packed, reference, dst) };
