@@ -14,6 +14,7 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::dtype::PType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
@@ -80,7 +81,7 @@ impl Scheme for BitPackingScheme {
 
         let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
         let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
-        if usize::from(bw) == primitive_array.ptype().bit_width() {
+        if !should_pack(primitive_array.ptype(), bw) {
             return Ok(primitive_array.into_array());
         }
 
@@ -119,4 +120,11 @@ impl Scheme for BitPackingScheme {
             ),
         }
     }
+}
+
+/// The fewest bits per value that packing must save.
+const MIN_BITS_SAVED: usize = 2;
+
+fn should_pack(ptype: PType, bit_width: u8) -> bool {
+    ptype.bit_width() - usize::from(bit_width) >= MIN_BITS_SAVED
 }

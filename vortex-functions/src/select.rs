@@ -21,14 +21,17 @@ use vortex_array::proto::expr::SelectOpts;
 use vortex_array::proto::expr::select_opts::Opts;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_array::scalar_fn::builtin::pack::PackOptions;
 use vortex_array::scalar_fn::display::ExprDisplay;
+use vortex_array::scalar_fn::is_not_null_node;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -198,76 +201,81 @@ impl ScalarFnVTable for Select {
             )
         })?;
 
-        // "Mask" out the unwanted fields of the child struct `DType`.
         let included_fields = selection.normalize_to_included_fields(struct_fields.names())?;
-        let all_included_fields_are_nullable = included_fields.iter().all(|name| {
-            struct_fields
-                .field(name)
-                .vortex_expect(
-                    "`normalize_to_included_fields` checks that the included fields already exist \
-                     in `struct_fields`",
-                )
-                .is_nullable()
-        });
 
-        // If no fields are included, we can trivially reduce to a pack node.
-        // NOTE(ngates): we do this knowing that our layout expression partitioning logic has
-        //  special-casing for pack, but not for select. We will fix this up when we revisit the
-        //  layout APIs.
+        // An empty selection still needs the input's row validity. Express it separately from the
+        // empty pack so a layout reader can read just the validity.
         if included_fields.is_empty() {
-            return Ok(Some(node.new_node(
+            let empty_struct = node.new_node(
                 Pack.bind(PackOptions {
                     names: FieldNames::empty(),
                     nullability: struct_nullability,
                 }),
                 &[],
-            )?));
+            )?;
+            if !struct_nullability.is_nullable() {
+                return Ok(Some(empty_struct));
+            }
+
+            let validity = is_not_null_node(&child_struct)?;
+            return Ok(Some(
+                node.new_node(Mask.bind(EmptyOptions), &[empty_struct, validity])?,
+            ));
         }
 
-        // We cannot always convert a `select` into a projection of its child fields. This is
-        // because reading a field does a validity intersection of the struct validity with the
-        // field, which is not the same as just "masking" out the unwanted fields (a selection).
-        //
-        // We can, however, make this reduction when the child of the `select` is already a
-        // `pack` and we know that reading a field will do no validity intersections.
-        //
-        // The intersection only happens when the struct is nullable but the field is not. That
-        // would change the semantics of a `select`, so we can only reduce when it won't happen.
-        let would_intersect_validity =
-            struct_nullability.is_nullable() && !all_included_fields_are_nullable;
-
-        if let Some(child_pack) = child_struct.scalar_fn().and_then(|f| f.as_opt::<Pack>())
-            && !would_intersect_validity
+        // Selecting below the mask keeps the same fields and row validity. The reader can then
+        // fetch just those fields from the mask's input.
+        if child_struct
+            .scalar_fn()
+            .is_some_and(|scalar_fn| scalar_fn.is::<Mask>())
         {
-            // Take the field nodes straight out of the child `pack` rather than wrap the
-            // `pack` in `get_item`. The guard above proves the two are equivalent here, and the
-            // optimizer visits children before their parent, so a `get_item` introduced now
-            // would never be reduced away.
-            let fields: Vec<T> = included_fields
-                .iter()
-                .map(|name| {
-                    let idx = child_pack.names.find(name).ok_or_else(|| {
-                        vortex_err!(
-                            "Cannot find field {} in pack fields {:?}",
-                            name,
-                            child_pack.names
-                        )
-                    })?;
-
-                    Ok(child_struct.child(idx))
-                })
-                .try_collect::<_, _, VortexError>()?;
-
+            let selected =
+                node.new_node(Select.bind(selection.clone()), &[child_struct.child(0)])?;
             return Ok(Some(node.new_node(
-                Pack.bind(PackOptions {
-                    names: included_fields,
-                    nullability: struct_nullability,
-                }),
-                &fields,
+                Mask.bind(EmptyOptions),
+                &[selected, child_struct.child(1)],
             )?));
         }
 
-        Ok(None)
+        let Some(child_pack) = child_struct.scalar_fn().and_then(|f| f.as_opt::<Pack>()) else {
+            return Ok(None);
+        };
+
+        // A selection keeps field dtypes as declared. Reading a non-nullable field from a nullable
+        // struct makes the field nullable, so only rewrite when the field reads keep their dtypes.
+        if struct_nullability.is_nullable()
+            && included_fields.iter().any(|name| {
+                !struct_fields
+                    .field(name)
+                    .vortex_expect("normalized selection fields must exist in the input struct")
+                    .is_nullable()
+            })
+        {
+            return Ok(None);
+        }
+
+        let fields: Vec<T> = included_fields
+            .iter()
+            .map(|name| {
+                let idx = child_pack.names.find(name).ok_or_else(|| {
+                    vortex_err!(
+                        "Cannot find field {} in pack fields {:?}",
+                        name,
+                        child_pack.names
+                    )
+                })?;
+
+                Ok(child_struct.child(idx))
+            })
+            .try_collect::<_, _, VortexError>()?;
+
+        Ok(Some(node.new_node(
+            Pack.bind(PackOptions {
+                names: included_fields,
+                nullability: struct_nullability,
+            }),
+            &fields,
+        )?))
     }
 
     fn is_strict(&self, _options: &FieldSelection) -> bool {
