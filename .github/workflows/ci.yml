@@ -154,8 +154,9 @@ jobs:
             run: |
               uv run --all-packages --with 'polars==1.32.0' \
                 pytest --benchmark-disable \
-                test/test_polars_.py test/test_dataset.py test/test_open_dataset.py test/test_engine_reads.py \
-                -k polars
+                test/test_polars_.py test/test_dataset.py test/test_open_dataset.py \
+                test/test_engine_reads.py test/test_float_filters.py \
+                -k 'polars or test_file_reads_take_a_concurrency'
             working-directory: vortex-python/
           - name: Check Python documentation
             run: |
