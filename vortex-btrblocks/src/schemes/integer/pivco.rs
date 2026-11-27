@@ -1002,6 +1002,7 @@ fn evaluate_candidate(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::IntoArray;
     use vortex_array::VTable;
@@ -1023,30 +1024,27 @@ mod tests {
     use crate::Scheme;
     use crate::SchemeExt;
 
-    #[test]
-    fn refine_drops_for_when_disallowed_and_never_declares_constant() {
-        let schemes = [
-            PivcoScheme::auto(),
-            PivcoScheme::ph(),
-            PivcoScheme::pha(),
-            PivcoScheme::op_pha(),
-            PivcoScheme::new(PivcoOptions::pha().with_block_shift(11)),
-        ];
-        for scheme in schemes {
-            for allow_for in [false, true] {
-                let allowed = |id: &ArrayId| *id == pivco_id() || (allow_for && *id == for_v1_id());
-                let refined = scheme.refine(&allowed);
-                assert_eq!(refined.id(), scheme.id());
+    #[rstest]
+    #[case::auto(PivcoScheme::auto())]
+    #[case::ph(PivcoScheme::ph())]
+    #[case::pha(PivcoScheme::pha())]
+    #[case::op_pha(PivcoScheme::op_pha())]
+    #[case::explicit_custom(PivcoScheme::new(PivcoOptions::pha().with_block_shift(11)))]
+    fn refine_drops_for_when_disallowed_and_never_declares_constant(
+        #[case] scheme: PivcoScheme,
+        #[values(false, true)] allow_for: bool,
+    ) {
+        let allowed = |id: &ArrayId| *id == pivco_id() || (allow_for && *id == for_v1_id());
+        let refined = scheme.refine(&allowed);
+        assert_eq!(refined.id(), scheme.id());
 
-                let expected = if allow_for {
-                    vec![pivco_id(), for_v1_id()]
-                } else {
-                    vec![pivco_id()]
-                };
-                assert_eq!(refined.produced_encodings(), expected);
-                assert!(!refined.produced_encodings().contains(&Constant.id()));
-            }
-        }
+        let expected = if allow_for {
+            vec![pivco_id(), for_v1_id()]
+        } else {
+            vec![pivco_id()]
+        };
+        assert_eq!(refined.produced_encodings(), expected);
+        assert!(!refined.produced_encodings().contains(&Constant.id()));
     }
 
     #[test]
