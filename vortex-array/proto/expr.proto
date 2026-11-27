@@ -54,6 +54,12 @@ message VariantGetOpts {
   optional vortex.dtype.DType dtype = 2;
 }
 
+// Options for `vortex.variant_pack`
+message VariantPackOpts {
+  bool complete = 1;
+  bool shredded_validity = 2;
+}
+
 message VariantPathElement {
   oneof element {
     string field = 1;

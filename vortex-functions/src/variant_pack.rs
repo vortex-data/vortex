@@ -7,6 +7,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -16,6 +17,7 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::proto::expr as pb;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
@@ -24,7 +26,6 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
@@ -145,10 +146,13 @@ impl ScalarFnVTable for VariantPack {
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![
-            u8::from(options.complete),
-            u8::from(options.shredded_validity),
-        ]))
+        Ok(Some(
+            pb::VariantPackOpts {
+                complete: options.complete,
+                shredded_validity: options.shredded_validity,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
@@ -156,13 +160,12 @@ impl ScalarFnVTable for VariantPack {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        match metadata {
-            [complete @ (0 | 1), shredded_validity @ (0 | 1)] => Ok(VariantPackOptions {
-                complete: *complete == 1,
-                shredded_validity: *shredded_validity == 1,
-            }),
-            _ => vortex_bail!("invalid VariantPack options: {metadata:?}"),
-        }
+        let opts = pb::VariantPackOpts::decode(metadata)?;
+
+        Ok(VariantPackOptions {
+            complete: opts.complete,
+            shredded_validity: opts.shredded_validity,
+        })
     }
 
     fn arity(&self, options: &Self::Options) -> Arity {
@@ -219,5 +222,41 @@ impl ScalarFnVTable for VariantPack {
             shredded
         };
         Ok(VariantArray::try_new(args.get(0)?, Some(shredded))?.into_array())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::VariantPack;
+    use super::VariantPackOptions;
+
+    #[rstest]
+    fn options_round_trip(
+        #[values(false, true)] complete: bool,
+        #[values(false, true)] shredded_validity: bool,
+    ) -> VortexResult<()> {
+        let options = VariantPackOptions {
+            complete,
+            shredded_validity,
+        };
+        let metadata = VariantPack.serialize(&options)?.unwrap_or_default();
+
+        let actual = VariantPack.deserialize(&metadata, &VortexSession::empty())?;
+
+        assert_eq!(actual, options);
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_options_are_an_error() {
+        // A field-1 varint tag with no value.
+        let result = VariantPack.deserialize(&[0x08], &VortexSession::empty());
+
+        assert!(result.is_err());
     }
 }
