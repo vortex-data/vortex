@@ -11950,6 +11950,7 @@ dependencies = [
 name = "vortex-index-ivf"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "parking_lot 0.12.5",
  "roaring",
  "rstest",
@@ -11961,7 +11962,9 @@ dependencies = [
  "vortex-expr",
  "vortex-file",
  "vortex-index",
+ "vortex-io",
  "vortex-layout",
+ "vortex-scan",
  "vortex-session",
  "vortex-utils",
 ]
@@ -12293,6 +12296,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-lock",
  "async-trait",
  "bit-vec 0.10.1",
@@ -12431,6 +12435,7 @@ name = "vortex-table"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "object_store 0.14.2",
  "tempfile",
  "tokio",
  "vortex",

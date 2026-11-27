@@ -31,6 +31,7 @@
 
 pub mod in_file;
 pub mod keys;
+pub mod plan;
 pub mod postings;
 pub mod rows;
 pub mod standalone;

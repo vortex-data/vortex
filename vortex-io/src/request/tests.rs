@@ -18,6 +18,7 @@ fn request_id_is_a_map_key() {
 #[test]
 fn batches_compare_structurally() {
     let batch: IoBatch = vec![IoRequest {
+        source: SourceId(1),
         intent: IoIntent::Fetch,
         request: IoRequestId(3),
         target: IoTarget::range(0, 4),
@@ -25,6 +26,7 @@ fn batches_compare_structurally() {
     assert_eq!(
         batch,
         vec![IoRequest {
+            source: SourceId(1),
             intent: IoIntent::Fetch,
             request: IoRequestId(3),
             target: IoTarget::range(0, 4),
@@ -33,15 +35,15 @@ fn batches_compare_structurally() {
     for request in [
         IoRequest {
             intent: IoIntent::Prefetch,
-            ..batch[0]
+            ..batch[0].clone()
         },
         IoRequest {
             request: IoRequestId(4),
-            ..batch[0]
+            ..batch[0].clone()
         },
         IoRequest {
             target: IoTarget::range(0, 5),
-            ..batch[0]
+            ..batch[0].clone()
         },
     ] {
         assert_ne!(batch, vec![request]);
@@ -51,7 +53,7 @@ fn batches_compare_structurally() {
 
 #[test]
 fn slot_allocates_fresh_ids_and_hands_back_one_result() {
-    let mut slot = IoSlot::default();
+    let mut slot = IoSlot::new(SourceId(1));
     assert!(!slot.is_waiting());
     let batch = slot.issue(IoTarget::Size);
     assert_eq!(batch[0].request, IoRequestId(0));
@@ -81,7 +83,7 @@ fn ranges_carry_their_alignment() {
 #[test]
 #[should_panic(expected = "not outstanding")]
 fn slot_rejects_unknown_ids() {
-    let mut slot = IoSlot::default();
+    let mut slot = IoSlot::new(SourceId(1));
     slot.issue(IoTarget::Size);
     slot.deliver(IoRequestId(7), IoResult::Size(1));
 }
@@ -89,7 +91,7 @@ fn slot_rejects_unknown_ids() {
 #[test]
 #[should_panic(expected = "answered with bytes")]
 fn slot_rejects_mismatched_variants() {
-    let mut slot = IoSlot::default();
+    let mut slot = IoSlot::new(SourceId(1));
     slot.issue(IoTarget::Size);
     slot.deliver(
         IoRequestId(0),

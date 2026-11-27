@@ -10,6 +10,8 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
+use vortex_io::request::SourceId;
+use vortex_io::request::SourcesIoService;
 use vortex_scan::plan::LazyPlanRef;
 pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
@@ -81,6 +83,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    file_ordinal: u64,
     skip_unselective_dynamic: bool,
 }
 
@@ -95,6 +98,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            file_ordinal: 0,
             skip_unselective_dynamic: false,
         }
     }
@@ -156,9 +160,27 @@ impl ScanBuilder {
         self
     }
 
+    /// Sets the ordinal of the file within a scan of several; see
+    /// [`EngineScanBuilder::with_file_ordinal`].
+    pub fn with_file_ordinal(mut self, file_ordinal: u64) -> Self {
+        self.file_ordinal = file_ordinal;
+        self
+    }
+
     /// Lowers the native layout and prepares the scan without reading payloads.
     pub fn prepare(self) -> VortexResult<PreparedScan> {
         self.into_scan_builder().prepare()
+    }
+
+    /// Prepares the scan as one source of `sources`; see [`EngineScanBuilder::prepare_in`].
+    pub fn prepare_in(self, sources: &SourcesIoService) -> VortexResult<Arc<PreparedScan>> {
+        self.into_scan_builder().prepare_in(sources)
+    }
+
+    /// Prepares the scan with every request naming `source`; see
+    /// [`EngineScanBuilder::prepare_as`].
+    pub fn prepare_as(self, source: SourceId) -> VortexResult<PreparedScan> {
+        self.into_scan_builder().prepare_as(source)
     }
 
     fn into_scan_builder(self) -> EngineScanBuilder {
@@ -167,6 +189,7 @@ impl ScanBuilder {
             .with_some_filter(self.filter)
             .with_selection(self.selection)
             .with_row_offset(self.row_offset)
+            .with_file_ordinal(self.file_ordinal)
             .with_skip_unselective_dynamic(self.skip_unselective_dynamic);
         if let Some(rows) = self.row_range {
             builder = builder.with_row_range(rows);

@@ -493,7 +493,7 @@ impl Run {
             if request.intent == IoIntent::Fetch
                 && work
                     .outstanding
-                    .insert(request.request, request.target)
+                    .insert(request.request, request.target.clone())
                     .is_some()
             {
                 vortex_bail!(
