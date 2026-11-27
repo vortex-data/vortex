@@ -535,8 +535,8 @@ block_op 1 in_place u32->u32 leaf -> leaf";
         let array = FoR::try_new_chunked(bp, references.into_array(), 0)?.into_array();
         assert_eq!(
             fusion_trace(array)?,
-            "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3072) child=fastlanes.bitpacked.v2(u32, len=3072)
-fuse start array=fastlanes.bitpacked.v2(u32, len=3072)
+            "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32, len=3072) child=fastlanes.bitpacked(u32, len=3072)
+fuse start array=fastlanes.bitpacked(u32, len=3072)
 fuse extend parent=fastlanes.for.v2(u32, len=3072) ops=1
 drive ops=1 len=3072
 block_op 0 copy u32->u32 scratch0 -> output"
