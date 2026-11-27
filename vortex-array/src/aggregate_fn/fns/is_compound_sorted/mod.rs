@@ -670,6 +670,8 @@ impl AggregateFnVTable for IsCompoundSorted {
 mod tests {
     use std::sync::LazyLock;
 
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use prost::Message;
     use rstest::rstest;
     use vortex_buffer::Buffer;
@@ -689,7 +691,6 @@ mod tests {
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::fns::is_sorted::is_sorted;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
@@ -703,11 +704,177 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::proto::expr as pb;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    // The following is a Hegel test with different properties how sortedness
+    // works in a couple of subtypes of `DType` which includes all primitives
+    // and VarBin/UTF-8.
+    const MAX_ROWS: usize = 32;
+    const MAX_COLUMNS: usize = 5;
+    const MAX_CHUNKS: usize = 4;
+    const MAX_VALUE: u8 = 3;
+    const PTYPES: [PType; 11] = [
+        PType::U8,
+        PType::U16,
+        PType::U32,
+        PType::U64,
+        PType::I8,
+        PType::I16,
+        PType::I32,
+        PType::I64,
+        PType::F16,
+        PType::F32,
+        PType::F64,
+    ];
+
+    #[hegel::test(test_cases = 100, print_blob = true)]
+    fn result_matches_compound_sortedness(tc: TestCase) {
+        check_random_table(&tc).vortex_expect("IsCompoundSorted");
+    }
+
+    fn draw_dtype(tc: &TestCase) -> DType {
+        let nullability = Nullability::from(tc.draw(gs::booleans()));
+        let dtypes: Vec<DType> = PTYPES
+            .iter()
+            .map(|&ptype| DType::Primitive(ptype, nullability))
+            .chain([DType::Utf8(nullability)])
+            .collect();
+        tc.draw(gs::sampled_from(dtypes))
+    }
+
+    fn draw_row(tc: &TestCase, dtypes: &[DType]) -> Vec<Option<u8>> {
+        dtypes
+            .iter()
+            .map(|dtype| {
+                let value = gs::integers::<u8>().max_value(MAX_VALUE);
+                if dtype.is_nullable() {
+                    tc.draw(gs::optional(value))
+                } else {
+                    Some(tc.draw(value))
+                }
+            })
+            .collect()
+    }
+
+    fn column_into_array(
+        dtype: &DType,
+        values: impl Iterator<Item = Option<u8>>,
+    ) -> VortexResult<ArrayRef> {
+        let array = match dtype {
+            DType::Primitive(..) => PrimitiveArray::from_option_iter(values).into_array(),
+            DType::Utf8(_) => {
+                VarBinViewArray::from_iter_nullable_str(values.map(|v| v.map(|v| v.to_string())))
+                    .into_array()
+            }
+            other => vortex_bail!("No column generator for {other}"),
+        };
+        array.cast(dtype.clone())
+    }
+
+    fn check_random_table(tc: &TestCase) -> VortexResult<()> {
+        let column_count = tc.draw(gs::integers::<usize>().min_value(1).max_value(MAX_COLUMNS));
+        let dtypes: Vec<DType> = (0..column_count).map(|_| draw_dtype(tc)).collect();
+        let rows_count = tc.draw(gs::integers::<usize>().max_value(MAX_ROWS));
+        let mut rows: Vec<Vec<Option<u8>>> =
+            (0..rows_count).map(|_| draw_row(tc, &dtypes)).collect();
+
+        let sort_columns: Vec<usize> = tc.draw(
+            gs::vecs(gs::integers::<usize>().max_value(column_count - 1))
+                .max_size(column_count)
+                .unique(true),
+        );
+
+        let mut names: Vec<String> = sort_columns
+            .iter()
+            .map(|index| format!("f{index}"))
+            .collect();
+
+        // Randomly add a non-existing column in the source array ref, so we can assert the agg. fn.
+        // behaviour when a non-existent column is requested for sorting.
+        let add_missing = tc.draw(gs::booleans());
+        if add_missing {
+            let at = tc.draw(gs::integers::<usize>().max_value(names.len()));
+            names.insert(at, format!("f{column_count}"));
+        }
+
+        let options = IsCompoundSortedOptions::new(
+            names.iter().map(|name| (name.as_str(), SortDirection::Asc)),
+        );
+
+        // Many times rows will be unsorted because we are creating them randomly
+        // with hegel, so force some of them to be sorted.
+        let row_key = |row: &Vec<Option<u8>>| -> Vec<Option<u8>> {
+            sort_columns.iter().map(|&column| row[column]).collect()
+        };
+
+        let force_sort = tc.draw(gs::booleans());
+        if force_sort {
+            rows.sort_by_key(row_key);
+        }
+        let expected = rows.is_sorted_by_key(row_key);
+
+        let fields = dtypes
+            .iter()
+            .enumerate()
+            .map(|(column, dtype)| {
+                let values = rows.iter().map(|row| row[column]);
+                Ok((format!("f{column}"), column_into_array(dtype, values)?))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let array = StructArray::from_fields(&fields)?.into_array();
+        let dtype = array.dtype().clone();
+
+        // Both cases should err.
+        if sort_columns.is_empty() || add_missing {
+            assert!(IsCompoundSorted.return_dtype(&options, &dtype).is_none());
+            assert!(Accumulator::try_new(IsCompoundSorted, options, dtype).is_err());
+
+            return Ok(());
+        }
+
+        // Split the rows into chunks so we can also test combining different partials
+        // and testing if the boundaries are also sorted.
+        let chunks_count = tc.draw(gs::integers::<usize>().min_value(1).max_value(MAX_CHUNKS));
+        let mut chunks_boundaries = Vec::new();
+        let mut last_index = 0;
+        for _ in 1..chunks_count {
+            let end = tc.draw(gs::integers::<usize>().min_value(last_index).max_value(rows_count));
+            chunks_boundaries.push(last_index..end);
+            last_index = end;
+        }
+        chunks_boundaries.push(last_index..rows_count);
+
+        let combine_partials = tc.draw(gs::booleans());
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut acc =
+            Accumulator::try_new(IsCompoundSorted, options.clone(), dtype.clone())?;
+        for boundaries in chunks_boundaries {
+            let batch = array.slice(boundaries)?;
+            if combine_partials {
+                let mut chunk_acc =
+                    Accumulator::try_new(IsCompoundSorted, options.clone(), dtype.clone())?;
+                chunk_acc.accumulate(&batch, &mut ctx)?;
+
+                let partial = chunk_acc.partial_scalar()?;
+                acc.combine_partials(&partial)?;
+            } else {
+                acc.accumulate(&batch, &mut ctx)?;
+            }
+        }
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::bool(expected, Nullability::NonNullable)
+        );
+
+        Ok(())
+    }
 
     fn order_lines(values: &[(i32, i32)]) -> VortexResult<ArrayRef> {
         // Unsorted metadata before the key fields catches accidental field selection.
@@ -730,130 +897,6 @@ mod tests {
             ("order_id", SortDirection::Asc),
             ("line_item_id", SortDirection::Asc),
         ])
-    }
-
-    // Each tuple is (order_id, line_item_id); each inner vector is one input batch.
-    #[rstest]
-    #[case::secondary_restarts(
-        vec![
-            vec![(1, 7), (1, 9)],
-            vec![(2, 0)],
-        ],
-        true,
-    )]
-    #[case::wrong_secondary(
-        vec![vec![(1, 9), (1, 7)]],
-        false,
-    )]
-    #[case::bad_boundary(
-        vec![
-            vec![(1, 4), (1, 7)],
-            vec![(1, 6), (2, 9)],
-        ],
-        false,
-    )]
-    #[case::wrong_primary(
-        vec![vec![(2, 7), (1, 4)]],
-        false,
-    )]
-    #[case::duplicates(
-        vec![vec![(1, 7)], vec![(1, 7)]],
-        true,
-    )]
-    #[case::empty(vec![vec![]], true)]
-    #[case::singleton(vec![vec![(1, 7)]], true)]
-    #[case::empty_between(
-        vec![
-            vec![(1, 7)],
-            vec![],
-            vec![(1, 6)],
-        ],
-        false,
-    )]
-    fn checks_declared_key(
-        #[case] chunks: Vec<Vec<(i32, i32)>>,
-        #[case] expected: bool,
-        #[values(false, true)] combine_partials: bool,
-    ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let dtype = order_lines(&[])?.dtype().clone();
-        let options = order_line_options();
-        let mut accumulator =
-            Accumulator::try_new(IsCompoundSorted, options.clone(), dtype.clone())?;
-
-        for chunk in chunks {
-            let array = order_lines(&chunk)?;
-
-            if combine_partials {
-                let mut batch_accumulator =
-                    Accumulator::try_new(IsCompoundSorted, options.clone(), dtype.clone())?;
-                batch_accumulator.accumulate(&array, &mut ctx)?;
-                let partial = batch_accumulator.partial_scalar()?;
-
-                accumulator.combine_partials(&partial)?;
-            } else {
-                accumulator.accumulate(&array, &mut ctx)?;
-            }
-        }
-
-        assert_eq!(
-            accumulator.finish()?,
-            Scalar::bool(expected, Nullability::NonNullable)
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::order_ids_restart_per_line_item(
-        vec![(7, 1), (9, 1), (0, 2)],
-        true,
-    )]
-    #[case::line_item_ids_decrease(
-        vec![(1, 2), (2, 1)],
-        false,
-    )]
-    #[case::order_ids_decrease_within_line_item(
-        vec![(9, 1), (7, 1)],
-        false,
-    )]
-    fn field_priority_follows_declared_order(
-        #[case] values: Vec<(i32, i32)>,
-        #[case] expected: bool,
-        #[values(false, true)] one_row_batches: bool,
-    ) -> VortexResult<()> {
-        check_batches(
-            order_lines(&values)?,
-            IsCompoundSortedOptions::new([
-                ("line_item_id", SortDirection::Asc),
-                ("order_id", SortDirection::Asc),
-            ]),
-            one_row_batches,
-            expected,
-        )
-    }
-
-    #[rstest]
-    #[case::nulls_first(vec![None, Some(2), Some(3)], true)]
-    #[case::nulls_last(vec![Some(2), Some(3), None], false)]
-    #[case::null_in_middle(vec![Some(2), None, Some(3)], false)]
-    #[case::all_null(vec![None, None], true)]
-    fn nulls_must_be_first(
-        #[case] values: Vec<Option<i32>>,
-        #[case] expected: bool,
-        #[values(false, true)] one_row_batches: bool,
-    ) -> VortexResult<()> {
-        let array = StructArray::from_fields(&[(
-            "order_id",
-            PrimitiveArray::from_option_iter(values).into_array(),
-        )])?
-        .into_array();
-
-        check_batches(
-            array,
-            IsCompoundSortedOptions::new([("order_id", SortDirection::Asc)]),
-            one_row_batches,
-            expected,
-        )
     }
 
     fn check_batches(
@@ -924,45 +967,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::all_prefix_fields(
-        buffer![1i32, 1, 2, 2], // customer IDs
-        buffer![1i32, 2, 2, 2], // order IDs
-        buffer![9i32, 1, 9, 10], // line-item IDs
-        true,
-    )]
-    #[case::wrong_third_field(
-        buffer![1i32, 1, 2, 2],
-        buffer![1i32, 2, 2, 2],
-        buffer![9i32, 1, 10, 9],
-        false,
-    )]
-    fn groups_use_the_whole_prefix(
-        #[case] customer_ids: Buffer<i32>,
-        #[case] order_ids: Buffer<i32>,
-        #[case] line_item_ids: Buffer<i32>,
-        #[case] expected: bool,
-        #[values(false, true)] one_row_batches: bool,
-    ) -> VortexResult<()> {
-        let array = StructArray::from_fields(&[
-            ("customer_id", customer_ids.into_array()),
-            ("order_id", order_ids.into_array()),
-            ("line_item_id", line_item_ids.into_array()),
-        ])?
-        .into_array();
-
-        check_batches(
-            array,
-            IsCompoundSortedOptions::new([
-                ("customer_id", SortDirection::Asc),
-                ("order_id", SortDirection::Asc),
-                ("line_item_id", SortDirection::Asc),
-            ]),
-            one_row_batches,
-            expected,
-        )
-    }
-
-    #[rstest]
     #[case::null_prefix(
         PrimitiveArray::from_option_iter([None::<f64>, None]).into_array(),
     )]
@@ -987,21 +991,6 @@ mod tests {
         )
     }
 
-    #[rstest]
-    #[case::sorted(buffer![1i32, 2, 2, 3].into_array())]
-    #[case::unsorted(buffer![1i32, 3, 2].into_array())]
-    fn single_field_matches_is_sorted(#[case] values: ArrayRef) -> VortexResult<()> {
-        let expected = is_sorted(&values, &mut SESSION.create_execution_ctx())?;
-        let array = StructArray::from_fields(&[("order_id", values)])?.into_array();
-
-        check_batches(
-            array,
-            IsCompoundSortedOptions::new([("order_id", SortDirection::Asc)]),
-            false,
-            expected,
-        )
-    }
-
     #[test]
     fn options_roundtrip() -> VortexResult<()> {
         let options = order_line_options();
@@ -1014,7 +1003,7 @@ mod tests {
 
         assert!(
             IsCompoundSorted
-                .zone_stat_default(&DType::from(crate::dtype::PType::I32))
+                .zone_stat_default(&DType::from(PType::I32))
                 .is_none()
         );
 
@@ -1042,14 +1031,14 @@ mod tests {
         assert!(IsCompoundSorted.deserialize(&bytes, &SESSION).is_err());
     }
 
-    #[rstest]
-    #[case::empty(vec![])]
-    #[case::missing(vec!["missing_order_id"])]
-    #[case::duplicate(vec!["order_id", "order_id"])]
-    fn invalid_keys_are_rejected(#[case] fields: Vec<&str>) -> VortexResult<()> {
+    /// The property test never draws a repeated field, so duplicates are checked here.
+    #[test]
+    fn duplicate_keys_are_rejected() -> VortexResult<()> {
         let dtype = order_lines(&[])?.dtype().clone();
-        let options =
-            IsCompoundSortedOptions::new(fields.into_iter().map(|name| (name, SortDirection::Asc)));
+        let options = IsCompoundSortedOptions::new([
+            ("order_id", SortDirection::Asc),
+            ("order_id", SortDirection::Asc),
+        ]);
 
         assert!(options.key_dtype(&dtype).is_err());
         assert!(Accumulator::try_new(IsCompoundSorted, options, dtype).is_err());
@@ -1115,35 +1104,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::nulls_first(vec![None, Some(2), None, Some(1)], true)]
-    #[case::nulls_last(vec![Some(2), None, None, Some(1)], false)]
-    #[case::descending_values(vec![None, Some(2), Some(2), Some(1)], false)]
-    fn secondary_nulls_in_tied_groups(
-        #[case] values: Vec<Option<i32>>,
-        #[case] expected: bool,
-        #[values(false, true)] one_row_batches: bool,
-    ) -> VortexResult<()> {
-        let array = StructArray::from_fields(&[
-            ("order_id", buffer![1i32, 1, 2, 2].into_array()),
-            (
-                "line_item_id",
-                PrimitiveArray::from_option_iter(values).into_array(),
-            ),
-        ])?
-        .into_array();
-
-        check_batches(array, order_line_options(), one_row_batches, expected)
-    }
-
-    #[rstest]
-    #[case::utf8(
-        VarBinViewArray::from_iter_str(["Berlin", "Paris", "Athens", "Berlin"]).into_array(),
-        true,
-    )]
-    #[case::bad_utf8(
-        VarBinViewArray::from_iter_str(["Paris", "Berlin", "Athens", "Berlin"]).into_array(),
-        false,
-    )]
     #[case::binary(
         VarBinViewArray::from_iter_bin([b"B2", b"C3", b"A1", b"B2"]).into_array(),
         true,
