@@ -214,10 +214,9 @@ impl CascadingCompressor {
                     .clone()
                     .execute::<CanonicalValidity>(exec_ctx)?
                     .0
-                    .compact(exec_ctx)?
-                    .into_array();
+                    .compact(exec_ctx)?;
                 let fsl_array = FixedSizeListArray::try_new(
-                    elements,
+                    elements.clone().into_array(),
                     fsl_array.list_size(),
                     fsl_array.validity()?,
                     fsl_array.len(),
@@ -225,17 +224,33 @@ impl CascadingCompressor {
 
                 // Schemes over the whole list can drop the elements of null rows, which
                 // compressing the elements alone has to keep.
-                if let Selection::Compressed(compressed) = self.choose_and_compress(
+                let selection = self.choose_and_compress(
                     Canonical::FixedSizeList(fsl_array.clone()),
                     compress_ctx.clone(),
                     exec_ctx,
-                )? {
-                    return Ok(compressed);
+                )?;
+
+                // A constant fixed-size list (that might be masked) is already in its terminal
+                // representation, and compressing the elements separately cannot do better.
+                if let Selection::Compressed(compressed) = &selection
+                    && (compressed.is::<Constant>()
+                        || compressed
+                            .as_opt::<Masked>()
+                            .is_some_and(|masked| masked.child().is::<Constant>()))
+                {
+                    return Ok(selection.into_array());
                 }
 
-                let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
-
-                Ok(FixedSizeListArray::try_new(
+                // Also compress the dense list with its elements compressed from a fresh root
+                // context (preserving sampling mode). A list scheme can beat the raw list size
+                // while still losing to ordinary element compression.
+                let elems_ctx = if compress_ctx.is_sample() {
+                    CompressorContext::new().with_sampling()
+                } else {
+                    CompressorContext::new()
+                };
+                let compressed_elems = self.compress_canonical(elements, elems_ctx, exec_ctx)?;
+                let dense_compressed = FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
                     self.resolve_validity_with_len(
@@ -246,7 +261,16 @@ impl CascadingCompressor {
                     )?,
                     fsl_array.len(),
                 )?
-                .into_array())
+                .into_array();
+
+                match selection {
+                    Selection::Compressed(scheme_compressed)
+                        if scheme_compressed.nbytes() < dense_compressed.nbytes() =>
+                    {
+                        Ok(scheme_compressed)
+                    }
+                    Selection::Compressed(_) | Selection::Unchanged(..) => Ok(dense_compressed),
+                }
             }
             Canonical::Extension(ext_array) => {
                 // Try scheme-based compression first.

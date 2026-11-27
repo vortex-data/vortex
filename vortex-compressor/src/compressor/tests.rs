@@ -1379,6 +1379,148 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
     Ok(())
 }
 
+mod fsl_sparse_vs_dense {
+    use std::iter;
+
+    use vortex_array::ArrayId;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::FixedSizeList;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+
+    use super::SESSION;
+    use crate::CascadingCompressor;
+    use crate::scheme::CompressionEstimate;
+    use crate::scheme::CompressorContext;
+    use crate::scheme::EstimateVerdict;
+    use crate::scheme::Scheme;
+    use crate::stats::ArrayAndStats;
+
+    /// A mock `FixedSizeList` scheme that returns a payload half the raw list size so it beats
+    /// `exact_uncompressed_size` while still losing to a dense list whose elements compress to a
+    /// constant.
+    #[derive(Debug)]
+    struct HalfSizeFslScheme;
+
+    impl Scheme for HalfSizeFslScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.half_size_fsl"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::FixedSizeList(_))
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(2.0))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            let target_bytes = (usize::try_from(data.array().nbytes())? / 2).max(1);
+            Ok(PrimitiveArray::new(
+                Buffer::from_iter(iter::repeat_n(0u8, target_bytes)),
+                Validity::NonNullable,
+            )
+            .into_array())
+        }
+    }
+
+    #[test]
+    fn fsl_compares_scheme_output_against_dense_compressed_size() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let comp = CascadingCompressor::new(vec![&HalfSizeFslScheme]);
+
+        // Constant elements with 50% nulls: dense FSL compresses elements to Constant (~8B) +
+        // validity (128B) << HalfSizeFslScheme (~16 KiB).
+        let rows = 1024;
+        let list_size: u32 = 4;
+        let num_elems = rows * list_size as usize;
+        let validity =
+            Validity::Array(BoolArray::from_iter((0..rows).map(|i| i % 2 == 0)).into_array());
+        let constant_elems =
+            PrimitiveArray::from_iter(iter::repeat_n(7u64, num_elems)).into_array();
+        let compressible =
+            FixedSizeListArray::new(constant_elems, list_size, validity.clone(), rows).into_array();
+
+        let result = comp.compress(&compressible, &mut exec_ctx)?;
+        assert!(
+            result.is::<FixedSizeList>(),
+            "dense FixedSizeList should beat larger scheme output, got {}",
+            result.encoding_id()
+        );
+        assert_arrays_eq!(&result, &compressible, &mut exec_ctx);
+
+        // Incompressible elements: dense FSL stays ~32 KiB, so HalfSizeFslScheme (~16 KiB) wins.
+        let distinct_elems = PrimitiveArray::from_iter(0..num_elems as u64).into_array();
+        let incompressible =
+            FixedSizeListArray::new(distinct_elems, list_size, validity, rows).into_array();
+        let scheme_result = comp.compress(&incompressible, &mut exec_ctx)?;
+        assert!(
+            !scheme_result.is::<FixedSizeList>(),
+            "smaller scheme output should still beat dense FixedSizeList"
+        );
+        assert!(scheme_result.nbytes() < incompressible.nbytes());
+        Ok(())
+    }
+
+    #[test]
+    fn fsl_dense_elements_preserve_is_sample() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let comp = CascadingCompressor::new(Vec::new());
+        let rows = 1024;
+        let list_size: u32 = 4;
+        let validity =
+            Validity::Array(BoolArray::from_iter((0..rows).map(|i| i % 2 == 0)).into_array());
+        let constant_elems =
+            PrimitiveArray::from_iter(iter::repeat_n(7u64, rows * list_size as usize)).into_array();
+        let fsl = FixedSizeListArray::new(constant_elems, list_size, validity, rows).into_array();
+
+        let canonical = fsl.clone().execute::<Canonical>(&mut exec_ctx)?;
+        let compressed = comp.compress_canonical(
+            canonical,
+            CompressorContext::new().with_sampling(),
+            &mut exec_ctx,
+        )?;
+        let elements = compressed
+            .as_opt::<FixedSizeList>()
+            .ok_or_else(|| vortex_err!("expected FixedSizeList, got {}", compressed.encoding_id()))?
+            .elements();
+        assert!(
+            !elements.is::<Constant>(),
+            "sample context must be preserved when compressing FixedSizeList elements"
+        );
+        assert_arrays_eq!(&compressed, &fsl, &mut exec_ctx);
+        Ok(())
+    }
+}
+
 /// Dictionary-encodes `[1, 2, 1, 2, ...]`, registering its values as `Encoded::keep` when
 /// `keep_values`, or not registering them at all.
 #[derive(Debug)]

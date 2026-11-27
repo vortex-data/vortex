@@ -28,6 +28,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -382,6 +383,42 @@ fn test_fixed_size_list_drops_null_rows(
         sparse,
         "{}",
         compressed.display_tree()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_fixed_size_list_prefers_dense_when_elements_compress_better_than_sparse() -> VortexResult<()>
+{
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let rows = 8_000;
+    let list_size: u32 = 16;
+
+    // 50% pseudo-random nulls with constant elements: dense FixedSizeList compresses elements to a
+    // constant + 1-bit/row validity (~1 KiB), far smaller than Sparse with ~4,000 random indices.
+    let mut rng = StdRng::seed_from_u64(123);
+    let validity = Validity::from_iter((0..rows).map(|_| rng.next_u32() % 2 == 0));
+    let elements = Buffer::from_iter(iter::repeat_n(42u64, rows * list_size as usize)).into_array();
+    let dense_friendly = FixedSizeListArray::new(elements, list_size, validity, rows).into_array();
+    let compressed_dense = assert_roundtrip(&compressor, &dense_friendly)?;
+    assert!(
+        compressed_dense.is::<FixedSizeList>(),
+        "expected dense FixedSizeList over Sparse:\n{}",
+        compressed_dense.display_tree()
+    );
+
+    // 95% nulls with random elements still pick Sparse because dense elements cannot shrink.
+    let mut sparse_rng = StdRng::seed_from_u64(456);
+    let valid_flags: Vec<bool> = (0..rows).map(|_| sparse_rng.next_u32() % 20 == 0).collect();
+    let sparse_friendly = random_byte_lists(rows, |row| valid_flags[row]);
+    let compressed_sparse = assert_roundtrip(&compressor, &sparse_friendly)?;
+    assert!(
+        compressed_sparse.is::<Sparse>(),
+        "expected Sparse for 95%-null random FixedSizeList:\n{}",
+        compressed_sparse.display_tree()
     );
 
     Ok(())
