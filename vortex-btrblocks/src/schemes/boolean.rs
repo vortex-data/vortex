@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Bool;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
@@ -120,7 +121,7 @@ impl Scheme for BoolSparseScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![Sparse.id()]
+        vec![Sparse.id(), Constant.id()]
     }
 
     /// Children: indices=0.

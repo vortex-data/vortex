@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Bool;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
@@ -67,7 +68,8 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let compressed = self.compress(bitmap, exec_ctx)?;
-        Ok((compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
+        let must_replace = !self.allow_constant && bitmap.is::<Constant>();
+        Ok((must_replace || compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
     }
 
     /// Compresses an array-backed validity with the enabled boolean schemes, keeping the bitmap
@@ -146,7 +148,9 @@ impl CascadingCompressor {
         };
         let compressed = match null_count {
             // The leaf's statistics already show every row is valid: the bitmap is a constant.
-            Some(0) => self.resolve_all_valid_bitmap(validity.clone(), compress_ctx),
+            Some(0) if self.allow_constant => {
+                self.resolve_all_valid_bitmap(validity.clone(), compress_ctx)
+            }
             _ => self.resolve_bitmap(validity.clone(), compress_ctx, exec_ctx)?,
         };
         if ArrayRef::ptr_eq(&compressed, validity) {
@@ -188,7 +192,12 @@ impl CascadingCompressor {
         Ok(ListArray::try_new(
             compressed_elems,
             compressed_offsets,
-            self.resolve_validity(list_array.validity()?, &compress_ctx, exec_ctx)?,
+            self.resolve_validity_with_len(
+                list_array.validity()?,
+                list_array.len(),
+                &compress_ctx,
+                exec_ctx,
+            )?,
             exec_ctx,
         )?
         .into_array())
@@ -236,7 +245,12 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            self.resolve_validity(list_view.validity()?, &compress_ctx, exec_ctx)?,
+            self.resolve_validity_with_len(
+                list_view.validity()?,
+                list_view.len(),
+                &compress_ctx,
+                exec_ctx,
+            )?,
             exec_ctx,
         )?
         .into_array())

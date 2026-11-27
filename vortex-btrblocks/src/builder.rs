@@ -6,6 +6,9 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayId;
+use vortex_array::VTable;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Masked;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
@@ -258,48 +261,71 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        // The child policy applies to the Variant storage compressor too.
-        let with_policy = |compressor: CascadingCompressor| match &self.child_policy {
-            Some(policy) => compressor.with_child_policy(Arc::clone(policy)),
-            None => compressor,
+        let allowed = self.encoding_allowed();
+        let allow_constant = allowed(&Constant.id());
+        let allow_masked = allowed(&Masked.id());
+
+        // The child policy and built-in allowlist apply to the Variant storage compressor too.
+        let configure = |compressor: CascadingCompressor| {
+            let compressor = compressor
+                .with_allow_constant(allow_constant)
+                .with_allow_masked(allow_masked);
+            match &self.child_policy {
+                Some(policy) => compressor.with_child_policy(Arc::clone(policy)),
+                None => compressor,
+            }
         };
 
-        let compressor = with_policy(CascadingCompressor::new(self.allowed_schemes()));
+        let compressor = configure(CascadingCompressor::new(
+            self.schemes_without(self.mode.excluded_schemes(), &allowed),
+        ));
 
         // A second compressor is only needed when the storage keeps a scheme the preset drops.
         let compressor = if self.mode.variant_storage_schemes().is_empty() {
             compressor
         } else {
-            compressor.with_variant_storage_compressor(with_policy(CascadingCompressor::new(
-                self.variant_storage_schemes(),
+            compressor.with_variant_storage_compressor(configure(CascadingCompressor::new(
+                self.variant_storage_schemes_with(&allowed),
             )))
         };
 
         BtrBlocksCompressor(compressor)
     }
 
+    fn encoding_allowed(&self) -> impl Fn(&ArrayId) -> bool + '_ {
+        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
+        move |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id)
+    }
+
+    #[cfg(test)]
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
-        self.schemes_without(self.mode.excluded_schemes())
+        let allowed = self.encoding_allowed();
+        self.schemes_without(self.mode.excluded_schemes(), &allowed)
     }
 
     /// The schemes that compress the storage children of Variant arrays.
-    fn variant_storage_schemes(&self) -> Vec<&'static dyn Scheme> {
+    fn variant_storage_schemes_with(
+        &self,
+        allowed: &impl Fn(&ArrayId) -> bool,
+    ) -> Vec<&'static dyn Scheme> {
         let kept = self.mode.variant_storage_schemes();
         let mut excluded = self.mode.excluded_schemes();
         excluded.retain(|id| !kept.contains(id));
-        self.schemes_without(excluded)
+        self.schemes_without(excluded, allowed)
     }
 
-    fn schemes_without(&self, excluded: Vec<SchemeId>) -> Vec<&'static dyn Scheme> {
+    fn schemes_without(
+        &self,
+        excluded: Vec<SchemeId>,
+        allowed: &impl Fn(&ArrayId) -> bool,
+    ) -> Vec<&'static dyn Scheme> {
         let excluded: HashSet<SchemeId> = excluded.into_iter().collect();
-        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
-        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
         self.schemes
             .iter()
             .copied()
             .filter(|s| !excluded.contains(&s.id()))
-            .map(|s| s.refine(&allowed))
-            .filter(|s| s.produced_encodings().iter().all(&allowed))
+            .map(|s| s.refine(allowed))
+            .filter(|s| s.produced_encodings().iter().all(allowed))
             .collect()
     }
 }
@@ -310,10 +336,21 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayId;
+    use vortex_array::IntoArray;
     use vortex_array::VTable;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Masked;
     use vortex_array::arrays::Patched;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBin;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
     use vortex_edition::EDITION_DECLARATIONS;
@@ -411,9 +448,12 @@ mod tests {
         use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::Constant;
+        use vortex_array::arrays::Masked;
         use vortex_array::arrays::VarBinViewArray;
         use vortex_array::arrays::Variant;
         use vortex_array::arrays::variant::VariantArraySlotsExt;
+        use vortex_array::assert_arrays_eq;
         use vortex_array::validity::Validity;
         use vortex_error::VortexResult;
         use vortex_error::vortex_err;
@@ -521,6 +561,39 @@ mod tests {
             assert!(policy.0.load(Ordering::Relaxed) > 0);
             Ok(())
         }
+
+        /// The session allowlist and built-in gates also apply to the Variant storage compressor.
+        #[test]
+        fn test_allowlist_applies_to_variant_storage() -> VortexResult<()> {
+            let (variant, value) = unshredded_variant()?;
+
+            // `SESSION` registers no encodings, so Variant storage must not emit Zstd, Constant,
+            // or Masked.
+            let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION).build();
+            let mut ctx = SESSION.create_execution_ctx();
+
+            let compressed = compressor.compress(&variant, &mut ctx)?;
+            let core_storage = compressed
+                .as_opt::<Variant>()
+                .ok_or_else(|| vortex_err!("expected a Variant array"))?
+                .core_storage()
+                .clone();
+            let compressed_value = core_storage
+                .as_opt::<ParquetVariant>()
+                .ok_or_else(|| vortex_err!("expected Parquet Variant storage"))?
+                .value()
+                .cloned()
+                .ok_or_else(|| vortex_err!("expected a value child"))?;
+            assert_arrays_eq!(compressed_value, value, &mut ctx);
+            for node in compressed.depth_first_traversal() {
+                assert!(
+                    !node.is::<Zstd>() && !node.is::<Constant>() && !node.is::<Masked>(),
+                    "disallowed encoding emitted in Variant storage: {}",
+                    node.encoding_id()
+                );
+            }
+            Ok(())
+        }
     }
 
     #[rstest]
@@ -563,5 +636,83 @@ mod tests {
         let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
         assert!(has(string::StringDictScheme.id()));
         assert!(!has(binary::BinaryDictScheme.id()));
+    }
+
+    #[rstest]
+    #[case::constant(
+        PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array()
+    )]
+    #[case::all_null(
+        PrimitiveArray::new(
+            buffer![0u64; 1024],
+            Validity::Array(BoolArray::from_iter([false; 1024]).into_array()),
+        )
+        .into_array()
+    )]
+    #[case::all_invalid(
+        PrimitiveArray::new(buffer![0u64; 1024], Validity::AllInvalid).into_array()
+    )]
+    #[case::all_invalid_struct(
+        StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array()],
+            1024,
+            Validity::AllInvalid,
+        )?
+        .into_array()
+    )]
+    #[case::nullable_constant(
+        PrimitiveArray::new(
+            buffer![42u64; 1024],
+            Validity::Array(BoolArray::from_iter((0..1024).map(|i| i % 8 != 0)).into_array()),
+        )
+        .into_array()
+    )]
+    #[case::all_valid_bitmap(
+        PrimitiveArray::new(
+            Buffer::from_iter(0..1024u64),
+            Validity::Array(BoolArray::from_iter([true; 1024]).into_array()),
+        )
+        .into_array()
+    )]
+    fn test_empty_session_never_emits_constant_or_masked(
+        #[case] array: vortex_array::ArrayRef,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let compressor = BtrBlocksCompressor::from_session(&session);
+        let mut ctx = session.create_execution_ctx();
+        let compressed = compressor.compress(&array, &mut ctx)?;
+
+        assert!(!compressed.is::<Constant>());
+        assert!(!compressed.is::<Masked>());
+        for slot in compressed.slots().iter().flatten() {
+            assert!(!slot.is::<Constant>());
+            assert!(!slot.is::<Masked>());
+        }
+        assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_constant_without_masked_avoids_masked_for_nullable_constant() -> VortexResult<()> {
+        let mut builder = BtrBlocksCompressorBuilder::empty();
+        builder.allowed.editions = Some([Constant.id()].into_iter().collect());
+        let compressor = builder.build();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let non_null =
+            PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
+        let compressed_non_null = compressor.compress(&non_null, &mut ctx)?;
+        assert!(compressed_non_null.is::<Constant>());
+
+        let nullable = PrimitiveArray::new(
+            buffer![42u64; 1024],
+            Validity::Array(BoolArray::from_iter((0..1024).map(|i| i % 8 != 0)).into_array()),
+        )
+        .into_array();
+        let compressed_nullable = compressor.compress(&nullable, &mut ctx)?;
+        assert!(!compressed_nullable.is::<Masked>());
+        assert_arrays_eq!(compressed_nullable, nullable, &mut ctx);
+        Ok(())
     }
 }
