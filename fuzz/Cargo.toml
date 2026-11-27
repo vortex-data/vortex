@@ -132,6 +132,14 @@ required-features = ["native"]
 [[bin]]
 bench = false
 doc = false
+name = "file_session"
+path = "fuzz_targets/file_session.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
 name = "array_ops_wasm"
 path = "fuzz_targets/array_ops_wasm.rs"
 test = false

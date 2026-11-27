@@ -4,13 +4,18 @@
 mod corruption;
 #[cfg(feature = "native")]
 mod io;
+mod session;
 mod settings;
+
+use std::panic;
+use std::sync::Once;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 pub use corruption::*;
 #[cfg(feature = "native")]
 pub use io::run_file_io;
+pub use session::*;
 pub use settings::*;
 use vortex::expr::Expression;
 use vortex_array::ArrayRef;
@@ -66,6 +71,17 @@ impl FuzzFileAction {
             write_settings,
         })
     }
+}
+
+pub(crate) fn report_on_panic(report: fn()) {
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            report();
+            previous(info);
+        }));
+    });
 }
 
 pub fn has_nullable_struct(dtype: &DType) -> bool {

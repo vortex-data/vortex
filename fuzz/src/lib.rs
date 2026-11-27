@@ -60,6 +60,8 @@ pub use file::FuzzFileAction;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileCorruption;
 #[cfg(not(target_arch = "wasm32"))]
+pub use file::FuzzFileSession;
+#[cfg(not(target_arch = "wasm32"))]
 pub use file::WriteSettings;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::has_duplicate_field_names;
@@ -69,6 +71,8 @@ pub use file::has_nullable_struct;
 pub use file::run_file_corruption;
 #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
 pub use file::run_file_io;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::run_file_session;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
 #[cfg(feature = "cuda")]
