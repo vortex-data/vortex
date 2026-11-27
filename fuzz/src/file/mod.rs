@@ -23,6 +23,7 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_expr::arbitrary::filter_expr;
 use vortex_expr::arbitrary::projection_expr;
@@ -46,19 +47,33 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
     }
 }
 
+/// The longest file array in three generated files out of four.
+const SHORT_FILE_ARRAY_MAX_LEN: usize = 64;
+
 impl FuzzFileAction {
     /// Generate an array, write settings, and the projection and filter to scan it back with.
     pub fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
+        // Files are mostly short, and mostly a non-nullable struct, the only dtype that
+        // projections and filters apply to.
+        let max_len = if src.int_in_range(0..=3)? == 3 {
+            FUZZ_FILE_ARRAY_MAX_LEN
+        } else {
+            SHORT_FILE_ARRAY_MAX_LEN
+        };
+        let dtype = if src.int_in_range(0..=3)? == 3 {
+            None
+        } else {
+            Some(DType::Struct(
+                src.bytes(|u| u.arbitrary::<StructFields>())?,
+                Nullability::NonNullable,
+            ))
+        };
+        let config = ArbitraryArrayConfig {
+            dtype,
+            len: 0..=max_len,
+        };
         let array = src
-            .bytes(|u| {
-                ArbitraryArray::arbitrary_with_config(
-                    u,
-                    &ArbitraryArrayConfig {
-                        dtype: None,
-                        len: 0..=FUZZ_FILE_ARRAY_MAX_LEN,
-                    },
-                )
-            })?
+            .bytes(|u| ArbitraryArray::arbitrary_with_config(u, &config))?
             .0;
         let dtype = array.dtype().clone();
         let mut write_settings = src.bytes(|u| u.arbitrary::<WriteSettings>())?;

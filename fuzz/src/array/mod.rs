@@ -60,6 +60,7 @@ use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
@@ -190,14 +191,7 @@ impl ExpectedValue {
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let seed: u32 = u.arbitrary()?;
-        let array = ArbitraryArray::arbitrary_with_config(
-            u,
-            &ArbitraryArrayConfig {
-                dtype: None,
-                len: 0..=FUZZ_ARRAY_MAX_LEN,
-            },
-        )?
-        .0;
+        let array = generate_array(u)?;
         let mut entropy = [0u8; ACTION_ENTROPY_BYTES];
         Xoshiro256PlusPlus::seed_from_u64(u64::from(seed)).fill(&mut entropy);
         Self::with_random_actions(array, &mut Unstructured::new(&entropy))
@@ -210,17 +204,7 @@ impl FuzzArrayAction {
     /// Unlike [`Arbitrary`], which draws the actions from a seeded generator, every decision
     /// comes from `src`, so a source that shrinks one decision at a time shrinks the actions too.
     pub fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
-        let array = src
-            .bytes(|u| {
-                ArbitraryArray::arbitrary_with_config(
-                    u,
-                    &ArbitraryArrayConfig {
-                        dtype: None,
-                        len: 0..=FUZZ_ARRAY_MAX_LEN,
-                    },
-                )
-            })?
-            .0;
+        let array = generate_array(src)?;
         Self::with_random_actions(array, src)
     }
 
@@ -367,7 +351,7 @@ impl FuzzArrayAction {
                     )
                 }
                 ActionType::Cast => {
-                    let to: DType = src.bytes(|u| u.arbitrary())?;
+                    let to = cast_target(src, current_array.dtype())?;
                     let Some(result) = cast_canonical_array(&current_array, &to, &mut ctx)
                         .vortex_expect("cast oracle should succeed")
                     else {
@@ -499,6 +483,74 @@ impl FuzzArrayAction {
 
         Ok(Self { array, actions })
     }
+}
+
+/// The longest array in three generated arrays out of four, so cases near empty arrays are common.
+const SHORT_ARRAY_MAX_LEN: usize = 16;
+
+/// Every primitive type, for generated primitive arrays.
+const PTYPES: [PType; 11] = [
+    PType::U8,
+    PType::U16,
+    PType::U32,
+    PType::U64,
+    PType::I8,
+    PType::I16,
+    PType::I32,
+    PType::I64,
+    PType::F16,
+    PType::F32,
+    PType::F64,
+];
+
+const INT_PTYPES: [PType; 8] = [
+    PType::U8,
+    PType::U16,
+    PType::U32,
+    PType::U64,
+    PType::I8,
+    PType::I16,
+    PType::I32,
+    PType::I64,
+];
+
+/// The cast oracle skips `f16`.
+const FLOAT_PTYPES: [PType; 2] = [PType::F32, PType::F64];
+
+/// An array for the actions to run on: mostly short, and primitive in one case out of four.
+///
+/// Random dtypes are mostly nested, while most kernels and the cast oracle are primitive.
+fn generate_array(src: &mut impl FuzzSource) -> arbitrary::Result<ArrayRef> {
+    let max_len = if src.int_in_range(0..=3)? == 3 {
+        FUZZ_ARRAY_MAX_LEN
+    } else {
+        SHORT_ARRAY_MAX_LEN
+    };
+    let dtype = if src.int_in_range(0..=3)? == 3 {
+        let ptype = PTYPES[src.choose_index(PTYPES.len())?];
+        Some(DType::Primitive(ptype, Nullability::from(src.bool()?)))
+    } else {
+        None
+    };
+    let config = ArbitraryArrayConfig {
+        dtype,
+        len: 0..=max_len,
+    };
+    Ok(src
+        .bytes(|u| ArbitraryArray::arbitrary_with_config(u, &config))?
+        .0)
+}
+
+/// A cast target the oracle can check: a type of the same numeric family for integer and float
+/// arrays, otherwise any dtype.
+fn cast_target(src: &mut impl FuzzSource, from: &DType) -> arbitrary::Result<DType> {
+    let family: &[PType] = match from {
+        DType::Primitive(ptype, _) if ptype.is_int() => &INT_PTYPES,
+        DType::Primitive(ptype, _) if ptype.is_float() => &FLOAT_PTYPES,
+        _ => return src.bytes(|u| u.arbitrary()),
+    };
+    let ptype = family[src.choose_index(family.len())?];
+    Ok(DType::Primitive(ptype, Nullability::from(src.bool()?)))
 }
 
 fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
