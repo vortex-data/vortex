@@ -3,7 +3,6 @@
 
 //! Decoding bit-packed arrays whose blocks each have their own bit width.
 
-use std::mem;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -31,6 +30,7 @@ use crate::FL_CHUNK_SIZE;
 use crate::bitpacking::array::block_range;
 use crate::bitpacking::array::validate_primitive_offsets;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::unpack_iter::physical_output;
 
 /// Unpacks a bit-packed array with block `offsets` into a primitive array.
 pub fn unpack_array_blocked(
@@ -174,7 +174,8 @@ fn decode_blocks<T: BitPackedUnpack>(
     output: &mut [MaybeUninit<T>],
 ) {
     let packed = array.packed_slice::<T::Physical>();
-    let mut scratch = [const { MaybeUninit::<T>::uninit() }; FL_CHUNK_SIZE];
+    let output = physical_output(output);
+    let mut scratch = [const { MaybeUninit::<T::Physical>::uninit() }; FL_CHUNK_SIZE];
     let base = offsets[0];
     let mut skip = usize::from(array.offset());
     let mut written = 0;
@@ -188,17 +189,14 @@ fn decode_blocks<T: BitPackedUnpack>(
         let dst = &mut output[written..][..len];
         if len == FL_CHUNK_SIZE {
             // SAFETY: The boundaries have been validated against the packed length and physical
-            // type, and `dst` holds exactly one block. `T` and its physical type have the same
-            // layout.
+            // type, and `dst` holds exactly one block.
             unsafe {
-                let dst: &mut [MaybeUninit<T::Physical>] = mem::transmute(dst);
                 BitPacking::unchecked_unpack_uninit(bit_width, block, dst);
             }
         } else {
             // SAFETY: As above, with the scratch block as the destination.
             unsafe {
-                let unpacked: &mut [MaybeUninit<T::Physical>] = mem::transmute(&mut scratch[..]);
-                BitPacking::unchecked_unpack_uninit(bit_width, block, unpacked);
+                BitPacking::unchecked_unpack_uninit(bit_width, block, &mut scratch);
             }
             dst.copy_from_slice(&scratch[skip..][..len]);
         }
