@@ -105,12 +105,13 @@ impl VTable for BitPacked {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure_eq!(slots.len(), BitPackedSlots::COUNT);
+        let ptype = PType::try_from(dtype)?;
         let bp_slots = BitPackedSlotsView::from_slots(slots);
         match (data.global_bit_width, bp_slots.block_offsets) {
             (Some(_), None) => {}
             (None, Some(block_offsets)) => validate_block_offsets(
                 block_offsets,
-                dtype.as_ptype(),
+                ptype,
                 (len + data.offset as usize).div_ceil(FL_CHUNK_SIZE),
                 data.packed.len(),
             )?,
@@ -124,7 +125,7 @@ impl VTable for BitPacked {
             PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
         BitPackedData::validate(
             &data.packed,
-            dtype.as_ptype(),
+            ptype,
             &validity,
             patches.as_ref(),
             data.global_bit_width,

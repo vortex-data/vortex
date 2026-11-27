@@ -251,6 +251,29 @@ fn serde_roundtrip(
     Ok(())
 }
 
+/// A corrupt file can name a non-primitive dtype for a v1 BitPacked array, which must fail to
+/// decode rather than panic.
+#[test]
+fn v1_rejects_non_primitive_dtype() -> VortexResult<()> {
+    let mut ctx = PLUGIN_SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(0u32..3).into_array();
+    let array = BitPackedData::encode(&values, 2, &mut ctx)?.into_array();
+    let array_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &PLUGIN_SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(&buffer);
+    }
+
+    let result = SerializedArray::try_from(bytes.freeze())?.decode(
+        &DType::Bool(Nullability::NonNullable),
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &PLUGIN_SESSION,
+    );
+    assert!(result.is_err());
+    Ok(())
+}
+
 /// Values whose 1024-value blocks need 2 to 6 bits.
 fn drifting() -> PrimitiveArray {
     PrimitiveArray::from_iter((0..5000u32).map(|i| i % (4 << (i / 1024))))
