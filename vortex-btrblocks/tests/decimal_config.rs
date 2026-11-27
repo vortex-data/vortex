@@ -272,11 +272,11 @@ fn wide_decimal_parts_roundtrip(
 /// type.
 #[rstest]
 #[case::p2_uses_i8(
-    decimal_at_precision(2, (0..99i8).cycle().take(2048), Validity::NonNullable),
+    decimal_at_precision(2, (0..50i8).cycle().take(2048), Validity::NonNullable),
     0, PType::I8, None
 )]
 #[case::p4_narrows_to_i8(
-    decimal_at_precision(4, (0..99i16).cycle().take(2048), Validity::NonNullable),
+    decimal_at_precision(4, (0..50i16).cycle().take(2048), Validity::NonNullable),
     0, PType::I16, Some(PType::I8)
 )]
 #[case::p9_narrows_to_i16(

@@ -6,6 +6,7 @@
 mod scan_metrics;
 
 use std::fs;
+use std::io;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -26,6 +27,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
+use tokio::sync::watch;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -93,6 +95,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_expr::BoundExpression;
 use vortex_expr::Expression;
 use vortex_expr::ScalarFnExprExt;
@@ -110,6 +113,7 @@ use vortex_expr::or;
 use vortex_expr::root;
 use vortex_functions::expr::lower;
 use vortex_functions::expr::select;
+use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 #[cfg(feature = "object_store")]
 use vortex_io::object_store::ObjectStoreWrite;
@@ -2269,6 +2273,70 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     Ok(())
 }
 
+/// Publishes how many bytes it has received.
+struct WatchedWrite(watch::Sender<u64>);
+
+impl VortexWrite for WatchedWrite {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        let len = buffer.as_slice().len() as u64;
+        self.0.send_modify(|bytes| *bytes += len);
+        Ok(buffer)
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
+    let chunks: Vec<ArrayRef> = (0..8u32)
+        .map(|chunk| PrimitiveArray::from_iter(chunk * 1024..(chunk + 1) * 1024).into_array())
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+    // Writes each chunk as one segment as soon as the chunk arrives.
+    let strategy: Arc<dyn LayoutStrategy> =
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+
+    let mut expected = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(Arc::clone(&strategy))
+        .write(
+            &mut expected,
+            ChunkedArray::from_iter(chunks.clone())
+                .into_array()
+                .to_array_stream(),
+        )
+        .await?;
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .vortex_expect("segment ends fit in u64");
+
+    let (bytes_send, mut bytes_received) = watch::channel(0);
+    let mut writer = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .spawn_writer(WatchedWrite(bytes_send), dtype);
+    for chunk in chunks {
+        writer.push(chunk).await?;
+    }
+
+    bytes_received
+        .wait_for(|bytes| *bytes >= segments_end)
+        .await
+        .map_err(|_| vortex_err!("The write dropped its sink"))?;
+
+    let summary = writer.finish().await?;
+    assert_eq!(summary.size(), expected.len() as u64);
+    Ok(())
+}
+
 #[rstest]
 #[case::table_one_leaf(true, 1, false, 32)]
 #[case::table_two_shared_leaves(true, 2, false, 64)]
@@ -4102,6 +4170,7 @@ mod writer_terminal_error_tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
@@ -4152,8 +4221,11 @@ mod writer_terminal_error_tests {
         }
     }
 
+    #[rstest]
+    #[case::inline(false)]
+    #[case::spawned(true)]
     #[tokio::test]
-    async fn test_writer_push_replays_terminal_error() -> VortexResult<()> {
+    async fn test_writer_push_replays_terminal_error(#[case] spawn: bool) -> VortexResult<()> {
         let chunk = make_chunk(&[1, 2, 3])?;
         let dtype = chunk.dtype().clone();
         let write_calls = Arc::new(AtomicUsize::new(0));
@@ -4163,7 +4235,12 @@ mod writer_terminal_error_tests {
             message: msg,
         };
 
-        let mut writer = SESSION.write_options().writer(sink, dtype.clone());
+        let options = SESSION.write_options();
+        let mut writer = if spawn {
+            options.spawn_writer(sink, dtype.clone())
+        } else {
+            options.writer(sink, dtype.clone())
+        };
         let mut first_err = None;
         // `bounded(1)` plus `futures::select!` branch order can let the first push buffer before
         // the writer task polls the failing sink, so push until the terminal error surfaces.

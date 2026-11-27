@@ -110,8 +110,8 @@ mod tests {
                 }
             }
 
-            if let Some(operator) = node.as_opt::<Compare>()
-                && *operator == CompareOperator::Gt
+            if let Some(options) = node.as_opt::<Compare>()
+                && options.operator() == CompareOperator::Gt
             {
                 return Ok(FoldDownContext::Skip(0));
             }

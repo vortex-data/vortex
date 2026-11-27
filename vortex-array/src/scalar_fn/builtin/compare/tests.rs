@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 
+use prost::Message;
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
@@ -18,11 +19,13 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::DictArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
@@ -43,10 +46,17 @@ use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
 use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::counting_allocator;
+use crate::proto::expr as pb;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::compare::CompareOptions;
 use crate::scalar_fn::builtin::compare::scalar_cmp;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::FloatOrder;
 use crate::test_harness::ExpectedOutcome;
 use crate::test_harness::assert_execution_paths;
 use crate::validity::Validity;
@@ -772,7 +782,16 @@ fn test_extension_comparison_checks_dtypes_before_fast_paths(
     )
     .into_array();
 
-    assert!(super::execute_compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx).is_err());
+    assert!(
+        super::execute_compare(
+            &lhs,
+            &rhs,
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+            &mut ctx
+        )
+        .is_err()
+    );
 
     Ok(())
 }
@@ -1141,4 +1160,394 @@ fn primitive_comparisons_across_bitmap_words(
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
     Ok(())
+}
+
+/// Floats that each compare mode orders differently: both NaN signs, both zeros, and both
+/// infinities.
+const MODE_VALUES: [f64; 8] = [
+    -f64::NAN,
+    f64::NEG_INFINITY,
+    -1.0,
+    -0.0,
+    0.0,
+    1.0,
+    f64::INFINITY,
+    f64::NAN,
+];
+
+const DATAFUSION: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+const SPARK: CompareMode = CompareMode::new(FloatOrder::Canonical);
+const PYARROW: CompareMode = CompareMode::new(FloatOrder::Ieee754);
+
+fn compare_with(
+    lhs: ArrayRef,
+    rhs: ArrayRef,
+    op: CompareOperator,
+    mode: CompareMode,
+) -> VortexResult<ArrayRef> {
+    Ok(
+        ScalarFnArray::try_new(Compare.bind(CompareOptions::new(op, mode)), [lhs, rhs])?
+            .into_array(),
+    )
+}
+
+#[rstest]
+#[case::total_eq_zero(CompareMode::TOTAL_ORDER, CompareOperator::Eq, 0.0, [false, false, false, false, true, false, false, false])]
+#[case::total_lt_zero(CompareMode::TOTAL_ORDER, CompareOperator::Lt, 0.0, [true, true, true, true, false, false, false, false])]
+#[case::datafusion_eq_zero(DATAFUSION, CompareOperator::Eq, 0.0, [false, false, false, true, true, false, false, false])]
+#[case::datafusion_eq_neg_zero(DATAFUSION, CompareOperator::Eq, -0.0, [false, false, false, true, true, false, false, false])]
+#[case::datafusion_lt_zero(DATAFUSION, CompareOperator::Lt, 0.0, [true, true, true, false, false, false, false, false])]
+#[case::datafusion_gte_neg_zero(DATAFUSION, CompareOperator::Gte, -0.0, [false, false, false, true, true, true, true, true])]
+#[case::datafusion_eq_nan(DATAFUSION, CompareOperator::Eq, f64::NAN, [false, false, false, false, false, false, false, true])]
+#[case::spark_eq_nan(SPARK, CompareOperator::Eq, f64::NAN, [true, false, false, false, false, false, false, true])]
+#[case::spark_eq_neg_nan(SPARK, CompareOperator::Eq, -f64::NAN, [true, false, false, false, false, false, false, true])]
+#[case::spark_lt_one(SPARK, CompareOperator::Lt, 1.0, [false, true, true, true, true, false, false, false])]
+#[case::spark_gt_inf(SPARK, CompareOperator::Gt, f64::INFINITY, [true, false, false, false, false, false, false, true])]
+#[case::spark_lte_zero(SPARK, CompareOperator::Lte, 0.0, [false, true, true, true, true, false, false, false])]
+#[case::pyarrow_eq_nan(PYARROW, CompareOperator::Eq, f64::NAN, [false; 8])]
+#[case::pyarrow_not_eq_nan(PYARROW, CompareOperator::NotEq, f64::NAN, [true; 8])]
+#[case::pyarrow_gte_neg_zero(PYARROW, CompareOperator::Gte, -0.0, [false, false, false, true, true, true, true, false])]
+#[case::pyarrow_not_eq_one(PYARROW, CompareOperator::NotEq, 1.0, [true, true, true, true, true, false, true, true])]
+fn float_compare_modes(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] constant: f64,
+    #[case] expected: [bool; 8],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(MODE_VALUES).into_array();
+    let expected = BoolArray::from_iter(expected);
+    let len = MODE_VALUES.len();
+
+    let with_constant = compare_with(
+        values.clone(),
+        ConstantArray::new(constant, len).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_constant, expected, ctx);
+
+    let with_array = compare_with(
+        values.clone(),
+        PrimitiveArray::from_iter([constant; 8]).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_array, expected, ctx);
+
+    let constant_on_left = compare_with(
+        ConstantArray::new(constant, len).into_array(),
+        values,
+        op.swap(),
+        mode,
+    )?;
+    assert_arrays_eq!(constant_on_left, expected, ctx);
+
+    Ok(())
+}
+
+/// NaNs whose bits differ in more than the sign: a quiet NaN with a payload, a signaling NaN, and
+/// a negative NaN with a payload. Spark makes all of them equal to each other and greater than
+/// all other values.
+const NAN_PAYLOADS: [f64; 4] = [
+    f64::from_bits(0x7ff8_0000_0000_0001),
+    f64::from_bits(0x7ff0_0000_0000_0001),
+    f64::from_bits(0xfff8_0000_dead_beef),
+    f64::INFINITY,
+];
+
+#[rstest]
+#[case::spark_eq(SPARK, CompareOperator::Eq, [true, true, true, false])]
+#[case::spark_not_eq(SPARK, CompareOperator::NotEq, [false, false, false, true])]
+#[case::spark_lt(SPARK, CompareOperator::Lt, [false, false, false, true])]
+#[case::spark_lte(SPARK, CompareOperator::Lte, [true, true, true, true])]
+#[case::spark_gt(SPARK, CompareOperator::Gt, [false, false, false, false])]
+#[case::spark_gte(SPARK, CompareOperator::Gte, [true, true, true, false])]
+#[case::datafusion_eq(DATAFUSION, CompareOperator::Eq, [false, false, false, false])]
+#[case::pyarrow_eq(PYARROW, CompareOperator::Eq, [false, false, false, false])]
+#[case::pyarrow_not_eq(PYARROW, CompareOperator::NotEq, [true, true, true, true])]
+fn float_compare_nan_payloads(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 4],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(NAN_PAYLOADS).into_array();
+    let expected = BoolArray::from_iter(expected);
+    let len = NAN_PAYLOADS.len();
+
+    let with_constant = compare_with(
+        values.clone(),
+        ConstantArray::new(f64::NAN, len).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_constant, expected, ctx);
+
+    let with_array = compare_with(
+        values.clone(),
+        PrimitiveArray::from_iter([f64::NAN; 4]).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_array, expected, ctx);
+
+    let constant_on_left = compare_with(
+        ConstantArray::new(f64::NAN, len).into_array(),
+        values,
+        op.swap(),
+        mode,
+    )?;
+    assert_arrays_eq!(constant_on_left, expected, ctx);
+
+    Ok(())
+}
+
+#[rstest]
+#[case::f16(PrimitiveArray::from_iter([half::f16::NEG_ZERO, half::f16::ZERO, half::f16::NAN]).into_array(), Scalar::from(half::f16::ZERO))]
+#[case::f32(PrimitiveArray::from_iter([-0.0f32, 0.0, f32::NAN]).into_array(), Scalar::from(0.0f32))]
+fn signed_zeros_equal_for_each_float_width(
+    #[case] values: ArrayRef,
+    #[case] zero: Scalar,
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let zero = ConstantArray::new(zero, values.len()).into_array();
+
+    let result = compare_with(values, zero, CompareOperator::Eq, DATAFUSION)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), ctx);
+    Ok(())
+}
+
+#[test]
+fn compare_mode_ignores_integers() -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter([-1i32, 0, 1]).into_array();
+    let zero = ConstantArray::new(0i32, 3).into_array();
+
+    let result = compare_with(values, zero, CompareOperator::Lte, PYARROW)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), ctx);
+    Ok(())
+}
+
+/// A total-order encoding kernel must not answer a comparison that its mode orders differently.
+#[test]
+fn compare_mode_declines_encoding_kernel_for_zero() -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = DictArray::try_new(
+        buffer![0u8, 1, 0, 1].into_array(),
+        PrimitiveArray::from_iter([-0.0f64, 0.0]).into_array(),
+    )?
+    .into_array();
+    let zero = ConstantArray::new(0.0f64, 4).into_array();
+
+    let result = compare_with(values, zero, CompareOperator::Eq, DATAFUSION)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true; 4]), ctx);
+    Ok(())
+}
+
+/// Structs compare field by field, and each float field compares in the mode. The rows are
+/// `(-0.0, 1) ? (0.0, 1)`, `(NaN, 1) ? (NaN, 2)`, `(-NaN, 1) ? (NaN, 1)`, `(NaN, 1) ? (inf, 1)`
+/// and `(1.0, 1) ? (1.0, 2)`. An unordered float field makes the rows unordered.
+#[rstest]
+#[case::total_eq(CompareMode::TOTAL_ORDER, CompareOperator::Eq, [false, false, false, false, false])]
+#[case::total_lt(CompareMode::TOTAL_ORDER, CompareOperator::Lt, [true, true, true, false, true])]
+#[case::datafusion_eq(DATAFUSION, CompareOperator::Eq, [true, false, false, false, false])]
+#[case::spark_eq(SPARK, CompareOperator::Eq, [true, false, true, false, false])]
+#[case::spark_lt(SPARK, CompareOperator::Lt, [false, true, false, false, true])]
+#[case::spark_gt(SPARK, CompareOperator::Gt, [false, false, false, true, false])]
+#[case::pyarrow_eq(PYARROW, CompareOperator::Eq, [true, false, false, false, false])]
+#[case::pyarrow_not_eq(PYARROW, CompareOperator::NotEq, [false, true, true, true, true])]
+#[case::pyarrow_lt(PYARROW, CompareOperator::Lt, [false, false, false, false, true])]
+#[case::pyarrow_gte(PYARROW, CompareOperator::Gte, [true, false, false, false, false])]
+fn compare_mode_struct_floats(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 5],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = StructArray::from_fields(&[
+        (
+            "a",
+            PrimitiveArray::from_iter([-0.0f64, f64::NAN, -f64::NAN, f64::NAN, 1.0]).into_array(),
+        ),
+        (
+            "b",
+            PrimitiveArray::from_iter([1i32, 1, 1, 1, 1]).into_array(),
+        ),
+    ])?
+    .into_array();
+    let rhs = StructArray::from_fields(&[
+        (
+            "a",
+            PrimitiveArray::from_iter([0.0f64, f64::NAN, f64::NAN, f64::INFINITY, 1.0])
+                .into_array(),
+        ),
+        (
+            "b",
+            PrimitiveArray::from_iter([1i32, 2, 1, 1, 2]).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+/// Lists compare element by element in the mode. The rows are `[-0.0, NaN] ? [0.0, NaN]` and
+/// `[NaN] ? [NaN, 1.0]`.
+#[rstest]
+#[case::total_eq(CompareMode::TOTAL_ORDER, CompareOperator::Eq, [false, false])]
+#[case::spark_eq(SPARK, CompareOperator::Eq, [true, false])]
+#[case::spark_lt(SPARK, CompareOperator::Lt, [false, true])]
+#[case::pyarrow_eq(PYARROW, CompareOperator::Eq, [false, false])]
+#[case::pyarrow_lt(PYARROW, CompareOperator::Lt, [false, false])]
+#[case::pyarrow_not_eq(PYARROW, CompareOperator::NotEq, [true, true])]
+fn compare_mode_list_floats(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 2],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = ListArray::try_new(
+        PrimitiveArray::from_iter([-0.0f64, f64::NAN, f64::NAN]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+    let rhs = ListArray::try_new(
+        PrimitiveArray::from_iter([0.0f64, f64::NAN, f64::NAN, 1.0]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 4]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::total_order(CompareMode::TOTAL_ORDER, CompareOperator::Lt, 0.0, true)]
+#[case::zeros_equal_nonzero(DATAFUSION, CompareOperator::Lt, 1.0, true)]
+#[case::zeros_equal_zero(DATAFUSION, CompareOperator::Eq, 0.0, false)]
+#[case::zeros_equal_nan(DATAFUSION, CompareOperator::Gt, f64::NAN, true)]
+#[case::canonical_eq(SPARK, CompareOperator::Eq, 1.0, true)]
+#[case::canonical_order(SPARK, CompareOperator::Lt, 1.0, false)]
+#[case::canonical_nan(SPARK, CompareOperator::Eq, f64::NAN, false)]
+#[case::ieee_not_eq(PYARROW, CompareOperator::NotEq, 1.0, true)]
+#[case::ieee_order(PYARROW, CompareOperator::Gte, 1.0, false)]
+fn compare_mode_agrees_with_total_order(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] constant: f64,
+    #[case] expected: bool,
+) {
+    let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+
+    assert_eq!(
+        mode.agrees_with_total_order(op, &dtype, Some(&Scalar::from(constant))),
+        expected
+    );
+    assert!(mode.agrees_with_total_order(
+        op,
+        &DType::Primitive(PType::I64, Nullability::NonNullable),
+        None
+    ));
+}
+
+#[rstest]
+#[case::default(CompareOptions::from(CompareOperator::Eq))]
+#[case::total_order(CompareOptions::new(CompareOperator::Eq, CompareMode::TOTAL_ORDER))]
+#[case::datafusion(CompareOptions::new(CompareOperator::Lt, DATAFUSION))]
+#[case::pyarrow(CompareOptions::new(CompareOperator::NotEq, PYARROW))]
+#[case::spark(CompareOptions::new(CompareOperator::Gt, SPARK))]
+fn compare_options_round_trip(#[case] options: CompareOptions) -> VortexResult<()> {
+    let bytes = Compare
+        .serialize(&options)?
+        .vortex_expect("compare options serialize");
+
+    assert_eq!(Compare.deserialize(&bytes, &SESSION)?, options);
+    Ok(())
+}
+
+/// Options written before the mode existed have no mode. They compare in total order.
+#[test]
+fn compare_options_without_mode_use_total_order() -> VortexResult<()> {
+    let bytes = pb::CompareOpts {
+        op: pb::compare_opts::CompareOp::Lt.into(),
+        mode: None,
+    }
+    .encode_to_vec();
+
+    assert_eq!(
+        Compare.deserialize(&bytes, &SESSION)?,
+        CompareOptions::new(CompareOperator::Lt, CompareMode::TOTAL_ORDER)
+    );
+    Ok(())
+}
+
+/// A later version can write an order that this version does not know: a new float order, or the
+/// order of another type, which decodes as an entry without a value. The read must fail, because
+/// a comparison in another order gives wrong rows. A mode without a float order, or with two,
+/// is also not valid.
+#[rstest]
+#[case::unknown_float_order(vec![float_order(99)], "unknown float order code: 99")]
+#[case::unknown_type(
+    vec![float_order(0), pb::compare_mode::TypeOrder { order: None }],
+    "compare mode has the order of an unknown type"
+)]
+#[case::no_float_order(vec![], "compare mode has no float order")]
+#[case::two_float_orders(
+    vec![float_order(0), float_order(2)],
+    "compare mode has more than one float order"
+)]
+fn compare_options_reject_invalid_mode(
+    #[case] orders: Vec<pb::compare_mode::TypeOrder>,
+    #[case] message: &str,
+) {
+    let bytes = pb::CompareOpts {
+        op: pb::compare_opts::CompareOp::Eq.into(),
+        mode: Some(pb::CompareMode { orders }),
+    }
+    .encode_to_vec();
+
+    let error = Compare.deserialize(&bytes, &SESSION).unwrap_err();
+
+    assert!(error.to_string().contains(message), "{error}");
+}
+
+/// A later version writes the order of another type with a field of `TypeOrder` that this version
+/// does not know. Prost decodes that entry as an entry without a value, so the read fails.
+#[test]
+fn compare_options_reject_unknown_type_order_field() {
+    // `CompareOpts { op: Eq, mode: { orders: [{ float: ZerosEqual }, { <field 2>: 1 }] } }`.
+    let bytes = [
+        0x12, 0x08, // Field 2 `mode`, 8 bytes.
+        0x0a, 0x02, 0x08, 0x00, // Field 1 `orders`: field 1 `float` = 0.
+        0x0a, 0x02, 0x10, 0x01, // Field 1 `orders`: unknown field 2 = 1.
+    ];
+
+    let error = Compare.deserialize(&bytes, &SESSION).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("compare mode has the order of an unknown type"),
+        "{error}"
+    );
+}
+
+/// The entry of a compare mode that holds the float order with the proto code `code`.
+fn float_order(code: i32) -> pb::compare_mode::TypeOrder {
+    pb::compare_mode::TypeOrder {
+        order: Some(pb::compare_mode::type_order::Order::Float(code)),
+    }
 }

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::poll_fn;
 use std::io;
 use std::io::Write;
+use std::panic::resume_unwind;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -47,6 +49,7 @@ use vortex_error::vortex_err;
 use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::JoinOutcome;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::BufferedBytesReservation;
 use vortex_layout::BufferedBytesTracker;
@@ -546,6 +549,29 @@ impl VortexWriteOptions {
             size,
             deferred_metadata,
         }
+    }
+
+    /// Like [`Self::writer`], but keeps writing to `write` between pushes.
+    pub fn spawn_writer<W: VortexWrite + Unpin + 'static>(
+        self,
+        write: W,
+        dtype: DType,
+    ) -> Writer<'static> {
+        let handle = self.session.handle();
+        let mut writer = self.writer(write, dtype);
+        let mut task = handle.spawn(writer.future);
+        writer.future = async move {
+            match poll_fn(|cx| task.poll_join(cx)).await {
+                JoinOutcome::Completed(result) => result,
+                JoinOutcome::Panicked(panic) => resume_unwind(panic),
+                JoinOutcome::Aborted => Err(vortex_err!(
+                    "The runtime dropped the write task before it finished"
+                )),
+            }
+        }
+        .boxed()
+        .fuse();
+        writer
     }
 }
 

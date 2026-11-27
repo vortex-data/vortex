@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -92,7 +93,11 @@ impl ArrayPlugin for FixedSizeList {
             }
         };
 
-        let num_elements = len * (*list_size as usize);
+        let num_elements = len.checked_mul(*list_size as usize).ok_or_else(|| {
+            vortex_err!(
+                "FixedSizeListArray element count overflows usize for length {len} and list_size {list_size}"
+            )
+        })?;
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
         let data =
