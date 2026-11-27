@@ -26,6 +26,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::block::BlockSource;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -61,6 +62,7 @@ use crate::canonical::append_sparse_to_varbin;
 use crate::canonical::append_sparse_to_varbinview;
 use crate::canonical::execute_sparse;
 
+mod block;
 mod canonical;
 mod compute;
 mod fill;
@@ -250,11 +252,18 @@ impl VTable for Sparse {
         SparseSlots::NAMES[idx].to_string()
     }
 
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        block::sparse_source(array, ctx)
+    }
+
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Resolve offset first: wrap indices in Binary(indices, offset, Sub) and
         // reassemble with offset=0. Uses slot children (not data) since the executor
         // may have updated slots via reduce_parent/execute_parent.
-        let array = if array.patches().offset() != 0 {
+        let array = if !array.dtype().is_primitive() && array.patches().offset() != 0 {
             let patches = array.resolved_patches()?;
             let resolved_indices = patches.indices().clone();
             // Decompose, update in place, and reassemble without re-validation.
