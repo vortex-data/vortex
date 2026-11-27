@@ -6,6 +6,8 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::ArrayId;
+use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
@@ -13,11 +15,13 @@ use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::VTable;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
+use vortex_layout::layouts::compressed::AllowedEncodingsCompressor;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::constant::ConstantStrategy;
@@ -125,6 +129,7 @@ pub struct WriteStrategyBuilder {
     data_block_target_bytes: Option<u64>,
     dict_max_bytes: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    allowed_encodings: Vec<(FieldPath, Vec<ArrayId>)>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -145,6 +150,7 @@ impl WriteStrategyBuilder {
             data_block_target_bytes: Some(ONE_MEG),
             dict_max_bytes: DictLayoutConstraints::default().max_bytes,
             field_writers: HashMap::new(),
+            allowed_encodings: Vec::new(),
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: session
@@ -192,6 +198,33 @@ impl WriteStrategyBuilder {
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
         self.field_writers.insert(field.into(), writer);
+        self
+    }
+
+    /// Allow the field at `field` to keep the given encodings it arrives with, compressing only
+    /// their children.
+    ///
+    /// The field is written without being canonicalized where it holds an allowed encoding: such
+    /// an array keeps its encoding and only its child slots are compressed. Use this for a column
+    /// whose readers want the encoding back, such as an Arrow dictionary column written with
+    /// [`Dict`]: a scan hands back the stored dictionary instead of re-encoding the values. Blocks
+    /// of dictionary chunks are merged into one dictionary of the values they reference. The path
+    /// may step into list elements; without the list layout, the column holding the list keeps the
+    /// encodings inside it.
+    ///
+    /// # Panics
+    ///
+    /// [`build`](Self::build) panics if a [field writer](Self::with_field_writer) is set on the
+    /// column that keeps the encodings, or on a path inside or around it.
+    ///
+    /// [`Dict`]: vortex_array::arrays::Dict
+    pub fn with_allow_encodings(
+        mut self,
+        field: impl Into<FieldPath>,
+        encodings: impl IntoIterator<Item = ArrayId>,
+    ) -> Self {
+        self.allowed_encodings
+            .push((field.into(), encodings.into_iter().collect()));
         self
     }
 
@@ -246,6 +279,7 @@ impl WriteStrategyBuilder {
         // Dict codes and the chunks DictStrategy rejects get separate pipelines because they use
         // different compressors; see `CompressorConfig::into_compressors`.
         let compressors = self.compressor.into_compressors();
+        let codes_compressor = Arc::clone(&compressors.codes);
         let codes = coalesce_then_compress(
             buffered.clone(),
             compressors.codes,
@@ -268,7 +302,7 @@ impl WriteStrategyBuilder {
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
             probe_compressor
         } else {
-            full_compressor
+            Arc::clone(&full_compressor)
         };
         let dict = DictStrategy::new(
             codes,
@@ -309,6 +343,82 @@ impl WriteStrategyBuilder {
             },
         );
 
+        // Fields with allowed encodings follow the same steps without dictionary encoding, keeping
+        // the allowed encodings they arrive with and compressing only their children. Without the
+        // list layout, list elements are not written as columns of their own, so a path into a list
+        // is kept by the writer of the list column that holds it.
+        let all_allowed: Vec<ArrayId> = self
+            .allowed_encodings
+            .iter()
+            .flat_map(|(_, ids)| ids.iter().copied())
+            .collect();
+        let mut field_writers = self.field_writers;
+        let user_paths: Vec<FieldPath> = field_writers.keys().cloned().collect();
+        let mut allowed_columns: HashMap<FieldPath, Vec<(FieldPath, Vec<ArrayId>)>> =
+            HashMap::new();
+        for (field, ids) in self.allowed_encodings {
+            let split = if self.use_list_layout {
+                field.parts().len()
+            } else {
+                field
+                    .parts()
+                    .iter()
+                    .position(|part| matches!(part, Field::ElementType))
+                    .unwrap_or_else(|| field.parts().len())
+            };
+            let column = FieldPath::from(field.parts()[..split].to_vec());
+            let within = FieldPath::from(field.parts()[split..].to_vec());
+            allowed_columns
+                .entry(column)
+                .or_default()
+                .push((within, ids));
+        }
+        for (column, allowed) in allowed_columns {
+            let column_ids: Vec<ArrayId> = allowed
+                .iter()
+                .flat_map(|(_, ids)| ids.iter().copied())
+                .collect();
+            // Kept dictionaries already hold their codes, so the codes compressor compresses
+            // their children, and the rest of the column gets every scheme.
+            let allowed_compressor: Arc<dyn CompressorPlugin> = Arc::new(
+                AllowedEncodingsCompressor::new(Arc::clone(&full_compressor), allowed)
+                    .with_children_compressor(Arc::clone(&codes_compressor)),
+            );
+            let allowed_coalescing = coalesce_then_compress(
+                BufferedStrategy::new(ChunkedLayoutStrategy::new(Arc::clone(&flat)), 2 * ONE_MEG),
+                allowed_compressor,
+                self.row_block_size,
+                self.data_block_target_bytes,
+            )
+            .with_allowed_encodings(column_ids.iter().copied());
+            let allowed_stats = ZonedStrategy::new(
+                allowed_coalescing,
+                compress_then_flat.clone(),
+                ZonedLayoutOptions {
+                    block_size: row_block_size,
+                    ..Default::default()
+                },
+            );
+            let allowed_writer = RepartitionStrategy::new(
+                allowed_stats,
+                RepartitionWriterOptions {
+                    block_size_minimum: 0,
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: None,
+                    canonicalize: false,
+                },
+            )
+            .with_allowed_encodings(column_ids);
+            // Overlapping writers would otherwise end in either one silently replacing the other
+            // or a later panic, depending on whether the paths are equal.
+            if let Some(user_path) = user_paths.iter().find(|path| path.overlap(&column)) {
+                vortex_panic!(
+                    "field writer for {user_path} conflicts with the allowed encodings written at {column}"
+                );
+            }
+            field_writers.insert(column, Arc::new(allowed_writer));
+        }
+
         // 0.1. write a column with one value in all rows as one constant chunk, without the
         // repartition steps that follow
         let constant = ConstantStrategy::new(repartition, Arc::clone(&flat));
@@ -319,7 +429,7 @@ impl WriteStrategyBuilder {
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(constant))
-                .with_field_writers(self.field_writers);
+                .with_field_writers(field_writers);
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.
@@ -333,15 +443,20 @@ impl WriteStrategyBuilder {
                             ..Default::default()
                         },
                     );
-                    Arc::new(RepartitionStrategy::new(
-                        zoned,
-                        RepartitionWriterOptions {
-                            block_size_minimum: 0,
-                            block_len_multiple: row_block_size.get(),
-                            block_size_target: None,
-                            canonicalize: false,
-                        },
-                    ))
+                    // Allowed encodings nested in the list's elements are kept until the elements
+                    // reach their own field writers.
+                    Arc::new(
+                        RepartitionStrategy::new(
+                            zoned,
+                            RepartitionWriterOptions {
+                                block_size_minimum: 0,
+                                block_len_multiple: row_block_size.get(),
+                                block_size_target: None,
+                                canonicalize: false,
+                            },
+                        )
+                        .with_allowed_encodings(all_allowed.iter().copied()),
+                    )
                 },
             );
         }

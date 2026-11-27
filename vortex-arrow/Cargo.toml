@@ -19,11 +19,7 @@ all-features = true
 workspace = true
 
 [features]
-_test-harness = [
-    "vortex-array/_test-harness",
-    "dep:arrow-ord",
-    "dep:arrow-select",
-]
+_test-harness = ["vortex-array/_test-harness", "dep:arrow-ord"]
 _test-harness-hegel = ["_test-harness", "dep:hegeltest", "dep:half"]
 
 [dependencies]
@@ -33,7 +29,7 @@ arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-ord = { workspace = true, optional = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
-arrow-select = { workspace = true, optional = true }
+arrow-select = { workspace = true }
 base64 = { workspace = true }
 futures = { workspace = true }
 half = { workspace = true, optional = true }

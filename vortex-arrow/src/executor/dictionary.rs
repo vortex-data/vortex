@@ -12,11 +12,16 @@ use arrow_array::types::*;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
@@ -28,13 +33,16 @@ use crate::ExecuteArrowExt;
 use crate::executor::execute_arrow_naive;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
+///
+/// `Chunked` is matched so that each chunk keeps its own dictionary instead of the chunks being
+/// canonicalized and re-encoded row by row.
 struct ArrowDictExportable;
 
 impl Matcher for ArrowDictExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Dict>() || array.is::<Constant>()).then_some(array)
+        (array.is::<Dict>() || array.is::<Constant>() || array.is::<Chunked>()).then_some(array)
     }
 }
 
@@ -61,8 +69,47 @@ pub(super) fn to_arrow_dictionary(
         Ok(constant) => return constant_to_dict(constant, codes_type, values_field, options, ctx),
         Err(array) => array,
     };
-
     // Otherwise, we should try and build a dictionary.
+    let array = if let Some(chunked) = array.as_opt::<Chunked>() {
+        let chunks = chunked
+            .iter_chunks()
+            .map(|chunk| chunk.clone().execute_until::<ArrowDictExportable>(ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+        // Chunks that are not dictionaries are cheaper to encode as one array, into one dictionary.
+        if chunks
+            .iter()
+            .all(|chunk| chunk.is::<Dict>() || chunk.is::<Constant>())
+        {
+            // A chunk fails to export when its codes overflow the codes type, and the concat fails
+            // when the merged values do. The row-wise path below handles both whenever the
+            // distinct values fit.
+            let exported = chunks
+                .iter()
+                .map(|chunk| {
+                    to_arrow_dictionary(chunk.clone(), codes_type, values_field, options, ctx)
+                })
+                .collect::<VortexResult<Vec<_>>>();
+            if let Ok(exported) = exported {
+                let exported = exported
+                    .iter()
+                    .map(|chunk| chunk.as_ref())
+                    .collect::<Vec<_>>();
+                // Concatenating dictionaries merges their values without re-encoding every row.
+                if let Ok(array) = arrow_select::concat::concat(&exported) {
+                    return Ok(array);
+                }
+            }
+        }
+        // The chunks were already decoded above, and joined into one canonical array they export
+        // faster than chunk by chunk.
+        ChunkedArray::try_new(chunks, array.dtype().clone())?
+            .into_array()
+            .execute::<Canonical>(ctx)?
+            .into_array()
+    } else {
+        array
+    };
+
     // Arrow hides this functionality inside the cast module!
     let array = array.execute_arrow_with_options(Some(values_field), options, ctx)?;
     arrow_cast::cast(
@@ -187,6 +234,8 @@ mod tests {
 
     use arrow_array::DictionaryArray as ArrowDictArray;
     use arrow_array::StringArray;
+    use arrow_array::UInt8Array;
+    use arrow_array::cast::AsArray;
     use arrow_array::types::UInt8Type;
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
@@ -195,10 +244,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::builtin::mask::Mask;
@@ -308,6 +359,92 @@ mod tests {
     ) -> VortexResult<()> {
         let actual = execute(input, &target_type)?;
         assert_eq!(expected.as_ref(), actual.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_dicts_keep_their_values() -> VortexResult<()> {
+        let first = DictArray::try_new(
+            buffer![1u8, 0].into_array(),
+            VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
+        )?;
+        let second = DictArray::try_new(
+            buffer![0u8, 0].into_array(),
+            VarBinViewArray::from_iter_str(["c"]).into_array(),
+        )?;
+        let chunked = ChunkedArray::try_new(
+            vec![first.into_array(), second.into_array()],
+            DType::Utf8(NonNullable),
+        )?;
+
+        let actual = execute(
+            chunked.into_array(),
+            &dict_type(DataType::UInt8, DataType::Utf8),
+        )?;
+
+        // Re-encoding the rows would order the values by first appearance: `b`, `a`, `c`.
+        let actual = actual.as_dictionary::<UInt8Type>();
+        assert_eq!(
+            actual.values().as_ref(),
+            &StringArray::from(vec!["a", "b", "c"]) as &dyn arrow_array::Array
+        );
+        assert_eq!(actual.keys(), &UInt8Array::from(vec![1, 0, 2, 2]));
+        Ok(())
+    }
+
+    /// A chunk whose codes do not fit the codes type is exported through one cast over all chunks,
+    /// which only needs the distinct values to fit.
+    #[test]
+    fn chunked_dicts_with_wide_codes_fit_narrow_keys() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str((0..400).map(|i| format!("v{i}"))).into_array();
+        let wide = DictArray::try_new(buffer![300u32, 300, 5].into_array(), values)?;
+        let narrow = DictArray::try_new(
+            buffer![0u8, 1].into_array(),
+            VarBinViewArray::from_iter_str(["v300", "v5"]).into_array(),
+        )?;
+        let chunked = ChunkedArray::try_new(
+            vec![wide.into_array(), narrow.into_array()],
+            DType::Utf8(NonNullable),
+        )?;
+
+        let actual = execute(
+            chunked.into_array(),
+            &dict_type(DataType::UInt8, DataType::Utf8),
+        )?;
+
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        assert_eq!(
+            flat.as_ref(),
+            &StringArray::from(vec!["v300", "v300", "v5", "v300", "v5"]) as &dyn arrow_array::Array
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_plain_strings_share_one_dictionary() -> VortexResult<()> {
+        let chunked = ChunkedArray::try_new(
+            vec![
+                VarBinViewArray::from_iter_str(["a", "b", "a", "b"]).into_array(),
+                VarBinViewArray::from_iter_str(["b", "a", "b", "a"]).into_array(),
+            ],
+            DType::Utf8(NonNullable),
+        )?;
+
+        let actual = execute(
+            chunked.into_array(),
+            &dict_type(DataType::UInt8, DataType::Utf8),
+        )?;
+
+        // Encoding each chunk on its own would repeat `a` and `b` in the values.
+        let actual = actual.as_dictionary::<UInt8Type>();
+        assert_eq!(
+            actual.values().as_ref(),
+            &StringArray::from(vec!["a", "b"]) as &dyn arrow_array::Array
+        );
+        assert_eq!(
+            actual.keys(),
+            &UInt8Array::from(vec![0, 1, 0, 1, 1, 0, 1, 0])
+        );
         Ok(())
     }
 

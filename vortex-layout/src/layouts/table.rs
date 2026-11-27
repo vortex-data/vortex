@@ -212,13 +212,23 @@ impl TableStrategy {
 
     /// Build the [`ListLayoutStrategy`] used to write a list field stream at this level.
     ///
-    /// The `elements` sub-column is routed back through a clean descended dispatcher so nested
-    /// structs/lists recurse; `offsets` go straight to the leaf (they are always a primitive
-    /// column); and `validity` uses the shared validity strategy.
+    /// The `elements` sub-column is routed back through a dispatcher descended into
+    /// [`Field::ElementType`], so nested structs/lists recurse and overrides below the list still
+    /// apply; `offsets` go straight to the leaf (they are always a primitive column); and
+    /// `validity` uses the shared validity strategy.
     fn list_strategy(&self) -> Option<Arc<dyn LayoutStrategy>> {
         let factory = self.list_layout_factory.as_ref()?;
+        // An override of the elements themselves is not kept by `descend`, which keeps only the
+        // overrides below the elements.
+        let elements = match self
+            .leaf_writers
+            .get(&FieldPath::from(vec![Field::ElementType]))
+        {
+            Some(exact) => Arc::clone(exact),
+            None => Arc::new(self.descend(&Field::ElementType)) as Arc<dyn LayoutStrategy>,
+        };
         let list_layout = ListLayoutStrategy::default()
-            .with_elements(Arc::new(self.descend_clean()))
+            .with_elements(elements)
             .with_offsets(Arc::clone(&self.leaf))
             .with_validity(Arc::clone(&self.validity))
             .with_fallback(Arc::clone(&self.leaf));
@@ -328,6 +338,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::Field;
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -633,6 +644,54 @@ mod tests {
             ├── [0]: vortex.flat, dtype: i32, segment: 2
             └── [1]: vortex.flat, dtype: i32, segment: 3
         ");
+        Ok(())
+    }
+
+    /// A field override at a list's elements is honored when the list is written with the list
+    /// layout.
+    #[tokio::test]
+    async fn element_override_is_used_by_list_layout() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut chunk = || -> VortexResult<ArrayRef> {
+            let list = ListArray::try_new(
+                buffer![1i32, 2, 3].into_array(),
+                buffer![0u32, 1, 3].into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )?
+            .into_array();
+            Ok(StructArray::from_fields([("l", list)].as_slice())?.into_array())
+        };
+        // Two chunks, so the default writer gives two chunks of elements.
+        let (first, second) = (chunk()?, chunk()?);
+        let dtype = first.dtype().clone();
+        let struct_array = ChunkedArray::try_new(vec![first, second], dtype)?.into_array();
+
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let strategy = TableStrategy::new(
+            Arc::clone(&flat),
+            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+        )
+        .with_list_layout()
+        .with_field_writer(
+            FieldPath::from_name("l").push(Field::ElementType),
+            // Joins the two chunks of elements, which the default writer keeps apart.
+            Arc::new(RepartitionStrategy::new(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                RepartitionWriterOptions {
+                    block_size_minimum: 0,
+                    block_len_multiple: 6,
+                    block_size_target: None,
+                    canonicalize: false,
+                },
+            )),
+        );
+        let layout = write(&strategy, struct_array).await?;
+
+        let list = layout.slot(1)?.vortex_expect("field l");
+        assert!(list.is::<List>(), "{}", layout.display_tree());
+        let elements = list.slot(0)?.vortex_expect("list elements");
+        assert!(elements.is::<Flat>(), "{}", layout.display_tree());
         Ok(())
     }
 
