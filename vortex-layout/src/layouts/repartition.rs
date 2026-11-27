@@ -503,7 +503,10 @@ mod tests {
             let mut ctx = session.create_execution_ctx();
             let expected = [Scalar::from(10i32), Scalar::from(20i64)];
             for (row, value) in expected.into_iter().enumerate() {
-                assert_eq!(result.execute_scalar(row, &mut ctx)?, Scalar::variant(value));
+                assert_eq!(
+                    result.execute_scalar(row, &mut ctx)?,
+                    Scalar::variant(value)
+                );
             }
             Ok(())
         })

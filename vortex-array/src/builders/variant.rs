@@ -307,7 +307,10 @@ impl VariantBuilder {
         let parts = std::mem::take(&mut self.shredded);
         self.shredded_len = 0;
 
-        let dtype = if parts.iter().any(|part| matches!(part, ShreddedPart::Unshredded(_))) {
+        let dtype = if parts
+            .iter()
+            .any(|part| matches!(part, ShreddedPart::Unshredded(_)))
+        {
             dtype.as_nullable()
         } else {
             dtype
@@ -594,9 +597,13 @@ mod tests {
         assert_eq!(builder.len(), 3);
 
         let result = builder.finish_into_variant()?;
-        for (row, expected) in [variant(10), Scalar::variant(Scalar::from(20i64)), variant(3)]
-            .into_iter()
-            .enumerate()
+        for (row, expected) in [
+            variant(10),
+            Scalar::variant(Scalar::from(20i64)),
+            variant(3),
+        ]
+        .into_iter()
+        .enumerate()
         {
             assert_eq!(result.execute_scalar(row, &mut ctx)?, expected);
         }
