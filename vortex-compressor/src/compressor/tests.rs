@@ -1950,3 +1950,38 @@ fn empty_descendant_allowlist_does_not_exclude_schemes() {
         0,
     ));
 }
+
+/// Leaf schemes remain eligible at `allowed_cascading == 0` (matching `choose_and_compress`),
+/// while child cascading is still allowed at `allowed_cascading == 1` and blocked at `0`.
+#[test]
+fn test_scheme_eligibility_at_final_cascade_level() {
+    let compressor = CascadingCompressor::new(vec![&EmptyAllowlistParent, &KEEPING_DICT]);
+    let leaf_ctx = CompressorContext::new().as_leaf();
+    assert!(leaf_ctx.finished_cascading());
+    assert!(compressor.is_scheme_eligible(KEEPING_DICT.id(), &leaf_ctx));
+    assert!(!compressor.is_child_scheme_eligible(
+        KEEPING_DICT.id(),
+        &leaf_ctx,
+        EmptyAllowlistParent.id(),
+        0,
+    ));
+
+    // One cascade level remaining (`allowed_cascading == 1`): descending yields `finished_cascading`,
+    // yet the child level can still run leaf schemes.
+    let one_left = (0..crate::scheme::MAX_CASCADE - 1).fold(CompressorContext::new(), |ctx, i| {
+        ctx.descend_with_scheme(ROOT_SCHEME_ID, i)
+    });
+    assert!(!one_left.finished_cascading());
+    assert!(
+        one_left
+            .clone()
+            .descend_with_scheme(EmptyAllowlistParent.id(), 0)
+            .finished_cascading()
+    );
+    assert!(compressor.is_child_scheme_eligible(
+        KEEPING_DICT.id(),
+        &one_left,
+        EmptyAllowlistParent.id(),
+        0,
+    ));
+}

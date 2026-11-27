@@ -95,10 +95,10 @@ impl CascadingCompressor {
     }
 
     /// Returns `true` if `scheme_id` is enabled in this compressor and not excluded in `ctx`.
+    ///
+    /// Matches `choose_and_compress`, which still evaluates leaf schemes even when
+    /// `ctx.finished_cascading()` is `true`.
     pub fn is_scheme_eligible(&self, scheme_id: SchemeId, ctx: &CompressorContext) -> bool {
-        if ctx.finished_cascading() {
-            return false;
-        }
         let Some(candidate) = self.schemes.iter().copied().find(|s| s.id() == scheme_id) else {
             return false;
         };
