@@ -29,6 +29,7 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
@@ -193,31 +194,14 @@ pub fn check_encoding_roundtrip_and_ops(
     for step in 0..num_ops {
         let (next_encoded, next_canonical) = apply_random_op(tc, &cur_encoded, &cur_canonical)?;
 
-        assert_eq!(
-            next_encoded.len(),
-            next_canonical.len(),
-            "op step {step} length mismatch"
-        );
-        assert_eq!(
-            next_encoded.dtype(),
-            next_canonical.dtype(),
-            "op step {step} dtype mismatch"
-        );
-        assert_arrays_eq!(next_encoded.clone(), next_canonical.clone(), ctx);
-
-        if !next_encoded.is_empty() {
-            let probe = tc.draw(gs::integers::<usize>().max_value(next_encoded.len() - 1));
-            assert_eq!(
-                next_encoded.execute_scalar(probe, ctx)?,
-                next_canonical.execute_scalar(probe, ctx)?,
-                "op step {step} scalar_at mismatch at index {probe}"
-            );
-        }
+        assert_step_eq(tc, &next_encoded, &next_canonical, step, "op", ctx)?;
 
         // Mix lazy chains and eagerly optimized chains so both parent-reduce pushdowns and lazy
         // wrapper execution paths are exercised.
         cur_encoded = if tc.draw(gs::booleans()) {
-            next_encoded.optimize_ctx(ctx.session())?
+            let optimized = next_encoded.optimize_ctx(ctx.session())?;
+            assert_step_eq(tc, &optimized, &next_canonical, step, "optimized op", ctx)?;
+            optimized
         } else {
             next_encoded
         };
@@ -226,6 +210,38 @@ pub fn check_encoding_roundtrip_and_ops(
 
     if options.compare && !cur_encoded.is_empty() {
         check_compare(tc, &cur_encoded, &cur_canonical, ctx)?;
+    }
+
+    Ok(())
+}
+
+fn assert_step_eq(
+    tc: &TestCase,
+    encoded: &ArrayRef,
+    canonical: &ArrayRef,
+    step: usize,
+    label: &str,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    assert_eq!(
+        encoded.len(),
+        canonical.len(),
+        "{label} step {step} length mismatch"
+    );
+    assert_eq!(
+        encoded.dtype(),
+        canonical.dtype(),
+        "{label} step {step} dtype mismatch"
+    );
+    assert_arrays_eq!(encoded.clone(), canonical.clone(), ctx);
+
+    if !encoded.is_empty() {
+        let probe = tc.draw(gs::integers::<usize>().max_value(encoded.len() - 1));
+        assert_eq!(
+            encoded.execute_scalar(probe, ctx)?,
+            canonical.execute_scalar(probe, ctx)?,
+            "{label} step {step} scalar_at mismatch at index {probe}"
+        );
     }
 
     Ok(())
@@ -388,13 +404,17 @@ fn draw_take_indices(tc: &TestCase, len: usize) -> ArrayRef {
     };
 
     match_each_integer_ptype!(index_ptype, |I| {
-        let buffer = Buffer::<I>::from_iter(
-            raw_indices
-                .into_iter()
-                .map(|idx| num_traits::cast::<usize, I>(idx).vortex_expect("index fits ptype")),
-        );
-        PrimitiveArray::new(buffer, validity).into_array()
+        build_index_array::<I>(raw_indices, validity)
     })
+}
+
+fn build_index_array<I: IntegerPType>(raw_indices: Vec<usize>, validity: Validity) -> ArrayRef {
+    let buffer = Buffer::<I>::from_iter(
+        raw_indices
+            .into_iter()
+            .map(|idx| num_traits::cast::<usize, I>(idx).vortex_expect("index fits ptype")),
+    );
+    PrimitiveArray::new(buffer, validity).into_array()
 }
 
 fn draw_fitting_index_ptype(tc: &TestCase, len: usize) -> PType {
