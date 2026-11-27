@@ -49,6 +49,7 @@ pub type PatchedArray = Array<Patched>;
 
 /// Strategy families can grow independently, e.g. numeric addition or integer bit composition.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
 pub enum PatchStrategy {
     /// Operations on integer values.
     Integer(IntegerPatchStrategy),
@@ -59,6 +60,7 @@ pub enum PatchStrategy {
 /// Operations available for integer patches.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, prost::Enumeration)]
 #[repr(i32)]
+#[non_exhaustive]
 pub enum IntegerPatchStrategy {
     /// Replace both value and validity.
     Replace = 0,
@@ -67,12 +69,22 @@ pub enum IntegerPatchStrategy {
 /// Operations available for floating-point patches.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, prost::Enumeration)]
 #[repr(i32)]
+#[non_exhaustive]
 pub enum FloatPatchStrategy {
     /// Replace both value and validity.
     Replace = 0,
 }
 
 impl PatchStrategy {
+    fn validate(self, dtype: &DType) -> VortexResult<()> {
+        let supported = match self {
+            Self::Integer(IntegerPatchStrategy::Replace) => dtype.is_int(),
+            Self::Float(FloatPatchStrategy::Replace) => dtype.is_float(),
+        };
+        vortex_ensure!(supported, "Patch strategy {self:?} does not support {dtype}");
+        Ok(())
+    }
+
     fn replace(dtype: &DType) -> VortexResult<Self> {
         if dtype.is_int() {
             Ok(Self::Integer(IntegerPatchStrategy::Replace))
@@ -166,7 +178,7 @@ impl Patched {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PatchedArray> {
         let dtype = inner.dtype().clone();
-        vortex_ensure!(strategy == PatchStrategy::replace(&dtype)?);
+        strategy.validate(&dtype)?;
         vortex_ensure_eq!(inner.len(), patches.array_len());
         vortex_ensure!(dtype.eq_with_nullability_superset(patches.dtype()));
         let patches = patches.clone().with_chunk_offsets(ctx)?;

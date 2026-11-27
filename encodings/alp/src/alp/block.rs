@@ -231,7 +231,7 @@ block_op 0 copy {}->{} scratch0 -> output",
         let base = ALP::try_new(encoded, exponents, None)?.into_array();
         let array = Patched::from_array_and_patches(base, &patches.unwrap(), &mut ctx)?;
         let trace = fusion_trace(array.into_array(), &SESSION)?;
-        assert!(trace.contains("fuse extend parent=vortex.patched.v2"), "{trace}");
+        assert!(trace.contains("fuse extend parent=vortex.patched"), "{trace}");
         Ok(())
     }
 

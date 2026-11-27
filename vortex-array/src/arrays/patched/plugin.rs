@@ -26,7 +26,14 @@ use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::patches::PatchesMetadata;
 
-/// Wire metadata for the sorted layout. All four children are required; there are no buffers.
+/// The first four children are base, indices, patch values and chunk offsets. Replacement
+/// reads patch values using the full outer dtype, including any dtype parameters. A future
+/// UTF-8 or decimal replacement can therefore reuse the same slots.
+///
+/// Append a oneof tag for each new dtype family and allocate new operation numbers within
+/// that family. Readers must reject unknown strategies: a required operand or a parameter
+/// that changes the result belongs to a new operation. Trailing children of a known
+/// strategy may be ignored, so they can carry optional indexes or statistics.
 #[derive(Clone, prost::Message)]
 struct PatchedMetadata {
     #[prost(message, optional, tag = "1")]
@@ -78,7 +85,7 @@ impl ArrayPlugin for Patched {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(parts.serialized_id, VTable::id(self));
         vortex_ensure!(parts.buffers.is_empty());
-        vortex_ensure_eq!(parts.children.len(), PatchedSlots::COUNT);
+        vortex_ensure!(parts.children.len() >= PatchedSlots::COUNT);
         let metadata = PatchedMetadata::decode(parts.metadata)?;
         let strategy = match metadata
             .strategy
@@ -89,7 +96,7 @@ impl ArrayPlugin for Patched {
             Strategy::Float(op) => PatchStrategy::Float(FloatPatchStrategy::try_from(op)
                 .map_err(|_| vortex_err!("Unknown float patch strategy {op}"))?),
         };
-        vortex_ensure!(strategy == PatchStrategy::replace(parts.dtype)?);
+        strategy.validate(parts.dtype)?;
         let metadata = metadata
             .patches
             .ok_or_else(|| vortex_err!("Missing patches metadata"))?;

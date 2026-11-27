@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod conformance;
+mod slots;
+
 use rstest::rstest;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
@@ -88,7 +91,7 @@ fn strategy_matches_dtype_family() -> VortexResult<()> {
 }
 
 #[test]
-fn wire_requires_chunk_offsets() -> VortexResult<()> {
+fn wire_requires_core_slots_and_accepts_trailing_slots() -> VortexResult<()> {
     let session = VortexSession::empty();
     let mut ctx = session.create_execution_ctx();
     let base = buffer![2u16; 4].into_array();
@@ -114,5 +117,32 @@ fn wire_requires_chunk_offsets() -> VortexResult<()> {
         &truncated,
     );
     assert!(ArrayPlugin::deserialize(&Patched, parts, &session).is_err());
+    let mut children = wire.children;
+    children.push(buffer![42u8].into_array());
+    let parts = ArrayDeserialization::new(
+        wire.serialized_id,
+        array.dtype(),
+        array.len(),
+        &wire.metadata,
+        &[],
+        &children,
+    );
+    let decoded = ArrayPlugin::deserialize(&Patched, parts, &session)?;
+    assert_arrays_eq!(array, decoded, &mut ctx);
+
+    // A future integer operation may depend on that fifth child. An older reader must
+    // reject its discriminator even when it recognizes the dtype and all core slots.
+    let mut metadata = wire.metadata;
+    metadata.extend_from_slice(&[0x10, 0x7f]); // field 2 (integer), operation 127
+    let parts = ArrayDeserialization::new(
+        wire.serialized_id,
+        array.dtype(),
+        array.len(),
+        &metadata,
+        &[],
+        &children,
+    );
+    let error = ArrayPlugin::deserialize(&Patched, parts, &session).unwrap_err();
+    assert!(error.to_string().contains("Unknown integer patch strategy"));
     Ok(())
 }

@@ -91,7 +91,6 @@ pub mod null;
 pub use null::Null;
 pub use null::NullArray;
 
-pub mod legacy_patched;
 pub mod patched;
 pub use patched::Patched;
 pub use patched::PatchedArray;
@@ -159,7 +158,6 @@ pub(crate) fn initialize(session: &VortexSession) {
     map::initialize(session);
     masked::initialize(session);
     null::initialize(session);
-    legacy_patched::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
     repeated::initialize(session);

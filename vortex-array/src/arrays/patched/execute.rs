@@ -12,7 +12,6 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
 use super::PATCH_SLOTS;
-use super::PatchStrategy;
 use super::Patched;
 use super::PatchedArrayExt;
 use super::PatchedArraySlotsExt;
@@ -58,7 +57,7 @@ impl VTable for Patched {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.patched.v2");
+        static ID: CachedId = CachedId::new("vortex.patched");
         *ID
     }
 
@@ -72,7 +71,7 @@ impl VTable for Patched {
         vortex_ensure_eq!(slots.len(), PatchedSlots::COUNT);
         vortex_ensure!(slots.iter().all(Option::is_some));
         let slots = PatchedSlotsView::from_slots(slots);
-        vortex_ensure!(data.strategy == PatchStrategy::replace(dtype)?);
+        data.strategy.validate(dtype)?;
         vortex_ensure_eq!(slots.inner.dtype(), dtype);
         vortex_ensure_eq!(slots.inner.len(), len);
         vortex_ensure_eq!(slots.patch_values.dtype(), dtype);
