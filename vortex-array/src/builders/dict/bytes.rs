@@ -20,12 +20,8 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashTable;
 
-use super::CountingDictEncoder;
 use super::DictConstraints;
-use super::DictCounter;
 use super::DictEncoder;
-use super::FreqCounter;
-use super::NoCounter;
 use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ArrayView;
@@ -87,7 +83,6 @@ pub struct BytesDictBuilder<Code> {
     views: BufferMut<BinaryView>,
     values: ByteBufferMut,
     values_nulls: BitBufferMut,
-    counts: Option<Vec<u64>>,
     hasher: FxBuildHasher,
     dtype: DType,
     max_dict_bytes: usize,
@@ -100,39 +95,27 @@ pub fn bytes_dict_builder(
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    bytes_dict_builder_impl(dtype, constraints, allocator, false)
-}
-
-pub(super) fn bytes_dict_builder_with_counts(
-    dtype: DType,
-    constraints: &DictConstraints,
-    allocator: BufferAllocatorRef,
-) -> Box<dyn CountingDictEncoder> {
-    bytes_dict_builder_impl(dtype, constraints, allocator, true)
-}
-
-fn bytes_dict_builder_impl(
-    dtype: DType,
-    constraints: &DictConstraints,
-    allocator: BufferAllocatorRef,
-    track_counts: bool,
-) -> Box<dyn CountingDictEncoder> {
     match codes_ptype_for_max_len(constraints.max_len as u64) {
-        PType::U8 => Box::new(
-            BytesDictBuilder::<u8>::new_in(dtype, constraints, allocator).with_counts(track_counts),
-        ),
-        PType::U16 => Box::new(
-            BytesDictBuilder::<u16>::new_in(dtype, constraints, allocator)
-                .with_counts(track_counts),
-        ),
-        PType::U32 => Box::new(
-            BytesDictBuilder::<u32>::new_in(dtype, constraints, allocator)
-                .with_counts(track_counts),
-        ),
-        _ => Box::new(
-            BytesDictBuilder::<u64>::new_in(dtype, constraints, allocator)
-                .with_counts(track_counts),
-        ),
+        PType::U8 => Box::new(BytesDictBuilder::<u8>::new_in(
+            dtype,
+            constraints,
+            allocator,
+        )),
+        PType::U16 => Box::new(BytesDictBuilder::<u16>::new_in(
+            dtype,
+            constraints,
+            allocator,
+        )),
+        PType::U32 => Box::new(BytesDictBuilder::<u32>::new_in(
+            dtype,
+            constraints,
+            allocator,
+        )),
+        _ => Box::new(BytesDictBuilder::<u64>::new_in(
+            dtype,
+            constraints,
+            allocator,
+        )),
     }
 }
 
@@ -151,20 +134,12 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             null_code: OnceCell::new(),
             values: BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
             values_nulls: BitBufferMut::empty_in(allocator.clone()),
-            counts: None,
             hasher: FxBuildHasher,
             dtype,
             max_dict_bytes: constraints.max_bytes.min(u32::MAX as usize),
             max_dict_len: constraints.max_len,
             allocator,
         }
-    }
-
-    fn with_counts(mut self, track_counts: bool) -> Self {
-        if track_counts {
-            self.counts = Some(Vec::new());
-        }
-        self
     }
 
     fn dict_bytes(&self) -> usize {
@@ -327,87 +302,53 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         &mut self,
         len: usize,
         validity_mask: Mask,
-        encode_at: F,
+        mut encode_at: F,
     ) -> VortexResult<PrimitiveArray>
     where
         F: FnMut(&mut Self, &mut HashTable<Code>, usize) -> Option<Code>,
     {
         let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
-        let mut counts = self.counts.take();
         let mut codes = BufferMut::<Code>::with_capacity_in(len, self.allocator.clone());
 
-        match &mut counts {
-            None => self.encode_validity_with_counter(
-                len,
-                validity_mask,
-                &mut local_lookup,
-                &mut codes,
-                &mut NoCounter,
-                encode_at,
-            ),
-            Some(counts) => self.encode_validity_with_counter(
-                len,
-                validity_mask,
-                &mut local_lookup,
-                &mut codes,
-                &mut FreqCounter(counts),
-                encode_at,
-            ),
-        }
-
-        // Restore lookup dictionary and counts back into the struct
-        self.lookup = Some(local_lookup);
-        self.counts = counts;
-
-        // SAFETY: a non-nullable validity carries no length to match against the codes.
-        Ok(unsafe { PrimitiveArray::new_unchecked(codes.freeze(), Validity::NonNullable) })
-    }
-
-    fn encode_validity_with_counter<C, F>(
-        &mut self,
-        len: usize,
-        validity_mask: Mask,
-        local_lookup: &mut HashTable<Code>,
-        codes: &mut BufferMut<Code>,
-        counter: &mut C,
-        mut encode_at: F,
-    ) where
-        C: DictCounter,
-        F: FnMut(&mut Self, &mut HashTable<Code>, usize) -> Option<Code>,
-    {
         match validity_mask.bit_buffer() {
             AllOr::All => {
                 for idx in 0..len {
-                    let Some(code) = encode_at(self, local_lookup, idx) else {
+                    let Some(code) = encode_at(self, &mut local_lookup, idx) else {
                         break;
                     };
-                    counter.record(code, 1);
                     // SAFETY: we reserved capacity in the buffer for `len` elements
                     unsafe { codes.push_unchecked(code) }
                 }
             }
             AllOr::None => {
                 if let Some(code) = self.encode_null() {
-                    counter.record(code, len as u64);
                     unsafe { codes.push_n_unchecked(code, len) }
                 }
             }
             AllOr::Some(b) => {
                 for (idx, valid) in b.iter().enumerate() {
-                    let code = if !valid {
-                        self.encode_null()
+                    if !valid {
+                        let Some(code) = self.encode_null() else {
+                            break;
+                        };
+                        // SAFETY: we reserved capacity in the buffer for `len` elements
+                        unsafe { codes.push_unchecked(code) }
                     } else {
-                        encode_at(self, local_lookup, idx)
-                    };
-                    let Some(code) = code else {
-                        break;
-                    };
-                    counter.record(code, 1);
-                    // SAFETY: we reserved capacity in the buffer for `len` elements
-                    unsafe { codes.push_unchecked(code) }
+                        let Some(code) = encode_at(self, &mut local_lookup, idx) else {
+                            break;
+                        };
+                        // SAFETY: we reserved capacity in the buffer for `len` elements
+                        unsafe { codes.push_unchecked(code) }
+                    }
                 }
             }
         }
+
+        // Restore lookup dictionary back into the struct
+        self.lookup = Some(local_lookup);
+
+        // SAFETY: a non-nullable validity carries no length to match against the codes.
+        Ok(unsafe { PrimitiveArray::new_unchecked(codes.freeze(), Validity::NonNullable) })
     }
 
     fn encode_varbin(
@@ -493,9 +434,6 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
             lookup.clear();
         }
         self.null_code = OnceCell::new();
-        if let Some(counts) = &mut self.counts {
-            counts.clear();
-        }
         let views = mem::replace(
             &mut self.views,
             BufferMut::empty_aligned_in(Alignment::of::<BinaryView>(), self.allocator.clone()),
@@ -527,13 +465,6 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 
     fn codes_ptype(&self) -> PType {
         Code::PTYPE
-    }
-}
-
-impl<Code: UnsignedPType> CountingDictEncoder for BytesDictBuilder<Code> {
-    fn reset_with_counts(&mut self) -> (ArrayRef, Vec<u64>) {
-        let counts = self.counts.as_mut().map(mem::take).unwrap_or_default();
-        (self.reset(), counts)
     }
 }
 
