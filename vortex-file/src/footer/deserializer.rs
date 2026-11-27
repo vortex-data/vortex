@@ -480,7 +480,11 @@ impl<'a> InitialSegments<'a> {
             return Ok(SegmentBytes::Borrowed(bytes));
         }
         let cipher = self.cipher(&segment.encryption)?;
-        let plaintext = cipher.decrypt(role, ByteBuffer::copy_from(bytes), segment.alignment)?;
+        let plaintext = cipher.decrypt(
+            role,
+            ByteBuffer::copy_from_aligned(bytes, segment.alignment),
+            segment.alignment,
+        )?;
         Ok(SegmentBytes::Decrypted(plaintext))
     }
 }
