@@ -11947,6 +11947,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-index-trigram"
+version = "0.1.0"
+dependencies = [
+ "roaring",
+ "vortex-array",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-functions",
+ "vortex-index",
+ "vortex-layout",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
