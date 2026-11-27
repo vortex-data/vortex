@@ -1188,7 +1188,12 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
             for f in evaluated["unexpected"]:
                 _info(f"    UNEXPECTED FAIL {f['name']}: {f.get('error', '')}")
             for s in evaluated["stale"]:
-                _info(f"    STALE ACCEPTED {s['name']} ({s['status']}): remove from {accepted_path} ({s['reason']})")
+                action = (
+                    "update expected_causes in"
+                    if str(s["status"]).startswith("stale expected_causes:")
+                    else "remove from"
+                )
+                _info(f"    STALE ACCEPTED {s['name']} ({s['status']}): {action} {accepted_path} ({s['reason']})")
 
     _info(
         f"\n=== edition check summary: {total_passed} passed, {total_accepted} accepted, "

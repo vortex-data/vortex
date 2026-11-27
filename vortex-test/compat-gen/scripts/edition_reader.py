@@ -166,7 +166,7 @@ def _run_isolated(fn: Callable[[], dict], timeout_s: float = 120.0) -> dict:
 
     try:
         if timed_out:
-            return {"ok": False, "error": f"timed out after {timeout_s:.0f}s"}
+            return {"ok": False, "timed_out": True, "error": f"timed out after {timeout_s:.0f}s"}
         if os.WIFSIGNALED(status):
             sig = os.WTERMSIG(status)
             stderr_txt = Path(err_path).read_text(errors="replace")
@@ -241,6 +241,10 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
     if res.get("ok"):
         return res
 
+    err = res.get("error", "unknown error")
+    if res.get("timed_out"):
+        return {"ok": False, "error": err, "causes": [err]}
+
     # Collect every distinct cause across columns so parallel scan races don't hide causes.
     col_causes = _probe_column_causes(path)
     if col_causes:
@@ -249,7 +253,6 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
             "error": "; ".join(col_causes),
             "causes": col_causes,
         }
-    err = res.get("error", "unknown error")
     return {"ok": False, "error": err, "causes": [err]}
 
 
