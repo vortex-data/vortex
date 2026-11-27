@@ -343,8 +343,8 @@ pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> 
     Some(Scalar::bool(boolean, dtype.nullability()))
 }
 
-/// Converts a float, a decimal or a string to a decimal as Arrow's Variant conversion does,
-/// rounding half away from zero. Returns `None` if the result does not fit.
+/// Converts a number or a string to a decimal as Arrow's Variant conversion does, rounding half
+/// away from zero. Returns `None` if the result does not fit.
 pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
     let DType::Decimal(target, nullability) = dtype else {
         return None;
@@ -362,21 +362,19 @@ pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scala
             let scaled = (10f64.powi(i32::from(target.scale())) * float).round();
             i128_from_f64(scaled)?
         }
-        DType::Decimal(source, _) => {
-            let dropped_digits =
-                u32::try_from(i16::from(source.scale()) - i16::from(target.scale())).ok()?;
-            let unscaled = value.as_decimal().decimal_value()?.cast::<i128>()?;
-            // Dropping more digits than an `i128` holds rounds every value to zero.
-            let Some(divisor) = 10i128.checked_pow(dropped_digits) else {
-                return Scalar::try_decimal(DecimalValue::I128(0), *target, *nullability).ok();
-            };
-
-            let mut rounded = unscaled / divisor;
-            if (unscaled % divisor).unsigned_abs() * 2 >= divisor.unsigned_abs() {
-                rounded += unscaled.signum();
-            }
-            rounded
+        DType::Primitive(..) => {
+            let primitive = value.as_primitive();
+            let integer = primitive
+                .as_::<i64>()
+                .map(i128::from)
+                .or_else(|| primitive.as_::<u64>().map(i128::from))?;
+            round_to_scale(integer, 0, target.scale())?
         }
+        DType::Decimal(source, _) => round_to_scale(
+            value.as_decimal().decimal_value()?.cast::<i128>()?,
+            source.scale(),
+            target.scale(),
+        )?,
         DType::Utf8(_) => parse_decimal(
             value.as_utf8().value()?.as_str(),
             target.precision(),
@@ -386,6 +384,23 @@ pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scala
     };
 
     Scalar::try_decimal(DecimalValue::I128(unscaled), *target, *nullability).ok()
+}
+
+/// Rounds the unscaled value `unscaled` of `scale` half away from zero to the smaller scale
+/// `target`. Returns `None` if `target` is not smaller.
+fn round_to_scale(unscaled: i128, scale: i8, target: i8) -> Option<i128> {
+    let dropped_digits = u32::try_from(i16::from(scale) - i16::from(target)).ok()?;
+
+    // Dropping more digits than an `i128` holds rounds every value to zero.
+    let Some(divisor) = 10i128.checked_pow(dropped_digits) else {
+        return Some(0);
+    };
+
+    let mut rounded = unscaled / divisor;
+    if (unscaled % divisor).unsigned_abs() * 2 >= divisor.unsigned_abs() {
+        rounded += unscaled.signum();
+    }
+    Some(rounded)
 }
 
 #[expect(

@@ -6,6 +6,12 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::cast::AsArray;
+use arrow_array::types::Decimal32Type;
+use arrow_array::types::Decimal64Type;
+use arrow_array::types::Decimal128Type;
+use arrow_array::types::Decimal256Type;
+use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
 use parquet_variant::VariantPath as PqVariantPath;
@@ -120,7 +126,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             GetOptions::new_with_path(to_parquet_variant_path(parent.options.path())?)
                 .with_as_type(as_type.clone());
 
-        let arrow_output = arrow_variant_get(&arrow_input, get_options)?;
+        let arrow_output = null_if_decimal_overflows(arrow_variant_get(&arrow_input, get_options)?);
         let output = if parent.options.dtype().is_none_or(DType::is_variant) {
             let arrow_variant_output = ArrowVariantArray::try_new(arrow_output.as_ref())?;
             ParquetVariant::from_arrow_variant_nullable(
@@ -142,6 +148,35 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             "VariantGet output dtype must match parent dtype"
         );
         Ok(Some(output))
+    }
+}
+
+/// Nulls the decimals that do not fit their precision. Arrow rescales an integer as if it fits the
+/// precision of its Variant decimal type, so an `Int32` such as `2147483647` can come back as a
+/// `Decimal(9, 0)` value. Such a value does not convert, which a null represents.
+fn null_if_decimal_overflows(array: ArrowArrayRef) -> ArrowArrayRef {
+    match array.data_type() {
+        DataType::Decimal32(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal32Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        DataType::Decimal64(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal64Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        DataType::Decimal128(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal128Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        DataType::Decimal256(precision, _) => Arc::new(
+            array
+                .as_primitive::<Decimal256Type>()
+                .null_if_overflow_precision(*precision),
+        ),
+        _ => array,
     }
 }
 
@@ -1613,6 +1648,73 @@ mod tests {
     fn shredded_strings_convert_to_decimals_as_arrow_does(tc: TestCase) {
         check_strings_convert_to_decimals_as_arrow_does(&tc)
             .vortex_expect("shredded strings must convert to decimals as Arrow converts them");
+    }
+
+    fn check_values_convert_to_decimals_as_arrow_does(tc: &TestCase) -> VortexResult<()> {
+        let shredded_types = [
+            DataType::Int8,
+            DataType::Int32,
+            DataType::Int64,
+            DataType::Float64,
+            DataType::Boolean,
+            DataType::Utf8,
+            DataType::Decimal64(18, 4),
+        ];
+        let shredded_type = tc.draw(gs::sampled_from(&shredded_types));
+        let precision = tc.draw(gs::integers::<u8>().min_value(1).max_value(38));
+        let max_scale = i8::try_from(precision)?;
+        let scale = tc.draw(gs::integers::<i8>().min_value(-10).max_value(max_scale));
+        let requested =
+            VortexDType::Decimal(DecimalDType::new(precision, scale), Nullability::Nullable);
+
+        let values = [
+            "0",
+            "-1",
+            "127",
+            "2147483647",
+            "-9223372036854775808",
+            "2.5",
+            "-0.125",
+            "1e20",
+            "true",
+            r#""1.25""#,
+            "12.3456",
+        ];
+        let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+        let rows = (0..len)
+            .map(|_| format!(r#"{{"a":{}}}"#, tc.draw(gs::sampled_from(&values))))
+            .collect::<Vec<_>>();
+        let rows = rows
+            .iter()
+            .map(|row| Some(row.as_str()))
+            .collect::<Vec<_>>();
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &shredded_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested.clone()))?,
+            execute_variant_get(unshredded, "$.a", Some(requested))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// The typed values of each shredded type convert through Vortex, the unshredded values
+    /// through Arrow.
+    #[hegel::test(test_cases = 300)]
+    fn shredded_values_convert_to_decimals_as_arrow_does(tc: TestCase) {
+        check_values_convert_to_decimals_as_arrow_does(&tc)
+            .vortex_expect("shredded values must convert to decimals as Arrow converts them");
     }
 
     /// A chunked Variant builds one storage array, so that it compresses and deserializes as a
