@@ -6083,7 +6083,9 @@ dependencies = [
  "vortex",
  "vortex-bench",
  "vortex-index",
+ "vortex-index-inverted",
  "vortex-index-ivf",
+ "vortex-index-trigram",
 ]
 
 [[package]]
@@ -11984,6 +11986,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-index-inverted"
+version = "0.1.0"
+dependencies = [
+ "roaring",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-functions",
+ "vortex-index",
+ "vortex-layout",
+ "vortex-scan",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-index-ivf"
 version = "0.1.0"
 dependencies = [
@@ -11997,6 +12017,21 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-file",
+ "vortex-index",
+ "vortex-layout",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
+name = "vortex-index-trigram"
+version = "0.1.0"
+dependencies = [
+ "roaring",
+ "vortex-array",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-functions",
  "vortex-index",
  "vortex-layout",
  "vortex-session",
