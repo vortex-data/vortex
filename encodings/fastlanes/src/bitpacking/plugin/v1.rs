@@ -63,7 +63,8 @@ pub(super) fn serialize(
 pub(super) fn deserialize(
     parts: ArrayDeserialization<'_>,
     session: &VortexSession,
-) -> VortexResult<ArrayRef> {
+    externalize: bool,
+) -> VortexResult<(ArrayRef, Option<Patches>)> {
     let ArrayDeserialization {
         dtype,
         len,
@@ -103,7 +104,7 @@ pub(super) fn deserialize(
 
     let validity = load_validity(validity_idx)?;
 
-    let patches = metadata
+    let mut patches = metadata
         .patches
         .map(|p| {
             let indices = children.get(0, &p.indices_dtype()?, p.len()?)?;
@@ -124,6 +125,7 @@ pub(super) fn deserialize(
         })
         .transpose()?;
 
+    let external = if externalize { patches.take() } else { None };
     let slots = {
         let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
         PatchesData::push_slots(&mut s, patches.as_ref());
@@ -147,12 +149,13 @@ pub(super) fn deserialize(
             )
         })?,
     )?;
-    Ok(Array::<BitPacked>::try_from_parts(ArrayParts::new(
+    let array = Array::<BitPacked>::try_from_parts(ArrayParts::new(
         BitPacked,
         dtype.clone(),
         len,
         data,
         slots,
     ))?
-    .into_array())
+    .into_array();
+    Ok((array, external))
 }

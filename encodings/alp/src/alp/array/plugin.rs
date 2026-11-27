@@ -25,12 +25,10 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use super::ALP;
 use super::ALPArrayExt;
-use super::ALPArrayOwnedExt;
 use super::ALPData;
 use super::ALPMetadata;
 use crate::alp::Exponents;
@@ -73,63 +71,75 @@ impl ArrayPlugin for ALP {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure_eq!(
-            parts.serialized_id,
-            ArrayPlugin::id(self),
-            "ALP plugin does not recognize the serialized ID",
-        );
-        let ArrayDeserialization {
-            dtype,
-            len,
-            metadata,
-            children,
-            ..
-        } = parts;
-        let metadata = ALPMetadata::decode(metadata)?;
-        let encoded_ptype = match &dtype {
-            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
-            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_bail!("expected type: f32 or f64 but instead got {}", d),
-        };
-        let encoded = children.get(0, &encoded_ptype, len)?;
+        deserialize(parts, session, false)
+    }
+}
 
-        let patches = metadata
-            .patches
-            .map(|p| {
-                let indices = children.get(1, &p.indices_dtype()?, p.len()?)?;
-                let values = children.get(2, dtype, p.len()?)?;
-                let chunk_offsets = p
-                    .chunk_offsets_dtype()?
-                    .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
-                    .transpose()?;
+fn deserialize(
+    parts: ArrayDeserialization<'_>,
+    session: &VortexSession,
+    externalize: bool,
+) -> VortexResult<ArrayRef> {
+    vortex_ensure_eq!(
+        parts.serialized_id,
+        VTable::id(&ALP),
+        "ALP plugin does not recognize the serialized ID",
+    );
+    let ArrayDeserialization {
+        dtype,
+        len,
+        metadata,
+        children,
+        ..
+    } = parts;
+    let metadata = ALPMetadata::decode(metadata)?;
+    let encoded_ptype = match &dtype {
+        DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
+        DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
+        d => vortex_bail!("expected type: f32 or f64 but instead got {}", d),
+    };
+    let encoded = children.get(0, &encoded_ptype, len)?;
 
-                Patches::from_metadata(
-                    len,
-                    &p,
-                    indices,
-                    values,
-                    chunk_offsets,
-                    &mut session.create_execution_ctx(),
-                )
-            })
-            .transpose()?;
+    let mut patches = metadata
+        .patches
+        .map(|p| {
+            let indices = children.get(1, &p.indices_dtype()?, p.len()?)?;
+            let values = children.get(2, dtype, p.len()?)?;
+            let chunk_offsets = p
+                .chunk_offsets_dtype()?
+                .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
+                .transpose()?;
 
-        let slots = ALPData::make_slots(&encoded, patches.as_ref());
-        let data = ALPData::new(
-            Exponents {
-                e: u8::try_from(metadata.exp_e)?,
-                f: u8::try_from(metadata.exp_f)?,
-            },
-            patches,
-        );
-        Ok(Array::try_from_parts(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))?
-        .into_array())
+            Patches::from_metadata(
+                len,
+                &p,
+                indices,
+                values,
+                chunk_offsets,
+                &mut session.create_execution_ctx(),
+            )
+        })
+        .transpose()?;
+
+    let external = if externalize { patches.take() } else { None };
+    let slots = ALPData::make_slots(&encoded, patches.as_ref());
+    let data = ALPData::new(
+        Exponents {
+            e: u8::try_from(metadata.exp_e)?,
+            f: u8::try_from(metadata.exp_f)?,
+        },
+        patches,
+    );
+    let base =
+        Array::try_from_parts(ArrayParts::new(ALP, dtype.clone(), len, data, slots))?.into_array();
+    match external {
+        Some(patches) => Ok(Patched::from_array_and_patches(
+            base,
+            &patches,
+            &mut session.create_execution_ctx(),
+        )?
+        .into_array()),
+        None => Ok(base),
     }
 }
 
@@ -160,32 +170,7 @@ impl ArrayPlugin for ALPPatchedPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure_eq!(
-            parts.serialized_id,
-            self.id(),
-            "ALP plugin does not recognize serialized ID"
-        );
-        let alp_array = ArrayPlugin::deserialize(&ALP, parts, session)?
-            .try_downcast::<ALP>()
-            .map_err(|_| vortex_err!("ALP plugin returned an array that is not vortex.alp"))?;
-
-        // Check if there are interior patches to externalize.
-        let Some(patches) = alp_array.patches() else {
-            return Ok(alp_array.into_array());
-        };
-
-        // Extract components and create a new ALP array without patches.
-        let (encoded, exponents, _) = alp_array.into_parts();
-
-        let alp_without_patches = ALP::try_new(encoded, exponents, None)?.into_array();
-
-        let patched = Patched::from_array_and_patches(
-            alp_without_patches,
-            &patches,
-            &mut session.create_execution_ctx(),
-        )?;
-
-        Ok(patched.into_array())
+        deserialize(parts, session, true)
     }
 
     fn is_supported_encoding(&self, id: &ArrayId) -> bool {
