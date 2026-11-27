@@ -927,6 +927,20 @@ mod tests {
     });
 
     #[test]
+    fn fused_dictionary_checks_decoded_codes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx().with_block_fusion(true);
+        let codes = PrimitiveArray::from_iter((0..3073).map(|row| (row % 3) as u16));
+        let codes = BitPackedData::encode(&codes.into_array(), 2, &mut ctx)?;
+        let dict = DictArray::try_new(codes.into_array(), buffer![10u64, 20].into_array())?;
+        let error = dict
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap_err();
+        assert!(error.to_string().contains("dictionary code out of bounds"));
+        Ok(())
+    }
+
+    #[test]
     fn sparse_extraction_covers_batch_and_full_chunk_paths() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 

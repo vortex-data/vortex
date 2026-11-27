@@ -107,6 +107,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::NativePType;
     use vortex_array::match_each_integer_ptype;
@@ -217,6 +218,27 @@ block_op 0 copy {}->{} scratch0 -> output",
                 ptype(&int),
                 ptype(&float),
             )
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::primitive_table(false)]
+    #[case::nullable_table(true)]
+    fn dictionary_source_preserves_nullability(#[case] nullable: bool) -> VortexResult<()> {
+        let table = if nullable {
+            PrimitiveArray::from_option_iter([Some(125i64), None, Some(875)])
+        } else {
+            PrimitiveArray::from_iter([125i64, 350, 875])
+        };
+        let codes = PrimitiveArray::from_iter((0..3077).map(|row| (row % 3) as u8));
+        let dict = DictArray::try_new(codes.into_array(), table.into_array())?;
+        let alp = ALP::try_new(dict.into_array(), crate::Exponents { e: 2, f: 0 }, None)?;
+        let trace = fusion_trace(alp.into_array(), &SESSION)?;
+        assert_eq!(
+            trace.contains("fuse start array=vortex.dict"),
+            !nullable,
+            "{trace}"
         );
         Ok(())
     }

@@ -735,6 +735,11 @@ impl ExecutionCtx {
         self
     }
 
+    /// Whether encodings may decode a chain one block at a time in this context.
+    pub(crate) fn block_fusion_enabled(&self) -> bool {
+        self.block_fusion
+    }
+
     /// Set the allocator for this execution context.
     pub fn with_allocator(mut self, allocator: BufferAllocatorRef) -> Self {
         self.allocator = OnceLock::from(allocator);

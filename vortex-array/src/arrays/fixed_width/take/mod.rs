@@ -3,6 +3,7 @@
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
+mod block;
 mod records;
 mod scalar;
 mod slices;
@@ -32,6 +33,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::PiecewiseSequence;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
@@ -124,6 +126,14 @@ pub(crate) fn take<V: FixedWidthArray>(
     };
     if !ptype.is_int() {
         vortex_bail!("Invalid indices dtype: {}", indices.dtype())
+    }
+
+    if ctx.block_fusion_enabled()
+        && !indices.is::<Primitive>()
+        && let Some(values) = array.array().as_opt::<Primitive>()
+        && let Some(result) = block::take_blocks(values, indices, ctx)?
+    {
+        return Ok(Some(result.into_array()));
     }
 
     let indices_validity = indices.validity()?;
