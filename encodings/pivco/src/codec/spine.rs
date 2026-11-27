@@ -155,6 +155,21 @@ impl BlockReader<'_> {
             let slice01 = &block01[in_block_start..in_block_end];
 
             let mut i = 0usize;
+            if acc_bits != 0 {
+                let need = (64 - acc_bits).min(slice01.len());
+                for &b in &slice01[..need] {
+                    if (b != 0) ^ negate {
+                        bit_acc |= 1u64 << acc_bits;
+                    }
+                    acc_bits += 1;
+                }
+                i = need;
+                if acc_bits == 64 {
+                    u64_words.push(bit_acc.to_le());
+                    bit_acc = 0;
+                    acc_bits = 0;
+                }
+            }
             if acc_bits == 0 {
                 while i + 64 <= slice01.len() {
                     let w = pack_64_bytes01(&slice01[i..i + 64]) ^ xor_u64;
@@ -163,16 +178,10 @@ impl BlockReader<'_> {
                 }
             }
             while i < slice01.len() {
-                let bit = (slice01[i] != 0) ^ negate;
-                if bit {
+                if (slice01[i] != 0) ^ negate {
                     bit_acc |= 1u64 << acc_bits;
                 }
                 acc_bits += 1;
-                if acc_bits == 64 {
-                    u64_words.push(bit_acc.to_le());
-                    bit_acc = 0;
-                    acc_bits = 0;
-                }
                 i += 1;
             }
         }

@@ -87,7 +87,7 @@ pub struct PivcoOptions {
     pub pha_enabled: bool,
     /// Enable equal-depth flat-subtree (`D in 2..=6`) SIMD packing.
     pub allow_flat: bool,
-    /// `log2(block_values)` in `10..=13` (`1,024..=8,192`), or `0` for automatic selection.
+    /// `log2(block_values)` in `10..=13` (`1,024..=8,192`), or `0` for `DEFAULT_BLOCK_SHIFT` (12, 4,096 rows).
     pub block_shift: u8,
 }
 
@@ -129,7 +129,7 @@ impl PivcoOptions {
         }
     }
 
-    /// Overrides `block_shift` (`10..=13`, or `0` for auto).
+    /// Overrides `block_shift` (`10..=13`, or `0` for `DEFAULT_BLOCK_SHIFT`).
     pub const fn with_block_shift(mut self, block_shift: u8) -> Self {
         self.block_shift = block_shift;
         self
