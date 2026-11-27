@@ -17,7 +17,7 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 ## Repository Layout
 
 - `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>`, guaranteed to
-   be aligned to `T` or to a requested runtime alignment.
+  be aligned to `T` or to a requested runtime alignment.
 - `vortex-array/src/dtype` contains the `DType` logical type system used throughout Vortex.
 - `vortex-array` contains the core `Array` trait and the base encodings, including most
   Apache Arrow-style encodings.
@@ -88,6 +88,7 @@ cargo test --doc -p <crate-name>
 ```
 
 If needed for a requested test run, install cargo-nextest with `cargo install --locked cargo-nextest`.
+When running fuzz targets locally, pass `-s none` (for example, `cargo fuzz -s none ...`).
 
 ### Python
 
@@ -190,20 +191,21 @@ These CI checks are the ones most often missed when adding files rather than edi
 
 ## Rust Code Style
 
-- Follow `STYLE.md` for Rust formatting, documentation, API, error-handling, import, safety, and
-  performance conventions. Its hidden-cost accessor table is the reference for changes to
-  per-element loops; back such changes with the benchmarks it names.
-- Only write comments that explain non-obvious logic or important context. Do not comment
-  self-explanatory code.
-- Keep `match_each_*!` and other dispatch macro bodies to a call into a generic function, because
-  cargo-mutants cannot mutate code inside macros; see `vortex-array/src/dtype/AGENTS.md`.
-- Use `vortex_ensure_eq!(left, right)` instead of `vortex_ensure!(left == right)` whenever
-  possible so equality failures report both values.
+- Follow `STYLE.md` for Rust formatting, documentation, type signatures, error handling, imports,
+  safety, dispatch macros, and performance conventions (including the hidden-cost accessor table
+  for per-element loops, backed by the benchmarks it names).
+- Keep diffs small and focused (target under 500 lines when practical). Prefer modifying or
+  extending an existing implementation over adding a parallel one.
 - When adding or changing a serialized format (an `ArrayPlugin`, layout, or other wire ID), follow
   `docs/specs/versioning/wire-contracts.md`.
 
 ## Tests
 
+- Test observable properties and behavior rather than internal implementation details. Prefer
+  property tests with `hegeltest` plus focused corner cases, and `.slt` tests over Rust unit tests
+  when testing DuckDB or DataFusion SQL behavior.
+- Keep test additions bounded: if a change adds more than 20 test cases or a parameterized test
+  monomorphizes to more than 20 cases, justify it or reduce it.
 - Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
 - Prefer test module names `tests`, not `test`.
 - Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions. Put the
@@ -215,7 +217,6 @@ These CI checks are the ones most often missed when adding files rather than edi
   dtypes. Scalar probing alone may bypass the batch kernel.
 - Derive expected errors from the input contract or a reference result; do not silently skip
   failed operations. Invalid-input fixtures should reach the specific guard they claim to test.
-- Keep tests concise and focused on behavior, edge cases, and regressions.
 - If a bug fix is requested, add or identify a regression test when practical. Leave execution
   to the user; when tests are run, a test that passes before and after the fix does not prove it.
 - If clippy lints in tests prohibit patterns that are acceptable only in test code, consider
@@ -352,34 +353,3 @@ Use `git commit --signoff` to add this line.
 - Check that every commit on the branch is signed off before pushing;
   `git rebase --signoff <base>` adds missing sign-offs to commits on a branch you created.
 - Agent attribution belongs in a `Co-Authored-By:` trailer, never in `Signed-off-by:`.
-
-## General guidance on writing changes
-
-- Keep the diff small. Most changes should attempt to fit under 500 lines.
-  Before producing a final diff, spend some more time to check if it can be
-  altered to satisfy the threshold.
-- When making a change, see how it can be incorporated into existing changes.
-  Sometimes you need to change the existing implementation instead of writing a
-  new one.
-- Before writing tests, observe the properties of the objects you want to test
-  and test these, not the implementation. Write property tests using "hegeltest"
-  and, if needed, some corner case tests. Don't write many tests. If your change
-  adds more than 20 test cases, it's likely wrong - either most of the tests are
-  redundant, or the change should be split into multiple changes. Ask a
-  human reviewer for the judgement.
-- If test's monomorphisation produces more than 20 cases, please carefully
-  justify this or reduce.
-- Never document function's implementation or its usages in function's comment.
-  Document only the contract and make it short. You almost never need to write a
-  comment longer than 2 lines.
-- Don't write comments for small private functions or functions in tests module.
-- Prefer explicit function signatures taking least type that's needed. For
-  example, if you're operating on a PrimitiveArray, take PrimitiveArray and not
-  an ArrayRef. If your function operates on a primitive scalar, take the
-  primitive, not the Scalar, unless the function has many callers and code would
-  become bloated.
-- Ask a human to review docs changes in the docs/ folder.
-- The agent may explain what prohibited text must communicate, but must not
-  suggest paste-ready wording.
-- If a comment on a pull request requires some changes, Ask a human how
-  to implement them. Don't implement them yourself or comment on user's behalf

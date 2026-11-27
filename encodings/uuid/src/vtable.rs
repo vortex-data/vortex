@@ -99,19 +99,20 @@ impl ExtVTable for Uuid {
 
         let parsed = uuid::Uuid::from_bytes(bytes);
 
-        // Verify the parsed UUID matches the expected version, if one is set.
-        if let Some(expected) = ext_dtype.metadata().version {
-            let expected = expected as u8;
-            let actual = parsed
-                .get_version()
-                .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?
-                as u8;
-
-            vortex_ensure_eq!(expected, actual, "UUID version mismatch");
-        }
-
+        check_version(parsed, ext_dtype.metadata())?;
         Ok(parsed)
     }
+}
+
+/// Validate the optional version constraint shared by scalar and batch operations.
+pub(crate) fn check_version(parsed: uuid::Uuid, metadata: &UuidMetadata) -> VortexResult<()> {
+    if let Some(expected) = metadata.version {
+        let actual = parsed
+            .get_version()
+            .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?;
+        vortex_ensure_eq!(expected as u8, actual as u8, "UUID version mismatch");
+    }
+    Ok(())
 }
 
 #[expect(

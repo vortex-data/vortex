@@ -33,6 +33,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::DevicePtr;
@@ -107,6 +108,21 @@ unsafe impl AsPackedBytes for PlanHeader {}
 unsafe impl AsPackedBytes for PackedStage {}
 unsafe impl AsPackedBytes for ScalarOp {}
 
+/// Fixed-size table of left parts indexed by an ALP-RD code on the GPU.
+type AlpRdDictionary = [u16; ALPRD_DICTIONARY_CAPACITY as usize];
+
+/// Returns a zero-padded CUDA dictionary, or an error if the entries do not fit.
+pub(crate) fn pack_alprd_dictionary(entries: &[u16]) -> VortexResult<AlpRdDictionary> {
+    let mut packed = AlpRdDictionary::default();
+    vortex_ensure!(
+        entries.len() <= packed.len(),
+        "ALP-RD dictionary holds {} entries, more than {ALPRD_DICTIONARY_CAPACITY}",
+        entries.len()
+    );
+    packed[..entries.len()].copy_from_slice(entries);
+    Ok(packed)
+}
+
 /// A stage used to build a [`CudaDispatchPlan`] on the host side.
 ///
 /// This is NOT a C ABI struct — it exists purely on the Rust side and is
@@ -123,8 +139,8 @@ pub struct MaterializedStage {
     pub source_ptype: PTypeTag,
     /// The source operation that produces the initial values (e.g. load, bitunpack, sequence).
     pub source: SourceOp,
-    /// Chain of element-wise scalar operations applied after the source (e.g. frame-of-reference, zigzag, ALP).
-    pub scalar_ops: Vec<ScalarOp>,
+    /// Scalar ops in execution order. Only ALP-RD ops carry a dictionary for the plan tail.
+    pub scalar_ops: Vec<(ScalarOp, Option<AlpRdDictionary>)>,
 }
 
 impl MaterializedStage {
@@ -142,7 +158,7 @@ impl MaterializedStage {
             len,
             source_ptype,
             source,
-            scalar_ops: scalar_ops.to_vec(),
+            scalar_ops: scalar_ops.iter().map(|&op| (op, None)).collect(),
         }
     }
 }
@@ -185,12 +201,20 @@ pub fn dispatch_kernel(
 // SAFETY: `DispatchPlanParam` is a bindgen `#[repr(C)]` byte array matching the kernel parameter.
 unsafe impl DeviceRepr for DispatchPlanParam {}
 
-/// Size in bytes of a packed plan whose stages have the given numbers of scalar ops.
-pub(crate) fn packed_plan_size(scalar_op_counts: impl IntoIterator<Item = usize>) -> usize {
+/// Returns the serialized size in bytes, including one dictionary per ALP-RD op.
+fn packed_plan_size<'a, T: 'a>(stages: impl IntoIterator<Item = &'a [(ScalarOp, T)]>) -> usize {
     size_of::<PlanHeader>()
-        + scalar_op_counts
+        + stages
             .into_iter()
-            .map(|ops| size_of::<PackedStage>() + ops * size_of::<ScalarOp>())
+            .map(|ops| {
+                let dictionaries = ops
+                    .iter()
+                    .filter(|(op, _)| op.op_code == ScalarOp_ScalarOpCode_ALPRD)
+                    .count();
+                size_of::<PackedStage>()
+                    + ops.len() * size_of::<ScalarOp>()
+                    + dictionaries * size_of::<AlpRdDictionary>()
+            })
             .sum::<usize>()
 }
 
@@ -204,6 +228,7 @@ pub(crate) fn packed_plan_size(scalar_op_counts: impl IntoIterator<Item = usize>
 /// [PackedStage 0][ScalarOp × N0]          — variable
 /// [PackedStage 1][ScalarOp × N1]          — variable
 /// ...
+/// [ALP-RD dictionaries]                   — 16 bytes per ALP-RD op
 /// ```
 #[derive(Clone)]
 pub struct CudaDispatchPlan {
@@ -219,17 +244,25 @@ impl CudaDispatchPlan {
     ///
     /// # Panics
     ///
-    /// Panics if `stages` is empty or the serialized plan exceeds `MAX_PLAN_BYTES`.
+    /// Panics if `stages` is empty, a dictionary is missing or attached to a non-ALP-RD op,
+    /// or the serialized plan exceeds `MAX_PLAN_BYTES`.
     pub fn new<I>(stages: I, output_ptype: PTypeTag) -> Self
     where
         I: IntoIterator,
         I::Item: Borrow<MaterializedStage>,
     {
+        /// Writes bytes at the front of the remaining plan space and returns the unused suffix.
+        fn push<'a>(space: &'a mut [u8], bytes: &[u8]) -> &'a mut [u8] {
+            let (dst, rest) = space.split_at_mut(bytes.len());
+            dst.copy_from_slice(bytes);
+            rest
+        }
+
         let stages: Vec<MaterializedStage> =
             stages.into_iter().map(|s| s.borrow().clone()).collect();
         assert!(!stages.is_empty());
 
-        let total_size = packed_plan_size(stages.iter().map(|stage| stage.scalar_ops.len()));
+        let total_size = packed_plan_size(stages.iter().map(|stage| stage.scalar_ops.as_slice()));
         assert!(
             total_size <= MAX_PLAN_BYTES as usize,
             "packed plan size {total_size} exceeds MAX_PLAN_BYTES"
@@ -238,18 +271,12 @@ impl CudaDispatchPlan {
         let mut param = DispatchPlanParam {
             bytes: [0; MAX_PLAN_BYTES as usize],
         };
-        let mut len = 0;
-        let mut push = |bytes: &[u8]| {
-            param.bytes[len..len + bytes.len()].copy_from_slice(bytes);
-            len += bytes.len();
-        };
-
         let header = PlanHeader {
             num_stages: stages.len() as u8,
             output_ptype,
             plan_size_bytes: total_size as u16,
         };
-        push(header.as_packed_bytes());
+        let mut space = push(&mut param.bytes[..total_size], header.as_packed_bytes());
 
         for stage in &stages {
             let packed_stage = PackedStage {
@@ -260,13 +287,25 @@ impl CudaDispatchPlan {
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
             };
-            push(packed_stage.as_packed_bytes());
-            for op in &stage.scalar_ops {
-                push(op.as_packed_bytes());
+            space = push(space, packed_stage.as_packed_bytes());
+            for &(mut op, dictionary) in &stage.scalar_ops {
+                assert_eq!(
+                    op.op_code == ScalarOp_ScalarOpCode_ALPRD,
+                    dictionary.is_some()
+                );
+                if let Some(dictionary) = dictionary {
+                    // Records grow from the front and dictionaries from the back. `space` starts at this op.
+                    let offset = space.len() - size_of::<AlpRdDictionary>();
+                    let (records, dst) = space.split_at_mut(offset);
+                    dst.copy_from_slice(dictionary.map(u16::to_le_bytes).as_flattened());
+                    space = records;
+                    op.params.alprd.dictionary_byte_offset = offset as u32;
+                }
+                space = push(space, op.as_packed_bytes());
             }
         }
 
-        assert_eq!(len, total_size);
+        assert!(space.is_empty());
         Self {
             param,
             // Every stage but the last, the output stage, is an input stage.
@@ -406,7 +445,6 @@ impl ScalarOp {
 
     /// ALP-RD decode. The codes and patches pointers are set when the plan is materialized.
     pub fn alprd(
-        dictionary: [u16; ALPRD_DICTIONARY_CAPACITY as usize],
         codes_offset: u16,
         code_bit_width: u8,
         right_bit_width: u8,
@@ -419,7 +457,7 @@ impl ScalarOp {
                 alprd: ScalarParams_AlpRdParams {
                     codes_ptr: 0,
                     patches_ptr: 0,
-                    dictionary,
+                    dictionary_byte_offset: 0,
                     codes_offset,
                     code_bit_width,
                     right_bit_width,
@@ -574,9 +612,6 @@ impl MaterializedPlan {
 }
 
 #[cfg(test)]
-mod alprd_tests;
-
-#[cfg(test)]
 mod tests {
     use std::f32::consts::E;
     use std::f32::consts::LN_2;
@@ -592,6 +627,7 @@ mod tests {
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::WidenArray;
+    use vortex::array::arrays::slice::SliceKernel;
     use vortex::array::builtins::ArrayBuiltins;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity;
@@ -606,7 +642,12 @@ mod tests {
     use vortex::encodings::alp::ALPArrayExt;
     use vortex::encodings::alp::ALPArraySlotsExt;
     use vortex::encodings::alp::ALPFloat;
+    use vortex::encodings::alp::ALPRD;
+    use vortex::encodings::alp::ALPRDArrayExt;
+    use vortex::encodings::alp::ALPRDArraySlotsExt;
     use vortex::encodings::alp::Exponents;
+    use vortex::encodings::alp::RDEncoder;
+    use vortex::encodings::alp::RDEncoderExt;
     use vortex::encodings::alp::alp_encode;
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
@@ -1978,6 +2019,161 @@ mod tests {
         );
     }
 
+    async fn decode_fused(array: &ArrayRef) -> VortexResult<ArrayRef> {
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let plan = dispatch_plan(array, &mut ctx).await?;
+        Ok(plan
+            .execute(array.len(), &mut ctx)?
+            .into_host(ctx.execution_ctx())
+            .await?
+            .into_array())
+    }
+
+    #[rstest]
+    #[case::unsliced(3500, None)]
+    #[case::mid_chunk(3500, Some(1021..3300))]
+    #[case::chunk_boundary(3500, Some(1024..2048))]
+    #[crate::test]
+    async fn test_fused_alp_rd_f64(
+        #[case] len: usize,
+        #[case] slice_range: Option<Range<usize>>,
+    ) -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        // Outliers at chunk boundaries; null at 1500 and null-on-outlier at 1024.
+        let values = PrimitiveArray::from_option_iter((0..len).map(|i| match i {
+            1024 | 1500 => None,
+            0 | 1023 | 2048 | 3200 => Some(3e100),
+            _ => Some(sample[i % 3]),
+        }));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        assert!(encoded.left_parts_patches().is_some());
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let (array, expected) = if let Some(range) = &slice_range {
+            let lazy = encoded.clone().into_array().slice(range.clone())?;
+            let sliced = <ALPRD as SliceKernel>::slice(encoded.as_view(), range.clone(), &mut ctx)?
+                .ok_or_else(|| vortex_err!("expected ALP-RD slice"))?;
+            // Test both lazy Slice(ALPRD) and SliceKernel-reduced ALPRD.
+            let expected = values.into_array().slice(range.clone())?;
+            let actual = decode_fused(&sliced).await?;
+            assert_arrays_eq!(actual, expected, &mut ctx);
+            (lazy, expected)
+        } else {
+            (encoded.into_array(), values.into_array())
+        };
+        let actual = decode_fused(&array).await?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_alp_rd_dictionary_counts_toward_plan_limit() -> VortexResult<()> {
+        let codes = BitPacked::encode(
+            &buffer![0u16, 1].into_array(),
+            1,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+        let array = |right| {
+            ALPRD::try_new(
+                DType::Primitive(PType::F32, Nullability::NonNullable),
+                codes.clone(),
+                buffer![0u16, 1],
+                right,
+                16,
+                None,
+            )
+        };
+        let max_ops = (MAX_PLAN_BYTES as usize
+            - size_of::<PlanHeader>()
+            - size_of::<PackedStage>()
+            - size_of::<AlpRdDictionary>())
+            / size_of::<ScalarOp>();
+        let mut right = buffer![0u32, 1].into_array();
+        for _ in 1..max_ops {
+            right = FoR::try_new(right, 0u32.into())?.into_array();
+        }
+        let mode = CudaDispatchMode::DynDispatchOnly;
+        assert!(matches!(
+            DispatchPlan::new(&array(right.clone())?.into_array(), mode)?,
+            DispatchPlan::Fused(_)
+        ));
+        let larger = FoR::try_new(right, 0u32.into())?.into_array();
+        assert!(matches!(
+            DispatchPlan::new(&array(larger)?.into_array(), mode)?,
+            DispatchPlan::Unfused
+        ));
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_fused_alp_rd_slice_of_sliced_codes() -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        let values = PrimitiveArray::from_iter((0..3500).map(|i| sample[i % sample.len()]));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        let mut ctx = SESSION.create_execution_ctx();
+        let sliced = <ALPRD as SliceKernel>::slice(encoded.as_view(), 1021..3300, &mut ctx)?
+            .ok_or_else(|| vortex_err!("expected ALP-RD slice"))?;
+
+        let actual = decode_fused(&sliced.slice(10..500)?).await?;
+        let expected = values.into_array().slice(1031..1521)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_fused_alp_rd_dictionary_values() -> VortexResult<()> {
+        let sample = [0.1f32, 0.2, 0.3];
+        let values = PrimitiveArray::from_iter(
+            (0..1500).map(|i| if i == 1100 { 3e30 } else { sample[i % 3] }),
+        );
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        assert!(encoded.left_parts_patches().is_some());
+        let codes = buffer![1100u16, 1, 0, 1100].into_array();
+        let expected = values.into_array().take(codes.clone())?;
+        let dict = DictArray::try_new(codes, encoded.into_array())?.into_array();
+        let actual = decode_fused(&dict).await?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_alp_rd_with_uncompressed_codes_is_not_fused() -> VortexResult<()> {
+        let sample = [0.1f64, 0.2, 0.3];
+        let values = PrimitiveArray::from_option_iter((0..3000).map(|i| match i {
+            5 | 2100 => Some(3e100),
+            1500 => None,
+            _ => Some(sample[i % 3]),
+        }));
+        let encoded = RDEncoder::new(&sample).encode(values.as_view());
+        let mut ctx = SESSION.create_execution_ctx();
+        let left_parts = encoded
+            .left_parts()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let uncompressed = ALPRD::try_new(
+            encoded.dtype().clone(),
+            left_parts.into_array(),
+            encoded.left_parts_dictionary().clone(),
+            encoded.right_parts().clone(),
+            encoded.right_bit_width(),
+            encoded.left_parts_patches(),
+        )?
+        .into_array();
+        assert!(matches!(
+            DispatchPlan::new(&uncompressed, CudaDispatchMode::Auto)?,
+            DispatchPlan::Unfused
+        ));
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let gpu_result = try_gpu_dispatch(&uncompressed, &mut cuda_ctx)
+            .await?
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(gpu_result, values, &mut ctx);
+        Ok(())
+    }
+
     #[crate::test]
     async fn test_alp_f64_for_bitpacked() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -3168,7 +3364,6 @@ mod tests {
         for _ in 0..ops {
             array = FoR::try_new(array, Scalar::from(1u32))?.into_array();
         }
-        assert_eq!(packed_plan_size([ops]) <= MAX_PLAN_BYTES as usize, fused);
 
         let plan = DispatchPlan::new(&array, CudaDispatchMode::DynDispatchOnly)?;
         assert_eq!(matches!(plan, DispatchPlan::Fused(_)), fused);
