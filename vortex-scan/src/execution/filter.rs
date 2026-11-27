@@ -273,6 +273,59 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 }
 
 impl FilterPlanner {
+    /// Applies the finished scan of the active conjunct to the chunk's selected rows. Returns
+    /// whether it started the conjunct's evaluation, because its proof failed.
+    fn finish_active(&mut self) -> VortexResult<bool> {
+        let result = Mask::concat(self.pieces.iter())?;
+        self.pieces.clear();
+        let Active {
+            index,
+            version,
+            proving,
+            ..
+        } = self.active.take().vortex_expect("active scan exists");
+        let selected = self.selected.as_mut().vortex_expect("selected rows exist");
+        let input = selected.mask.true_count();
+        vortex_ensure_eq!(result.len(), input);
+        if proving {
+            if result.all_true() {
+                tracing::debug!(
+                    row_start = selected.scope.rows.start,
+                    row_end = selected.scope.rows.end,
+                    conjunct = index,
+                    "v2 filter conjunct satisfied by statistics"
+                );
+                return Ok(false);
+            }
+            self.active = Some(Active {
+                index,
+                version,
+                proving: false,
+                adaptor: self.conjunct_scan(&self.filter.predicates[index])?,
+            });
+            return Ok(true);
+        }
+        selected.mask = selected.mask.intersect_by_rank(&result);
+        tracing::debug!(
+            row_start = selected.scope.rows.start,
+            row_end = selected.scope.rows.end,
+            input_rows = input,
+            output_rows = selected.mask.true_count(),
+            conjunct = index,
+            "v2 filter conjunct evaluated"
+        );
+        let selectivity = selected.mask.true_count() as f64 / input as f64;
+        self.filter
+            .expression
+            .report_selectivity(index, selectivity);
+        if let Some(version) = version {
+            self.filter
+                .expression
+                .report_dynamic_selectivity(index, version, selectivity);
+        }
+        Ok(false)
+    }
+
     /// The scan of `plan` over the chunk's selected rows.
     fn conjunct_scan(&self, plan: &PlanRef) -> VortexResult<ScanAdaptor> {
         let selected = self.selected.as_ref().vortex_expect("selected rows exist");
@@ -372,54 +425,11 @@ impl Planner for FilterPlanner {
                     }
                 });
             }
-            let input = selected.mask.true_count();
-            let result = Mask::concat(self.pieces.iter())?;
-            self.pieces.clear();
-            vortex_ensure_eq!(result.len(), input);
-            let Active {
-                index,
-                version,
-                proving,
-                ..
-            } = self.active.take().vortex_expect("active scan exists");
-            if proving {
-                if result.all_true() {
-                    tracing::debug!(
-                        row_start = selected.scope.rows.start,
-                        row_end = selected.scope.rows.end,
-                        conjunct = index,
-                        "v2 filter conjunct satisfied by statistics"
-                    );
-                } else {
-                    self.active = Some(Active {
-                        index,
-                        version,
-                        proving: false,
-                        adaptor: self.conjunct_scan(&self.filter.predicates[index])?,
-                    });
-                    return Ok(PlannerOutput::Continue);
-                }
-            } else {
-                selected.mask = selected.mask.intersect_by_rank(&result);
-                tracing::debug!(
-                    row_start = selected.scope.rows.start,
-                    row_end = selected.scope.rows.end,
-                    input_rows = input,
-                    output_rows = selected.mask.true_count(),
-                    conjunct = index,
-                    "v2 filter conjunct evaluated"
-                );
-                let selectivity = selected.mask.true_count() as f64 / input as f64;
-                self.filter
-                    .expression
-                    .report_selectivity(index, selectivity);
-                if let Some(version) = version {
-                    self.filter
-                        .expression
-                        .report_dynamic_selectivity(index, version, selectivity);
-                }
+            if self.finish_active()? {
+                return Ok(PlannerOutput::Continue);
             }
         }
+        let selected = self.selected.as_mut().vortex_expect("selected rows exist");
         if selected.mask.all_false() {
             self.selected = None;
             return Ok(PlannerOutput::Done);
