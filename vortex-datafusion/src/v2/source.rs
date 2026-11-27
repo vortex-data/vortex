@@ -1089,7 +1089,6 @@ mod tests {
     use arrow_array::types::Int32Type;
     use arrow_schema::DataType;
     use async_trait::async_trait;
-    use datafusion::assert_batches_eq;
     use datafusion::prelude::SessionContext;
     use datafusion_datasource::source::DataSourceExec;
     use datafusion_expr::Operator;
@@ -1535,57 +1534,6 @@ mod tests {
             )]))?
             .expect("projection supported");
         assert!(computed.eq_properties().output_ordering().is_none());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn repeated_projection_swap_composes_literal() -> anyhow::Result<()> {
-        let session = VortexSession::default();
-        let array = StructArray::from_fields(&[
-            ("a", buffer![1i32, 2, 3].into_array()),
-            ("b", buffer![30i32, 10, 20].into_array()),
-        ])?
-        .into_array();
-        let mut buf = ByteBufferMut::empty();
-        session
-            .write_options()
-            .write(&mut buf, array.to_array_stream())
-            .await?;
-        let file = session.open_options().open_buffer(buf)?;
-        let source = VortexDataSource::builder(file.data_source()?, session)
-            .build()
-            .await?;
-
-        let first = ProjectionExprs::from(vec![ProjectionExpr::new(
-            Arc::new(Column::new("b", 1)),
-            "x",
-        )]);
-        let after_first = source
-            .try_swapping_with_projection(&first)?
-            .expect("first projection supported");
-
-        let second = ProjectionExprs::from(vec![
-            ProjectionExpr::new(lit(1_i32), "one"),
-            ProjectionExpr::new(Arc::new(Column::new("x", 0)), "y"),
-        ]);
-        let swapped = after_first
-            .try_swapping_with_projection(&second)?
-            .expect("second projection with literal should compose");
-        let plan: Arc<dyn ExecutionPlan> = Arc::new(DataSourceExec::new(swapped));
-
-        let batches = collect(plan, Arc::new(TaskContext::default())).await?;
-        assert_batches_eq!(
-            [
-                "+-----+----+",
-                "| one | y  |",
-                "+-----+----+",
-                "| 1   | 30 |",
-                "| 1   | 10 |",
-                "| 1   | 20 |",
-                "+-----+----+",
-            ],
-            &batches
-        );
         Ok(())
     }
 }

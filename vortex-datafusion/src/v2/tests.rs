@@ -815,26 +815,28 @@ async fn test_get_field_through_extension_storage_is_pushed_down() -> anyhow::Re
 #[tokio::test]
 async fn test_double_projection_swap_composes_against_current_output() -> anyhow::Result<()> {
     let source = vortex_source().await?;
+    let col = |name: &str, idx| Arc::new(df_expr::Column::new(name, idx)) as Arc<dyn PhysicalExpr>;
+    let bin = |l, op, r| Arc::new(df_expr::BinaryExpr::new(l, op, r)) as Arc<dyn PhysicalExpr>;
+    let swap = |src: &dyn DataSource,
+                exprs: Vec<(&str, Arc<dyn PhysicalExpr>)>|
+     -> anyhow::Result<Arc<dyn DataSource>> {
+        let proj = ProjectionExprs::from(
+            exprs
+                .into_iter()
+                .map(|(alias, expr)| ProjectionExpr::new(expr, alias))
+                .collect::<Vec<_>>(),
+        );
+        src.try_swapping_with_projection(&proj)?
+            .ok_or_else(|| anyhow!("projection was not swapped"))
+    };
+    let collect = |src: Arc<dyn DataSource>| async move {
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(DataSourceExec::new(src));
+        datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await
+    };
 
-    // First swap reverses and renames the columns so column 0 is now original `b` named `a`.
-    let first = ProjectionExprs::from(vec![
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "a"),
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("a", 0)), "b"),
-    ]);
-    let after_first = source
-        .try_swapping_with_projection(&first)?
-        .ok_or_else(|| anyhow!("first projection was not swapped"))?;
-
-    // Second swap selects `a@0` (which must read original `b`, not original `a`).
-    let second = ProjectionExprs::from(vec![ProjectionExpr::new(
-        Arc::new(df_expr::Column::new("a", 0)),
-        "out",
-    )]);
-    let after_second = after_first
-        .try_swapping_with_projection(&second)?
-        .ok_or_else(|| anyhow!("second projection was not swapped"))?;
-    let plan = Arc::new(DataSourceExec::new(after_second)) as Arc<dyn ExecutionPlan>;
-    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    // Reversing and renaming columns, then selecting `a@0` (original `b`).
+    let reversed = swap(&source, vec![("a", col("b", 1)), ("b", col("a", 0))])?;
+    let selected = swap(reversed.as_ref(), vec![("out", col("a", 0))])?;
     assert_batches_eq!(
         [
             "+-----+", //
@@ -845,51 +847,55 @@ async fn test_double_projection_swap_composes_against_current_output() -> anyhow
             "| 20  |", //
             "+-----+", //
         ],
-        &batches
+        &collect(selected).await?
     );
 
-    // First swap uses an unsupported expression (leftover projection); second swap builds on it.
-    let leftover_first = ProjectionExprs::from(vec![
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "b_val"),
-        ProjectionExpr::new(
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("a", 0)),
-                Operator::Modulo,
-                df_expr::lit(2_i32),
-            )),
-            "odd",
-        ),
-    ]);
-    let after_leftover = source
-        .try_swapping_with_projection(&leftover_first)?
-        .ok_or_else(|| anyhow!("leftover projection was not swapped"))?;
+    // Composing a literal alongside a renamed column.
+    let renamed = swap(&source, vec![("x", col("b", 1))])?;
+    let with_lit = swap(
+        renamed.as_ref(),
+        vec![("one", df_expr::lit(1_i32)), ("y", col("x", 0))],
+    )?;
+    assert_batches_eq!(
+        [
+            "+-----+----+",
+            "| one | y  |",
+            "+-----+----+",
+            "| 1   | 30 |",
+            "| 1   | 10 |",
+            "| 1   | 20 |",
+            "+-----+----+",
+        ],
+        &collect(with_lit).await?
+    );
 
-    let compose_over_leftover = ProjectionExprs::from(vec![
-        ProjectionExpr::new(
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("odd", 1)),
-                Operator::Plus,
-                df_expr::lit(10_i32),
-            )),
-            "odd_plus_10",
-        ),
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("b_val", 0)), "b_out"),
-    ]);
-    let composed = after_leftover
-        .try_swapping_with_projection(&compose_over_leftover)?
-        .ok_or_else(|| anyhow!("composed projection was not swapped"))?;
-    let filter = Arc::new(df_expr::BinaryExpr::new(
-        Arc::new(df_expr::Column::new("b_out", 1)),
-        Operator::Gt,
-        df_expr::lit(15_i32),
-    )) as Arc<dyn PhysicalExpr>;
-    let pushed = composed.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+    // Unsupported first swap (leftover projection), composed with a second swap + filter pushdown,
+    // and also with the unsupported column dropped.
+    let leftover = swap(
+        &source,
+        vec![
+            ("b_val", col("b", 1)),
+            (
+                "odd",
+                bin(col("a", 0), Operator::Modulo, df_expr::lit(2_i32)),
+            ),
+        ],
+    )?;
+    let composed = swap(
+        leftover.as_ref(),
+        vec![
+            (
+                "odd_plus_10",
+                bin(col("odd", 1), Operator::Plus, df_expr::lit(10_i32)),
+            ),
+            ("b_out", col("b_val", 0)),
+        ],
+    )?;
+    let pushed = composed.try_pushdown_filters(
+        vec![bin(col("b_out", 1), Operator::Gt, df_expr::lit(15_i32))],
+        &ConfigOptions::new(),
+    )?;
     assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
-    let filtered = pushed
-        .updated_node
-        .ok_or_else(|| anyhow!("filter was not pushed"))?;
-    let plan = Arc::new(DataSourceExec::new(filtered)) as Arc<dyn ExecutionPlan>;
-    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
     assert_batches_eq!(
         [
             "+-------------+-------+",
@@ -899,19 +905,15 @@ async fn test_double_projection_swap_composes_against_current_output() -> anyhow
             "| 11          | 20    |",
             "+-------------+-------+",
         ],
-        &batches
+        &collect(
+            pushed
+                .updated_node
+                .ok_or_else(|| anyhow!("filter not pushed"))?
+        )
+        .await?
     );
 
-    // Dropping the unsupported column in the second swap still produces the remaining column.
-    let drop_unsupported = ProjectionExprs::from(vec![ProjectionExpr::new(
-        Arc::new(df_expr::Column::new("b_val", 0)),
-        "b_only",
-    )]);
-    let dropped = after_leftover
-        .try_swapping_with_projection(&drop_unsupported)?
-        .ok_or_else(|| anyhow!("second projection dropping unsupported expr was not swapped"))?;
-    let plan = Arc::new(DataSourceExec::new(dropped)) as Arc<dyn ExecutionPlan>;
-    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    let dropped = swap(leftover.as_ref(), vec![("b_only", col("b_val", 0))])?;
     assert_batches_eq!(
         [
             "+--------+",
@@ -922,40 +924,27 @@ async fn test_double_projection_swap_composes_against_current_output() -> anyhow
             "| 20     |",
             "+--------+",
         ],
-        &batches
+        &collect(dropped).await?
     );
 
-    // Supported first swap followed by an unsupported second swap computes both cleanly.
-    let pushed_first = ProjectionExprs::from(vec![
-        ProjectionExpr::new(
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("a", 0)),
-                Operator::Plus,
-                df_expr::lit(1_i32),
-            )),
-            "a1",
-        ),
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "b1"),
-    ]);
-    let after_pushed = source
-        .try_swapping_with_projection(&pushed_first)?
-        .ok_or_else(|| anyhow!("pushed first projection was not swapped"))?;
-    let unsupported_second = ProjectionExprs::from(vec![
-        ProjectionExpr::new(
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("a1", 0)),
-                Operator::Modulo,
-                df_expr::lit(2_i32),
-            )),
-            "a1_odd",
-        ),
-        ProjectionExpr::new(Arc::new(df_expr::Column::new("b1", 1)), "b2"),
-    ]);
-    let after_unsupported_second = after_pushed
-        .try_swapping_with_projection(&unsupported_second)?
-        .ok_or_else(|| anyhow!("unsupported second projection was not swapped"))?;
-    let plan = Arc::new(DataSourceExec::new(after_unsupported_second)) as Arc<dyn ExecutionPlan>;
-    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    // Supported first swap followed by an unsupported second swap.
+    let pushed_first = swap(
+        &source,
+        vec![
+            ("a1", bin(col("a", 0), Operator::Plus, df_expr::lit(1_i32))),
+            ("b1", col("b", 1)),
+        ],
+    )?;
+    let unsupported_second = swap(
+        pushed_first.as_ref(),
+        vec![
+            (
+                "a1_odd",
+                bin(col("a1", 0), Operator::Modulo, df_expr::lit(2_i32)),
+            ),
+            ("b2", col("b1", 1)),
+        ],
+    )?;
     assert_batches_eq!(
         [
             "+--------+----+",
@@ -966,7 +955,7 @@ async fn test_double_projection_swap_composes_against_current_output() -> anyhow
             "| 0      | 20 |",
             "+--------+----+",
         ],
-        &batches
+        &collect(unsupported_second).await?
     );
 
     Ok(())
