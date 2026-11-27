@@ -125,7 +125,7 @@ bench = false
 doc = false
 name = "array_ops_wasm"
 path = "fuzz_targets/array_ops_wasm.rs"
-test = false
+test = true
 required-features = ["wasmfuzz"]
 
 [[bin]]
