@@ -171,6 +171,8 @@ mod tests {
     use vortex_array::arrays::dict::TakeExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -435,5 +437,50 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
         let array = build(&mut ctx);
         test_array_consistency(&array.into_array(), &mut ctx);
+    }
+
+    #[rstest]
+    #[case::utf8(VarBinArray::from_iter(
+        ["hello world", "testing fsst", "compression test", "data array", "vortex encoding"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    #[case::utf8_nullable(VarBinArray::from_iter(
+        [Some("hello"), None, Some("world"), Some("test"), None],
+        DType::Utf8(Nullability::Nullable),
+    ))]
+    #[case::binary(VarBinArray::from_iter(
+        [b"alpha".as_slice(), b"beta", b"gamma", b"delta", b"epsilon"].map(Some),
+        DType::Binary(Nullability::NonNullable),
+    ))]
+    #[case::binary_nullable(VarBinArray::from_iter(
+        [Some(b"foo".as_slice()), None, Some(b"bar"), None, Some(b"baz")],
+        DType::Binary(Nullability::Nullable),
+    ))]
+    #[case::single(VarBinArray::from_iter(
+        ["single element"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    #[case::empty_strings(VarBinArray::from_iter(
+        ["", "test", "", "hello", ""].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    #[case::large(VarBinArray::from_iter(
+        (0..1500).map(|i| Some(format!("https://www.example.com/items/{i:06}"))),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    fn test_filter_and_mask_fsst_conformance(#[case] varbin: VarBinArray) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let varbin = varbin.into_array();
+        let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
+        let array = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
+        test_filter_conformance(&array, &mut ctx);
+        test_mask_conformance(&array, &mut ctx);
+        if array.len() > 2 {
+            let sliced = array.slice(1..array.len() - 1)?.optimize_ctx(&SESSION)?;
+            assert!(sliced.is::<FSST>());
+            test_filter_conformance(&sliced, &mut ctx);
+            test_mask_conformance(&sliced, &mut ctx);
+        }
+        Ok(())
     }
 }

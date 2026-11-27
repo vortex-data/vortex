@@ -12,6 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
@@ -247,8 +248,8 @@ impl PrimitiveData {
     ///
     /// # Safety
     ///
-    /// Should ensure that the provided BufferHandle points at sufficiently large region of aligned
-    /// memory to hold the `ptype` values.
+    /// Should ensure that `handle.len()` is a multiple of `ptype.byte_width()` and that `handle`
+    /// points at a sufficiently large region of aligned memory to hold the `ptype` values.
     pub unsafe fn new_unchecked_from_handle(
         handle: BufferHandle,
         ptype: PType,
@@ -423,14 +424,32 @@ impl Array<Primitive> {
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
     }
 
-    /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
-    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
+    /// Creates a new `PrimitiveArray` from a [`BufferHandle`], returning an error if the buffer
+    /// layout or validity is invalid.
+    pub fn try_from_buffer_handle(
+        handle: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let len = handle.len() / ptype.byte_width();
         let slots = PrimitiveData::make_slots(&validity, len);
-        let data = PrimitiveData::from_buffer_handle(handle, ptype, validity);
+        let data = PrimitiveData {
+            ptype,
+            buffer: handle,
+        };
         Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data, slots))
-            .vortex_expect("PrimitiveData is always valid")
+    }
+
+    /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `handle.len()` is not a multiple of `ptype.byte_width()`, if `handle` is not
+    /// aligned to `ptype.byte_width()`, or if `validity` does not match the element count.
+    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
+        Self::try_from_buffer_handle(handle, ptype, validity)
+            .vortex_expect("PrimitiveArray buffer layout and validity must be valid for ptype")
     }
 
     /// Creates a new `PrimitiveArray` from a [`ByteBuffer`].
@@ -499,7 +518,30 @@ impl PrimitiveData {
         &self.buffer
     }
 
+    pub(super) fn validate_buffer_layout(handle: &BufferHandle, ptype: PType) -> VortexResult<()> {
+        let byte_width = ptype.byte_width();
+        vortex_ensure!(
+            handle.len().is_multiple_of(byte_width),
+            "PrimitiveArray buffer length {} is not a multiple of element width {byte_width} for {ptype}",
+            handle.len(),
+        );
+        let required = Alignment::new(byte_width);
+        vortex_ensure!(
+            handle.is_ptr_aligned(required),
+            "PrimitiveArray buffer is not aligned to {required} for {ptype}",
+        );
+        Ok(())
+    }
+
+    /// Creates a new [`PrimitiveData`] from a [`BufferHandle`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `handle.len()` is not a multiple of `ptype.byte_width()` or if `handle` is not
+    /// aligned to `ptype.byte_width()`.
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, _validity: Validity) -> Self {
+        Self::validate_buffer_layout(&handle, ptype)
+            .vortex_expect("PrimitiveData buffer layout must be valid for ptype");
         Self {
             ptype,
             buffer: handle,

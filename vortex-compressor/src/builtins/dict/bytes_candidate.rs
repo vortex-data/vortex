@@ -19,21 +19,18 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::dict::DictArrayExt;
-use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::codes_ptype_for_max_len;
-use vortex_array::builders::dict::dict_encode_by_frequency;
 use vortex_array::builders::dict::dict_encode_by_frequency_with_constraints;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use super::dictionary_encoded;
 use crate::CascadingCompressor;
 use crate::compressor::TrialOutput;
 use crate::compressor::estimate_compression_ratio_with_sampling;
@@ -109,52 +106,6 @@ pub(super) fn bytes_dictionary_estimate(scheme: &'static dyn Scheme) -> Compress
     )))
 }
 
-/// Dictionary-encodes the input, reusing the trial result when the estimate cached one.
-pub(super) fn compress_bytes_dictionary(
-    scheme: &'static dyn Scheme,
-    compressor: &CascadingCompressor,
-    data: &ArrayAndStats,
-    compress_ctx: CompressorContext,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    if let Some(trial) = data.get::<TrialOutput>()
-        && trial.scheme == scheme.id()
-    {
-        return Ok(trial.array.clone());
-    }
-
-    let dict = dict_encode_by_frequency(data.array(), exec_ctx)?;
-    compress_dictionary(scheme, compressor, &dict, compress_ctx, exec_ctx)
-}
-
-/// Compresses the value and code children of a dictionary.
-fn compress_dictionary(
-    scheme: &'static dyn Scheme,
-    compressor: &CascadingCompressor,
-    dict: &DictArray,
-    compress_ctx: CompressorContext,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    // Values = child 0.
-    let compressed_values =
-        compressor.compress_child(dict.values(), &compress_ctx, scheme.id(), 0, exec_ctx)?;
-
-    // Codes = child 1. Every dictionary reaching here came from `dict_encode_by_frequency` or
-    // `dict_encode_by_frequency_with_constraints`, which already hand back the narrowest codes
-    // that can address the dictionary, so there is nothing left to narrow here.
-    let compressed_codes =
-        compressor.compress_child(dict.codes(), &compress_ctx, scheme.id(), 1, exec_ctx)?;
-
-    // SAFETY: compressing codes or values does not alter the invariants.
-    unsafe {
-        Ok(
-            DictArray::new_unchecked(compressed_codes, compressed_values)
-                .set_all_values_referenced(dict.has_all_values_referenced())
-                .into_array(),
-        )
-    }
-}
-
 /// Resolves the deferred dictionary estimate.
 fn estimate_bytes_dictionary(
     scheme: &'static dyn Scheme,
@@ -211,7 +162,12 @@ fn estimate_bytes_dictionary(
             exec_ctx,
         );
     };
-    let compressed = compress_dictionary(scheme, compressor, &dictionary, compress_ctx, exec_ctx)?;
+    let compressed = compressor.compress_encoded(
+        scheme.id(),
+        dictionary_encoded(scheme, &dictionary),
+        &compress_ctx,
+        exec_ctx,
+    )?;
     let score = EstimateScore::from_sample_sizes(profile.uncompressed_nbytes, compressed.nbytes());
     // Keep the trial even when its ratio loses: the compressor prefers it to a winner whose
     // actual output turns out larger.

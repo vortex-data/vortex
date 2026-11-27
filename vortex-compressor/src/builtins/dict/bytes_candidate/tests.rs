@@ -37,7 +37,6 @@ use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
 use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
-use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -247,8 +246,12 @@ fn completed_candidate_is_reused() -> VortexResult<()> {
     let cached = data
         .get::<TrialOutput>()
         .ok_or_else(|| vortex_err!("completed candidate was not cached"))?;
-    let compressed =
-        StringDictScheme.compress(&compressor, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let compressed = compressor.compress_with_scheme(
+        &StringDictScheme,
+        &data,
+        &CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
 
     assert!(ArrayRef::ptr_eq(&cached.array, &compressed));
     Ok(())

@@ -22,9 +22,11 @@ an existing CI job when adding one.
 GPU (`runner=gpu`) jobs skip the 20-23 UTC branch and run in `us-east-1` then, because
 `eu-central-1` often has no g5/g6 capacity; copy the `region=` expression from a job in `cuda.yaml`.
 
-Benchmark workflows use `region=us-east-1`, where their S3 data lives, with one exception: the SQL
-matrix spreads its NVMe entries over the regions in the `BENCH_NVME_REGIONS` repository variable, a
-JSON list such as `["us-east-1", "eu-west-2", "ap-northeast-1"]`. Each region needs a RunsOn stack.
+Benchmark workflows use `region=us-east-1`, where their S3 data lives, with two exceptions. Both
+exceptions read the `BENCH_NVME_REGIONS` repository variable, a JSON list of regions such as
+`["eu-central-1"]`. The SQL matrix spreads its NVMe entries over the regions in the list. The
+compression and string encoding benchmarks read no data from S3. They run in the first region of
+the list, on `develop` and on pull requests. Each region needs a RunsOn stack.
 Every benchmark job launches its own metal host, and one region's spot pool is only a few hosts
 deep. For the same reason `BENCH_MAX_PARALLEL` caps the SQL hosts that a develop run holds at once
-(default 4). Without `BENCH_NVME_REGIONS`, every entry runs in `us-east-1`.
+(default 4). Without `BENCH_NVME_REGIONS`, every benchmark job runs in `us-east-1`.
