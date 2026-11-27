@@ -101,7 +101,7 @@ impl CompressorContext {
     }
 
     /// Returns a context marked as sample compression.
-    pub(crate) fn with_sampling(mut self) -> Self {
+    pub fn with_sampling(mut self) -> Self {
         self.is_sample = true;
         self
     }
