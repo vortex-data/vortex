@@ -994,6 +994,7 @@ fn slice_start_misaligned(alignment: Alignment, begin_byte: usize) -> ! {
 #[cfg(test)]
 mod test {
     use std::mem::align_of;
+    use std::ops::Bound;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -1320,5 +1321,319 @@ mod test {
     fn test_ensure_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
         let buffer = Buffer::<u64>::from_iter([1, 2, 3]);
         drop(buffer.ensure_aligned(alignment));
+    }
+
+    #[test]
+    fn slice_ref_preserves_pointer_values_and_lifetime() {
+        let buf = buffer![10u32, 20, 30, 40, 50];
+        let sub = &buf.as_slice()[1..4];
+        let sub_ptr = sub.as_ptr();
+        let sliced = buf.slice_ref(sub);
+        drop(buf);
+
+        assert_eq!(sliced.as_ptr(), sub_ptr);
+        assert_eq!(sliced.as_slice(), &[20, 30, 40]);
+        assert_eq!(sliced.alignment(), Alignment::of::<u32>());
+    }
+
+    #[test]
+    fn slice_ref_with_alignment_valid_and_empty_subset() {
+        let buf = ByteBuffer::copy_from_aligned([0u8; 64], Alignment::new(64));
+        let sub = &buf.as_slice()[16..48];
+        let aligned = buf.slice_ref_with_alignment(sub, Alignment::new(16));
+        assert_eq!(aligned.as_ptr(), sub.as_ptr());
+        assert_eq!(aligned.len(), 32);
+        assert_eq!(aligned.alignment(), Alignment::new(16));
+
+        let empty = buf.slice_ref_with_alignment(&buf.as_slice()[16..16], Alignment::new(16));
+        assert!(empty.is_empty());
+        assert_eq!(empty.alignment(), Alignment::new(16));
+    }
+
+    #[test]
+    #[should_panic(expected = "slice_ref alignment must at least align to type T")]
+    fn slice_ref_with_alignment_below_type_alignment_panics() {
+        let buf = buffer![1u32, 2, 3, 4];
+        drop(buf.slice_ref_with_alignment(&buf[..2], Alignment::new(2)));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "slice_ref subset alignment must at least align to the buffer alignment"
+    )]
+    fn slice_ref_with_alignment_stricter_than_buffer_panics() {
+        let buf = ByteBuffer::copy_from_aligned([1u8, 2, 3, 4], Alignment::new(1));
+        drop(buf.slice_ref_with_alignment(&buf[..4], Alignment::new(4)));
+    }
+
+    #[test]
+    #[should_panic(expected = "slice_ref subset must be aligned to")]
+    fn slice_ref_with_alignment_misaligned_pointer_panics() {
+        let buf = ByteBuffer::copy_from_aligned([0u8; 16], Alignment::new(8));
+        drop(buf.slice_ref_with_alignment(&buf[1..5], Alignment::new(4)));
+    }
+
+    #[test]
+    #[should_panic(expected = "slice_ref subset must be contained in the buffer")]
+    fn slice_ref_outside_buffer_panics() {
+        let buf = buffer![1u32, 2, 3, 4];
+        let unrelated = [1u32, 2];
+        drop(buf.slice_ref(&unrelated));
+    }
+
+    #[test]
+    #[should_panic(expected = "slice_ref subset must be contained in the buffer")]
+    fn slice_ref_parent_slice_outside_sliced_view_panics() {
+        let parent = buffer![1u32, 2, 3, 4, 5];
+        let view = parent.slice(2..4);
+        drop(view.slice_ref(&parent[1..3]));
+    }
+
+    #[test]
+    #[should_panic(expected = "range start must not be greater than end")]
+    #[expect(clippy::reversed_empty_ranges)]
+    fn slice_inverted_range_panics() {
+        let buf = buffer![1u32, 2, 3, 4];
+        drop(buf.slice(3..1));
+    }
+
+    #[test]
+    #[should_panic(expected = "range end out of bounds")]
+    fn slice_out_of_bounds_panics() {
+        let buf = buffer![1u32, 2, 3];
+        drop(buf.slice(0..4));
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice alignment must at least align to type T")]
+    fn slice_with_alignment_below_type_panics() {
+        let buf = buffer![1u32, 2, 3, 4];
+        drop(buf.slice_with_alignment(0..2, Alignment::new(2)));
+    }
+
+    #[test]
+    fn slice_excluded_start_and_empty_releases_backing() {
+        let buf = buffer![10u32, 20, 30, 40];
+        let sliced = buf.slice((Bound::Excluded(0), Bound::Included(2)));
+        assert_eq!(sliced.as_slice(), &[20, 30]);
+        drop(sliced);
+
+        // An empty slice returns an unbacked buffer so the original remains uniquely owned.
+        let empty = buf.slice(2..2);
+        assert!(empty.is_empty());
+        assert!(empty.backing.is_none());
+        assert!(buf.try_into_mut().is_ok());
+    }
+
+    #[test]
+    fn from_byte_buffer_and_aligned_zero_copy() {
+        let original = buffer![1u32, 2, 3, 4];
+        let ptr = original.as_ptr();
+        let bytes = original.into_byte_buffer();
+
+        let typed = Buffer::<u32>::from_byte_buffer(bytes);
+        assert_eq!(typed.as_ptr(), ptr);
+        assert_eq!(typed.as_slice(), &[1, 2, 3, 4]);
+        assert_eq!(typed.alignment(), Alignment::of::<u32>());
+
+        // Non-zero aligned byte offset preserves zero-copy and requested alignment.
+        let overaligned = ByteBuffer::copy_from_aligned([0u8; 64], Alignment::new(64));
+        let sliced = overaligned.slice_with_alignment(16..32, Alignment::new(16));
+        let sliced_ptr = sliced.as_ptr();
+        let typed_aligned = Buffer::<u32>::from_byte_buffer_aligned(sliced, Alignment::new(16));
+        assert_eq!(typed_aligned.as_ptr().cast::<u8>(), sliced_ptr);
+        assert_eq!(typed_aligned.len(), 4);
+        assert_eq!(typed_aligned.alignment(), Alignment::new(16));
+
+        let empty = Buffer::<u64>::from_byte_buffer(ByteBuffer::empty());
+        assert!(empty.is_empty());
+        assert_eq!(empty.alignment(), Alignment::of::<u64>());
+    }
+
+    #[test]
+    #[should_panic(expected = "must be compatible with the scalar type's alignment")]
+    fn from_byte_buffer_aligned_incompatible_alignment_panics() {
+        let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4));
+        drop(Buffer::<u32>::from_byte_buffer_aligned(
+            bytes,
+            Alignment::new(2),
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer must align to the requested alignment")]
+    fn from_byte_buffer_misaligned_ptr_panics() {
+        let bytes =
+            ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4)).slice_unaligned(1..5);
+        drop(Buffer::<u32>::from_byte_buffer(bytes));
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer length 5 must be a multiple of the scalar type's size 4")]
+    fn from_byte_buffer_length_not_multiple_panics() {
+        let bytes = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::new(4));
+        drop(Buffer::<u32>::from_byte_buffer(bytes));
+    }
+
+    #[test]
+    fn from_bytes_aligned_zero_copy_and_empty() {
+        let raw =
+            Buffer::<u32>::copy_from_aligned([10u32, 20, 30], Alignment::new(16)).into_bytes();
+        let ptr = raw.as_ptr();
+        let empty_aligned = raw.slice(0..0);
+        let buf = Buffer::<u32>::from_bytes_aligned(raw, Alignment::of::<u32>());
+        assert_eq!(buf.as_ptr().cast::<u8>(), ptr);
+        assert_eq!(buf.as_slice(), &[10, 20, 30]);
+
+        let empty = Buffer::<u32>::from_bytes_aligned(empty_aligned, Alignment::new(16));
+        assert!(empty.is_empty());
+        assert!(empty.backing.is_none());
+        assert_eq!(empty.alignment(), Alignment::new(16));
+
+        let empty_u8 = ByteBuffer::from_bytes_aligned(Bytes::new(), Alignment::none());
+        assert!(empty_u8.is_empty());
+        assert!(empty_u8.backing.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "must be compatible with the scalar type's alignment")]
+    fn from_bytes_aligned_incompatible_alignment_panics() {
+        let raw = buffer![1u32, 2].into_bytes();
+        drop(Buffer::<u32>::from_bytes_aligned(raw, Alignment::new(2)));
+    }
+
+    #[test]
+    #[should_panic(expected = "Bytes alignment must align to the requested alignment")]
+    fn from_bytes_aligned_misaligned_ptr_panics() {
+        let raw = buffer![1u32, 2].into_bytes().slice(1..5);
+        drop(Buffer::<u32>::from_bytes_aligned(
+            raw,
+            Alignment::of::<u32>(),
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Bytes length 5 must be a multiple of the scalar type's size 4")]
+    fn from_bytes_aligned_length_not_multiple_panics() {
+        let raw = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::new(4)).into_bytes();
+        drop(Buffer::<u32>::from_bytes_aligned(
+            raw,
+            Alignment::of::<u32>(),
+        ));
+    }
+
+    #[test]
+    fn into_bytes_covers_empty_owned_sliced_and_shared_bytes_paths() {
+        // Unbacked empty buffer.
+        assert!(Buffer::<u32>::empty().into_bytes().is_empty());
+
+        // Owned typed buffer sliced at non-zero offset preserves pointer and byte representation.
+        let owned = buffer![0x0102_0304u32, 0x0506_0708, 0x090a_0b0c];
+        let sliced = owned.slice(1..3);
+        let sliced_ptr = sliced.as_ptr().cast::<u8>();
+        let expected_bytes = sliced.as_bytes().to_vec();
+        drop(owned);
+        let bytes = sliced.into_bytes();
+        assert_eq!(bytes.as_ptr(), sliced_ptr);
+        assert_eq!(bytes.as_ref(), expected_bytes.as_slice());
+
+        // Bytes-backed buffer sliced at non-zero offset takes the Bytes::slice path.
+        let source = Bytes::from_static(&[10, 20, 30, 40, 50]);
+        let buf = ByteBuffer::from(source).slice(1..4);
+        let slice_ptr = buf.as_ptr();
+        let sliced_bytes = buf.into_bytes();
+        assert_eq!(sliced_bytes.as_ptr(), slice_ptr);
+        assert_eq!(sliced_bytes.as_ref(), &[20, 30, 40]);
+
+        // Shared Bytes-backed buffer (Arc strong_count > 1) keeps both views valid zero-copy.
+        let shared = ByteBuffer::from(Bytes::from_static(&[1, 2, 3, 4]));
+        let cloned = shared.clone();
+        let shared_ptr = shared.as_ptr();
+        let shared_bytes = shared.into_bytes();
+        assert_eq!(shared_bytes.as_ptr(), shared_ptr);
+        assert_eq!(shared_bytes.as_ref(), &[1, 2, 3, 4]);
+        assert_eq!(cloned.as_slice(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn transmute_zero_copy_preserves_offset_alignment_and_sharing() {
+        let base = Buffer::<u32>::copy_from_aligned([0u32, 1, u32::MAX, 42], Alignment::new(16));
+        let sliced = base.slice_with_alignment(1..4, Alignment::of::<u32>());
+        let ptr = sliced.as_ptr();
+
+        // SAFETY: all bit patterns of u32 are valid i32 values.
+        let transmuted: Buffer<i32> = unsafe { sliced.transmute() };
+        assert_eq!(transmuted.as_ptr().cast::<u32>(), ptr);
+        assert_eq!(transmuted.alignment(), Alignment::of::<u32>());
+        assert_eq!(transmuted.as_slice(), &[1, -1, 42]);
+        assert_eq!(base.as_slice(), &[0, 1, u32::MAX, 42]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer type size mismatch")]
+    fn transmute_size_mismatch_panics() {
+        let buf = buffer![1u32, 2];
+        // SAFETY: panics on size check before reinterpreting memory.
+        drop(unsafe { buf.transmute::<u16>() });
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer type alignment mismatch")]
+    fn transmute_alignment_mismatch_panics() {
+        let buf = buffer![1u32, 2];
+        // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
+        drop(unsafe { buf.transmute::<[u8; 4]>() });
+    }
+
+    #[test]
+    fn aligned_zero_copy_vs_realign_copy_and_ensure_aligned() {
+        let buf = ByteBuffer::copy_from_aligned([1u8, 2, 3, 4, 5, 6, 7, 8], Alignment::new(8));
+        let ptr = buf.as_ptr();
+        let ensured = buf.clone().ensure_aligned(Alignment::new(8));
+        assert_eq!(ensured.as_ptr(), ptr);
+        assert_eq!(ensured.alignment(), Alignment::new(8));
+
+        let unaligned = buf.slice_unaligned(1..5);
+        let unaligned_ptr = unaligned.as_ptr();
+        let realigned = unaligned.aligned(Alignment::new(4));
+        assert_ne!(realigned.as_ptr(), unaligned_ptr);
+        assert!(realigned.is_aligned(Alignment::new(4)));
+        assert_eq!(realigned.alignment(), Alignment::new(4));
+        assert_eq!(realigned.as_slice(), &[2, 3, 4, 5]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer is not aligned to requested alignment 4")]
+    fn ensure_aligned_misaligned_panics() {
+        let unaligned =
+            ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(8)).slice_unaligned(1..5);
+        drop(unaligned.ensure_aligned(Alignment::new(4)));
+    }
+
+    #[test]
+    fn shared_owned_try_into_mut_returns_err_preserving_backing() {
+        let buf = buffer![1u32, 2, 3];
+        let clone = buf.clone();
+        let backing_ptr = Arc::as_ptr(buf.backing.as_ref().unwrap());
+
+        let Err(returned) = buf.try_into_mut() else {
+            panic!("shared buffer must not become mutable")
+        };
+        assert_eq!(Arc::as_ptr(returned.backing.as_ref().unwrap()), backing_ptr);
+        assert_eq!(returned.as_slice(), clone.as_slice());
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot advance buffer by 1 items, resulting alignment is not 4")]
+    fn bytes_buf_advance_misaligned_panics() {
+        let mut buf = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4));
+        buf.advance(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot advance past the buffer length")]
+    fn bytes_buf_advance_past_length_panics() {
+        let mut buf = ByteBuffer::copy_from([1u8, 2, 3]);
+        buf.advance(4);
     }
 }

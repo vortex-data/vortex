@@ -1532,4 +1532,38 @@ mod tests {
             4, alignment, None,
         ));
     }
+
+    #[test]
+    fn transmute_preserves_ptr_capacity_alignment_and_mutability() {
+        let mut buf = BufferMut::<u32>::with_capacity_aligned(16, Alignment::new(64));
+        buf.extend_from_slice(&[1, u32::MAX, 42]);
+        let ptr = buf.as_ptr();
+        let cap = buf.capacity();
+
+        // SAFETY: all bit patterns of u32 are valid i32 values.
+        let mut transmuted: BufferMut<i32> = unsafe { buf.transmute() };
+        assert_eq!(transmuted.as_ptr().cast::<u32>(), ptr);
+        assert_eq!(transmuted.capacity(), cap);
+        assert_eq!(transmuted.alignment(), Alignment::new(64));
+        assert_eq!(transmuted.as_slice(), &[1, -1, 42]);
+
+        transmuted.push(-7);
+        assert_eq!(transmuted.as_slice(), &[1, -1, 42, -7]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer type size mismatch")]
+    fn transmute_size_mismatch_panics() {
+        let buf = buffer_mut![1u32, 2];
+        // SAFETY: panics on size check before reinterpreting memory.
+        drop(unsafe { buf.transmute::<u16>() });
+    }
+
+    #[test]
+    #[should_panic(expected = "Buffer type alignment mismatch")]
+    fn transmute_alignment_mismatch_panics() {
+        let buf = buffer_mut![1u32, 2];
+        // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
+        drop(unsafe { buf.transmute::<[u8; 4]>() });
+    }
 }
