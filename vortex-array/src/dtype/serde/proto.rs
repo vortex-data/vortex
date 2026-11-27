@@ -55,6 +55,7 @@ impl DType {
             )),
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
+            DtypeType::FixedSizeBinary(b) => Ok(Self::FixedSizeBinary(b.size, b.nullable.into())),
             DtypeType::List(l) => {
                 let nullable = l.nullable.into();
                 Ok(Self::List(
@@ -181,6 +182,12 @@ impl TryFrom<&DType> for pb::DType {
                 DType::Binary(null) => DtypeType::Binary(pb::Binary {
                     nullable: (*null).into(),
                 }),
+                DType::FixedSizeBinary(size, null) => {
+                    DtypeType::FixedSizeBinary(pb::FixedSizeBinary {
+                        size: *size,
+                        nullable: (*null).into(),
+                    })
+                }
                 DType::List(edt, null) => DtypeType::List(Box::new(pb::List {
                     element_type: Some(Box::new(edt.as_ref().try_into()?)),
                     nullable: (*null).into(),
@@ -326,6 +333,8 @@ mod tests {
             DType::Primitive(PType::F64, Nullability::NonNullable),
             DType::Utf8(Nullability::Nullable),
             DType::Binary(Nullability::NonNullable),
+            DType::FixedSizeBinary(16, Nullability::NonNullable),
+            DType::FixedSizeBinary(4, Nullability::Nullable),
         ];
 
         for dtype in test_cases {

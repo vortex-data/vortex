@@ -37,6 +37,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self.0.dtype() {
+            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
+                "FixedSizeBinary scalars are not supported in Python yet",
+            )),
             DType::Null => Ok(py.None().into_pyobject(py)?),
             DType::Bool(_) => Ok(self.0.as_bool().value().as_ref().into_pyobject(py)?),
             DType::Primitive(ptype, ..) => {
