@@ -19,7 +19,6 @@ workspace = true
 [dependencies]
 roaring = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-functions = { workspace = true }
