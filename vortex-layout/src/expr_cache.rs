@@ -8,6 +8,7 @@ use vortex_expr::BoundExpression;
 use vortex_expr::ExactKey;
 use vortex_expr::WeakBoundExprKey;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 /// Concurrent cache keyed by [`BoundExpression`] identity whose entries do not keep expressions
 /// alive.
@@ -73,6 +74,40 @@ impl<V> WeakExprCache<V> {
             .or_insert_with(init)
             .value()
             .clone()
+    }
+
+    /// Returns the cached value for `expr` if present and accepted by `is_valid`, otherwise
+    /// builds a replacement with `init()` outside the shard lock and inserts or replaces the
+    /// entry if it is still absent or invalid.
+    ///
+    /// Because `init()` runs without holding the shard lock, concurrent misses may each invoke
+    /// `init()`, with only the first valid entry retained.
+    pub(crate) fn get_or_insert_valid_with(
+        &self,
+        expr: &BoundExpression,
+        is_valid: impl Fn(&V) -> bool,
+        init: impl FnOnce() -> V,
+    ) -> V
+    where
+        V: Clone,
+    {
+        if let Some(entry) = self.map.get(expr as &dyn ExactKey)
+            && is_valid(entry.value())
+        {
+            return entry.value().clone();
+        }
+
+        let value = init();
+        self.maybe_evict();
+        match self.map.entry(WeakBoundExprKey::new(expr)) {
+            Entry::Occupied(mut occupied) => {
+                if !is_valid(occupied.get()) {
+                    *occupied.get_mut() = value;
+                }
+                occupied.get().clone()
+            }
+            Entry::Vacant(vacant) => vacant.insert(value).clone(),
+        }
     }
 
     /// Runs `f` on the cached entry for `expr`, inserting `init()` on a miss.
@@ -151,6 +186,54 @@ mod tests {
         assert_eq!(cache.len(), 2);
         assert_eq!(cache.get_cloned(&live), Some(1));
         assert_eq!(cache.get_cloned(&trigger), Some(999));
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_or_insert_valid_with_replaces_invalid_entries() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let cache = WeakExprCache::<Result<usize, &'static str>>::new();
+        let expr = gt(root(), lit(0i32)).bind(&dtype)?;
+
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Err("transient")),
+            Err("transient")
+        );
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Ok(42)),
+            Ok(42)
+        );
+        // Once valid, subsequent calls reuse the cached value without calling `init`.
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Ok(99)),
+            Ok(42)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_or_insert_valid_with_runs_init_outside_shard_lock() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let cache = WeakExprCache::<Result<usize, &'static str>>::with_shard_amount(2);
+        let expr = gt(root(), lit(0i32)).bind(&dtype)?;
+
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Err("transient")),
+            Err("transient")
+        );
+
+        // Re-entering the cache inside `init` must not deadlock, and a valid entry inserted
+        // before `init` returns must win over `init`'s return value.
+        let value = cache.get_or_insert_valid_with(&expr, Result::is_ok, || {
+            assert_eq!(cache.get_cloned(&expr), Some(Err("transient")));
+            cache
+                .get_or_insert_valid_with(&expr, Result::is_ok, || Ok(1))
+                .expect("inner insert should succeed");
+            Ok(2)
+        });
+        assert_eq!(value, Ok(1));
 
         Ok(())
     }

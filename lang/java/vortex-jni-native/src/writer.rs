@@ -24,6 +24,10 @@ use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::channel::oneshot;
+use futures::future::Either;
+use futures::future::select;
+use futures::pin_mut;
 use jni::Env;
 use jni::EnvUnowned;
 use jni::objects::JClass;
@@ -144,6 +148,7 @@ fn session_write_options(session: &VortexSession, compact: bool) -> VortexWriteO
 /// Native writer holding a write-task handle and a sender that Java pushes batches into.
 pub struct NativeWriter {
     handle: Option<Task<VortexResult<WriteSummary>>>,
+    abort_tx: Option<oneshot::Sender<()>>,
     session: VortexSession,
     arrow_schema: SchemaRef,
     write_schema: DType,
@@ -163,6 +168,7 @@ impl NativeWriter {
         write: W,
     ) -> Self {
         let (sender, stream) = write_queue(write_schema.clone());
+        let (abort_tx, abort_rx) = oneshot::channel::<()>();
 
         let size = write_options.size_estimator();
         let deferred_metadata = write_options.deferred_metadata();
@@ -170,13 +176,23 @@ impl NativeWriter {
         let mut write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
         let handle = session.handle().spawn(async move {
-            let summary = write_options.write(&mut write, stream).await?;
-            write.shutdown().await?;
-            Ok(summary)
+            let write_fut = async move {
+                let summary = write_options.write(&mut write, stream).await?;
+                write.shutdown().await?;
+                Ok(summary)
+            };
+            pin_mut!(write_fut);
+            // Poll `abort_rx` first so a cancelled writer drops `write_fut` immediately
+            // without polling compression, footer serialization, or sink shutdown again.
+            match select(abort_rx, write_fut).await {
+                Either::Right((result, _)) => result,
+                Either::Left((..)) => Err(vortex_err!("writer aborted")),
+            }
         });
 
         Self {
             handle: Some(handle),
+            abort_tx: Some(abort_tx),
             session: session.clone(),
             arrow_schema,
             write_schema,
@@ -248,6 +264,21 @@ impl NativeWriter {
             .take()
             .ok_or_else(|| vortex_err!("writer already closed"))?;
         RUNTIME.block_on(handle)
+    }
+
+    /// Cancel the write task without writing a footer or flushing the sink, and wait for the
+    /// write task and any cancelled subtasks on the current-thread executor to exit.
+    fn abort(mut self) {
+        drop(self.abort_tx.take());
+        // Keep `self.sender` connected until the write task exits so the layout task cannot
+        // observe EOF and finalize the file before cancellation takes effect.
+        if let Some(mut handle) = self.handle.take() {
+            drop(RUNTIME.block_on(std::future::poll_fn(|cx| handle.poll_join(cx))));
+            // Drain cancelled subtasks scheduled when `write_fut` dropped so they release
+            // their Arrow buffers before `abort` returns. Relies on `CurrentThreadRuntime`'s
+            // FIFO task queue running those cancelled tasks ahead of this newly spawned one.
+            RUNTIME.block_on(self.session.handle().spawn(async {}));
+        }
     }
 }
 
@@ -400,14 +431,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
     }
 
     try_or_throw(&mut env, |_env| {
-        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
-
-        let ffi_array =
-            unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
+        // Take ownership of whichever non-null FFI structs were passed before validating so a
+        // mixed-null call still releases the valid export as documented by `VortexWriter.writeBatch`.
+        let ffi_array = (arrow_array_addr != 0)
+            .then(|| unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) });
         // Take the schema as well as the array. As the consumer, native code must release both, and dropping the
         // owned schema does that; borrowing it would leak the exporter's copy on every batch.
-        let ffi_schema =
-            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let ffi_schema = (arrow_schema_addr != 0).then(|| unsafe {
+            FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema)
+        });
+        let Some(ffi_array) = ffi_array else {
+            throw_runtime!("null arrow array address");
+        };
+        let Some(ffi_schema) = ffi_schema else {
+            throw_runtime!("null arrow schema address");
+        };
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
 
         let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, &ffi_schema) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
@@ -529,6 +568,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatchBuffers(
         return JNI_FALSE;
     }
     try_or_throw(&mut env, |env| {
+        if arrow_array_addr == 0 {
+            throw_runtime!("null arrow array address");
+        }
+        if buffers.is_null() {
+            throw_runtime!("null buffers");
+        }
         // SAFETY: Java validates the root schema against the writer's schema and holds the
         // writer monitor for this call. Moving the array clears its release callback.
         let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
@@ -640,6 +685,25 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_close(
     let writer = unsafe { NativeWriter::from_raw(writer_ptr) };
     try_or_throw(&mut env, |_env| {
         writer.close(HashMap::new())?;
+        Ok(())
+    });
+}
+
+/// Abort the writer without writing a footer or flushing the sink.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_abort(
+    mut env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+) {
+    if writer_ptr <= 0 {
+        return;
+    }
+    // SAFETY: `writer_ptr` was returned by `NativeWriter::into_raw` and has not yet been consumed
+    // by `close`, `finish`, or a previous `abort`.
+    let writer = unsafe { NativeWriter::from_raw(writer_ptr) };
+    try_or_throw(&mut env, |_env| {
+        writer.abort();
         Ok(())
     });
 }
