@@ -14,6 +14,7 @@ use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::dict_encode_with_constraints;
@@ -22,6 +23,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_sequence::sequence_encode;
 
 /// The estimated ratio of a string scheme, such as FSST, on string data.
@@ -82,7 +84,7 @@ pub(super) fn probe_dictionary(
 
     if dict.len() != sample.len() {
         let estimate = match sample.dtype() {
-            DType::Utf8(_) | DType::Binary(_) => string_bytes(rows, uncompressed_bytes),
+            DType::Utf8(_) | DType::Binary(_) => string_bytes(rows, string_payload(sample, ctx)?),
             DType::Primitive(ptype, _) if ptype.is_float() => uncompressed_bytes as f64,
             _ => match range_bits(sample, ctx)? {
                 Some(bits) => rows as f64 * bits / 8.0,
@@ -107,8 +109,8 @@ pub(super) fn probe_dictionary(
 
     let (values_estimate, plain_estimate) = match sample.dtype() {
         DType::Utf8(_) | DType::Binary(_) => (
-            string_bytes(entries, values_bytes),
-            string_bytes(rows, uncompressed_bytes),
+            string_bytes(entries, string_payload(&values, ctx)?),
+            string_bytes(rows, string_payload(sample, ctx)?),
         ),
         DType::Primitive(ptype, _) if ptype.is_float() => {
             let bits = (ptype.byte_width() * 8) as f64;
@@ -146,9 +148,31 @@ pub(super) fn probe_dictionary(
     })
 }
 
-fn string_bytes(count: u64, bytes: u64) -> f64 {
-    let data = bytes.saturating_sub(count * 16) as f64;
-    data / STRING_RATIO + count as f64 * STRING_LENGTH_BYTES
+/// Estimates the compressed bytes of `count` strings with `payload` bytes of string data.
+fn string_bytes(count: u64, payload: u64) -> f64 {
+    payload as f64 / STRING_RATIO + count as f64 * STRING_LENGTH_BYTES
+}
+
+/// Returns the bytes of the valid strings in `strings`.
+///
+/// The uncompressed size of a view array does not give this value: it counts only the 16-byte
+/// view of a string that is inlined in its view.
+fn string_payload(strings: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+    let strings = strings.clone().execute::<VarBinViewArray>(ctx)?;
+    let views = strings.views();
+
+    let payload = match strings.validity()?.execute_mask(strings.len(), ctx)? {
+        Mask::AllTrue(_) => views.iter().map(|view| u64::from(view.len())).sum(),
+        Mask::AllFalse(_) => 0,
+        Mask::Values(valid) => views
+            .iter()
+            .zip(valid.bit_buffer().iter())
+            .filter(|(_, is_valid)| *is_valid)
+            .map(|(view, _)| u64::from(view.len()))
+            .sum(),
+    };
+
+    Ok(payload)
 }
 
 fn count_runs<T: NativePType>(codes: &[T]) -> u64 {
@@ -260,6 +284,12 @@ mod tests {
     #[case::constant(VarBinViewArray::from_iter_str(["abc"; 64]).into_array(), None, false)]
     #[case::categories(
         VarBinViewArray::from_iter_str((0..4096).map(|i| ["books", "garden", "toys"][i % 3]))
+            .into_array(),
+        None,
+        true
+    )]
+    #[case::short_strings(
+        VarBinViewArray::from_iter_str((0..8192).map(|i| format!("{:012}", i % 3000)))
             .into_array(),
         None,
         true
