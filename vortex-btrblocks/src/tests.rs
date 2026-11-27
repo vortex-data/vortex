@@ -24,7 +24,6 @@ use vortex_alp::ALPArrayExt;
 use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::ALPRD;
 use vortex_alp::ALPRDArraySlotsExt;
-#[cfg(feature = "zstd")]
 use vortex_array::ArrayId;
 #[cfg(feature = "zstd")]
 use vortex_array::ArrayPlugin;
