@@ -46,12 +46,12 @@ jobs:
           enable-sccache: ${{ github.event.pull_request.head.repo.fork == false && 'true' || 'false' }}
       - name: Build benchmark
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: cargo bench --locked -p lance-bench --bench index_vs_lance --no-run
       - name: Run benchmark
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           set -Eeu -o pipefail
           cargo bench --locked -p lance-bench --bench index_vs_lance -- --output-format bencher \
@@ -73,14 +73,14 @@ jobs:
                  }
                  END {
                    for (g in q) {
-                     if ((g, "vortex_reopen") in t) {
-                       reopen = sprintf("%.1f", t[g, "vortex_reopen"])
-                       ratio = sprintf("%.2f", t[g, "vortex_reopen"] / t[g, "lance"])
-                     } else {
-                       reopen = "–"; ratio = "–"
-                     }
-                     printf "| %s | %.1f | %s | %.1f | %.2f | %s |\n", g, t[g, "vortex"], reopen, t[g, "lance"], t[g, "vortex"] / t[g, "lance"], ratio
+                     vortex = cell(g, "vortex", "%.1f"); reopen = cell(g, "vortex_reopen", "%.1f")
+                     lance = cell(g, "lance", "%.1f")
+                     printf "| %s | %s | %s | %s | %s | %s |\n", g, vortex, reopen, lance, ratio(g, "vortex"), ratio(g, "vortex_reopen")
                    }
+                 }
+                 function cell(g, k, fmt) { return ((g, k) in t) ? sprintf(fmt, t[g, k]) : "–" }
+                 function ratio(g, k) {
+                   return ((g, k) in t && (g, "lance") in t && t[g, "lance"] > 0) ? sprintf("%.2f", t[g, k] / t[g, "lance"]) : "–"
                  }' bencher.txt | sort
             echo
             echo "Recall@10 against exact search, from the benchmark's own check:"
