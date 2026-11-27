@@ -472,3 +472,41 @@ fn test_validate_monotonic_ends_correct_nulls() {
     let zctl_listview = unsafe { listview.with_zero_copy_to_list(true) };
     assert!(zctl_listview.is_zero_copy_to_list());
 }
+
+#[cfg(debug_assertions)]
+#[rstest]
+#[case::gap_after_leading_empty(
+    buffer![10i32, 20, 30],
+    buffer![0u32, 2],
+    buffer![0u32, 1],
+)]
+#[case::gap_between_empty_lists(
+    buffer![10i32, 20],
+    buffer![0u32, 2],
+    buffer![0u32, 0],
+)]
+#[case::gap_before_trailing_empty(
+    buffer![10i32, 20, 30],
+    buffer![0u32, 3],
+    buffer![1u32, 0],
+)]
+#[should_panic(expected = "Zero-copy-to-list requires contiguous views without gaps")]
+fn test_validate_zctl_rejects_gaps_around_empty_lists(
+    #[case] elements: vortex_buffer::Buffer<i32>,
+    #[case] offsets: vortex_buffer::Buffer<u32>,
+    #[case] sizes: vortex_buffer::Buffer<u32>,
+) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let listview = ListViewArray::new(
+        elements.into_array(),
+        offsets.into_array(),
+        sizes.into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    );
+    // SAFETY: Intentionally passing invalid zero-copy metadata to verify the debug_assertions
+    // validator rejects gaps around empty lists.
+    unsafe {
+        let _zctl = listview.with_zero_copy_to_list(true);
+    }
+}

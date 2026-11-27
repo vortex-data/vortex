@@ -50,6 +50,7 @@ insta = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-parquet-variant = { workspace = true }
 
 [features]
 pco = ["dep:pco", "dep:vortex-pco"]

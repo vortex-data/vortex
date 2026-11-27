@@ -17,10 +17,13 @@ pub use serde::*;
 #[cfg(test)]
 #[cfg(feature = "serde")]
 mod test {
+    use std::io;
+
     use rstest::rstest;
     use serde::de::DeserializeSeed;
     use serde_test::Token;
     use serde_test::assert_tokens;
+    use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -216,6 +219,25 @@ mod test {
             .deserialize(&mut deserializer)
             .unwrap();
         assert_eq!(DType::Variant(Nullability::Nullable), deserialized);
+    }
+
+    #[rstest]
+    #[case(16, Nullability::NonNullable)]
+    #[case(0, Nullability::Nullable)]
+    fn test_serde_fixed_size_binary_dtype_json_roundtrip(
+        #[case] size: u32,
+        #[case] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let dtype = DType::FixedSizeBinary(size, nullability);
+
+        let json = serde_json::to_string(&dtype).map_err(io::Error::from)?;
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .map_err(io::Error::from)?;
+
+        assert_eq!(deserialized, dtype);
+        Ok(())
     }
 
     #[test]

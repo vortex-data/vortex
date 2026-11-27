@@ -82,33 +82,34 @@ impl From<crossterm::event::KeyEvent> for InputEvent {
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+fn key_code_from_web_key(key: &str) -> InputKeyCode {
+    let mut chars = key.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => InputKeyCode::Char(c),
+        _ => match key {
+            "ArrowUp" => InputKeyCode::Up,
+            "ArrowDown" => InputKeyCode::Down,
+            "ArrowLeft" => InputKeyCode::Left,
+            "ArrowRight" => InputKeyCode::Right,
+            "Enter" => InputKeyCode::Enter,
+            "Escape" => InputKeyCode::Esc,
+            "Tab" => InputKeyCode::Tab,
+            "PageUp" => InputKeyCode::PageUp,
+            "PageDown" => InputKeyCode::PageDown,
+            "Home" => InputKeyCode::Home,
+            "End" => InputKeyCode::End,
+            "Backspace" => InputKeyCode::Backspace,
+            "Delete" => InputKeyCode::Delete,
+            _ => InputKeyCode::Other,
+        },
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 impl From<web_sys::KeyboardEvent> for InputEvent {
     fn from(event: web_sys::KeyboardEvent) -> Self {
-        let key = event.key();
-        let code = if key.len() == 1 {
-            match key.chars().next() {
-                Some(c) => InputKeyCode::Char(c),
-                None => InputKeyCode::Other,
-            }
-        } else {
-            match key.as_str() {
-                "ArrowUp" => InputKeyCode::Up,
-                "ArrowDown" => InputKeyCode::Down,
-                "ArrowLeft" => InputKeyCode::Left,
-                "ArrowRight" => InputKeyCode::Right,
-                "Enter" => InputKeyCode::Enter,
-                "Escape" => InputKeyCode::Esc,
-                "Tab" => InputKeyCode::Tab,
-                "PageUp" => InputKeyCode::PageUp,
-                "PageDown" => InputKeyCode::PageDown,
-                "Home" => InputKeyCode::Home,
-                "End" => InputKeyCode::End,
-                "Backspace" => InputKeyCode::Backspace,
-                "Delete" => InputKeyCode::Delete,
-                _ => InputKeyCode::Other,
-            }
-        };
+        let code = key_code_from_web_key(&event.key());
 
         InputEvent {
             code,
@@ -116,5 +117,26 @@ impl From<web_sys::KeyboardEvent> for InputEvent {
             alt: event.alt_key(),
             shift: event.shift_key(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_code_from_web_key_multibyte_utf8_chars() {
+        assert!(matches!(
+            key_code_from_web_key("é"),
+            InputKeyCode::Char('é')
+        ));
+        assert!(matches!(
+            key_code_from_web_key("🦀"),
+            InputKeyCode::Char('🦀')
+        ));
+        assert!(matches!(
+            key_code_from_web_key("ArrowLeft"),
+            InputKeyCode::Left
+        ));
     }
 }

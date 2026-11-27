@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 
 /// Zstd buffer-level compression preserving array layout for GPU decompression.
@@ -44,14 +45,26 @@ impl Scheme for ZstdBuffersScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Zstd stores the input's validity, which is registered.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        Encoded::of_leaf(data.array().clone(), |input, exec_ctx| {
+            Ok(vortex_zstd::ZstdBuffers::compress(&input, 3, exec_ctx.session())?.into_array())
+        })
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = compressor.with_compressed_validity(data.array(), exec_ctx)?;
-        Ok(vortex_zstd::ZstdBuffers::compress(&input, 3, exec_ctx.session())?.into_array())
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

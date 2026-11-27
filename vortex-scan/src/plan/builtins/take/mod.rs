@@ -154,7 +154,7 @@ impl PlanVTable for Take {
         let values = match compiler.compile(&values, values_rows, &Mask::new_true(len))? {
             Some(values) => values,
             None => Chain::new(OnceSource::new(
-                Canonical::empty(values.dtype()).into_array(),
+                Canonical::try_empty(values.dtype())?.into_array(),
             )),
         };
         let source = TakeSource::new(plan.clone(), None, Some(cache));

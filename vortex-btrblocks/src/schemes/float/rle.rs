@@ -19,9 +19,10 @@ use vortex_fastlanes::RLE;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::schemes::integer::RUN_LENGTH_THRESHOLD;
-use crate::schemes::integer::rle_compress;
+use crate::schemes::integer::rle_encode;
 use crate::schemes::rle_ancestor_exclusions;
 use crate::schemes::rle_descendant_exclusions;
 
@@ -73,13 +74,24 @@ impl Scheme for FloatRLEScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Children: values=0, indices=1, offsets=2. The indices carry the validity.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        rle_encode(self, data, exec_ctx)
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        rle_compress(self, compressor, data, compress_ctx, exec_ctx)
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

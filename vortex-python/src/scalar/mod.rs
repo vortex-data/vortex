@@ -106,6 +106,9 @@ impl PyScalar {
     pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyScalar>> {
         // TODO(ngates): Bound::as_super would be great, but it's in newer PyO3.
         match scalar.dtype() {
+            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
+                "FixedSizeBinary scalars are not supported in Python yet",
+            )),
             DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
             DType::Primitive(..) => Self::with_subclass(py, scalar, PyPrimitiveScalar),

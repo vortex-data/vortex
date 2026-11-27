@@ -48,18 +48,22 @@ const CONSTANT_SCHEME_ID: SchemeId = SchemeId {
 /// conservatively return false. All-valid arrays reuse the ordinary constant check.
 pub(crate) fn is_constant_for_compression(
     array: &ArrayRef,
+    allow_masked: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let mask = array.validity()?.execute_mask(array.len(), ctx)?;
     let Some(first) = mask.first() else {
         return Ok(!array.is_empty());
     };
+    if !allow_masked && !mask.all_true() {
+        return Ok(false);
+    }
 
     Ok(match array.clone().execute::<Columnar>(ctx)? {
         Columnar::Constant(_) => true,
         Columnar::Canonical(Canonical::Extension(array)) => {
             // Compare storage before consulting extension min/max, which can hide NaNs.
-            is_constant_for_compression(array.storage_array(), ctx)?
+            is_constant_for_compression(array.storage_array(), allow_masked, ctx)?
         }
         Columnar::Canonical(_) if mask.all_true() => is_constant(array, ctx)?,
         Columnar::Canonical(Canonical::Primitive(array)) => {

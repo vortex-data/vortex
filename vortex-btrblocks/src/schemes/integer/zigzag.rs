@@ -9,7 +9,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -30,7 +29,9 @@ use super::RunEndScheme;
 use super::SparseScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 
@@ -123,25 +124,32 @@ impl Scheme for ZigZagScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Children: encoded=0, which carries the validity.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        let zag = zigzag_encode(data.array_as_primitive())?;
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, zag.encoded().clone())],
+            Vec::new(),
+            |children, _| {
+                let [encoded] = children.compressed()?;
+                Ok(ZigZag::try_new(encoded)?.into_array())
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // Zigzag encode the values, then recursively compress the inner values.
-        let zag = zigzag_encode(data.array_as_primitive())?;
-        let encoded = zag.encoded().clone().execute::<PrimitiveArray>(exec_ctx)?;
-
-        let compressed = compressor.compress_child(
-            &encoded.into_array(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-
-        Ok(ZigZag::try_new(compressed)?.into_array())
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

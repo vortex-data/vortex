@@ -101,6 +101,10 @@ void duckdb_vector_flatten(duckdb_vector vector) {
     reinterpret_cast<Vector *>(vector)->Flatten();
 }
 
+extern "C" void duckdb_vx_vector_set_size(duckdb_vector ffi_vector, idx_t size) {
+    reinterpret_cast<Vector *>(ffi_vector)->BufferMutable().SetVectorSize(size);
+}
+
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
     using enum VectorType;
     Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);

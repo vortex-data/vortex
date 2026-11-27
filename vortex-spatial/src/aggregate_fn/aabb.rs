@@ -75,11 +75,25 @@ fn aabb_dtype() -> DType {
 }
 
 /// The AABB of the raw `x`/`y` slices, or `None` when empty.
+///
+/// A box gives no bound for a row with a `NaN` coordinate, such as `POINT EMPTY`: its distance is
+/// `NaN`, which some float orders put above every number and others below it. So a `NaN`
+/// coordinate makes the box the whole plane, and pruning keeps the chunk whatever the order of the
+/// predicate.
 fn aabb_of(xs: &[f64], ys: &[f64]) -> Option<SpatialRect<f64>> {
-    (!xs.is_empty()).then(|| {
-        let [xmin, ymin, xmax, ymax] = box_corners(xs, ys);
-        SpatialRect::new((xmin, ymin), (xmax, ymax))
-    })
+    if xs.is_empty() {
+        return None;
+    }
+
+    if xs.iter().chain(ys).any(|v| v.is_nan()) {
+        return Some(SpatialRect::new(
+            (f64::NEG_INFINITY, f64::NEG_INFINITY),
+            (f64::INFINITY, f64::INFINITY),
+        ));
+    }
+
+    let [xmin, ymin, xmax, ymax] = box_corners(xs, ys);
+    Some(SpatialRect::new((xmin, ymin), (xmax, ymax)))
 }
 
 /// Read an AABB stat scalar (a nullable native `geoarrow.box`) into a [`SpatialRect`], or `None` when
@@ -261,6 +275,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use geo::Rect as SpatialRect;
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::Accumulator;
@@ -455,14 +470,20 @@ mod tests {
         Ok(())
     }
 
-    /// All-NaN coordinates: `f64::min`/`max` skip the NaNs and `geo::Rect` normalizes the result to
-    /// a valid (whole-plane) box, so such a chunk is always kept. Sound - NaN-coordinate rows can
-    /// never satisfy `distance <= r` anyway.
-    #[test]
-    fn all_nan_coordinates_kept() -> VortexResult<()> {
+    /// A `NaN` coordinate makes the box the whole plane, also next to finite coordinates, so the
+    /// chunk is always kept. Its row has a `NaN` distance, which can satisfy `distance >= r` or
+    /// `distance <= r`, depending on the float order of the predicate and the sign of the `NaN`.
+    #[rstest]
+    #[case::all_nan(vec![f64::NAN, f64::NAN], vec![f64::NAN, f64::NAN])]
+    #[case::one_nan_row(vec![0.0, f64::NAN], vec![0.0, f64::NAN])]
+    #[case::one_nan_ordinate(vec![0.0, 1.0], vec![0.0, -f64::NAN])]
+    fn nan_coordinates_widen_to_whole_plane(
+        #[case] xs: Vec<f64>,
+        #[case] ys: Vec<f64>,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
-        let column = point_column(vec![f64::NAN, f64::NAN], vec![f64::NAN, f64::NAN])?;
+        let column = point_column(xs, ys)?;
         let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, column.dtype().clone())?;
         acc.accumulate(&column, &mut ctx)?;
 

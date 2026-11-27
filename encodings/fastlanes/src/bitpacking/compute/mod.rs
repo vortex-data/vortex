@@ -64,11 +64,7 @@ unsafe impl<T: BitPacking> ChunkDecoder<T> for PackedChunks<'_, T> {
         // SAFETY: the unpack only writes to `dst`, and the packed chunk holds `FL_CHUNK_SIZE`
         // values of `bit_width` bits.
         unsafe {
-            BitPacking::unchecked_unpack(
-                self.bit_width,
-                self.chunk(chunk_idx),
-                dst.assume_init_mut(),
-            );
+            BitPacking::unchecked_unpack_uninit(self.bit_width, self.chunk(chunk_idx), dst);
         }
     }
 

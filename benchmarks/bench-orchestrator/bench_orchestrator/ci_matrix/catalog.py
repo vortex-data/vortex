@@ -99,6 +99,7 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     DEFAULT_WITH_DUCKDB_TARGETS,
     data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
+DEFAULT_WITH_DUCKDB = Coverage(DEFAULT_WITH_DUCKDB_TARGETS)
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
 # TPC-DS SF1 is the SQL data that bench.vortex.dev's File Sizes summary ranks, so develop also
 # records the sizes of Lance, Arrow IPC, and Snappy Parquet there, the formats compress-bench also
@@ -110,7 +111,6 @@ STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS = Coverage(
 )
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
-JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
 
 # Concrete benchmark cases
 
@@ -368,10 +368,9 @@ BENCHMARKS = (
         id="job-nvme",
         benchmark=Benchmark.JOB,
         name="JOB on NVME",
-        # DuckDB only: DataFusion spends minutes per pass on the 17x queries' join orders.
         runs={
-            "pr-full": JOB_DUCKDB,
-            "develop": JOB_DUCKDB,
+            "pr-full": DEFAULT_WITH_DUCKDB,
+            "develop": DEFAULT_WITH_DUCKDB,
         },
     ),
     BenchmarkCase(

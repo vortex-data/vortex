@@ -71,7 +71,7 @@ pub(crate) fn take_rows(
 /// Joins arrays covering consecutive rows into one.
 pub(crate) fn join(dtype: &DType, mut arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
     match arrays.len() {
-        0 => Ok(Canonical::empty(dtype).into_array()),
+        0 => Ok(Canonical::try_empty(dtype)?.into_array()),
         1 => Ok(arrays.remove(0)),
         _ => Ok(ChunkedArray::try_new(arrays, dtype.clone())?.into_array()),
     }

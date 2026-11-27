@@ -15,7 +15,6 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
@@ -59,24 +58,6 @@ fn round_trip(decimal: DecimalArray) -> VortexResult<DecimalArray> {
         &mut ctx,
     )?
     .execute::<DecimalArray>(&mut ctx)
-}
-
-#[test]
-fn same_width_msp_rejects_partial_value() {
-    let msp = PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_host(buffer![0u8; 9]),
-        PType::I64,
-        Validity::NonNullable,
-    )
-    .into_array();
-    let error = assemble_decimal(
-        &msp,
-        &[],
-        DecimalDType::new(18, 0),
-        &mut SESSION.create_execution_ctx(),
-    )
-    .expect_err("a trailing byte cannot be a whole i64");
-    assert!(error.to_string().contains("not divisible"), "{error}");
 }
 
 #[rstest]

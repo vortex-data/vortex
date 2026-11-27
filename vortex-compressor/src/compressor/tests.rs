@@ -1985,3 +1985,158 @@ fn test_scheme_eligibility_at_final_cascade_level() {
         0,
     ));
 }
+
+/// Hands back its whole input, validity included, as a general-purpose compressor would store
+/// it.
+#[derive(Debug)]
+struct WholeLeafScheme;
+
+impl Scheme for WholeLeafScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.whole_leaf"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        Encoded::of_leaf(data.array().clone(), |leaf, _| Ok(leaf))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+/// An encoding of a whole leaf receives the leaf with its validity bitmap compressed, here to a
+/// constant.
+#[test]
+fn whole_leaf_encoding_stores_compressed_validity() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&WholeLeafScheme]);
+    let input = PrimitiveArray::new(
+        (0..4096).collect::<Buffer<i32>>(),
+        Validity::Array(BoolArray::from_iter(iter::repeat_n(true, 4096)).into_array()),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
+
+    let bitmap = compressed.slots()[PrimitiveSlots::VALIDITY_CHILD]
+        .as_ref()
+        .ok_or_else(|| vortex_err!("expected the validity bitmap to stay a slot"))?;
+    assert!(bitmap.is::<Constant>(), "{}", bitmap.encoding_id());
+    Ok(())
+}
+
+/// Dictionary-encodes `[1, 2, 1, 2, ...]` as an encoding of its codes, wrapped in a dictionary
+/// that registers its values.
+#[derive(Debug)]
+struct WrappingDictScheme;
+
+impl Scheme for WrappingDictScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.wrapping_dict"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        let codes = PrimitiveArray::new(
+            [0u8, 1]
+                .into_iter()
+                .cycle()
+                .take(data.array_len())
+                .collect::<Buffer<u8>>(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let values = PrimitiveArray::new(buffer![1i32, 2], Validity::NonNullable).into_array();
+        let codes = Encoded::new(
+            vec![Child::new(self, 0, codes)],
+            Vec::new(),
+            |children, _| {
+                let [codes] = children.compressed()?;
+                Ok(codes)
+            },
+        );
+        Ok(codes.wrap(
+            vec![Child::new(self, 1, values)],
+            Vec::new(),
+            |codes, children, _| {
+                let [values] = children.compressed()?;
+                Ok(DictArray::try_new(codes, values)?.into_array())
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+/// A wrapping encoding's constructor receives the inner encoding's output, and takes the children
+/// registered after the inner encoding's own.
+#[test]
+fn wrapped_encoding_builds_from_inner_output() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&WrappingDictScheme]);
+    let input = alternating_ints();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert!(compressed.is::<Dict>(), "{}", compressed.encoding_id());
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
+    Ok(())
+}
