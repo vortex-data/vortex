@@ -1960,6 +1960,293 @@ fn whole_leaf_encoding_stores_compressed_validity() -> VortexResult<()> {
     Ok(())
 }
 
+mod preserve_is_sample_in_containers {
+    use std::iter;
+
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Extension;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListView;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::Map;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::Struct;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::Union;
+    use vortex_array::arrays::UnionArray;
+    use vortex_array::arrays::extension::ExtensionArrayExt;
+    use vortex_array::arrays::list::ListArraySlotsExt;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
+    use vortex_array::arrays::map::MapArraySlotsExt;
+    use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::arrays::union::UnionArrayExt;
+    use vortex_array::arrays::union::UnionArraySlotsExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::UnionVariants;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_ensure;
+    use vortex_error::vortex_err;
+
+    use super::SESSION;
+    use super::map_array_from_rows;
+    use crate::CascadingCompressor;
+    use crate::scheme::CompressorContext;
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct IntExtension;
+
+    impl ExtVTable for IntExtension {
+        type Metadata = u8;
+        type StoredMetadata = Self::Metadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
+        fn id(&self) -> ExtId {
+            ExtId::new("test.sample_int")
+        }
+
+        fn serialize_metadata(&self, metadata: &u8) -> VortexResult<Vec<u8>> {
+            Ok(vec![*metadata])
+        }
+
+        fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+            vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
+            Ok(metadata[0])
+        }
+
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &u8) -> DType {
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        }
+
+        fn unpack_native<'a>(
+            _dtype: &'a ExtDType<Self>,
+            value: &'a ScalarValue,
+        ) -> VortexResult<&'a ScalarValue> {
+            Ok(value)
+        }
+    }
+
+    #[test]
+    fn struct_fields_preserve_is_sample() -> VortexResult<()> {
+        let comp = CascadingCompressor::new(Vec::new());
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = PrimitiveArray::from_iter(iter::repeat_n(42i32, 1024)).into_array();
+        let input = StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![field],
+            1024,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let sample_compressed = comp.compress_canonical(
+            input.clone().execute::<Canonical>(&mut ctx)?,
+            CompressorContext::new().with_sampling(),
+            &mut ctx,
+        )?;
+        let sample_struct = sample_compressed.as_opt::<Struct>().ok_or_else(|| {
+            vortex_err!("expected Struct, got {}", sample_compressed.encoding_id())
+        })?;
+        assert!(
+            !sample_struct.unmasked_field(0).is::<Constant>(),
+            "sample Struct compression must not collapse constant fields to Constant"
+        );
+        assert_arrays_eq!(&sample_compressed, &input, &mut ctx);
+
+        let full_compressed = comp.compress(&input, &mut ctx)?;
+        let full_struct = full_compressed
+            .as_opt::<Struct>()
+            .ok_or_else(|| vortex_err!("expected Struct, got {}", full_compressed.encoding_id()))?;
+        assert!(full_struct.unmasked_field(0).is::<Constant>());
+        assert_arrays_eq!(&full_compressed, &input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn union_children_preserve_is_sample() -> VortexResult<()> {
+        let comp = CascadingCompressor::new(Vec::new());
+        let mut ctx = SESSION.create_execution_ctx();
+        let type_ids = PrimitiveArray::from_iter(iter::repeat_n(0u8, 1024)).into_array();
+        let child = PrimitiveArray::from_iter(iter::repeat_n(7i32, 1024)).into_array();
+        let variants = UnionVariants::try_new(
+            ["a"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![0],
+        )?;
+        let input = UnionArray::try_new(type_ids, variants, vec![child])?.into_array();
+
+        let sample_compressed = comp.compress_canonical(
+            input.clone().execute::<Canonical>(&mut ctx)?,
+            CompressorContext::new().with_sampling(),
+            &mut ctx,
+        )?;
+        let sample_union = sample_compressed.as_opt::<Union>().ok_or_else(|| {
+            vortex_err!("expected Union, got {}", sample_compressed.encoding_id())
+        })?;
+        assert!(
+            !sample_union.type_ids().is::<Constant>(),
+            "sample Union compression must not collapse constant type_ids to Constant"
+        );
+        assert!(
+            !sample_union
+                .child(0)
+                .ok_or_else(|| vortex_err!("expected Union child 0"))?
+                .is::<Constant>(),
+            "sample Union compression must not collapse constant children to Constant"
+        );
+        assert_arrays_eq!(&sample_compressed, &input, &mut ctx);
+
+        let full_compressed = comp.compress(&input, &mut ctx)?;
+        let full_union = full_compressed
+            .as_opt::<Union>()
+            .ok_or_else(|| vortex_err!("expected Union, got {}", full_compressed.encoding_id()))?;
+        assert!(full_union.type_ids().is::<Constant>());
+        assert!(
+            full_union
+                .child(0)
+                .ok_or_else(|| vortex_err!("expected Union child 0"))?
+                .is::<Constant>()
+        );
+        assert_arrays_eq!(&full_compressed, &input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn extension_storage_preserves_is_sample() -> VortexResult<()> {
+        let comp = CascadingCompressor::new(Vec::new());
+        let mut ctx = SESSION.create_execution_ctx();
+        let storage = PrimitiveArray::from_iter(iter::repeat_n(42i32, 1024)).into_array();
+        let dtype = ExtDType::<IntExtension>::try_new(0, Nullability::NonNullable)?.erased();
+        let input = ExtensionArray::new(dtype, storage).into_array();
+
+        let sample_compressed = comp.compress_canonical(
+            input.clone().execute::<Canonical>(&mut ctx)?,
+            CompressorContext::new().with_sampling(),
+            &mut ctx,
+        )?;
+        let sample_ext = sample_compressed.as_opt::<Extension>().ok_or_else(|| {
+            vortex_err!(
+                "expected Extension, got {}",
+                sample_compressed.encoding_id()
+            )
+        })?;
+        assert!(
+            !sample_ext.storage_array().is::<Constant>(),
+            "sample Extension compression must not collapse constant storage to Constant"
+        );
+        assert_arrays_eq!(&sample_compressed, &input, &mut ctx);
+
+        let full_compressed = comp.compress(&input, &mut ctx)?;
+        assert!(full_compressed.is::<Constant>());
+        assert_arrays_eq!(&full_compressed, &input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn list_listview_and_map_data_children_preserve_is_sample() -> VortexResult<()> {
+        let comp = CascadingCompressor::new(Vec::new());
+        let mut ctx = SESSION.create_execution_ctx();
+        let sample_ctx = CompressorContext::new().with_sampling();
+
+        // ListArray with constant elements.
+        let elements = PrimitiveArray::from_iter(iter::repeat_n(99i32, 1024)).into_array();
+        let offsets = PrimitiveArray::from_iter(0..=1024u32).into_array();
+        let list = ListArray::try_new(elements.clone(), offsets, Validity::NonNullable, &mut ctx)?
+            .into_array();
+        let sample_list = comp.compress_canonical(
+            list.clone().execute::<Canonical>(&mut ctx)?,
+            sample_ctx.clone(),
+            &mut ctx,
+        )?;
+        let sample_list_arr = sample_list
+            .as_opt::<List>()
+            .ok_or_else(|| vortex_err!("expected List, got {}", sample_list.encoding_id()))?;
+        assert!(
+            !sample_list_arr.elements().is::<Constant>(),
+            "sample List compression must not collapse constant elements to Constant"
+        );
+        assert_arrays_eq!(&sample_list, &list, &mut ctx);
+
+        // Non-zero-copy ListViewArray (out-of-order offsets) with constant elements.
+        let lv_offsets = (0..1024u32).map(|i| 1023 - i).collect::<Buffer<u32>>();
+        let lv_sizes = iter::repeat_n(1u32, 1024).collect::<Buffer<u32>>();
+        let list_view = ListViewArray::try_new(
+            elements,
+            PrimitiveArray::new(lv_offsets, Validity::NonNullable).into_array(),
+            PrimitiveArray::new(lv_sizes, Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let sample_lv = comp.compress_canonical(
+            list_view.clone().execute::<Canonical>(&mut ctx)?,
+            sample_ctx.clone(),
+            &mut ctx,
+        )?;
+        let sample_lv_arr = sample_lv
+            .as_opt::<ListView>()
+            .ok_or_else(|| vortex_err!("expected ListView, got {}", sample_lv.encoding_id()))?;
+        assert!(
+            !sample_lv_arr.elements().is::<Constant>(),
+            "sample ListView compression must not collapse constant elements to Constant"
+        );
+        assert_arrays_eq!(&sample_lv, &list_view, &mut ctx);
+
+        // MapArray with constant keys and values.
+        let rows = vec![Some(vec![(1, Some("same"))]); 128];
+        let map = map_array_from_rows(&rows, true)?;
+        let sample_map = comp.compress_canonical(
+            map.clone().execute::<Canonical>(&mut ctx)?,
+            sample_ctx,
+            &mut ctx,
+        )?;
+        let map_entries = sample_map
+            .as_opt::<Map>()
+            .ok_or_else(|| vortex_err!("expected Map, got {}", sample_map.encoding_id()))?
+            .entries();
+        let entries_lv = map_entries
+            .as_opt::<ListView>()
+            .ok_or_else(|| vortex_err!("expected ListView entries"))?;
+        let entries_struct = entries_lv
+            .elements()
+            .as_opt::<Struct>()
+            .ok_or_else(|| vortex_err!("expected Struct map elements"))?;
+        assert!(
+            !entries_struct.unmasked_field(0).is::<Constant>(),
+            "sample Map compression must not collapse constant keys to Constant"
+        );
+        assert!(
+            !entries_struct.unmasked_field(1).is::<Constant>(),
+            "sample Map compression must not collapse constant values to Constant"
+        );
+        assert_arrays_eq!(&sample_map, &map, &mut ctx);
+        Ok(())
+    }
+}
+
 /// Dictionary-encodes `[1, 2, 1, 2, ...]` as an encoding of its codes, wrapped in a dictionary
 /// that registers its values.
 #[derive(Debug)]
