@@ -80,10 +80,8 @@ fn new_session() -> VortexSession {
 enum Strategy {
     Flat,
     Table,
-    /// A table whose `ints` zones hold their maximum.
-    ZonedTable,
     /// A table whose `ints` zones hold their minimum, maximum and null count.
-    StatsZonedTable,
+    ZonedTable,
 }
 
 async fn source(
@@ -111,7 +109,7 @@ async fn source_chunks(
                 .collect::<VortexResult<_>>()?;
             ConcatPlan::try_new(dtype, plans)?.into_plan()
         }
-        Strategy::Table | Strategy::ZonedTable | Strategy::StatsZonedTable => {
+        Strategy::Table | Strategy::ZonedTable => {
             let fields = dtype.as_struct_fields();
             let columns = fields
                 .names()
@@ -128,7 +126,7 @@ async fn source_chunks(
                         .collect::<VortexResult<_>>()?;
                     let column_dtype = fields.field(name).expect("fixture field exists");
                     let data = ConcatPlan::try_new(column_dtype, chunks)?.into_plan();
-                    if !matches!(strategy, Strategy::Table) && name.as_ref() == "ints" {
+                    if matches!(strategy, Strategy::ZonedTable) && name.as_ref() == "ints" {
                         let bound = |offset: usize| -> VortexResult<ArrayRef> {
                             let bounds = (0..count)
                                 .map(|chunk| i32::try_from(chunk * CHUNK_ROWS + offset).map(Some))
@@ -136,23 +134,18 @@ async fn source_chunks(
                             Ok(PrimitiveArray::from_option_iter(bounds).into_array())
                         };
                         let max = Max.bind(NumericalAggregateOpts::skip_nans());
-                        let mut stats = vec![max.clone()];
-                        let mut zone_columns = vec![(max.to_string(), bound(CHUNK_ROWS - 1)?)];
-                        if matches!(strategy, Strategy::StatsZonedTable) {
-                            let min = Min.bind(NumericalAggregateOpts::skip_nans());
-                            let null_count = NullCount.bind(EmptyOptions);
-                            let nulls =
-                                PrimitiveArray::from_option_iter((0..count).map(|_| Some(0u64)))
-                                    .into_array();
-                            zone_columns.push((min.to_string(), bound(0)?));
-                            zone_columns.push((null_count.to_string(), nulls));
-                            stats.extend([min, null_count]);
-                        }
-                        let zone_columns = zone_columns
-                            .iter()
-                            .map(|(name, column)| (name.as_str(), column.clone()))
-                            .collect::<Vec<_>>();
-                        let table = StructArray::from_fields(&zone_columns)?.into_array();
+                        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+                        let null_count = NullCount.bind(EmptyOptions);
+                        let nulls =
+                            PrimitiveArray::from_option_iter((0..count).map(|_| Some(0u64)))
+                                .into_array();
+                        let table = StructArray::from_fields(&[
+                            (max.to_string().as_str(), bound(CHUNK_ROWS - 1)?),
+                            (min.to_string().as_str(), bound(0)?),
+                            (null_count.to_string().as_str(), nulls),
+                        ])?
+                        .into_array();
+                        let stats = vec![max, min, null_count];
                         let zones = store.flat(&table)?;
                         Ok(
                             ZonedPlan::new(data, zones, CHUNK_ROWS as u64, stats.into())
@@ -731,8 +724,8 @@ async fn small_scans_skip_dynamic_pruning() -> VortexResult<()> {
     Ok(())
 }
 
-/// Runs a scan of the `strings` column of `TABLE_CHUNKS` table chunks, filtered on `ints > bound`
-/// with a dynamic comparison when there is a bound, over `counted`. Returns the rows it kept and
+/// Runs a scan of the `strings` column of `TABLE_CHUNKS` table chunks, filtered on `filter` when
+/// there is one, over `counted`. Returns the rows it kept and
 /// the segment requests it made.
 async fn strings_scan(
     session: &VortexSession,
@@ -761,7 +754,8 @@ async fn strings_scan(
 
 /// A dynamic conjunct that keeps every row on enough chunks is switched off: later scans neither
 /// prune its zones nor read its column, so they read no more than an unfiltered scan. A new dynamic
-/// value switches it back on. Without the opt-in it keeps being evaluated.
+/// value switches it back on. Without the opt-in it keeps being evaluated. The conjunct is
+/// `ints != bound`, which the zone maps cannot prove, so it is evaluated rather than proved.
 #[rstest]
 #[case::opted_in(true)]
 #[case::default(false)]
@@ -791,7 +785,7 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
     let filter = {
         let bound = Arc::clone(&bound);
         dynamic(
-            CompareOperator::Gt,
+            CompareOperator::NotEq,
             move || Some(bound.load(Ordering::Relaxed).into()),
             ints.return_dtype(layout.dtype())?,
             true,
@@ -832,14 +826,12 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
         assert!(reads > unfiltered_reads);
     }
 
-    // A tightened bound is a new dynamic value, so the conjunct is evaluated again. It now
-    // rejects half the rows, so it stays switched on.
-    bound.store(299_999, Ordering::Relaxed);
-    let (scan, rows, _) =
+    // A new bound is a new dynamic value, so the conjunct is evaluated again and reads its column.
+    bound.store(0, Ordering::Relaxed);
+    let (_, rows, reads) =
         strings_scan(&session, &counted, &layout, shared, Some(&filter), skip).await?;
-    assert_eq!(rows, all - 300_000);
-    let plans = scan.filter().expect("the scan has a filter");
-    assert!(!plans.is_switched_off(0));
+    assert_eq!(rows, all - 1);
+    assert!(reads > unfiltered_reads);
     Ok(())
 }
 
@@ -903,8 +895,7 @@ async fn dynamic_conjuncts_proved_by_zone_maps_are_not_evaluated(
 ) -> VortexResult<()> {
     const TABLE_CHUNKS: usize = 600;
     let session = new_session().with_tokio();
-    let (segments, layout) =
-        source_chunks(&session, Strategy::StatsZonedTable, TABLE_CHUNKS).await?;
+    let (segments, layout) = source_chunks(&session, Strategy::ZonedTable, TABLE_CHUNKS).await?;
     let counted = Arc::clone(&segments);
     let file = || -> VortexResult<ScanInput> {
         let mut file = scan_input(&segments, &layout)?;
