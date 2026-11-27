@@ -1225,8 +1225,6 @@ fn misaligned_scalar_type(alignment: Alignment, scalar_align: Alignment) -> ! {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::panic::AssertUnwindSafe;
-    use std::panic::catch_unwind;
 
     use allocator_api2::alloc::Global;
     use rstest::rstest;
@@ -1235,6 +1233,7 @@ mod tests {
     use crate::BitBuffer;
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
+    use crate::assert_panics_with;
     use crate::buffer_mut;
 
     #[track_caller]
@@ -1555,36 +1554,22 @@ mod tests {
 
     #[test]
     fn transmute_invalid_type_panics() {
-        let size_err = catch_unwind(AssertUnwindSafe(|| {
-            let buf = buffer_mut![1u32, 2];
-            // SAFETY: panics on size check before reinterpreting memory.
-            drop(unsafe { buf.transmute::<u16>() });
-        }))
-        .expect_err("expected size mismatch panic");
-        let size_msg = size_err
-            .downcast_ref::<&str>()
-            .copied()
-            .or_else(|| size_err.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or_default();
-        assert!(
-            size_msg.contains("Buffer type size mismatch"),
-            "got `{size_msg}`"
+        assert_panics_with(
+            || {
+                let buf = buffer_mut![1u32, 2];
+                // SAFETY: panics on size check before reinterpreting memory.
+                drop(unsafe { buf.transmute::<u16>() });
+            },
+            "Buffer type size mismatch",
         );
 
-        let align_err = catch_unwind(AssertUnwindSafe(|| {
-            let buf = buffer_mut![1u32, 2];
-            // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
-            drop(unsafe { buf.transmute::<[u8; 4]>() });
-        }))
-        .expect_err("expected alignment mismatch panic");
-        let align_msg = align_err
-            .downcast_ref::<&str>()
-            .copied()
-            .or_else(|| align_err.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or_default();
-        assert!(
-            align_msg.contains("Buffer type alignment mismatch"),
-            "got `{align_msg}`"
+        assert_panics_with(
+            || {
+                let buf = buffer_mut![1u32, 2];
+                // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
+                drop(unsafe { buf.transmute::<[u8; 4]>() });
+            },
+            "Buffer type alignment mismatch",
         );
     }
 }

@@ -995,8 +995,6 @@ fn slice_start_misaligned(alignment: Alignment, begin_byte: usize) -> ! {
 mod test {
     use std::mem::align_of;
     use std::ops::Bound;
-    use std::panic::AssertUnwindSafe;
-    use std::panic::catch_unwind;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -1009,6 +1007,7 @@ mod test {
     use crate::Buffer;
     use crate::BufferBacking;
     use crate::ByteBuffer;
+    use crate::assert_panics_with;
     use crate::buffer;
 
     #[test]
@@ -1323,20 +1322,6 @@ mod test {
     fn test_ensure_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
         let buffer = Buffer::<u64>::from_iter([1, 2, 3]);
         drop(buffer.ensure_aligned(alignment));
-    }
-
-    #[track_caller]
-    fn assert_panics_with(f: impl FnOnce(), expected: &str) {
-        let err = catch_unwind(AssertUnwindSafe(f)).expect_err("expected panic");
-        let msg = err
-            .downcast_ref::<&str>()
-            .copied()
-            .or_else(|| err.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or_default();
-        assert!(
-            msg.contains(expected),
-            "expected panic containing `{expected}`, got `{msg}`"
-        );
     }
 
     #[test]

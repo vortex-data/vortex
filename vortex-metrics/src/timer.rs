@@ -90,10 +90,10 @@ impl Drop for TimeGuard<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::panic::catch_unwind;
     use std::time::Duration;
 
     use super::Timer;
+    use crate::assert_panics_with;
 
     #[test]
     fn timer_empty_state() {
@@ -172,15 +172,11 @@ mod tests {
     #[test]
     fn timer_out_of_range_quantiles_panic() {
         for invalid in [-0.1, 1.1, f64::NAN] {
-            let err = catch_unwind(|| Timer::new().quantile(invalid)).unwrap_err();
-            let msg = err
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| err.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or_default();
-            assert!(
-                msg.contains("quantile must be between 0.0 and 1.0"),
-                "unexpected panic for {invalid}: {msg}"
+            assert_panics_with(
+                || {
+                    let _ = Timer::new().quantile(invalid);
+                },
+                "quantile must be between 0.0 and 1.0",
             );
         }
     }
