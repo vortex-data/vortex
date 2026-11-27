@@ -117,6 +117,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "take_zstd"
+harness = false
+required-features = ["files", "zstd"]
+
+[[bench]]
 name = "pipeline"
 harness = false
 
