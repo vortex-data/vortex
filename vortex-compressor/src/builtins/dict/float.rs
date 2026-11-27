@@ -6,6 +6,8 @@
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for
 //! external compatibility.
 
+use std::hash::Hash;
+
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -16,12 +18,10 @@ use vortex_array::VTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::dtype::half::f16;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
+use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -38,6 +38,7 @@ use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::FloatErasedStats;
 use crate::stats::FloatStats;
+use crate::stats::FloatTypedStats;
 use crate::stats::GenerateStatsOptions;
 
 /// Dictionary encoding for low-cardinality float values.
@@ -146,50 +147,10 @@ impl Scheme for FloatDictScheme {
     }
 }
 
-/// Encodes a typed float array into a [`DictArray`] using the pre-computed distinct values.
-macro_rules! typed_encode {
-    ($source_array:ident, $stats:ident, $typed:ident, $typ:ty) => {{
-        let distinct = $typed.distinct().vortex_expect(
-            "this must be present since `DictScheme` declared that we need distinct values",
-        );
-
-        let values_validity = match $source_array.validity()? {
-            Validity::NonNullable => Validity::NonNullable,
-            _ => Validity::AllValid,
-        };
-        let codes_validity = $source_array.validity()?;
-
-        let values: Buffer<$typ> = distinct.distinct_values().iter().map(|x| x.0).collect();
-
-        // The largest code is one less than the dictionary length.
-        let dict_len = values.len();
-        let codes = if dict_len <= u8::MAX as usize + 1 {
-            let buf = <DictEncoder as Encode<$typ, u8>>::encode(
-                &values,
-                $source_array.as_slice::<$typ>(),
-            );
-            PrimitiveArray::new(buf, codes_validity).into_array()
-        } else if dict_len <= u16::MAX as usize + 1 {
-            let buf = <DictEncoder as Encode<$typ, u16>>::encode(
-                &values,
-                $source_array.as_slice::<$typ>(),
-            );
-            PrimitiveArray::new(buf, codes_validity).into_array()
-        } else {
-            let buf = <DictEncoder as Encode<$typ, u32>>::encode(
-                &values,
-                $source_array.as_slice::<$typ>(),
-            );
-            PrimitiveArray::new(buf, codes_validity).into_array()
-        };
-
-        let values = PrimitiveArray::new(values, values_validity).into_array();
-        // SAFETY: enforced by the DictEncoder.
-        Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
-    }};
-}
-
 /// Compresses a floating-point array into a dictionary array according to attached stats.
+///
+/// Distinct values are ordered by descending occurrence count (breaking ties deterministically
+/// via IEEE 754 total order) so hot values receive the smallest codes.
 ///
 /// # Errors
 ///
@@ -199,67 +160,52 @@ pub fn dictionary_encode(
     stats: &FloatStats,
 ) -> VortexResult<DictArray> {
     match stats.erased() {
-        FloatErasedStats::F16(typed) => typed_encode!(array, stats, typed, f16),
-        FloatErasedStats::F32(typed) => typed_encode!(array, stats, typed, f32),
-        FloatErasedStats::F64(typed) => typed_encode!(array, stats, typed, f64),
+        FloatErasedStats::F16(typed) => dictionary_encode_typed(array, typed),
+        FloatErasedStats::F32(typed) => dictionary_encode_typed(array, typed),
+        FloatErasedStats::F64(typed) => dictionary_encode_typed(array, typed),
     }
 }
 
-/// Stateless encoder that maps values to dictionary codes via a `HashMap`.
-struct DictEncoder;
-
-/// Trait for encoding values of type `T` into codes of type `I`.
-trait Encode<T, I> {
-    /// Using the distinct value set, turn the values into a set of codes.
-    fn encode(distinct: &[T], values: &[T]) -> Buffer<I>;
+/// Encodes a typed float array into a [`DictArray`] ordered by descending frequency, breaking
+/// ties via IEEE 754 total order.
+fn dictionary_encode_typed<T: NativePType>(
+    source_array: ArrayView<'_, Primitive>,
+    typed: &FloatTypedStats<T>,
+) -> VortexResult<DictArray>
+where
+    NativeValue<T>: Eq + Hash,
+{
+    let distinct = typed.distinct().vortex_expect(
+        "this must be present since `DictScheme` declared that we need distinct values",
+    );
+    super::dictionary_encode_from_counts(
+        source_array,
+        distinct
+            .distinct_values()
+            .iter()
+            .map(|(&value, &count)| (value.0, count)),
+    )
 }
-
-/// Implements [`Encode`] for a float type using its bit representation as the hash key.
-macro_rules! impl_encode {
-    ($typ:ty, $utyp:ty) => { impl_encode!($typ, $utyp, u8, u16, u32); };
-    ($typ:ty, $utyp:ty, $($ityp:ty),+) => {
-        $(
-        impl Encode<$typ, $ityp> for DictEncoder {
-            #[expect(clippy::cast_possible_truncation)]
-            fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
-                let mut codes =
-                    vortex_utils::aliases::hash_map::HashMap::<$utyp, $ityp>::with_capacity(
-                        distinct.len(),
-                    );
-                for (code, &value) in distinct.iter().enumerate() {
-                    codes.insert(value.to_bits(), code as $ityp);
-                }
-
-                let mut output = vortex_buffer::BufferMut::with_capacity(values.len());
-                for value in values {
-                    // Any code lookups which fail are for nulls, so their value does not matter.
-                    output.push(codes.get(&value.to_bits()).copied().unwrap_or_default());
-                }
-
-                output.freeze()
-            }
-        }
-        )*
-    };
-}
-
-impl_encode!(f16, u16);
-impl_encode!(f32, u32);
-impl_encode!(f64, u64);
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::dict::DictArrayExt;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::half::f16;
     use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -319,6 +265,187 @@ mod tests {
 
         let dict = dictionary_encode(array.as_view(), &stats)?;
         assert_eq!(PType::try_from(dict.codes().dtype())?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_frequency_ordered_codes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Counts: 10.0 -> 50, 2.5 -> 20, -1.0 -> 5, 99.0 -> 1 (interleaved in non-sorted order).
+        let mut data = Vec::with_capacity(76);
+        data.push(99.0f64);
+        data.extend(iter::repeat_n(-1.0, 5));
+        data.extend(iter::repeat_n(2.5, 20));
+        data.extend(iter::repeat_n(10.0, 50));
+
+        let array = PrimitiveArray::from_iter(data);
+        let stats = FloatStats::generate_opts(
+            &array,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        let dict = dictionary_encode(array.as_view(), &stats)?;
+        assert!(dict.has_all_values_referenced());
+        assert_eq!(
+            dict.values().as_::<Primitive>().as_slice::<f64>(),
+            &[10.0, 2.5, -1.0, 99.0]
+        );
+        let codes_prim = dict.codes().as_::<Primitive>();
+        let codes = codes_prim.as_slice::<u8>();
+        assert_eq!(codes[0], 3);
+        assert!(codes[1..6].iter().all(|&code| code == 2));
+        assert!(codes[6..26].iter().all(|&code| code == 1));
+        assert!(codes[26..76].iter().all(|&code| code == 0));
+        assert_arrays_eq!(dict, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_special_float_values_deterministic_roundtrip() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let neg_nan = f64::from_bits(0xfff8_0000_0000_0001);
+        let pos_nan_a = f64::from_bits(0x7ff8_0000_0000_0001);
+        let pos_nan_b = f64::from_bits(0x7ff8_0000_0000_0002);
+        let input = vec![
+            pos_nan_b,
+            0.0f64,
+            f64::INFINITY,
+            -0.0f64,
+            neg_nan,
+            1.0,
+            pos_nan_a,
+            f64::NEG_INFINITY,
+            pos_nan_a,
+            -0.0f64,
+            f64::NEG_INFINITY,
+            1.0,
+            neg_nan,
+            pos_nan_b,
+            0.0f64,
+            f64::INFINITY,
+        ];
+        let array_a = PrimitiveArray::from_iter(input.iter().copied());
+        let array_b = PrimitiveArray::from_iter(input.iter().rev().copied());
+        let opts = GenerateStatsOptions {
+            count_distinct_values: true,
+        };
+        let stats_a = FloatStats::generate_opts(&array_a, opts, &mut ctx);
+        let stats_b = FloatStats::generate_opts(&array_b, opts, &mut ctx);
+
+        let dict_a = dictionary_encode(array_a.as_view(), &stats_a)?;
+        let dict_b = dictionary_encode(array_b.as_view(), &stats_b)?;
+        let bits_a: Vec<u64> = dict_a
+            .values()
+            .as_::<Primitive>()
+            .as_slice::<f64>()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect();
+        let bits_b: Vec<u64> = dict_b
+            .values()
+            .as_::<Primitive>()
+            .as_slice::<f64>()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect();
+        assert_eq!(bits_a, bits_b);
+        assert_eq!(bits_a.len(), 8);
+
+        let decoded = dict_a.into_array().execute::<PrimitiveArray>(&mut ctx)?;
+        let decoded_bits: Vec<u64> = decoded
+            .as_slice::<f64>()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect();
+        let input_bits: Vec<u64> = input.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(decoded_bits, input_bits);
+        Ok(())
+    }
+
+    #[test]
+    fn test_f16_frequency_ordering() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = [
+            f16::ZERO,
+            f16::NEG_ZERO,
+            f16::from_f32(3.5),
+            f16::from_f32(3.5),
+            f16::from_f32(3.5),
+        ];
+        let array = PrimitiveArray::from_iter(input);
+        let stats = FloatStats::generate_opts(
+            &array,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        let dict = dictionary_encode(array.as_view(), &stats)?;
+        assert_eq!(
+            dict.values().as_::<Primitive>().as_slice::<f16>()[0].to_bits(),
+            f16::from_f32(3.5).to_bits()
+        );
+        let decoded = dict.into_array().execute::<PrimitiveArray>(&mut ctx)?;
+        let decoded_bits: Vec<u16> = decoded
+            .as_slice::<f16>()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect();
+        let input_bits: Vec<u16> = input.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(decoded_bits, input_bits);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nulls_excluded_from_frequency_counts() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // `1.0` appears at 1 valid row and 80 null rows; `2.0` appears at 70 valid rows;
+        // `999.0` appears only at null rows and must never enter the dictionary.
+        let mut raw_values = Vec::with_capacity(200);
+        let mut valid_bits = Vec::with_capacity(200);
+        raw_values.extend(iter::repeat_n(2.0f32, 64));
+        valid_bits.extend(iter::repeat_n(true, 64));
+        raw_values.extend(iter::repeat_n(1.0f32, 64));
+        valid_bits.extend(iter::repeat_n(false, 64));
+        for idx in 0..72 {
+            if idx == 0 {
+                raw_values.push(1.0f32);
+                valid_bits.push(true);
+            } else if idx < 7 {
+                raw_values.push(2.0f32);
+                valid_bits.push(true);
+            } else if idx < 23 {
+                raw_values.push(1.0f32);
+                valid_bits.push(false);
+            } else {
+                raw_values.push(999.0f32);
+                valid_bits.push(false);
+            }
+        }
+
+        let sliced_validity = Validity::from(
+            BitBuffer::from_iter(iter::repeat_n(false, 5).chain(valid_bits.iter().copied()))
+                .slice(5..),
+        );
+        let array = PrimitiveArray::new(Buffer::from(raw_values), sliced_validity);
+        let stats = FloatStats::generate_opts(
+            &array,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+
+        let dict = dictionary_encode(array.as_view(), &stats)?;
+        assert_eq!(
+            dict.values().as_::<Primitive>().as_slice::<f32>(),
+            &[2.0f32, 1.0f32]
+        );
+        assert_arrays_eq!(dict, array, &mut ctx);
         Ok(())
     }
 }

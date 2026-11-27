@@ -85,15 +85,19 @@ impl PyArrayIterator {
         &self.dtype
     }
 
-    fn lock_iter(&self) -> PyResult<IterGuard<'_>> {
-        let current = thread::current().id();
-        if *self.owner.lock() == Some(current) {
+    pub(crate) fn check_not_reentrant(&self) -> PyResult<()> {
+        if *self.owner.lock() == Some(thread::current().id()) {
             return Err(PyRuntimeError::new_err(
                 "ArrayIterator is already being advanced",
             ));
         }
+        Ok(())
+    }
+
+    fn lock_iter(&self) -> PyResult<IterGuard<'_>> {
+        self.check_not_reentrant()?;
         let guard = self.iter.lock();
-        *self.owner.lock() = Some(current);
+        *self.owner.lock() = Some(thread::current().id());
         Ok(IterGuard {
             owner: &self.owner,
             guard,

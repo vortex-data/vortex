@@ -27,6 +27,8 @@ use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::metrics::MetricsSet;
 use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
@@ -112,6 +114,19 @@ impl DataSink for VortexSink {
     }
 }
 
+struct WrittenFile {
+    path: Path,
+    summary: WriteSummary,
+    /// Kept open until `demux_task` succeeds so an upstream failure drops and aborts every
+    /// multipart upload instead of publishing partial output files.
+    ///
+    /// Trade-off: each completed output file retains its open `ObjectStoreWrite` handle (and its
+    /// untracked `BytesMut` tail buffer of at least 16 MiB capacity) until the full input stream
+    /// is consumed, so a `COPY` that rolls over into many files holds memory and upload handles
+    /// proportional to the total number of output files rather than just active writers.
+    writer: CountingVortexWrite<ObjectStoreWrite>,
+}
+
 #[async_trait]
 impl FileSink for VortexSink {
     fn config(&self) -> &FileSinkConfig {
@@ -120,12 +135,12 @@ impl FileSink for VortexSink {
 
     async fn spawn_writer_tasks_and_join(
         &self,
-        _context: &Arc<TaskContext>,
+        context: &Arc<TaskContext>,
         demux_task: SpawnedTask<DFResult<()>>,
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
     ) -> DFResult<u64> {
-        let mut file_write_tasks: JoinSet<DFResult<(Path, WriteSummary)>> = JoinSet::new();
+        let mut file_write_tasks: JoinSet<DFResult<WrittenFile>> = JoinSet::new();
         let writer_schema = get_writer_schema(&self.config);
         let dtype = self
             .session
@@ -177,33 +192,20 @@ impl FileSink for VortexSink {
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to write Vortex file: {e}"))?;
 
-                object_writer
-                    .shutdown()
-                    .await
-                    .map_err(|e| exec_datafusion_err!("Failed to shutdown Vortex writer: {e}"))?;
-
                 file.size.store(summary.size(), Ordering::Relaxed);
 
-                Ok((file.path, summary))
+                Ok(WrittenFile {
+                    path: file.path,
+                    summary,
+                    writer: object_writer,
+                })
             });
         }
 
-        let mut row_count = 0;
-
+        let mut written_files = Vec::new();
         while let Some(result) = file_write_tasks.join_next().await {
             match result {
-                Ok(r) => {
-                    let (path, summary) = r?;
-
-                    let rows = summary.row_count();
-                    row_count += rows;
-                    self.rows_written
-                        .add(usize::try_from(rows).unwrap_or(usize::MAX));
-                    self.bytes_written
-                        .add(usize::try_from(summary.size()).unwrap_or(usize::MAX));
-
-                    tracing::info!(path = %path, "Successfully written file");
-                }
+                Ok(r) => written_files.push(r?),
                 Err(e) => {
                     if e.is_panic() {
                         std::panic::resume_unwind(e.into_panic());
@@ -214,10 +216,43 @@ impl FileSink for VortexSink {
             }
         }
 
+        // Verify upstream input succeeded before publishing any output files.
+        // Returning an error here drops `written_files`, aborting all open `ObjectStoreWrite`s.
         demux_task
             .join_unwind()
             .await
             .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
+
+        // Multi-file publication is not atomic: if one `shutdown()` fails after a sibling
+        // completes, already-published files remain because object stores lack a commit protocol.
+        let shutdown_concurrency = context.session_config().target_partitions().max(1);
+        let published: Vec<_> = stream::iter(written_files.into_iter().map(
+            |WrittenFile {
+                 path,
+                 summary,
+                 mut writer,
+             }| async move {
+                writer
+                    .shutdown()
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to shutdown Vortex writer: {e}"))?;
+                Ok::<_, DataFusionError>((path, summary))
+            },
+        ))
+        .buffer_unordered(shutdown_concurrency)
+        .try_collect()
+        .await?;
+
+        let mut row_count = 0;
+        for (path, summary) in published {
+            let rows = summary.row_count();
+            row_count += rows;
+            self.rows_written
+                .add(usize::try_from(rows).unwrap_or(usize::MAX));
+            self.bytes_written
+                .add(usize::try_from(summary.size()).unwrap_or(usize::MAX));
+            tracing::info!(path = %path, "Successfully written file");
+        }
 
         Ok(row_count)
     }
@@ -234,8 +269,10 @@ mod tests {
     use datafusion::arrow::array::Int8Array;
     use datafusion::arrow::array::Int64Array;
     use datafusion::arrow::array::RecordBatch;
+    use datafusion::arrow::array::record_batch;
     use datafusion::assert_batches_sorted_eq;
     use datafusion::datasource::DefaultTableSource;
+    use datafusion::datasource::MemTable;
     use datafusion::logical_expr::Expr;
     use datafusion::logical_expr::LogicalPlan;
     use datafusion::logical_expr::LogicalPlanBuilder;
@@ -247,13 +284,18 @@ mod tests {
     use datafusion_datasource::file_groups::FileGroup;
     use datafusion_datasource::file_sink_config::FileOutputMode;
     use datafusion_datasource::sink::DataSinkExec;
+    use datafusion_datasource::url::ListingTableUrl;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_physical_plan::DefaultDisplay;
     use datafusion_physical_plan::VerboseDisplay;
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use datafusion_physical_plan::empty::EmptyExec;
+    use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
     use futures::TryStreamExt;
+    use futures::stream;
+    use object_store::ObjectStoreExt;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
     use vortex::file::VORTEX_FILE_EXTENSION;
     use vortex::session::VortexSession;
 
@@ -604,6 +646,218 @@ mod tests {
                     || location.prefix_matches(&"c1=world".into())
             );
         }
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    #[tokio::test]
+    async fn test_write_all_upstream_error_preserves_single_file(
+        #[case] emit_partial_batch: bool,
+    ) -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+        let original_batch = record_batch!(("a", Int32, vec![Some(11), Some(22)]))?;
+        let partial_batch = record_batch!(("a", Int32, vec![Some(33)]))?;
+        let path = Path::from("single-output.vortex");
+
+        ctx.write_arrow_batch(path.clone(), &original_batch).await?;
+        let original_bytes = ctx.store.get(&path).await?.bytes().await?;
+
+        let config = FileSinkConfig {
+            original_url: "file:///single-output.vortex".to_owned(),
+            object_store_url: ObjectStoreUrl::local_filesystem(),
+            file_group: FileGroup::new(Vec::new()),
+            table_paths: vec![ListingTableUrl::parse("file:///single-output.vortex")?],
+            output_schema: partial_batch.schema(),
+            table_partition_cols: Vec::new(),
+            insert_op: InsertOp::Overwrite,
+            keep_partition_by_columns: false,
+            file_extension: VORTEX_FILE_EXTENSION.to_owned(),
+            file_output_mode: FileOutputMode::SingleFile,
+        };
+        let sink = VortexSink::new(config, partial_batch.schema(), VortexSession::default());
+
+        let mut upstream = Vec::new();
+        if emit_partial_batch {
+            upstream.push(Ok(partial_batch.clone()));
+        }
+        upstream.push(Err(DataFusionError::Execution("upstream error".to_owned())));
+        let data = RecordBatchStreamAdapter::new(partial_batch.schema(), stream::iter(upstream));
+
+        let err = DataSink::write_all(&sink, Box::pin(data), &ctx.session.task_ctx())
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("upstream error"), "{err}");
+
+        let current_bytes = ctx.store.get(&path).await?.bytes().await?;
+        assert_eq!(current_bytes, original_bytes);
+
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM '/single-output.vortex'")
+            .await?
+            .collect()
+            .await?;
+        assert_batches_sorted_eq!(
+            ["+----+", "| a  |", "+----+", "| 11 |", "| 22 |", "+----+"],
+            &batches
+        );
+
+        let metrics = sink
+            .metrics()
+            .ok_or_else(|| anyhow::anyhow!("VortexSink did not expose metrics"))?;
+        assert_eq!(
+            metrics
+                .sum_by_name("rows_written")
+                .map(|metric| metric.as_usize()),
+            Some(0)
+        );
+        assert_eq!(
+            metrics
+                .sum_by_name("bytes_written")
+                .map(|metric| metric.as_usize()),
+            Some(0)
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_copy_sql_upstream_error_preserves_single_file() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+        let original_batch = record_batch!(("a", Int32, vec![Some(11), Some(22)]))?;
+        let good_batch = record_batch!(("s", Utf8, vec![Some("33"), Some("44")]))?;
+        let bad_batch = record_batch!(("s", Utf8, vec![Some("not an integer")]))?;
+        let path = Path::from("sql-output.vortex");
+
+        let input = MemTable::try_new(good_batch.schema(), vec![vec![good_batch, bad_batch]])?;
+        ctx.session.register_table("copy_input", Arc::new(input))?;
+        ctx.write_arrow_batch(path.clone(), &original_batch).await?;
+        let original_bytes = ctx.store.get(&path).await?.bytes().await?;
+
+        let err = ctx
+            .session
+            .sql(
+                "COPY (SELECT CAST(s AS INTEGER) AS a FROM copy_input) \
+                 TO 'file:///sql-output.vortex' STORED AS VORTEX",
+            )
+            .await?
+            .collect()
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not an integer"), "{err}");
+
+        let current_bytes = ctx.store.get(&path).await?.bytes().await?;
+        assert_eq!(current_bytes, original_bytes);
+
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM '/sql-output.vortex'")
+            .await?
+            .collect()
+            .await?;
+        assert_batches_sorted_eq!(
+            ["+----+", "| a  |", "+----+", "| 11 |", "| 22 |", "+----+"],
+            &batches
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_copy_sql_single_file_overwrites_on_success() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+        let original_batch = record_batch!(("a", Int32, vec![Some(11), Some(22)]))?;
+        let first_batch = record_batch!(("s", Utf8, vec![Some("33"), Some("44")]))?;
+        let second_batch = record_batch!(("s", Utf8, vec![Some("55")]))?;
+        let path = Path::from("sql-success.vortex");
+
+        let input = MemTable::try_new(first_batch.schema(), vec![vec![first_batch, second_batch]])?;
+        ctx.session
+            .register_table("copy_success_input", Arc::new(input))?;
+        ctx.write_arrow_batch(path.clone(), &original_batch).await?;
+
+        let result = ctx
+            .session
+            .sql(
+                "COPY (SELECT CAST(s AS INTEGER) AS a FROM copy_success_input) \
+                 TO 'file:///sql-success.vortex' STORED AS VORTEX",
+            )
+            .await?
+            .collect()
+            .await?;
+        assert_batches_sorted_eq!(
+            [
+                "+-------+",
+                "| count |",
+                "+-------+",
+                "| 3     |",
+                "+-------+"
+            ],
+            &result
+        );
+
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM '/sql-success.vortex'")
+            .await?
+            .collect()
+            .await?;
+        assert_batches_sorted_eq!(
+            [
+                "+----+", "| a  |", "+----+", "| 33 |", "| 44 |", "| 55 |", "+----+"
+            ],
+            &batches
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_copy_sql_upstream_error_leaves_no_partial_files_in_directory()
+    -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+        for setting in [
+            "SET datafusion.execution.minimum_parallel_output_files = 1",
+            "SET datafusion.execution.soft_max_rows_per_output_file = 1",
+        ] {
+            ctx.session.sql(setting).await?.collect().await?;
+        }
+
+        let first_batch = record_batch!(("s", Utf8, vec![Some("11"), Some("22")]))?;
+        let second_batch = record_batch!(("s", Utf8, vec![Some("33")]))?;
+        let bad_batch = record_batch!(("s", Utf8, vec![Some("not an integer")]))?;
+
+        let input = MemTable::try_new(
+            first_batch.schema(),
+            vec![vec![first_batch, second_batch, bad_batch]],
+        )?;
+        ctx.session
+            .register_table("copy_dir_input", Arc::new(input))?;
+
+        let err = ctx
+            .session
+            .sql(
+                "COPY (SELECT CAST(s AS INTEGER) AS a FROM copy_dir_input) \
+                 TO 'file:///dir-output/' STORED AS VORTEX",
+            )
+            .await?
+            .collect()
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not an integer"), "{err}");
+
+        let files = ctx
+            .store
+            .list(Some(&Path::from("dir-output")))
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(
+            files.is_empty(),
+            "expected no partial output files after failed COPY, found {files:?}"
+        );
 
         Ok(())
     }

@@ -226,6 +226,7 @@ def retest_crash(target: str, crash_path: str, timeout_secs: int = 120) -> str:
     """Run the fuzz target with the crash file. Returns 'fixed', 'reproduces', or 'timeout'."""
     env = os.environ.copy()
     toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
+    rss_limit_mb = 2048 if os.path.basename(crash_path).startswith("oom-") else 0
     try:
         result = run(
             [
@@ -239,7 +240,7 @@ def retest_crash(target: str, crash_path: str, timeout_secs: int = 120) -> str:
                 crash_path,
                 "--",
                 "-runs=1",
-                "-rss_limit_mb=0",
+                f"-rss_limit_mb={rss_limit_mb}",
             ],
             env=env,
             timeout=timeout_secs,

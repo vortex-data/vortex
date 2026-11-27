@@ -275,6 +275,10 @@ fn generate_arrow_device_array_bindings(manifest_dir: &Path, out_dir: &Path) {
 fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
     let header = kernels_src.join("dynamic_dispatch.h");
     println!("cargo:rerun-if-changed={}", header.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        kernels_src.join("alp_rd.h").display()
+    );
 
     let bindings = bindgen::Builder::default()
         .header(header.to_string_lossy())

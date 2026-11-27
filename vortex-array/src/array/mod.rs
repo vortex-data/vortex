@@ -17,6 +17,8 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
+use crate::block::BlockOp;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::canonical::CanonicalKind;
@@ -189,6 +191,22 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+
+    /// See [`VTable::block_source`].
+    fn block_source(
+        &self,
+        this: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>>;
+
+    /// See [`VTable::block_op`].
+    fn block_op(
+        &self,
+        this: &ArrayRef,
+        slot_idx: usize,
+        child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>>;
 
     /// The encoding's execute step, as a function taking the array by value.
     ///
@@ -446,6 +464,28 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             reduced.dtype()
         );
         Ok(Some(reduced))
+    }
+
+    fn block_source(
+        &self,
+        this: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::block_source(view, ctx)
+    }
+
+    fn block_op(
+        &self,
+        this: &ArrayRef,
+        slot_idx: usize,
+        child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        // SAFETY: this adapter belongs to the ArrayData<V> stored in `this`.
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::block_op(view, slot_idx, child_dtype, ctx)
     }
 
     fn execute_fn(&self) -> ExecuteFn {
