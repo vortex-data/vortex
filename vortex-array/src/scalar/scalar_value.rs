@@ -60,7 +60,7 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::FixedSizeBinary(size, _) => Self::fixed_size_binary_zero(*size),
+            DType::FixedSizeBinary(size, _) => Self::Binary(ByteBuffer::zeroed(*size as usize)),
             DType::List(..) => Self::Tuple(vec![]),
             DType::Map(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
@@ -113,7 +113,7 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::FixedSizeBinary(size, _) => Self::fixed_size_binary_zero(*size),
+            DType::FixedSizeBinary(size, _) => Self::Binary(ByteBuffer::zeroed(*size as usize)),
             DType::List(..) => Self::Tuple(vec![]),
             DType::Map(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
@@ -147,11 +147,6 @@ impl ScalarValue {
         };
 
         Some(Some(value))
-    }
-
-    /// Returns a fixed-size binary value of `size` zero bytes.
-    fn fixed_size_binary_zero(size: u32) -> Self {
-        Self::Binary(ByteBuffer::zeroed(size as usize))
     }
 }
 
