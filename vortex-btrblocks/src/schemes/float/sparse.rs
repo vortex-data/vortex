@@ -27,8 +27,8 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::schemes::patches::sparse_from_children;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
+use crate::schemes::patches::sparse_from_children;
 
 /// Sparse encoding for null-dominated float arrays.
 ///

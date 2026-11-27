@@ -11,9 +11,9 @@ use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
-use vortex_sparse::Sparse;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_sparse::Sparse;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {

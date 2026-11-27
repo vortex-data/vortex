@@ -34,8 +34,7 @@ fn make_patched(
         )
         .into_array()
     } else {
-        PrimitiveArray::from_iter((0..len).map(|i| u16::try_from(i % 251).unwrap()))
-            .into_array()
+        PrimitiveArray::from_iter((0..len).map(|i| u16::try_from(i % 251).unwrap())).into_array()
     };
     let patches = Patches::new(
         len,

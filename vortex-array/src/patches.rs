@@ -366,19 +366,30 @@ impl Patches {
         }
         let rows = decode_sorted_positions(&self.indices, ctx)?;
         let first_chunk = self.offset / PATCH_CHUNK_SIZE;
-        let end = self.offset.checked_add(self.array_len)
+        let end = self
+            .offset
+            .checked_add(self.array_len)
             .ok_or_else(|| vortex_err!("Patch range overflows usize"))?;
         let mut rows = rows.iter().copied().peekable();
         let mut position = 0u64;
-        let offsets = (first_chunk..end.div_ceil(PATCH_CHUNK_SIZE)).map(|chunk| {
-            let start = position;
-            while rows.next_if(|row| *row / PATCH_CHUNK_SIZE as u64 == chunk as u64).is_some() {
-                position += 1;
-            }
-            start
-        }).collect::<Buffer<u64>>();
+        let offsets = (first_chunk..end.div_ceil(PATCH_CHUNK_SIZE))
+            .map(|chunk| {
+                let start = position;
+                while rows
+                    .next_if(|row| *row / PATCH_CHUNK_SIZE as u64 == chunk as u64)
+                    .is_some()
+                {
+                    position += 1;
+                }
+                start
+            })
+            .collect::<Buffer<u64>>();
         vortex_ensure!(rows.next().is_none(), "Patch outside chunk range");
-        self.chunk_offsets = Some(offsets.into_array());
+        self.chunk_offsets = Some(
+            PrimitiveArray::new(offsets, Validity::NonNullable)
+                .narrow(ctx)?
+                .into_array(),
+        );
         self.offset_within_chunk = Some(0);
         Ok(self)
     }

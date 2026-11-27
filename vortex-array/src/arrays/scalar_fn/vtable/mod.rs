@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
+pub(crate) use validity::ScalarFnValidity;
 pub(crate) use validity::ValidityArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;

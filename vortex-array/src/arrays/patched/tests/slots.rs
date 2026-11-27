@@ -4,7 +4,6 @@
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 
-use crate::arrays::patched::PatchedSlots;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array_slots;
@@ -12,6 +11,7 @@ use crate::arrays::Chunked;
 use crate::arrays::Null;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
+use crate::arrays::patched::PatchedSlots;
 use crate::validity::Validity;
 
 #[array_slots(Null)]

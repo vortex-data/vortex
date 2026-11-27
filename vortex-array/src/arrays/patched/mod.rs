@@ -3,6 +3,7 @@
 
 //! A primitive base array with sorted replacement patches.
 
+mod compute;
 mod execute;
 mod plugin;
 #[cfg(test)]
@@ -31,7 +32,12 @@ use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
+use crate::arrays::Dict;
+use crate::arrays::Filter;
 use crate::arrays::Slice;
+use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::filter::FilterExecuteAdaptor;
+use crate::arrays::scalar_fn::ScalarFnValidity;
 use crate::arrays::slice::SliceExecuteAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -39,6 +45,9 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::patches::PatchSlotIndices;
 use crate::patches::Patches;
 use crate::patches::PatchesData;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::compare::CompareExecuteAdaptor;
 
 /// Sorted patches over a base array of the same logical type.
 #[derive(Clone, Debug)]
@@ -81,7 +90,10 @@ impl PatchStrategy {
             Self::Integer(IntegerPatchStrategy::Replace) => dtype.is_int(),
             Self::Float(FloatPatchStrategy::Replace) => dtype.is_float(),
         };
-        vortex_ensure!(supported, "Patch strategy {self:?} does not support {dtype}");
+        vortex_ensure!(
+            supported,
+            "Patch strategy {self:?} does not support {dtype}"
+        );
         Ok(())
     }
 
@@ -206,9 +218,12 @@ impl Patched {
 }
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Slice.id(), Patched, SliceExecuteAdaptor(Patched));
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(ScalarFnValidity.id(), Patched, compute::PatchValidity);
+    kernels.register_execute_parent_kernel(Slice.id(), Patched, SliceExecuteAdaptor(Patched));
+    kernels.register_execute_parent_kernel(Filter.id(), Patched, FilterExecuteAdaptor(Patched));
+    kernels.register_execute_parent_kernel(Dict.id(), Patched, TakeExecuteAdaptor(Patched));
+    kernels.register_execute_parent_kernel(Compare.id(), Patched, CompareExecuteAdaptor(Patched));
 }
 
 /// Flag indicating if experimental patched array support is enabled.

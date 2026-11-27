@@ -11,7 +11,10 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
+use super::FloatPatchStrategy;
+use super::IntegerPatchStrategy;
 use super::PATCH_SLOTS;
+use super::PatchStrategy;
 use super::Patched;
 use super::PatchedArrayExt;
 use super::PatchedArraySlotsExt;
@@ -43,6 +46,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::PatchesProbeState;
@@ -114,6 +118,8 @@ impl VTable for Patched {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         let array =
             require_child!(array, array.patch_indices(), PatchedSlots::PATCH_INDICES => Primitive);
         let array =
@@ -136,6 +142,8 @@ impl VTable for Patched {
         if slot_idx != PatchedSlots::INNER {
             return Ok(None);
         }
+        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         let patches = array.patches();
         match_each_native_ptype!(array.dtype().as_ptype(), |T| {
             let patches = BlockPatches::try_new(&patches, ctx, |_, value: T| value)?;
@@ -167,8 +175,29 @@ impl OperationsVTable<Patched> for Patched {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let patches = state.array().patches();
-        if let Some(value) = patches.probe_patched(state, PATCH_SLOTS, index, ctx)? {
+        let array = state.array();
+        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
+        if let Some(indices) = array.patch_indices().as_opt::<Primitive>()
+            && indices.buffer_handle().is_on_host()
+        {
+            // Search the existing buffer directly, without decoding or slicing a chunk per probe.
+            let row = array.data().patches.offset() + index;
+            let position = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+                I::try_from(row)
+                    .ok()
+                    .and_then(|needle| indices.as_slice::<I>().binary_search(&needle).ok())
+            });
+            if let Some(position) = position {
+                return state
+                    .slot(PatchedSlots::PATCH_VALUES)?
+                    .vortex_expect("required patch values")
+                    .execute_scalar(position, ctx);
+            }
+        } else if let Some(value) = array
+            .patches()
+            .probe_patched(state, PATCH_SLOTS, index, ctx)?
+        {
             return Ok(value);
         }
         state
@@ -188,6 +217,8 @@ impl OperationsVTable<Patched> for Patched {
 
 impl ValidityVTable<Patched> for Patched {
     fn validity(array: ArrayView<'_, Self>) -> VortexResult<Validity> {
+        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         match (array.inner().validity()?, array.patch_values().validity()?) {
             (Validity::AllValid, Validity::AllValid) => Ok(Validity::AllValid),
             (Validity::AllInvalid, Validity::AllInvalid) => Ok(Validity::AllInvalid),
@@ -205,11 +236,6 @@ impl SliceKernel for Patched {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let inner = array.inner().slice(range.clone())?.optimize_ctx(ctx)?;
-        Ok(Some(match array.patches().slice(range, ctx)? {
-            Some(patches) => {
-                Self::with_strategy(inner, &patches, array.strategy(), ctx)?.into_array()
-            }
-            None => inner,
-        }))
+        super::compute::select_rows(array, inner, array.patches().slice(range, ctx)?, ctx)
     }
 }

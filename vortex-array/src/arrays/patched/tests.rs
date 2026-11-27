@@ -21,10 +21,14 @@ use crate::ArrayDeserialization;
 use crate::ArrayPlugin;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceKernel;
 use crate::assert_arrays_eq;
+use crate::builtins::ArrayBuiltins;
 use crate::patches::Patches;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::session::ArraySessionExt;
@@ -60,17 +64,26 @@ fn sliced_replacements_roundtrip(#[case] indexed: bool) -> VortexResult<()> {
     assert_eq!(patches.offset_within_chunk(), Some(1));
 
     let wire = ArrayContext::empty().with_allowed_ids(
-        session.arrays().registry().read(|map| map.keys().copied().collect()),
+        session
+            .arrays()
+            .registry()
+            .read(|map| map.keys().copied().collect()),
     );
     let mut bytes = ByteBufferMut::empty();
     for buf in slice.serialize(&wire, &session, &SerializeOptions::default())? {
         bytes.extend_from_slice(&buf);
     }
     let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
-        slice.dtype(), slice.len(), &ReadContext::new(wire.to_ids()), &session,
+        slice.dtype(),
+        slice.len(),
+        &ReadContext::new(wire.to_ids()),
+        &session,
     )?;
     assert!(decoded.is::<Patched>());
-    assert_eq!(decoded.execute_scalar(23, &mut ctx)?, expected.execute_scalar(23, &mut ctx)?);
+    assert_eq!(
+        decoded.execute_scalar(23, &mut ctx)?,
+        expected.execute_scalar(23, &mut ctx)?
+    );
     assert!(decoded.execute_scalar(24, &mut ctx)?.is_null());
     assert_arrays_eq!(decoded, expected, &mut ctx);
     Ok(())
@@ -81,9 +94,19 @@ fn strategy_matches_dtype_family() -> VortexResult<()> {
     let session = VortexSession::empty();
     let mut ctx = session.create_execution_ctx();
     let base = buffer![0f32; 3].into_array();
-    let patches = Patches::new(3, 0, buffer![2u8].into_array(), buffer![1f32].into_array(), None, &mut ctx)?;
+    let patches = Patches::new(
+        3,
+        0,
+        buffer![2u8].into_array(),
+        buffer![1f32].into_array(),
+        None,
+        &mut ctx,
+    )?;
     let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
-    assert_eq!(array.strategy(), PatchStrategy::Float(FloatPatchStrategy::Replace));
+    assert_eq!(
+        array.strategy(),
+        PatchStrategy::Float(FloatPatchStrategy::Replace)
+    );
     let integer_base = buffer![0i32; 3].into_array();
     assert!(Patched::with_strategy(integer_base, &patches, array.strategy(), &mut ctx).is_err());
     assert_arrays_eq!(array, buffer![0f32, 0.0, 1.0].into_array(), &mut ctx);
@@ -144,5 +167,23 @@ fn wire_requires_core_slots_and_accepts_trailing_slots() -> VortexResult<()> {
     );
     let error = ArrayPlugin::deserialize(&Patched, parts, &session).unwrap_err();
     assert!(error.to_string().contains("Unknown integer patch strategy"));
+    Ok(())
+}
+
+#[test]
+fn compare_replaces_value_and_validity() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base = PrimitiveArray::from_option_iter([None, Some(3i32), Some(1)]).into_array();
+    let values = PrimitiveArray::from_option_iter([Some(3i32), None]).into_array();
+    let patches = Patches::new(3, 0, buffer![0u8, 1].into_array(), values, None, &mut ctx)?;
+    let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?.into_array();
+    let rhs = ConstantArray::new(3i32, 3).into_array();
+    let compared = array.compare(rhs, CompareOperator::Eq)?;
+    assert_arrays_eq!(
+        compared,
+        BoolArray::from_iter([Some(true), None, Some(false)]),
+        &mut ctx
+    );
     Ok(())
 }
