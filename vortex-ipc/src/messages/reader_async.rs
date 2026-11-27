@@ -13,6 +13,7 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexResult;
 
+use super::reader_sync::grow_frame_buffer;
 use crate::messages::DecoderMessage;
 use crate::messages::MessageDecoder;
 use crate::messages::PollRead;
@@ -60,6 +61,8 @@ enum ReadState {
     /// connections. This state persists across multiple `poll_next` calls until the buffer is
     /// completely filled, at which point we transition back to [`Self::AwaitingDecoder`].
     Filling {
+        /// The total frame length requested by the decoder.
+        target_len: usize,
         /// The number of bytes read into the buffer so far.
         total_bytes_read: usize,
     },
@@ -113,8 +116,9 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                 ReadState::AwaitingDecoder => match this.decoder.read_next(this.buffer) {
                     Ok(PollRead::Some(msg)) => return Poll::Ready(Some(Ok(msg))),
                     Ok(PollRead::NeedMore(new_len)) => {
-                        this.buffer.resize(new_len, 0x00);
+                        this.buffer.clear();
                         *this.state = ReadState::Filling {
+                            target_len: new_len,
                             total_bytes_read: 0,
                         };
                     }
@@ -124,7 +128,17 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                         return Poll::Ready(Some(Err(e)));
                     }
                 },
-                ReadState::Filling { total_bytes_read } => {
+                ReadState::Filling {
+                    target_len,
+                    total_bytes_read,
+                } => {
+                    if *total_bytes_read == *target_len {
+                        *this.state = ReadState::AwaitingDecoder;
+                        continue;
+                    }
+                    if this.buffer.len() == *total_bytes_read {
+                        grow_frame_buffer(this.buffer, *total_bytes_read, *target_len);
+                    }
                     match ready!(poll_fill_buffer(
                         this.read.as_mut(),
                         this.buffer,
@@ -154,7 +168,11 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                                 Err(e) => Poll::Ready(Some(Err(e))),
                             };
                         }
-                        Ok(FillResult::Filled) => *this.state = ReadState::AwaitingDecoder,
+                        Ok(FillResult::Filled) => {
+                            if *total_bytes_read == *target_len {
+                                *this.state = ReadState::AwaitingDecoder;
+                            }
+                        }
                         Ok(FillResult::Pending) => {}
                     }
                 }
@@ -173,10 +191,14 @@ mod tests {
     use futures::AsyncRead;
     use futures::StreamExt;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
+    use super::super::reader_sync::MAX_READ_CHUNK;
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
@@ -251,6 +273,47 @@ mod tests {
             assert!(reader.next().await.is_none());
         }
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_huge_length_prefix_on_short_stream_returns_eof_without_oom() {
+        let mut reader = AsyncMessageReader::new(PendingByteReader::new(vec![
+            0xff, 0xff, 0xff, 0xff, 0x00, 0x01,
+        ]));
+        let err = reader
+            .next()
+            .await
+            .vortex_expect("expected error on truncated frame")
+            .unwrap_err();
+        assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
+        assert!(reader.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_multi_chunk_frame_decodes_cleanly() -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter(0i32..20_000).into_array();
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        let full: Vec<u8> = encoder
+            .encode(EncoderMessage::Array(&array))?
+            .iter()
+            .flat_map(|b| b.as_ref())
+            .copied()
+            .collect();
+        assert!(full.len() > MAX_READ_CHUNK);
+
+        let mut reader = AsyncMessageReader::new(futures::io::Cursor::new(full));
+        let DecoderMessage::Array((parts, ctx, row_count)) = reader
+            .next()
+            .await
+            .vortex_expect("expected multi-chunk array message")?
+        else {
+            vortex_error::vortex_panic!("expected an array message");
+        };
+        let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(actual, array, &mut exec_ctx);
+        assert!(reader.next().await.is_none());
         Ok(())
     }
 }

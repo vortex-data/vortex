@@ -15,7 +15,7 @@ class DedupResult:
 
     duplicate: bool
     check: str | None = None
-    confidence: Literal["exact", "high", "medium"] | None = None
+    confidence: Literal["exact", "high"] | None = None
     issue_number: int | None = None
     issue_url: str | None = None
     issue_title: str | None = None

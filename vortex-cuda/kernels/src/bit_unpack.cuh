@@ -13,6 +13,25 @@
 #include "bit_unpack_64_lanes.cuh"
 #include "patches.h"
 
+/// Read the u16 at `pos` from FastLanes bit-packed data.
+__device__ inline uint32_t unpack_u16(const uint16_t *__restrict packed, uint64_t pos, uint32_t bit_width) {
+    if (bit_width == 0) {
+        return 0;
+    }
+    constexpr uint32_t LANES = FL_LANES<uint16_t>;
+    const uint32_t index = pos % FL_CHUNK;
+    const uint32_t lane = index % LANES;
+    // Inverts INDEX(row, lane) for 16-bit lanes, where FL_ORDER[row / 8] is 0 or 4.
+    const uint32_t row = ((index / LANES) % 2) * 8 + index / 128;
+    const uint32_t bit = row * bit_width;
+    const uint16_t *lane_words = packed + (pos / FL_CHUNK) * LANES * bit_width + lane;
+    uint32_t value = lane_words[(bit / 16) * LANES] >> (bit % 16);
+    if (bit % 16 + bit_width > 16) {
+        value |= static_cast<uint32_t>(lane_words[(bit / 16 + 1) * LANES]) << (16 - bit % 16);
+    }
+    return value & ((1u << bit_width) - 1);
+}
+
 /// Number of 16-row slices each FastLanes lane is split into.
 ///
 /// A 1024-element chunk has 1024 / bits lanes of `bits` rows each. 8- and

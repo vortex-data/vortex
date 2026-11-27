@@ -213,10 +213,20 @@ impl StructReader {
     }
 
     fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        // First, we expand the root scope into the fields of the struct to ensure
-        // that partitioning works correctly.
-        let expr =
+        let expanded =
             expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
+
+        // Expansion can turn `$.a.b` into `mask($.a, is_not_null($)).b`. Optimizing moves the
+        // field read below the mask so the partition reads only `a.b`. The scan has already
+        // declared its dtype, so keep the expanded expression if optimization changes its dtype.
+        let expr = if self.dtype().is_nullable()
+            && let Some(optimized) = expanded.try_optimize_recursive()?
+            && optimized.dtype() == expanded.dtype()
+        {
+            optimized
+        } else {
+            expanded
+        };
 
         // Partition the expression into expressions that can be evaluated
         // over individual coordinates.
@@ -699,6 +709,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -1693,6 +1704,22 @@ mod tests {
     }
 
     #[rstest]
+    fn test_constant_mask_projection_preserves_declared_dtype(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let expr = mask(lit(1i32), lit(true)).bind(reader.dtype())?;
+
+        let future = reader.projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?;
+        let result = block_on(|_| future)?;
+
+        assert_eq!(result.dtype(), expr.dtype());
+        let expected = PrimitiveArray::from_option_iter([Some(1i32); 3]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
     fn test_constant_projection_evicts_from_partition_cache(
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) -> VortexResult<()> {
@@ -1989,6 +2016,21 @@ mod tests {
         let expected = StructArray::try_from_iter_with_validity(
             [("c", c.into_array())],
             Validity::Array(validity.into_array()),
+        )?;
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn test_empty_nested_selection_preserves_nulls() -> VortexResult<()> {
+        let projection = select(FieldNames::empty(), a_b());
+        let result = nested_validity_project(true, projection, Mask::new_true(6))?;
+
+        let expected = StructArray::try_new(
+            FieldNames::empty(),
+            [],
+            6,
+            Validity::from_iter([false, false, false, true, true, true]),
         )?;
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         Ok(())

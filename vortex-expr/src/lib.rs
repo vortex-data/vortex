@@ -52,6 +52,7 @@ pub use exprs::cast;
 pub use exprs::checked_add;
 pub use exprs::col;
 pub use exprs::compare;
+pub use exprs::compare_with_mode;
 pub use exprs::eq;
 pub use exprs::fill_null;
 pub use exprs::get_item;

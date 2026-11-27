@@ -60,41 +60,31 @@ start_fuzzer() {
   env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
     timeout --signal=INT --kill-after=60 "$((budget + 480))" \
     "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
-    "${FORK_FLAGS[@]}" "-max_total_time=$budget" "-rss_limit_mb=${RSS_LIMIT_MB:-0}" \
+    "${FORK_FLAGS[@]}" "-max_total_time=$budget" "-rss_limit_mb=${RSS_LIMIT_MB:-2048}" \
     -print_final_stats=1 \
     -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
     "$@" > >(tee -a fuzz_output.log) 2>&1 &
   FUZZ_PID=$!
 }
 
-SEED_MERGE_TIMEOUT=${SEED_MERGE_TIMEOUT:-0}
 MAX_ERRORS=10
 : > fuzz_output.log
 set +e
 start_fuzzer "$MAX_TIME"
-if [ "$SEED_MERGE_TIMEOUT" -gt 0 ]; then
-  WAITED=0
-  while [ "$WAITED" -lt "$SEED_MERGE_TIMEOUT" ] && kill -0 "$FUZZ_PID" 2>/dev/null &&
-    ! grep -q "seed inputs, starting to fuzz" fuzz_output.log; do
-    sleep 1
-    WAITED=$((WAITED + 1))
-  done
-  if kill -0 "$FUZZ_PID" 2>/dev/null &&
-    ! grep -q "seed inputs, starting to fuzz" fuzz_output.log; then
+if [ "${SEED_MERGE_TIMEOUT:-0}" -gt 0 ]; then
+  sleep "$SEED_MERGE_TIMEOUT"
+  if kill -0 "$FUZZ_PID" 2>/dev/null && ! grep -q "starting to fuzz" fuzz_output.log; then
     echo "Corpus processing timeout. Restarting without processing the corpus"
-    kill -KILL -- "-$FUZZ_PID" 2>/dev/null
-    wait "$FUZZ_PID" 2>/dev/null
+    kill -KILL -- "-$FUZZ_PID"
     start_fuzzer "$((MAX_TIME - SEED_MERGE_TIMEOUT))" -keep_seed=1
   fi
 fi
 while kill -0 "$FUZZ_PID" 2>/dev/null; do
-  ERROR_COUNT=$(find "fuzz/artifacts/${FUZZ_NAME}" -type f | wc -l)
-  if [ "$ERROR_COUNT" -gt "$MAX_ERRORS" ]; then
-    echo "Found $ARTIFACT_COUNT errors, stopping"
-    kill -INT -- "-$FUZZ_PID" 2>/dev/null
-    timeout 30 tail --pid="$FUZZ_PID" -f /dev/null
+  if [ "$(find "fuzz/artifacts/${FUZZ_NAME}" -type f | wc -l)" -gt "$MAX_ERRORS" ]; then
+    echo "Found $MAX_ERRORS errors, stopping"
+    kill -INT -- "-$FUZZ_PID"
+    sleep 30
     kill -KILL -- "-$FUZZ_PID" 2>/dev/null
-    break
   fi
   sleep 5
 done
