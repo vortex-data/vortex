@@ -11,6 +11,7 @@ use vortex_session::registry::ReadContext;
 use crate::ArrayContext;
 use crate::ArrayDeserialization;
 use crate::ArrayPlugin;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
@@ -197,6 +198,73 @@ fn compare_replaces_value_and_validity() -> VortexResult<()> {
     assert_arrays_eq!(
         compared,
         BoolArray::from_iter([Some(true), None, Some(false)]),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn validity_projects_shared_positions_before_materializing() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base =
+        PrimitiveArray::from_option_iter((0..2050).map(|i| (i % 2 == 0).then_some(i))).into_array();
+    let patches = Patches::new(
+        2050,
+        0,
+        buffer![1u16, 1024, 2049].into_array(),
+        PrimitiveArray::from_option_iter([Some(9i32), None, Some(7)]).into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let a = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
+    let slice = <Patched as SliceKernel>::slice(a.as_view(), 1..2050, &mut ctx)?.unwrap();
+    let original = slice.as_::<Patched>();
+    let projected = slice.validity()?.into_array().unwrap();
+    let view = projected.as_::<Patched>();
+    assert!(ArrayRef::ptr_eq(
+        view.patch_indices(),
+        original.patch_indices()
+    ));
+    assert!(ArrayRef::ptr_eq(
+        view.patch_chunk_offsets(),
+        original.patch_chunk_offsets()
+    ));
+    let wire = Patched.serialize(&projected, &session)?.unwrap();
+    let read = Patched.deserialize(
+        ArrayDeserialization::new(
+            wire.serialized_id,
+            projected.dtype(),
+            projected.len(),
+            &wire.metadata,
+            &[],
+            &wire.children,
+        ),
+        &session,
+    )?;
+    let expected =
+        BoolArray::from_iter((1..2050).map(|i| matches!(i, 1 | 2049) || (i != 1024 && i % 2 == 0)));
+    assert_arrays_eq!(read.execute::<BoolArray>(&mut ctx)?, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn nullable_boolean_replacements_patch_values_and_validity() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base = BoolArray::from_iter([Some(false), None, Some(true), Some(true)]).into_array();
+    let patches = Patches::new(
+        4,
+        0,
+        buffer![1u16, 2, 3].into_array(),
+        BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let a = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
+    assert_arrays_eq!(
+        a,
+        BoolArray::from_iter([Some(false), Some(true), None, Some(false)]),
         &mut ctx
     );
     Ok(())

@@ -8,11 +8,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayView;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::array::OperationsVTable;
 use crate::array::ProbeState;
-use crate::array::ValidityVTable;
 use crate::arrays::Primitive;
+use crate::arrays::patched::BoolPatchStrategy;
 use crate::arrays::patched::FloatPatchStrategy;
 use crate::arrays::patched::IntegerPatchStrategy;
 use crate::arrays::patched::PatchStrategy;
@@ -22,10 +21,8 @@ use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::indices::chunk_start;
 use crate::arrays::patched::indices::local_position;
-use crate::arrays::scalar_fn::ValidityArray;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::scalar::Scalar;
-use crate::validity::Validity;
 
 impl OperationsVTable<Patched> for Patched {
     type ProbeState = ();
@@ -36,7 +33,8 @@ impl OperationsVTable<Patched> for Patched {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let array = state.array();
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        let (PatchStrategy::Bool(BoolPatchStrategy::Replace)
+        | PatchStrategy::Integer(IntegerPatchStrategy::Replace)
         | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         let row = array.offset + index;
         let chunk = row / PATCH_CHUNK_SIZE - array.offset / PATCH_CHUNK_SIZE;
@@ -89,19 +87,5 @@ impl OperationsVTable<Patched> for Patched {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
-    }
-}
-
-impl ValidityVTable<Patched> for Patched {
-    fn validity(array: ArrayView<'_, Self>) -> VortexResult<Validity> {
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
-        | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
-        match (array.inner().validity()?, array.patch_values().validity()?) {
-            (Validity::AllValid, Validity::AllValid) => Ok(Validity::AllValid),
-            (Validity::AllInvalid, Validity::AllInvalid) => Ok(Validity::AllInvalid),
-            _ => Ok(Validity::Array(
-                ValidityArray::new(array.array().clone()).into_array(),
-            )),
-        }
     }
 }

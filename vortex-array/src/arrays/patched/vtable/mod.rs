@@ -8,6 +8,7 @@ mod slice;
 #[cfg(test)]
 mod tests;
 
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -27,8 +28,12 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::Bool;
+use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::patched::BoolPatchStrategy;
 use crate::arrays::patched::FloatPatchStrategy;
 use crate::arrays::patched::IntegerPatchStrategy;
 use crate::arrays::patched::PatchStrategy;
@@ -38,6 +43,7 @@ use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
+use crate::arrays::patched::indices::visit_chunks;
 use crate::block::Block;
 use crate::block::BlockOp;
 use crate::block::Values;
@@ -119,10 +125,38 @@ impl VTable for Patched {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        let (PatchStrategy::Bool(BoolPatchStrategy::Replace)
+        | PatchStrategy::Integer(IntegerPatchStrategy::Replace)
         | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         let array =
             require_child!(array, array.patch_indices(), PatchedSlots::PATCH_INDICES => Primitive);
+        if array.dtype().is_boolean() {
+            let array =
+                require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => Bool);
+            let array = require_spine!(array, array.inner(), PatchedSlots::INNER => Bool);
+            let validity = array.validity()?;
+            let values = array.patch_values().as_::<Bool>();
+            let mut replacement_bits = values.bit_buffer_view().iter();
+            let base = array.inner().clone().downcast::<Bool>().into_bit_buffer();
+            let mut output = base
+                .try_into_mut()
+                .unwrap_or_else(|bits| BitBufferMut::copy_from(&bits));
+            visit_chunks::<false>(
+                array.patch_indices(),
+                array.patch_chunk_offsets(),
+                array.offset,
+                array.len(),
+                ctx,
+                |base, local| {
+                    for (&position, value) in local.iter().zip(replacement_bits.by_ref()) {
+                        output.set_to(base + usize::from(position) - array.offset, value);
+                    }
+                },
+            )?;
+            return Ok(ExecutionResult::done(
+                BoolArray::new(output.freeze(), validity).into_array(),
+            ));
+        }
         let array =
             require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => Primitive);
         let array = require_spine!(array, array.inner(), PatchedSlots::INNER => Primitive);
@@ -140,10 +174,11 @@ impl VTable for Patched {
         _child_dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
-        if slot_idx != PatchedSlots::INNER {
+        if slot_idx != PatchedSlots::INNER || array.dtype().is_boolean() {
             return Ok(None);
         }
-        let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
+        let (PatchStrategy::Bool(BoolPatchStrategy::Replace)
+        | PatchStrategy::Integer(IntegerPatchStrategy::Replace)
         | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
         let indices = array
             .patch_indices()
