@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fuzz_target: [file_io, file_corruption, array_ops, fsst_like, row_encode, compress_roundtrip, arrow_roundtrip]
+        fuzz_target: [file_io, file_io_v2, file_corruption, array_ops, fsst_like, row_encode, compress_roundtrip, arrow_roundtrip]
     uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
     with:
       fuzz_target: ${{ matrix.fuzz_target }}
