@@ -28,6 +28,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_expr::checked_add;
 use vortex_expr::gt;
 use vortex_expr::lit;
@@ -218,7 +219,7 @@ impl GatedSegments {
                 .pending
                 .iter()
                 .position(|(id, _)| *id == target)
-                .unwrap_or_else(|| panic!("segment {target} is not pending"));
+                .unwrap_or_else(|| vortex_panic!("segment {target} is not pending"));
             state.pending.remove(pos).expect("valid index").1
         };
         let _ = tx.send(());
@@ -311,7 +312,9 @@ fn concurrency_bounds_chunks_in_flight_in_total(
     }
 
     runtime.run_until_stalled(&mut pool);
-    let batches = pool.run_until(scan)?;
+    let batches = scan
+        .now_or_never()
+        .ok_or_else(|| vortex_err!("scan did not finish after all reads completed"))??;
     assert_eq!(batches.len(), chunks);
     assert_eq!(segments.peak(), concurrency);
     assert_eq!(segments.pending_count(), 0);
@@ -376,7 +379,9 @@ fn shared_budget_bounds_chunks_in_flight_across_drivers() -> VortexResult<()> {
     }
 
     runtime.run_until_stalled(&mut pool);
-    let batches = pool.run_until(scans)?;
+    let batches = scans.now_or_never().ok_or_else(|| {
+        vortex_err!("shared-budget scans did not finish after all reads completed")
+    })??;
     assert!(batches.iter().all(|batches| batches.len() == chunks));
     assert_eq!(segments.peak(), limit);
     assert_eq!(segments.pending_count(), 0);
@@ -410,16 +415,50 @@ async fn shared_budget_lets_scans_finish_while_another_stalls() -> VortexResult<
     Ok(())
 }
 
-/// Ordered collection sorts batches by starting row even when later chunks finish first.
-#[tokio::test]
-async fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
+/// Ordered collection sorts batches by starting row even when later chunks finish first,
+/// both directly via [`order_batches`] and end-to-end through [`ScanDriver::run_prepared`].
+#[test]
+fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
+    let mut pool = LocalPool::new();
     let out_of_order = stream::iter([
         Ok((MAX_ROWS_PER_CHUNK as u64, "second")),
         Ok((0_u64, "first")),
-    ])
-    .boxed();
-    let ordered: Vec<_> = order_batches(out_of_order).try_collect().await?;
+    ]);
+    let ordered: Vec<_> = pool.run_until(order_batches(out_of_order).try_collect())?;
     assert_eq!(ordered, vec!["first", "second"]);
+
+    let runtime = Arc::new(ControlledRuntime::default());
+    let segments = Arc::new(GatedSegments::default());
+    let second_chunk_len = MAX_ROWS_PER_CHUNK / 2;
+    let builder = gated_chunked_builder(
+        runtime.handle(),
+        Arc::clone(&segments),
+        &[MAX_ROWS_PER_CHUNK, second_chunk_len],
+    )?;
+    let scan = pool
+        .spawner()
+        .spawn_local_with_handle(
+            ScanDriver::new(runtime.handle(), 2, true)
+                .run_prepared(builder.prepare()?, Ok)
+                .try_collect::<Vec<_>>(),
+        )
+        .map_err(|err| vortex_err!("spawn ordered scan: {err}"))?;
+
+    runtime.run_until_stalled(&mut pool);
+    assert_eq!(segments.pending_count(), 2);
+
+    // Complete chunk 1's I/O and drain all ready work so chunk 1 finishes before chunk 0 unblocks.
+    segments.complete_segment(SegmentId::from(1));
+    runtime.run_until_stalled(&mut pool);
+    assert_eq!(segments.pending_count(), 1);
+
+    segments.complete_segment(SegmentId::from(0));
+    runtime.run_until_stalled(&mut pool);
+    let batches = scan
+        .now_or_never()
+        .ok_or_else(|| vortex_err!("ordered scan did not finish after all reads completed"))??;
+    let lens: Vec<usize> = batches.iter().map(ArrayRef::len).collect();
+    assert_eq!(lens, vec![MAX_ROWS_PER_CHUNK, second_chunk_len]);
     Ok(())
 }
 
@@ -430,7 +469,7 @@ fn unordered_scan_yields_ready_chunk_while_earlier_chunk_blocks_on_io() -> Vorte
     let mut pool = LocalPool::new();
     let segments = Arc::new(GatedSegments::default());
 
-    let second_chunk_len = 42;
+    let second_chunk_len = MAX_ROWS_PER_CHUNK / 2;
     let builder = gated_chunked_builder(
         runtime.handle(),
         Arc::clone(&segments),
@@ -457,7 +496,9 @@ fn unordered_scan_yields_ready_chunk_while_earlier_chunk_blocks_on_io() -> Vorte
     // Complete chunk 1's I/O while chunk 0 stays pending; unordered mode yields chunk 1 now.
     segments.complete_segment(SegmentId::from(1));
     runtime.run_until_stalled(&mut pool);
-    let (first, mut stream) = pool.run_until(first_fut)?;
+    let (first, mut stream) = first_fut.now_or_never().ok_or_else(|| {
+        vortex_err!("unordered scan did not yield chunk 1 while chunk 0 blocked")
+    })??;
     assert_eq!(first.len(), second_chunk_len);
     assert_eq!(segments.pending_count(), 1);
 
@@ -477,7 +518,9 @@ fn unordered_scan_yields_ready_chunk_while_earlier_chunk_blocks_on_io() -> Vorte
 
     segments.complete_segment(SegmentId::from(0));
     runtime.run_until_stalled(&mut pool);
-    let (second, end) = pool.run_until(rest_fut)?;
+    let (second, end) = rest_fut.now_or_never().ok_or_else(|| {
+        vortex_err!("unordered scan did not yield chunk 0 after its read completed")
+    })??;
     assert_eq!(second.len(), MAX_ROWS_PER_CHUNK);
     assert!(end.is_none());
     Ok(())
