@@ -35,7 +35,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<IsConstant>() {
+        if !aggregate_fn.is::<IsConstant>() || batch.is_empty() {
             return Ok(None);
         }
 
@@ -46,9 +46,15 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             return Ok(None);
         }
 
-        let result = match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
-            bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array, ctx)?
-        });
+        let result = if batch.all_invalid(ctx)? {
+            true
+        } else if !batch.all_valid(ctx)? {
+            false
+        } else {
+            match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
+                bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array, ctx)?
+            })
+        };
 
         Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
@@ -203,6 +209,8 @@ mod tests {
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::slice::SliceKernel;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
 
     use super::BitPackedIsConstantKernel;
@@ -235,10 +243,12 @@ mod tests {
         )
     }
 
-    // At bit width 2, 3000 rows hold two full chunks and a trailer, and 1025 rows a full chunk and
-    // a one-row trailer; the slice 100..2900 adds a partial first chunk. These three cases catch
-    // every mutant of the kernel that compiles.
+    // At bit width 2, 3000 rows hold two full chunks and a trailer, 1024 rows hold a single full
+    // chunk, and 1025 rows a full chunk and a one-row trailer; the slice 100..2900 adds a partial
+    // first chunk.
     #[rstest]
+    #[case::single_full_chunk_all_patched(PrimitiveArray::from_iter([4u32; 1024]), 0..1024, true)]
+    #[case::single_full_chunk_with_outlier(ones_with(1024, &[512]), 0..1024, false)]
     #[case::all_patched(PrimitiveArray::from_iter([4u32; 3000]), 0..3000, true)]
     #[case::patch_in_one_row_trailer(ones_with(1025, &[1024]), 0..1025, false)]
     #[case::patched_inside_sliced(patched_inside(), 100..2900, true)]
@@ -258,6 +268,48 @@ mod tests {
         assert_eq!(
             is_constant(&array, &mut ctx)?,
             is_constant(&source.slice(range)?, &mut ctx)?
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::all_valid_constant(
+        PrimitiveArray::new(Buffer::from_iter([1u32; 1024]), Validity::AllValid),
+        Some(true)
+    )]
+    #[case::all_invalid_varying_packed(
+        PrimitiveArray::new(
+            Buffer::from_iter((0u32..1024).map(|i| i % 4)),
+            Validity::AllInvalid,
+        ),
+        Some(true)
+    )]
+    #[case::all_null_bitmap_varying_packed(
+        PrimitiveArray::new(
+            Buffer::from_iter((0u32..1024).map(|i| i % 4)),
+            Validity::from_iter([false; 1024]),
+        ),
+        Some(true)
+    )]
+    #[case::mixed_null_constant_packed(
+        PrimitiveArray::new(
+            Buffer::from_iter([1u32; 1024]),
+            Validity::from_iter((0..1024).map(|i| i != 500)),
+        ),
+        Some(false)
+    )]
+    #[case::empty(PrimitiveArray::from_iter(std::iter::empty::<u32>()), None)]
+    fn kernel_respects_validity_and_empty(
+        #[case] source: PrimitiveArray,
+        #[case] expected: Option<bool>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = source.into_array();
+        let packed = BitPackedData::encode(&source, 2, &mut ctx)?.into_array();
+        assert_eq!(kernel(&packed)?, expected);
+        assert_eq!(
+            is_constant(&packed, &mut ctx)?,
+            is_constant(&source, &mut ctx)?
         );
         Ok(())
     }
