@@ -8,8 +8,11 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeList;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListView;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -160,13 +163,13 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             typed.dtype(),
             DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..)
         ) {
+            let Some((typed, complete)) = complete_rows(&typed, ctx)? else {
+                return Ok(None);
+            };
+
             if typed.dtype().as_nullable() != parent.dtype().as_nullable() {
                 return Ok(None);
             }
-
-            let Some(complete) = complete_rows(&typed, ctx)? else {
-                return Ok(None);
-            };
 
             // A null Variant row is null in the result, so the shredded child gives it as well.
             let core_mask = core_validity.execute_mask(typed.len(), ctx)?;
@@ -262,55 +265,97 @@ fn scatter_absent(
         .execute::<ArrayRef>(ctx)
 }
 
-/// Returns the rows of the shredded struct or list `typed` whose every leaf holds a value.
+/// Returns the shredded struct or list `typed` with each nested Variant replaced by its shredded
+/// child, and the rows of it whose every leaf holds a value.
 ///
 /// A null leaf can mean that the value of the leaf is in core storage, so such a row must merge
 /// the two. Returns `None` if a row cannot be read from `typed` alone, such as a row with a
-/// nested Variant, or a list with a null element.
-fn complete_rows(typed: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
+/// nested Variant that can keep a value in core storage, or a list with a null element.
+fn complete_rows(
+    typed: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<(ArrayRef, Mask)>> {
     let len = typed.len();
     match typed.dtype() {
-        DType::Variant(_) => Ok(None),
+        DType::Variant(_) => {
+            let variant = typed.clone().execute::<Array<Variant>>(ctx)?;
+
+            // The core storage holds no value of a row that holds a shredded value other than
+            // an object, so such a row is complete if its shredded value is. An object can keep
+            // some of its fields in core storage.
+            let Some(shredded) = variant
+                .shredded()
+                .filter(|shredded| !shredded.dtype().is_struct())
+            else {
+                return Ok(None);
+            };
+
+            let shredded = mask_with_validity(shredded.clone(), &variant.validity()?)?;
+            complete_rows(&shredded, ctx)
+        }
         DType::Struct(..) => {
             let typed = typed.clone().execute::<Array<Struct>>(ctx)?;
-            let mut complete = typed.struct_validity().execute_mask(len, ctx)?;
+            let validity = typed.struct_validity();
+            let mut complete = validity.execute_mask(len, ctx)?;
+            let mut fields = Vec::with_capacity(typed.names().len());
             for field in typed.iter_unmasked_fields() {
-                let Some(field_complete) = complete_rows(field, ctx)? else {
+                let Some((field, field_complete)) = complete_rows(field, ctx)? else {
                     return Ok(None);
                 };
                 complete = &complete & &field_complete;
+                fields.push(field);
             }
 
-            Ok(Some(complete))
+            let typed = StructArray::try_new(typed.names().clone(), fields, len, validity)?;
+            Ok(Some((typed.into_array(), complete)))
         }
         DType::List(..) => {
             let typed = typed.clone().execute::<Array<ListView>>(ctx)?;
-            list_complete_rows(typed.listview_validity(), typed.elements(), len, ctx)
+            let Some(elements) = complete_elements(typed.elements(), ctx)? else {
+                return Ok(None);
+            };
+
+            let validity = typed.listview_validity();
+            let complete = validity.execute_mask(len, ctx)?;
+            let typed = ListViewArray::try_new(
+                elements,
+                typed.offsets().clone(),
+                typed.sizes().clone(),
+                validity,
+                ctx,
+            )?;
+            Ok(Some((typed.into_array(), complete)))
         }
         DType::FixedSizeList(..) => {
             let typed = typed.clone().execute::<Array<FixedSizeList>>(ctx)?;
-            list_complete_rows(typed.fixed_size_list_validity(), typed.elements(), len, ctx)
+            let Some(elements) = complete_elements(typed.elements(), ctx)? else {
+                return Ok(None);
+            };
+
+            let validity = typed.fixed_size_list_validity();
+            let complete = validity.execute_mask(len, ctx)?;
+            let typed = FixedSizeListArray::try_new(elements, typed.list_size(), validity, len)?;
+            Ok(Some((typed.into_array(), complete)))
         }
-        _ => typed.validity()?.execute_mask(len, ctx).map(Some),
+        _ => {
+            let complete = typed.validity()?.execute_mask(len, ctx)?;
+            Ok(Some((typed.clone(), complete)))
+        }
     }
 }
 
-/// Returns the valid rows of a list, if all of its elements are complete.
+/// Returns the elements of a list as [`complete_rows`] does, if all of them are complete.
 ///
 /// The check covers all elements, also elements that no list refers to. This can find a list
 /// incomplete that is complete, which only makes the extraction slower.
-fn list_complete_rows(
-    validity: Validity,
+fn complete_elements(
     elements: &ArrayRef,
-    len: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Mask>> {
-    let elements_complete = complete_rows(elements, ctx)?;
-    if !elements_complete.is_some_and(|complete| complete.all_true()) {
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((elements, complete)) = complete_rows(elements, ctx)? else {
         return Ok(None);
-    }
-
-    validity.execute_mask(len, ctx).map(Some)
+    };
+    Ok(complete.all_true().then_some(elements))
 }
 
 /// Converts the typed values `typed` to `dtype`, as a single value converts: a value that does

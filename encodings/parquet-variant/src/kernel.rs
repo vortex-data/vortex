@@ -317,6 +317,8 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
@@ -353,6 +355,7 @@ mod tests {
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -372,6 +375,9 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
+        // The kernels of `vortex-functions` extract canonical Variants in bulk, as they do in a
+        // full session.
+        vortex_functions::initialize(&session);
         crate::initialize(&session);
         vortex_uuid::initialize(&session);
         session
@@ -1440,6 +1446,11 @@ mod tests {
         DataType::Decimal128(12, 3),
         VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
     )]
+    // Arrow parses the string "-2.345e1" as -23.45, so the shredded strings must parse as it does.
+    #[case::strings_as_decimal(
+        DataType::Utf8,
+        VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
+    )]
     fn test_variant_get_fills_rows_the_shredded_column_lacks(
         #[case] shredded_type: DataType,
         #[case] requested: VortexDType,
@@ -1452,6 +1463,8 @@ mod tests {
             Some(r#"{"a":8}"#),
             Some(r#"{"a":true}"#),
             Some(r#"{"a":12.345}"#),
+            Some(r#"{"a":" 1.005 "}"#),
+            Some(r#"{"a":"-2.345e1"}"#),
         ];
         let unshredded = make_unshredded_json_array(rows.clone())?;
 
@@ -1481,6 +1494,131 @@ mod tests {
             &mut ctx
         );
         Ok(())
+    }
+
+    /// Arrow shreds each field of an object to a nested Variant of a value and a typed value. A
+    /// struct reads its complete rows from the typed values, and the other rows from the values.
+    #[rstest]
+    #[case::complete(vec![Some(r#"{"a":1,"b":"x"}"#), Some(r#"{"a":2,"b":"y"}"#)])]
+    #[case::mixed(vec![
+        Some(r#"{"a":1,"b":"x"}"#),
+        Some(r#"{"a":"2","b":"y"}"#),
+        Some(r#"{"a":7.0,"b":"v"}"#),
+        Some(r#"{"a":4.5,"b":"u"}"#),
+        Some(r#"{"b":"z"}"#),
+        None,
+        Some(r#"{"a":3,"b":"w","c":true}"#),
+    ])]
+    fn test_variant_get_struct_of_arrow_shredded_fields(
+        #[case] rows: Vec<Option<&str>>,
+    ) -> VortexResult<()> {
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &DataType::Int64)?
+            .with_path("b", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        let requested = VortexDType::Struct(
+            StructFields::new(
+                FieldNames::from(["a", "b"]),
+                vec![
+                    VortexDType::Primitive(PType::I64, Nullability::Nullable),
+                    VortexDType::Utf8(Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+
+        // Shredding must not change what a path extracts to.
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$", Some(requested.clone()))?,
+            execute_variant_get(unshredded, "$", Some(requested))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Draws a string that is often a number in the syntax that Arrow's decimal parser reads.
+    fn draw_number_string(tc: &TestCase) -> String {
+        if tc.draw(gs::booleans()) {
+            let tokens = ["0", "1", "5", "9", ".", "-", "+", "e", "E", " "];
+            return tc
+                .draw(gs::vecs(gs::sampled_from(&tokens)).max_size(10))
+                .concat();
+        }
+
+        let digits = |max_size| {
+            tc.draw(gs::vecs(gs::sampled_from(&["0", "1", "4", "5", "9"])).max_size(max_size))
+                .concat()
+        };
+        let sign = tc.draw(gs::sampled_from(&["", "-", "+"]));
+        let integer = digits(20);
+        let fraction = if tc.draw(gs::booleans()) {
+            format!(".{}", digits(20))
+        } else {
+            String::new()
+        };
+        let exponent = if tc.draw(gs::booleans()) {
+            let exponent_sign = tc.draw(gs::sampled_from(&["", "-", "+"]));
+            format!(
+                "e{exponent_sign}{}",
+                tc.draw(gs::integers::<u8>().max_value(45))
+            )
+        } else {
+            String::new()
+        };
+        format!("{sign}{integer}{fraction}{exponent}")
+    }
+
+    fn check_strings_convert_to_decimals_as_arrow_does(tc: &TestCase) -> VortexResult<()> {
+        let precision = tc.draw(gs::integers::<u8>().min_value(1).max_value(38));
+        let max_scale = i8::try_from(precision)?;
+        let scale = tc.draw(gs::integers::<i8>().min_value(-10).max_value(max_scale));
+        let requested =
+            VortexDType::Decimal(DecimalDType::new(precision, scale), Nullability::Nullable);
+
+        let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+        let rows = (0..len)
+            .map(|_| format!(r#"{{"a":"{}"}}"#, draw_number_string(tc)))
+            .collect::<Vec<_>>();
+        let rows = rows
+            .iter()
+            .map(|row| Some(row.as_str()))
+            .collect::<Vec<_>>();
+        let unshredded = make_unshredded_json_array(rows.clone())?;
+
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let shredded = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(shredded) = shredded.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        // The unshredded strings convert through Arrow, the shredded ones through Vortex.
+        assert_arrays_eq!(
+            execute_variant_get(shredded.into_array(), "$.a", Some(requested.clone()))?,
+            execute_variant_get(unshredded, "$.a", Some(requested))?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[hegel::test(test_cases = 300)]
+    fn shredded_strings_convert_to_decimals_as_arrow_does(tc: TestCase) {
+        check_strings_convert_to_decimals_as_arrow_does(&tc)
+            .vortex_expect("shredded strings must convert to decimals as Arrow converts them");
     }
 
     /// A chunked Variant builds one storage array, so that it compresses and deserializes as a

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod decimal;
 mod variant;
 
 use std::fmt;
@@ -49,6 +50,8 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
+
+use self::decimal::parse_decimal;
 
 /// Registers [`VariantGet`] and its kernel for canonical variant arrays.
 pub(crate) fn initialize(session: &VortexSession) {
@@ -386,8 +389,8 @@ pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> 
     Some(Scalar::bool(boolean, dtype.nullability()))
 }
 
-/// Converts a float or a decimal to a decimal as Arrow's Variant conversion does, where a Vortex
-/// cast fails: both round half away from zero. Returns `None` if the result does not fit.
+/// Converts a float, a decimal or a string to a decimal as Arrow's Variant conversion does, where
+/// a Vortex cast fails: each rounds half away from zero. Returns `None` if the result does not fit.
 pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
     let DType::Decimal(target, nullability) = dtype else {
         return None;
@@ -409,7 +412,10 @@ pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scala
             let dropped_digits =
                 u32::try_from(i16::from(source.scale()) - i16::from(target.scale())).ok()?;
             let unscaled = value.as_decimal().decimal_value()?.cast::<i128>()?;
-            let divisor = 10i128.checked_pow(dropped_digits)?;
+            // Dropping more digits than an `i128` holds rounds every value to zero.
+            let Some(divisor) = 10i128.checked_pow(dropped_digits) else {
+                return Scalar::try_decimal(DecimalValue::I128(0), *target, *nullability).ok();
+            };
 
             let mut rounded = unscaled / divisor;
             if (unscaled % divisor).unsigned_abs() * 2 >= divisor.unsigned_abs() {
@@ -417,6 +423,11 @@ pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scala
             }
             rounded
         }
+        DType::Utf8(_) => parse_decimal(
+            value.as_utf8().value()?.as_str(),
+            target.precision(),
+            target.scale(),
+        )?,
         _ => return None,
     };
 

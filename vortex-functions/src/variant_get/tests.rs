@@ -805,56 +805,43 @@ fn variant_get_untyped_merges_shredded_leaf_values(
     Ok(())
 }
 
+/// A row with a typed list reads it from the shredded child, where its core storage holds no
+/// value. A row whose typed list is null reads its value from the core storage.
 #[rstest]
 #[case::list(false)]
 #[case::fixed_size_list(true)]
-fn variant_get_untyped_list_reads_shredded_values(#[case] fixed_size: bool) -> VortexResult<()> {
+fn variant_get_untyped_list_reads_typed_and_core_rows(
+    #[case] fixed_size: bool,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let row0_list = Scalar::list(
-        DType::Variant(Nullability::NonNullable),
-        vec![
-            Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
-            Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
-        ],
-        Nullability::NonNullable,
-    );
-    let row1_list = Scalar::list(
-        DType::Variant(Nullability::NonNullable),
-        vec![
-            Scalar::variant(Scalar::primitive(30i32, Nullability::NonNullable)),
-            Scalar::variant(Scalar::primitive(40i32, Nullability::NonNullable)),
-        ],
-        Nullability::NonNullable,
-    );
-    let core_storage = variant_rows([Scalar::variant(row0_list), Scalar::variant(row1_list)])?;
+    let no_value = Scalar::variant(Scalar::null(DType::Null));
+    let core_storage = variant_rows([
+        no_value,
+        Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
+    ])?;
+    let validity = Validity::from_iter([true, false]);
     let shredded_items = if fixed_size {
-        FixedSizeListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array(),
-            2,
-            Validity::NonNullable,
-            2,
-        )?
-        .into_array()
+        FixedSizeListArray::try_new(buffer![1i32, 2, 0, 0].into_array(), 2, validity, 2)?
+            .into_array()
     } else {
         ListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array(),
-            buffer![0u32, 2, 4].into_array(),
-            Validity::NonNullable,
+            buffer![1i32, 2].into_array(),
+            buffer![0u32, 2, 2].into_array(),
+            validity,
             &mut ctx,
         )?
         .into_array()
     };
     let variant = VariantArray::try_new(core_storage, Some(shredded_items))?.into_array();
 
-    let shredded_list = |values: [i32; 2]| {
-        Scalar::list(
-            DType::Variant(Nullability::NonNullable),
-            values
-                .map(|value| Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)))
-                .to_vec(),
-            Nullability::NonNullable,
-        )
-    };
+    let typed_list = Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![
+            Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
+            Scalar::variant(Scalar::primitive(2i32, Nullability::NonNullable)),
+        ],
+        Nullability::NonNullable,
+    );
 
     let expr = variant_get(root(), VariantPath::root(), None);
     let result = variant.apply(&expr)?;
@@ -862,8 +849,8 @@ fn variant_get_untyped_list_reads_shredded_values(#[case] fixed_size: bool) -> V
     assert_arrays_eq!(
         result,
         variant_rows([
-            Scalar::variant(shredded_list([1, 2])),
-            Scalar::variant(shredded_list([3, 4])),
+            Scalar::variant(typed_list),
+            Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
         ])?,
         &mut ctx
     );
@@ -871,7 +858,7 @@ fn variant_get_untyped_list_reads_shredded_values(#[case] fixed_size: bool) -> V
 }
 
 #[test]
-fn variant_get_dtype_mismatch_falls_back_to_core() -> VortexResult<()> {
+fn variant_get_converts_typed_values_of_another_dtype() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let core_storage = variant_rows([
         obj_a(10),
@@ -1151,6 +1138,26 @@ fn variant_get_extracts_from_lazy_constants(
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
     Ok(())
+}
+
+/// Dropping more digits than an `i128` holds rounds every value to zero, as Arrow does.
+#[test]
+fn converts_decimals_to_zero_when_every_digit_is_dropped() {
+    let value = Scalar::decimal(
+        DecimalValue::I64(99_999_999),
+        DecimalDType::new(8, 3),
+        Nullability::NonNullable,
+    );
+    let target = DecimalDType::new(6, -36);
+
+    assert_eq!(
+        convert_to_decimal(&value, &DType::Decimal(target, Nullability::Nullable)),
+        Some(Scalar::decimal(
+            DecimalValue::I128(0),
+            target,
+            Nullability::Nullable
+        ))
+    );
 }
 
 #[rstest]
