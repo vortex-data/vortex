@@ -213,19 +213,15 @@ impl Scheme for BitPackingScheme {
     }
 }
 
-/// The fewest bits per value that packing has to save for BitPacking to be applied.
-///
-/// Packing that saves a single bit per value, such as `u8` values at width 7, barely shrinks the
-/// data but still makes every read unpack it, so such arrays stay uncompressed.
+/// The fewest bits per value that packing must save. Saving one bit, as `u8` values at width 7 do,
+/// isn't worth unpacking on every read.
 const MIN_BITS_SAVED: usize = 2;
 
-/// Returns `true` if packing values of `ptype` at `bit_width` saves at least [`MIN_BITS_SAVED`]
-/// bits per value.
 fn saves_enough_bits(ptype: PType, bit_width: u8) -> bool {
     ptype.bit_width() - usize::from(bit_width) >= MIN_BITS_SAVED
 }
 
-/// Returns `None` when packing at the best width would save too few bits.
+/// Returns `None` when the best width saves fewer than [`MIN_BITS_SAVED`] bits.
 fn compress_global(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
@@ -238,8 +234,8 @@ fn compress_global(
     bitpack_encode(primitive_array, bw, Some(&histogram), exec_ctx).map(Some)
 }
 
-/// Uses global packing for uniform widths. Returns `None` for empty input, or when no block's width
-/// saves enough bits.
+/// Uses global packing for uniform widths. Returns `None` when no block's width saves
+/// [`MIN_BITS_SAVED`] bits.
 fn compress_blocked(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,

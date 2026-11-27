@@ -424,8 +424,7 @@ fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
 
 static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
-/// BitPacking leaves values uncompressed when packing saves too little, such as `u8` values that
-/// need 7 of their 8 bits, and packs them when it saves enough.
+/// `u8` values at width 7 save one bit and stay unpacked; at width 4 they are packed.
 #[rstest]
 #[case::saves_one_bit(64, false)]
 #[case::saves_four_bits(8, true)]
