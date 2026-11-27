@@ -43,8 +43,8 @@ use vortex_mask::Mask;
 ///
 /// `metadata` and `value` are the storage children, and `valid` the rows that hold a value. Each
 /// value converts to `dtype` as the general kernel converts it, and a missing path, or a row
-/// without a value, is a null. Returns `None` if [`covers`] does not cover `dtype`, or if the
-/// bytes are not what the encoding says they are.
+/// without a value, is a null. Returns `None` if [`covers`] does not cover `dtype`, if the bytes
+/// are not what the encoding says they are, or if a dictionary holds a name of the path twice.
 pub(crate) fn extract(
     metadata: &VarBinViewArray,
     value: &VarBinViewArray,
@@ -93,13 +93,13 @@ pub(crate) fn covers(dtype: &DType) -> bool {
 ///
 /// Returns `Some(None)` if the path does not exist in the value, and `None` for bytes that are
 /// cut short.
-fn follow<'v>(fields: &Fields<'_>, mut value: &'v [u8], depth: usize) -> Option<Option<&'v [u8]>> {
+fn follow<'v>(ids: &[usize], mut value: &'v [u8], depth: usize) -> Option<Option<&'v [u8]>> {
     for name in 0..depth {
         // A value that is not an object has no fields.
         let Some(object) = Object::new(value)? else {
             return Some(None);
         };
-        match fields.find(&object, name)? {
+        match object.field_with_id(ids[name])? {
             Some(field) => value = field,
             None => return Some(None),
         }
@@ -161,7 +161,7 @@ fn decimal_as_int64(unscaled: i128, scale: u8) -> Option<i64> {
 trait Append {
     /// Appends `value`, converted to the builder's dtype. Returns `None` for bytes that are cut
     /// short or do not decode.
-    fn append(&mut self, fields: &Fields<'_>, value: &[u8]) -> Option<()>;
+    fn append(&mut self, ids: &[usize], value: &[u8]) -> Option<()>;
 
     fn append_null(&mut self);
 }
@@ -170,10 +170,10 @@ trait Append {
 ///
 /// Generic over the builder, so that the loop of a string or an integer target is compiled for
 /// that builder alone.
-fn append_rows<'a, B: Append>(
+fn append_rows<B: Append>(
     builder: &mut B,
-    cache: &mut FieldCache<'a>,
-    metadata: &'a VarBinViewArray,
+    cache: &mut FieldCache<'_>,
+    metadata: &VarBinViewArray,
     value: &VarBinViewArray,
     valid: &Mask,
     depth: usize,
@@ -183,9 +183,9 @@ fn append_rows<'a, B: Append>(
             builder.append_null();
             continue;
         }
-        let fields = cache.resolve(metadata, idx)?;
-        match follow(&fields, bytes_at(value, idx), depth)? {
-            Some(value) => builder.append(&fields, value)?,
+        let ids = cache.resolve(metadata, idx)?;
+        match follow(ids, bytes_at(value, idx), depth)? {
+            Some(value) => builder.append(ids, value)?,
             None => builder.append_null(),
         }
     }
@@ -292,10 +292,10 @@ impl Builder {
 }
 
 impl Append for Builder {
-    fn append(&mut self, fields: &Fields<'_>, value: &[u8]) -> Option<()> {
+    fn append(&mut self, ids: &[usize], value: &[u8]) -> Option<()> {
         match self {
-            Self::Utf8(builder) => builder.append(fields, value),
-            Self::Int64(builder) => builder.append(fields, value),
+            Self::Utf8(builder) => builder.append(ids, value),
+            Self::Int64(builder) => builder.append(ids, value),
             Self::Struct {
                 fields: builders,
                 validity,
@@ -305,11 +305,11 @@ impl Append for Builder {
                 for (name, builder) in builders.iter_mut() {
                     // Every field of a value that is not an object is null, as is the struct.
                     let field = match &object {
-                        Some(object) => fields.find(object, *name)?,
+                        Some(object) => object.field_with_id(ids[*name])?,
                         None => None,
                     };
                     match field {
-                        Some(field) => builder.append(fields, field)?,
+                        Some(field) => builder.append(ids, field)?,
                         None => builder.append_null(),
                     }
                 }
@@ -325,7 +325,7 @@ impl Append for Builder {
                 let len = list.as_ref().map_or(0, |list| list.len);
                 for idx in 0..len {
                     let element = list.as_ref().and_then(|list| list.element(idx))?;
-                    elements.append(fields, element)?;
+                    elements.append(ids, element)?;
                 }
                 let end = offsets.last().copied().unwrap_or_default();
                 offsets.push(end + u64::try_from(len).ok()?);
@@ -406,7 +406,7 @@ impl Utf8Builder {
 
 impl Append for Utf8Builder {
     #[inline]
-    fn append(&mut self, _fields: &Fields<'_>, value: &[u8]) -> Option<()> {
+    fn append(&mut self, _ids: &[usize], value: &[u8]) -> Option<()> {
         let header = *value.first()?;
         let payload = &value[1..];
         let string = match (header & BASIC_TYPE_MASK, header >> 2) {
@@ -461,7 +461,7 @@ impl Int64Builder {
 
 impl Append for Int64Builder {
     #[inline]
-    fn append(&mut self, _fields: &Fields<'_>, value: &[u8]) -> Option<()> {
+    fn append(&mut self, _ids: &[usize], value: &[u8]) -> Option<()> {
         let header = *value.first()?;
         let payload = &value[1..];
         let integer = match (header & BASIC_TYPE_MASK, header >> 2) {
@@ -497,142 +497,92 @@ fn bytes_at(array: &VarBinViewArray, idx: usize) -> &[u8] {
     }
 }
 
-/// How to find the fields of the cached names in the objects of rows that share one metadata.
-#[derive(Clone, Copy)]
-enum Fields<'a> {
-    /// The dictionary id of each name. [`ABSENT`] is the id of a name that the dictionary does
-    /// not hold, which no object has.
-    Ids(&'a [usize]),
-    /// The dictionary holds one of the names more than once, so that the name has no single id.
-    /// The fields are found by name.
-    Names(Metadata<'a>, &'a [FieldName]),
-}
-
-impl Fields<'_> {
-    /// The field of `object` with the cached name at index `name`, or `Some(None)` if the object
-    /// has no such field.
-    #[inline]
-    fn find<'v>(&self, object: &Object<'v>, name: usize) -> Option<Option<&'v [u8]>> {
-        match self {
-            Self::Ids(ids) => object.field_with_id(ids[name]),
-            Self::Names(metadata, names) => object.field(metadata, names[name].as_ref()),
-        }
-    }
-}
-
 /// An id that is not in any dictionary: the ids of an object are at most four bytes wide.
 const ABSENT: usize = usize::MAX;
 
-/// The [`Fields`] of a list of names, for the metadata of the rows seen most recently.
+/// The dictionary id of each of a list of names, for the metadata of the rows seen most recently.
 ///
 /// Few rows have a metadata of their own: the rows of a table share a handful of shapes, and
-/// the metadata child is dictionary encoded. Resolving the names against a metadata once turns
-/// the lookup in every object from a binary search over names into a scan for an id.
-///
-/// The slots are direct mapped on a hash of the metadata's view. Rows with the same metadata
-/// under a dictionary have the same view. A miss writes the ids of the slot in place, so that it
-/// neither allocates nor moves them.
+/// the metadata child is dictionary encoded, so that rows with the same metadata have the same
+/// view. Resolving the names once for each view turns the lookup in every object from a binary
+/// search over names into a scan for an id.
 struct FieldCache<'a> {
     names: &'a [FieldName],
-    /// The view of the metadata that each slot holds.
-    keys: Vec<Option<u128>>,
-    /// The ids of the names for each slot, one run of `names.len()` ids per slot.
+    /// The view of each metadata the cache holds, with the start of its ids in `ids`.
+    views: Vec<(u128, usize)>,
+    /// The ids of the names, one run of `names.len()` ids for each entry of `views`. [`ABSENT`]
+    /// is the id of a name that the dictionary does not hold.
     ids: Vec<usize>,
-    /// The metadata of each slot whose dictionary holds one of the names more than once.
-    duplicates: Vec<Option<Metadata<'a>>>,
 }
 
 impl<'a> FieldCache<'a> {
-    const SLOTS: usize = 256;
+    /// The number of metadata views the cache holds before it starts again.
+    const CAPACITY: usize = 16;
 
     fn new(names: &'a [FieldName]) -> Self {
         Self {
             names,
-            keys: vec![None; Self::SLOTS],
-            ids: vec![ABSENT; Self::SLOTS * names.len()],
-            duplicates: vec![None; Self::SLOTS],
+            views: Vec::with_capacity(Self::CAPACITY),
+            ids: Vec::with_capacity(Self::CAPACITY * names.len()),
         }
     }
 
-    /// The fields of the names for row `idx` of `metadata`.
-    #[inline]
-    fn resolve(&mut self, metadata: &'a VarBinViewArray, idx: usize) -> Option<Fields<'_>> {
-        let key = metadata.views()[idx].as_u128();
-        // The top byte of the low half of a multiplicative hash, as the table has 256 slots.
-        let mixed = (key ^ (key >> 64)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-        let slot = usize::from(mixed.to_le_bytes()[7]);
-        let len = self.names.len();
-        let ids = &mut self.ids[slot * len..(slot + 1) * len];
-
-        if self.keys[slot] != Some(key) {
-            // The slot is empty until its ids are complete, as a metadata that does not decode
-            // stops the fill part of the way through.
-            self.keys[slot] = None;
-            self.duplicates[slot] = Self::fill(self.names, ids, bytes_at(metadata, idx))?;
-            self.keys[slot] = Some(key);
-        }
-
-        Some(match self.duplicates[slot] {
-            Some(metadata) => Fields::Names(metadata, self.names),
-            None => Fields::Ids(ids),
-        })
-    }
-
-    /// Writes the dictionary id of each name in `names` to `ids`.
+    /// The dictionary id of each name for row `idx` of `metadata`.
     ///
-    /// Returns the metadata if its dictionary holds one of the names more than once.
-    fn fill(
-        names: &[FieldName],
-        ids: &mut [usize],
-        metadata: &'a [u8],
-    ) -> Option<Option<Metadata<'a>>> {
-        let metadata = Metadata::new(metadata)?;
+    /// Returns `None` if the metadata does not decode, or if its dictionary holds one of the
+    /// names more than once, which leaves the extraction to the general kernel.
+    fn resolve(&mut self, metadata: &VarBinViewArray, idx: usize) -> Option<&[usize]> {
+        let view = metadata.views()[idx].as_u128();
+        let len = self.names.len();
 
-        // A path or a small struct has a number of names known when the scan compiles, so that
-        // the loop over the names unrolls.
-        if let Ok(ids) = <&mut [usize; 1]>::try_from(&mut *ids) {
-            return Self::scan(names, ids, metadata);
-        }
-        if let Ok(ids) = <&mut [usize; 2]>::try_from(&mut *ids) {
-            return Self::scan(names, ids, metadata);
-        }
-        if let Ok(ids) = <&mut [usize; 3]>::try_from(&mut *ids) {
-            return Self::scan(names, ids, metadata);
-        }
-        Self::scan(names, ids, metadata)
-    }
-
-    /// Generic over the ids, so that each array length of [`Self::fill`] compiles a scan of
-    /// its own.
-    fn scan(
-        names: &[FieldName],
-        mut ids: impl AsMut<[usize]>,
-        metadata: Metadata<'a>,
-    ) -> Option<Option<Metadata<'a>>> {
-        let ids = ids.as_mut();
-        ids.fill(ABSENT);
-
-        // Every row of a table without a dictionary over its metadata misses, so this loop is
-        // hot. Each offset is read once, and the bytes of a name are compared only with names of
-        // the same length.
-        let mut offsets = metadata.offsets.chunks_exact(metadata.offset_size);
-        let mut start = read_uint(offsets.next()?, metadata.offset_size)?;
-        for (id, end) in offsets.take(metadata.len).enumerate() {
-            let end = read_uint(end, metadata.offset_size)?;
-            let len = end.checked_sub(start)?;
-            for (field, found) in names.iter().zip(ids.iter_mut()) {
-                let field = field.as_ref().as_bytes();
-                if field.len() == len && metadata.names.get(start..end)? == field {
-                    if *found != ABSENT {
-                        return Some(Some(metadata));
-                    }
-                    *found = id;
+        let start = match self.views.iter().find(|(cached, _)| *cached == view) {
+            Some(&(_, start)) => start,
+            None => {
+                if self.views.len() == Self::CAPACITY {
+                    self.views.clear();
+                    self.ids.clear();
                 }
+
+                let start = self.ids.len();
+                self.ids.resize(start + len, ABSENT);
+                fill(self.names, &mut self.ids[start..], bytes_at(metadata, idx))?;
+                self.views.push((view, start));
+                start
             }
-            start = end;
-        }
-        Some(None)
+        };
+
+        Some(&self.ids[start..start + len])
     }
+}
+
+/// Writes the dictionary id of each name in `names` to `ids`.
+///
+/// Returns `None` if the metadata does not decode, or if its dictionary holds one of the names
+/// more than once.
+fn fill(names: &[FieldName], ids: &mut [usize], metadata: &[u8]) -> Option<()> {
+    let metadata = Metadata::new(metadata)?;
+
+    // Every row of a table without a dictionary over its metadata misses the cache, so this loop
+    // is hot. Each offset is read once, and the bytes of a name are compared only with names of
+    // the same length.
+    let mut offsets = metadata.offsets.chunks_exact(metadata.offset_size);
+    let mut start = read_uint(offsets.next()?, metadata.offset_size)?;
+    for (id, end) in offsets.take(metadata.len).enumerate() {
+        let end = read_uint(end, metadata.offset_size)?;
+        let len = end.checked_sub(start)?;
+        for (field, found) in names.iter().zip(ids.iter_mut()) {
+            let field = field.as_ref().as_bytes();
+            if field.len() == len && metadata.names.get(start..end)? == field {
+                if *found != ABSENT {
+                    return None;
+                }
+                *found = id;
+            }
+        }
+        start = end;
+    }
+
+    Some(())
 }
 
 /// The first `N` bytes of `bytes`.
@@ -699,21 +649,10 @@ impl<'a> Metadata<'a> {
             names: bytes.get(names_start..)?,
         })
     }
-
-    /// The name with dictionary id `id`.
-    fn name(&self, id: usize) -> Option<&'a [u8]> {
-        let start = read_uint(self.offsets.get(id * self.offset_size..)?, self.offset_size)?;
-        let end = read_uint(
-            self.offsets.get((id + 1) * self.offset_size..)?,
-            self.offset_size,
-        )?;
-        self.names.get(start..end)
-    }
 }
 
 /// An object value: its field ids, sorted by field name, and the offsets of the field values.
 struct Object<'a> {
-    len: usize,
     id_size: usize,
     offset_size: usize,
     ids: &'a [u8],
@@ -738,7 +677,6 @@ impl<'a> Object<'a> {
         let offsets_start = ids_start + len * id_size;
         let values_start = offsets_start + (len + 1) * offset_size;
         Some(Some(Self {
-            len,
             id_size,
             offset_size,
             ids: value.get(ids_start..offsets_start)?,
@@ -771,27 +709,6 @@ impl<'a> Object<'a> {
             self.offset_size,
         )?;
         Some(Some(self.values.get(offset..)?))
-    }
-
-    /// The value of the field `name`, or `Some(None)` if the object has no such field.
-    fn field(&self, metadata: &Metadata<'_>, name: &str) -> Option<Option<&'a [u8]>> {
-        let (mut low, mut high) = (0, self.len);
-        while low < high {
-            let mid = low + (high - low) / 2;
-            let id = read_uint(self.ids.get(mid * self.id_size..)?, self.id_size)?;
-            match metadata.name(id)?.cmp(name.as_bytes()) {
-                std::cmp::Ordering::Less => low = mid + 1,
-                std::cmp::Ordering::Greater => high = mid,
-                std::cmp::Ordering::Equal => {
-                    let offset = read_uint(
-                        self.offsets.get(mid * self.offset_size..)?,
-                        self.offset_size,
-                    )?;
-                    return Some(Some(self.values.get(offset..)?));
-                }
-            }
-        }
-        Some(None)
     }
 }
 
@@ -1078,30 +995,24 @@ mod tests {
         Ok(())
     }
 
-    /// A dictionary may hold a name twice unless it is sorted, and an object may then use
-    /// either id.
-    #[rstest]
-    #[case::first_id(0)]
-    #[case::second_id(1)]
-    fn finds_a_field_whose_name_is_in_the_dictionary_twice(#[case] id: u8) -> VortexResult<()> {
+    /// A dictionary may hold a name twice unless it is sorted. The name then has no single id,
+    /// so the general kernel extracts it.
+    #[test]
+    fn leaves_a_name_in_the_dictionary_twice_to_the_general_kernel() {
         // Version 1 with one-byte offsets, then two names, both "a".
         let metadata = [0x01, 2, 0, 1, 2, b'a', b'a'];
-        // An object of one field, whose value is the short string "x".
-        let value = [0x02, 1, id, 0, 2, 0x05, b'x'];
+        // An object of one field with id 0, whose value is the short string "x".
+        let value = [0x02, 1, 0, 0, 2, 0x05, b'x'];
+
         let extracted = extract(
             &VarBinViewArray::from_iter_bin([metadata]),
             &VarBinViewArray::from_iter_bin([value]),
             &Mask::new_true(1),
             &["a"],
             &utf8(),
-        )
-        .ok_or_else(|| vortex_err!("not extracted in place"))?;
-        assert_arrays_eq!(
-            extracted,
-            VarBinViewArray::from_iter_nullable_str([Some("x")]),
-            &mut SESSION.create_execution_ctx()
         );
-        Ok(())
+
+        assert!(extracted.is_none());
     }
 
     /// Rows that hold no value are null, whatever their bytes are.
