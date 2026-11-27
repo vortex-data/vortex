@@ -18,6 +18,8 @@
 //! The results are approximate in two ways: a true neighbour can sit in a list that is not probed,
 //! and scores come from quantized vectors. Probe more lists for better recall.
 
+mod dot_product;
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
@@ -241,88 +243,18 @@ impl QuantizedQuery {
         }
     }
 
-    /// The dot product with each of `codes`, a run of codes `code_len` bytes long, into `out`.
-    fn dot_all(&self, codes: &[u8], code_len: usize, out: &mut Vec<f32>) {
-        out.clear();
-        out.reserve(codes.len() / code_len);
-        #[cfg(target_arch = "x86_64")]
-        if std::arch::is_x86_feature_detected!("avx2") {
-            // SAFETY: the CPU supports AVX2, checked just above.
-            unsafe { self.dot_all_avx2(codes, code_len, out) };
-            return;
-        }
-        self.dot_all_portable(codes, code_len, out);
-    }
-
-    /// [`dot_all`](Self::dot_all) with AVX2: sixteen values at a time are widened to `i16` and
-    /// multiplied and summed in pairs into `i32` lanes.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    fn dot_all_avx2(&self, codes: &[u8], code_len: usize, out: &mut Vec<f32>) {
-        use std::arch::x86_64::*;
-
-        let query = self.values.as_slice();
-        let wide = query.len() / 16 * 16;
-        for code in codes.chunks_exact(code_len) {
-            let (scale, values) = split_code(code);
-            let mut lanes = _mm256_setzero_si256();
-            for start in (0..wide).step_by(16) {
-                // SAFETY: `start + 16 <= wide`, and the query and the code's values both hold
-                // `query.len() >= wide` bytes, so each unaligned 16-byte load is in bounds.
-                let (q, c) = unsafe {
-                    (
-                        _mm_loadu_si128(query.as_ptr().add(start).cast()),
-                        _mm_loadu_si128(values.as_ptr().add(start).cast()),
-                    )
-                };
-                let products = _mm256_madd_epi16(_mm256_cvtepi8_epi16(q), _mm256_cvtepi8_epi16(c));
-                lanes = _mm256_add_epi32(lanes, products);
-            }
-            let half = _mm_add_epi32(
-                _mm256_castsi256_si128(lanes),
-                _mm256_extracti128_si256::<1>(lanes),
-            );
-            let half = _mm_add_epi32(half, _mm_shuffle_epi32::<0b0100_1110>(half));
-            let half = _mm_add_epi32(half, _mm_shuffle_epi32::<0b1011_0001>(half));
-            let rest: i32 = query[wide..]
-                .iter()
-                .zip(&values[wide..])
-                .map(|(&q, &c)| i32::from(q) * i32::from(c as i8))
-                .sum();
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "a sum of 127 * 127 products stays exact in f32 for any practical dimension"
-            )]
-            let sum = (_mm_cvtsi128_si32(half) + rest) as f32;
-            out.push(sum * scale * self.scale);
-        }
-    }
-
-    fn dot_all_portable(&self, codes: &[u8], code_len: usize, out: &mut Vec<f32>) {
-        out.extend(codes.chunks_exact(code_len).map(|code| self.dot(code)));
-    }
-
+    #[cfg(test)]
     /// The dot product with a vector quantized by [`quantize`].
     fn dot(&self, code: &[u8]) -> f32 {
         let (scale, values) = split_code(code);
-        let mut lanes = [0i32; 16];
-        let (q_chunks, q_rest) = self.values.as_chunks::<16>();
-        let (c_chunks, c_rest) = values.as_chunks::<16>();
-        for (q, c) in q_chunks.iter().zip(c_chunks) {
-            for lane in 0..16 {
-                lanes[lane] += i32::from(q[lane]) * i32::from(c[lane] as i8);
-            }
-        }
-        let rest: i32 = q_rest
+        let sum: i32 = self
+            .values
             .iter()
-            .zip(c_rest)
-            .map(|(&q, &c)| i32::from(q) * i32::from(c as i8))
+            .zip(values)
+            .map(|(&q, &v)| i32::from(q) * i32::from(v as i8))
             .sum();
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a sum of 127 * 127 products stays exact in f32 for any practical dimension"
-        )]
-        let sum = (lanes.iter().sum::<i32>() + rest) as f32;
+        #[expect(clippy::cast_precision_loss, reason = "IVF scores are f32")]
+        let sum = sum as f32;
         sum * scale * self.scale
     }
 }
@@ -721,7 +653,7 @@ fn score_lists(lists: &[Arc<IvfEntries>], query: &[f32], dim: usize, k: usize) -
     let mut scores = Vec::new();
     for entries in lists {
         for (rows, codes) in entries.rows.iter().zip(&entries.codes) {
-            quantized.dot_all(codes, code_len, &mut scores);
+            quantized.dot_all(codes, &mut scores);
             for (position, &score) in (0u32..).zip(&scores) {
                 if best.may_admit(score)
                     && let Some(row) = rows.select(position)
@@ -930,6 +862,7 @@ mod tests {
     }
 
     #[rstest]
+    #[case::sdot(128)]
     #[case::wide(64)]
     #[case::wide_with_tail(70)]
     #[case::only_tail(12)]
@@ -937,7 +870,7 @@ mod tests {
         let query = QuantizedQuery::new(&values(dim, 1));
         let codes = codes(&values(dim * 100, 2), dim);
         let mut all = Vec::new();
-        query.dot_all(&codes, 4 + dim, &mut all);
+        query.dot_all(&codes, &mut all);
         let one_by_one: Vec<f32> = codes
             .chunks_exact(4 + dim)
             .map(|code| query.dot(code))
