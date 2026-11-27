@@ -27,6 +27,7 @@ use vortex_session::VortexSession;
 
 use super::CORE;
 use super::SHREDDED;
+use super::layout_id;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
@@ -40,7 +41,8 @@ use crate::sequence::SequentialStreamExt;
 
 /// Writes a shredded Variant stream as the struct of its core storage and its shredded child.
 ///
-/// Each chunk keeps its own shredding schema. Unshredded chunks use the fallback strategy.
+/// Each chunk keeps its own shredding schema. Unshredded chunks and writes whose editions
+/// exclude the Variant layout use the fallback strategy.
 ///
 /// **Note**: this writes an unstable and experimental layout that is expected to change. Using
 /// it may lead to unreadable files in the future.
@@ -75,6 +77,12 @@ impl LayoutStrategy for VariantStrategy {
                 "VariantStrategy can only write Variant streams, got {}",
                 stream.dtype()
             );
+        }
+        if !ctx.allows_layout(&layout_id()) {
+            return self
+                .fallback
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
         }
         ChunkedLayoutStrategy::new(VariantChunk(self.clone()))
             .write_stream(ctx, segment_sink, stream, eof, session)

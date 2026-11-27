@@ -5,9 +5,8 @@
 //!
 //! [`TableStrategy`] is a *dispatcher*: it inspects the dtype of the stream it is handed and
 //! routes struct columns to [`StructStrategy`], list columns to [`ListLayoutStrategy`], and
-//! everything else to the configured leaf strategy. Because it hands *itself* (suitably descended)
-//! to those structural writers as the strategy for their children, arbitrarily nested struct/list
-//! trees are written with no manual wiring.
+//! Variant columns to [`VariantStrategy`]. Other columns use the configured leaf strategy.
+//! The structural writers dispatch their children through the same strategy.
 //!
 //! The dispatcher also owns field-path overrides, letting callers force a specific leaf field —
 //! at any depth — onto a custom strategy.
@@ -46,6 +45,8 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 ///   strategies. Gated: only when list decomposition is enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
+/// - **Variant** → [`VariantStrategy`], which splits shredded chunks when the write permits
+///   the Variant layout and otherwise uses the leaf strategy.
 /// - **anything else** → the leaf strategy.
 ///
 /// [`write_stream`]: LayoutStrategy::write_stream
@@ -62,8 +63,6 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
-    /// Whether shredded Variant fields are written with [`VariantStrategy`].
-    variant_layout: bool,
 }
 
 impl TableStrategy {
@@ -91,7 +90,6 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
-            variant_layout: false,
         }
     }
 
@@ -179,16 +177,6 @@ impl TableStrategy {
         self.list_layout_factory = Some(Arc::new(factory));
         self
     }
-
-    /// Enable writing shredded Variant fields with [`VariantStrategy`], which stores the core
-    /// storage and each shredded field as columns of their own.
-    ///
-    /// **Note**: this is an unstable and experimental layout that is expected to change.
-    /// Using it may lead to unreadable files in the future.
-    pub fn with_variant_layout(mut self) -> Self {
-        self.variant_layout = true;
-        self
-    }
 }
 
 impl TableStrategy {
@@ -258,7 +246,6 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
-            variant_layout: self.variant_layout,
         }
     }
 
@@ -270,7 +257,6 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
-            variant_layout: self.variant_layout,
         }
     }
 
@@ -321,7 +307,7 @@ impl LayoutStrategy for TableStrategy {
                 .await;
         }
 
-        if dtype.is_variant() && self.variant_layout {
+        if dtype.is_variant() {
             // The stored struct goes back through a clean dispatcher, so that its shredded
             // child is split into columns, and a Variant in it is split in turn.
             let storage = self.descend_clean();

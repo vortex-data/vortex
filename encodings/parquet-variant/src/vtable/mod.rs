@@ -286,6 +286,7 @@ mod tests {
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::struct_::Struct as StructLayoutEncoding;
     use vortex_layout::layouts::table::TableStrategy;
+    use vortex_layout::layouts::variant;
     use vortex_layout::scan::metrics::ScanUsage;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
@@ -389,7 +390,7 @@ mod tests {
         let dtype = chunks[0].dtype().clone();
         let chunks = ChunkedArray::try_new(chunks, dtype)?.into_array();
         let leaf = Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
-        let strategy = TableStrategy::new(leaf.clone(), leaf).with_variant_layout();
+        let strategy = TableStrategy::new(leaf.clone(), leaf);
         let mut bytes = ByteBufferMut::empty();
         session
             .write_options()
@@ -474,6 +475,10 @@ mod tests {
 
     #[fixture]
     fn parquet_variant_file_session() -> VortexResult<VortexSession> {
+        file_session_with_layout_edition(true)
+    }
+
+    fn file_session_with_layout_edition(include_variant: bool) -> VortexResult<VortexSession> {
         const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
 
         let session = VortexSession::empty()
@@ -512,6 +517,9 @@ mod tests {
         ];
         for (kind, ids) in component_ids {
             for id in ids {
+                if !include_variant && kind == ComponentKind::Layout && id == variant::layout_id() {
+                    continue;
+                }
                 editions.declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))?;
             }
         }
@@ -638,15 +646,17 @@ mod tests {
         ChunkedArray::try_new(chunks, dtype).map(IntoArray::into_array)
     }
 
-    /// A shredded object is written with the Variant layout, as a column for its core storage
-    /// and one for each shredded field. Reading the Variant back, and extracting a path in the
-    /// scan, return what the Variant that was written holds.
+    /// The write's edition selects the physical layout. Both layouts preserve shredded
+    /// and residual fields when reading the whole Variant or projecting a path.
     #[rstest]
     #[tokio::test]
-    async fn test_file_roundtrip_shredded_object_with_variant_layout(
-        parquet_variant_file_session: VortexResult<VortexSession>,
+    async fn test_file_roundtrip_shredded_object_across_editions(
+        #[values(false, true)] include_variant: bool,
     ) -> VortexResult<()> {
-        let session = parquet_variant_file_session?;
+        // Build with the opposite layout permission to exercise the edition of the actual write.
+        let builder_session = file_session_with_layout_edition(!include_variant)?;
+        let strategy = vortex_file::WriteStrategyBuilder::from_session(&builder_session).build();
+        let session = file_session_with_layout_edition(include_variant)?;
         crate::initialize(&session);
 
         // Only some events have a `commit`, and `commit.rev` stays in its residual value.
@@ -665,13 +675,13 @@ mod tests {
         let mut bytes = ByteBufferMut::empty();
         session
             .write_options()
-            .with_strategy(vortex_file::WriteStrategyBuilder::from_session(&session).build())
+            .with_strategy(strategy)
             .write(&mut bytes, expected.to_array_stream())
             .await?;
         let file = session.open_options().open_buffer(bytes)?;
-        // The Variant is stored in a struct layout of its own dtype.
         let layout = file.footer().layout();
-        assert!(layout.is::<StructLayoutEncoding>() && layout.dtype().is_variant());
+        assert!(layout.dtype().is_variant());
+        assert_eq!(layout.is::<StructLayoutEncoding>(), include_variant);
 
         let utf8 = DType::Utf8(Nullability::Nullable);
         let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
