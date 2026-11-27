@@ -22,7 +22,9 @@ use vortex_fuzz::run_fuzz_action;
 fn generated_casts_update_following_oracles() {
     // U8 [7, 9], then cast to U16, cast to U32, and read row 1.
     let array = PrimitiveArray::from_iter([7u8, 9]).into_array();
-    let seed = [2, 7, 1, 1, 0, 7, 1, 2, 0, 1, 0, 1];
+    // Three actions: Cast to integer type 1 (U16), Cast to integer type 2 (U32), each
+    // non-nullable, then ScalarAt with one index, row 1.
+    let seed = [2, 7, 1, 0, 7, 2, 0, 1, 0, 1];
     let fuzz = FuzzArrayAction::with_random_actions(array, &mut Unstructured::new(&seed))
         .expect("infallible cast actions must be generated");
     let [
@@ -54,7 +56,8 @@ fn generated_casts_update_following_oracles() {
 fn nullable_cast_removal_is_rejected_by_generator() {
     // Nullable U8 [null, null], then cast to nonnullable U16.
     let array = PrimitiveArray::from_option_iter([None::<u8>, None]).into_array();
-    let seed = [0, 7, 1, 1, 0];
+    // One action: Cast to integer type 1 (U16), non-nullable.
+    let seed = [0, 7, 1, 0];
     assert!(matches!(
         FuzzArrayAction::with_random_actions(array, &mut Unstructured::new(&seed)),
         Err(arbitrary::Error::EmptyChoose)

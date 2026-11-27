@@ -1,0 +1,31 @@
+name: Fuzz array_ops (ephyra)
+
+# The ephyra counterpart of fuzz-array-ops.yml: runs after every Fuzz Build, like the libFuzzer
+# targets. See run-ephyra-fuzzer.yml.
+
+on:
+  workflow_run:
+    workflows: ["Fuzz Build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      max_minutes:
+        description: "Search budget in minutes"
+        required: false
+        type: number
+        default: 150
+
+jobs:
+  fuzz:
+    name: "Array Operations Fuzz (ephyra)"
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/run-ephyra-fuzzer.yml
+    with:
+      target: array_ops
+      max_minutes: ${{ inputs.max_minutes || 150 }}

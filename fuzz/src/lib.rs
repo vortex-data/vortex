@@ -33,9 +33,12 @@ mod array;
 #[cfg(feature = "native")]
 pub mod arrow_roundtrip;
 pub mod compress;
+#[cfg(feature = "ephyra")]
+pub mod ephyra;
 pub mod error;
 pub mod fsst_like;
 mod row;
+mod source;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
@@ -66,6 +69,8 @@ pub use file::has_duplicate_field_names;
 pub use file::has_nullable_struct;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::run_file_corruption;
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+pub use file::run_file_io;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::run_file_session;
 pub use fsst_like::FuzzFsstLike;
@@ -76,6 +81,7 @@ pub use gpu::FuzzCompressGpu;
 pub use gpu::run_compress_gpu;
 pub use row::FuzzRowEncode;
 pub use row::run_row_encode;
+pub use source::FuzzSource;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;

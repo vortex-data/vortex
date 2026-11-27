@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod corruption;
+#[cfg(feature = "native")]
+mod io;
 mod session;
 mod settings;
 
@@ -11,6 +13,8 @@ use std::sync::Once;
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 pub use corruption::*;
+#[cfg(feature = "native")]
+pub use io::run_file_io;
 pub use session::*;
 pub use settings::*;
 use vortex::expr::Expression;
@@ -19,6 +23,7 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_expr::arbitrary::filter_expr;
 use vortex_expr::arbitrary::projection_expr;
@@ -26,6 +31,7 @@ use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::FUZZ_FILE_ARRAY_MAX_LEN;
+use crate::FuzzSource;
 
 #[derive(Debug)]
 pub struct FuzzFileAction {
@@ -37,22 +43,46 @@ pub struct FuzzFileAction {
 
 impl<'a> Arbitrary<'a> for FuzzFileAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let array = ArbitraryArray::arbitrary_with_config(
-            u,
-            &ArbitraryArrayConfig {
-                dtype: None,
-                len: 0..=FUZZ_FILE_ARRAY_MAX_LEN,
-            },
-        )?
-        .0;
+        Self::generate(u)
+    }
+}
+
+/// The longest file array in three generated files out of four.
+const SHORT_FILE_ARRAY_MAX_LEN: usize = 64;
+
+impl FuzzFileAction {
+    /// Generate an array, write settings, and the projection and filter to scan it back with.
+    pub fn generate(src: &mut impl FuzzSource) -> arbitrary::Result<Self> {
+        // Files are mostly short, and mostly a non-nullable struct, the only dtype that
+        // projections and filters apply to.
+        let max_len = if src.int_in_range(0..=3)? == 3 {
+            FUZZ_FILE_ARRAY_MAX_LEN
+        } else {
+            SHORT_FILE_ARRAY_MAX_LEN
+        };
+        let dtype = if src.int_in_range(0..=3)? == 3 {
+            None
+        } else {
+            Some(DType::Struct(
+                src.bytes(|u| u.arbitrary::<StructFields>())?,
+                Nullability::NonNullable,
+            ))
+        };
+        let config = ArbitraryArrayConfig {
+            dtype,
+            len: 0..=max_len,
+        };
+        let array = src
+            .bytes(|u| ArbitraryArray::arbitrary_with_config(u, &config))?
+            .0;
         let dtype = array.dtype().clone();
-        let mut write_settings = WriteSettings::arbitrary(u)?;
+        let mut write_settings = src.bytes(|u| u.arbitrary::<WriteSettings>())?;
         write_settings.disable_editions = false;
         write_settings.unrestricted = false;
         Ok(FuzzFileAction {
             array,
-            projection_expr: projection_expr(u, &dtype)?,
-            filter_expr: filter_expr(u, &dtype)?,
+            projection_expr: src.bytes(|u| projection_expr(u, &dtype))?,
+            filter_expr: src.bytes(|u| filter_expr(u, &dtype))?,
             write_settings,
         })
     }
