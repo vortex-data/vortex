@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -64,73 +63,63 @@ fn varbin_values(len: usize, dtype: DType) -> ArrayRef {
     .into_array()
 }
 
-#[rstest]
-// Below 1024 values threshold: stays Shared even with 1 code.
-#[case::below_values_len_threshold(1023, 1, DType::Utf8(Nullability::Nullable), false)]
-// At 1024 values, codes * 16 == 1024 (not strictly <): stays Shared.
-#[case::at_density_boundary_stays_shared(1024, 64, DType::Utf8(Nullability::Nullable), false)]
-// At 1024 values, codes * 16 == 1008 < 1024: unwraps Shared to raw encoded VarBin.
-#[case::just_below_density_boundary_unwraps_utf8(
-    1024,
-    63,
-    DType::Utf8(Nullability::Nullable),
-    true
-)]
-#[case::just_below_density_boundary_unwraps_binary(
-    1024,
-    63,
-    DType::Binary(Nullability::Nullable),
-    true
-)]
-fn sparse_dict_threshold_boundaries(
-    #[case] values_len: usize,
-    #[case] codes_len: usize,
-    #[case] dtype: DType,
-    #[case] expect_unwrapped: bool,
-) -> VortexResult<()> {
-    let store = Store::default();
-    let values = varbin_values(values_len, dtype.clone());
-    let code_values = (0..codes_len)
-        .map(|i| Ok((i % 7 != 0).then_some(u32::try_from(i % values_len)?)))
-        .collect::<VortexResult<Vec<_>>>()?;
-    let codes = PrimitiveArray::from_option_iter(code_values).into_array();
-    let plan = dict(store.flat(&values)?, store.flat(&codes)?);
+#[test]
+fn sparse_dict_threshold_boundaries() -> VortexResult<()> {
+    let cases = [
+        // Below 1024 values threshold: stays Shared even with 1 code.
+        (1023, 1, DType::Utf8(Nullability::Nullable), false),
+        // At 1024 values, codes * 16 == 1024 (not strictly <): stays Shared.
+        (1024, 64, DType::Utf8(Nullability::Nullable), false),
+        // At 1024 values, codes * 16 == 1008 < 1024: unwraps Shared to raw encoded VarBin.
+        (1024, 63, DType::Utf8(Nullability::Nullable), true),
+        (1024, 63, DType::Binary(Nullability::Nullable), true),
+    ];
 
-    let (outputs, reads) = drive_take(
-        &store,
-        &plan,
-        0..codes_len as u64,
-        Mask::new_true(codes_len),
-        ValueCache::default(),
-    )?;
-    assert_eq!(reads, 2);
-    assert_eq!(outputs.len(), 1);
+    for (values_len, codes_len, dtype, expect_unwrapped) in cases {
+        let store = Store::default();
+        let values = varbin_values(values_len, dtype.clone());
+        let code_values = (0..codes_len)
+            .map(|i| Ok((i % 7 != 0).then_some(u32::try_from(i % values_len)?)))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let codes = PrimitiveArray::from_option_iter(code_values).into_array();
+        let plan = dict(store.flat(&values)?, store.flat(&codes)?);
 
-    let dict_values = outputs[0].as_::<Dict>().values();
-    if expect_unwrapped {
-        assert!(
-            dict_values.is::<VarBin>(),
-            "expected raw encoded VarBin values, got {}",
-            dict_values.encoding_id()
-        );
-        assert!(!dict_values.is::<Shared>());
-    } else {
-        assert!(
-            dict_values.is::<Shared>(),
-            "expected Shared values, got {}",
-            dict_values.encoding_id()
-        );
+        let (outputs, reads) = drive_take(
+            &store,
+            &plan,
+            0..codes_len as u64,
+            Mask::new_true(codes_len),
+            ValueCache::default(),
+        )?;
+        assert_eq!(reads, 2);
+        assert_eq!(outputs.len(), 1);
+
+        let dict_values = outputs[0].as_::<Dict>().values();
+        if expect_unwrapped {
+            assert!(
+                dict_values.is::<VarBin>(),
+                "expected raw encoded VarBin values, got {}",
+                dict_values.encoding_id()
+            );
+            assert!(!dict_values.is::<Shared>());
+        } else {
+            assert!(
+                dict_values.is::<Shared>(),
+                "expected Shared values, got {}",
+                dict_values.encoding_id()
+            );
+        }
+
+        let expected = VarBinArray::from_iter(
+            (0..codes_len).map(|i| {
+                let idx = i % values_len;
+                (i % 7 != 0 && idx != 1).then(|| format!("val-{idx}"))
+            }),
+            dtype,
+        )
+        .into_array();
+        assert_arrays_eq!(outputs[0], expected, &mut SESSION.create_execution_ctx());
     }
-
-    let expected = VarBinArray::from_iter(
-        (0..codes_len).map(|i| {
-            let idx = i % values_len;
-            (i % 7 != 0 && idx != 1).then(|| format!("val-{idx}"))
-        }),
-        dtype,
-    )
-    .into_array();
-    assert_arrays_eq!(outputs[0], expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

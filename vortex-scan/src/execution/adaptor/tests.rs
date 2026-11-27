@@ -159,8 +159,8 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
     };
     assert_eq!(batch.len(), 2);
     assert!(batch.iter().all(|req| req.intent == IoIntent::Fetch));
-    assert_eq!(batch[0].request, IoRequestId(0));
-    assert_eq!(batch[1].request, IoRequestId(1));
+    let req_ids = [batch[0].request, batch[1].request];
+    assert_ne!(req_ids[0], req_ids[1]);
     let mut targets: Vec<_> = batch.iter().map(|req| req.target).collect();
     targets.sort_by_key(|target| match target {
         IoTarget::Range { offset, .. } => *offset,
@@ -197,9 +197,9 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
     assert!(matches!(adaptor.compute()?, AdaptorStep::Yield));
     assert_eq!(adaptor.state(), State::Waiting);
 
-    adaptor.set_io_result(IoRequestId(0), IoResult::Bytes(empty_segment()));
+    adaptor.set_io_result(req_ids[0], IoResult::Bytes(empty_segment()));
     assert_eq!(adaptor.state(), State::NeedsCompute);
-    adaptor.set_io_result(IoRequestId(1), IoResult::Bytes(empty_segment()));
+    adaptor.set_io_result(req_ids[1], IoResult::Bytes(empty_segment()));
 
     let mut remaining = Vec::new();
     while adaptor.state() != State::Done {

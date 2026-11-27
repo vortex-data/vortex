@@ -446,25 +446,23 @@ async fn chunk_ordering_with_out_of_order_completion(#[case] ordered: bool) -> V
     Ok(())
 }
 
-#[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn map_fn_error_propagates_through_driver(
-    #[values(0, 2)] concurrency: usize,
-    #[values(true, false)] ordered: bool,
-) -> VortexResult<()> {
-    let builder = chunked_builder(2);
-    let err = ScanDriver::new(builder.session().handle(), concurrency, ordered)
-        .run_prepared(builder.prepare()?, |_| -> VortexResult<ArrayRef> {
-            vortex_bail!("mapping failed on chunk")
-        })
-        .try_collect::<Vec<_>>()
-        .await
-        .err()
-        .ok_or_else(|| vortex_err!("map_fn error unexpectedly succeeded"))?;
-    assert!(
-        err.to_string().contains("mapping failed on chunk"),
-        "unexpected error: {err}"
-    );
+async fn map_fn_error_propagates_through_driver() -> VortexResult<()> {
+    for (concurrency, ordered) in [(0, true), (0, false), (2, true), (2, false)] {
+        let builder = chunked_builder(2);
+        let err = ScanDriver::new(builder.session().handle(), concurrency, ordered)
+            .run_prepared(builder.prepare()?, |_| -> VortexResult<ArrayRef> {
+                vortex_bail!("mapping failed on chunk")
+            })
+            .try_collect::<Vec<_>>()
+            .await
+            .err()
+            .ok_or_else(|| vortex_err!("map_fn error unexpectedly succeeded"))?;
+        assert!(
+            err.to_string().contains("mapping failed on chunk"),
+            "unexpected error for concurrency={concurrency}, ordered={ordered}: {err}"
+        );
+    }
     Ok(())
 }
 

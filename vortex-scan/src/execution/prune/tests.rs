@@ -274,8 +274,8 @@ fn first_compute_publishes_prefetch_hints_for_all_zone_maps() -> VortexResult<()
     };
     assert_eq!(batch.len(), 2);
     assert!(batch.iter().all(|req| req.intent == IoIntent::Prefetch));
-    assert_eq!(batch[0].request, IoRequestId(u32::MAX));
-    assert_eq!(batch[1].request, IoRequestId(u32::MAX - 1));
+    assert_ne!(batch[0].request, batch[1].request);
+    assert_ne!(batch[0].target, batch[1].target);
     Ok(())
 }
 

@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -17,7 +16,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_expr::Expression;
 use vortex_expr::get_item;
 use vortex_expr::gt;
 use vortex_expr::lit;
@@ -232,26 +230,30 @@ fn unfiltered_chunk_rows_scales_only_for_identity_projection() -> VortexResult<(
     Ok(())
 }
 
-#[rstest]
-#[case::bool_only(get_item("flags", root()), get_item("flags", root()), 128 * ROW_BLOCK_SIZE)]
-#[case::two_fixed_fields(
-    get_item("ints", root()),
-    get_item("flags", root()),
-    FILTERED_ROWS_PER_CHUNK
-)]
-#[case::no_fields_referenced(lit(1i32), lit(true), FILTERED_ROWS_PER_CHUNK)]
-fn filtered_rows_per_chunk_edge_cases(
-    #[case] projection: Expression,
-    #[case] filter: Expression,
-    #[case] expected: usize,
-) -> VortexResult<()> {
+#[test]
+fn filtered_rows_per_chunk_edge_cases() -> VortexResult<()> {
     let store = Arc::new(Store::default());
     let input = struct_input(&store, 4)?;
-    let actual = filtered_rows_per_chunk(
-        &input.dtype,
-        &projection.bind(&input.dtype)?,
-        &filter.bind(&input.dtype)?,
-    )?;
-    assert_eq!(actual, expected);
+    let cases = [
+        (
+            get_item("flags", root()),
+            get_item("flags", root()),
+            128 * ROW_BLOCK_SIZE,
+        ),
+        (
+            get_item("ints", root()),
+            get_item("flags", root()),
+            FILTERED_ROWS_PER_CHUNK,
+        ),
+        (lit(1i32), lit(true), FILTERED_ROWS_PER_CHUNK),
+    ];
+    for (projection, filter, expected) in cases {
+        let actual = filtered_rows_per_chunk(
+            &input.dtype,
+            &projection.bind(&input.dtype)?,
+            &filter.bind(&input.dtype)?,
+        )?;
+        assert_eq!(actual, expected);
+    }
     Ok(())
 }
