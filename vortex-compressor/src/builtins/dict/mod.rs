@@ -170,10 +170,10 @@ pub(super) const FASTLANES_BLOCK_LEN: u64 = 1024;
 
 /// Minimum bit savings `BitPackingScheme` requires to pack a primitive array rather than leave
 /// it uncompressed.
-pub(super) const BITPACKING_MIN_BITS_SAVED: u64 = 2;
+pub const BITPACKING_MIN_BITS_SAVED: u8 = 2;
 
 /// Minimum average run length before RLE / RunEnd schemes consider compressing codes.
-const RLE_MIN_RUN_LENGTH: u32 = 4;
+pub const RLE_MIN_RUN_LENGTH: u32 = 4;
 
 /// Minimum bit width required to represent dictionary codes `0..distinct_count`.
 ///
@@ -283,7 +283,7 @@ pub(super) fn estimate_codes_bits(
                     chosen_exceptions = exceptions;
                 }
             }
-            if chosen_bw + BITPACKING_MIN_BITS_SAVED <= ptype_bits {
+            if chosen_bw + u64::from(BITPACKING_MIN_BITS_SAVED) <= ptype_bits {
                 let packed_bits = if chosen_bw == 0 {
                     0
                 } else {
@@ -295,7 +295,7 @@ pub(super) fn estimate_codes_bits(
             }
         }
         None => {
-            if max_bw + BITPACKING_MIN_BITS_SAVED <= ptype_bits {
+            if max_bw + u64::from(BITPACKING_MIN_BITS_SAVED) <= ptype_bits {
                 let packed_bits = if max_bw == 0 {
                     0
                 } else {

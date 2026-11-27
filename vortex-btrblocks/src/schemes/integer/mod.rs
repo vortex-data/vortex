@@ -35,7 +35,7 @@ pub use vortex_compressor::stats::IntegerStats;
 pub use zigzag::ZigZagScheme;
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
-pub(crate) const RUN_LENGTH_THRESHOLD: u32 = 4;
+pub(crate) const RUN_LENGTH_THRESHOLD: u32 = vortex_compressor::builtins::RLE_MIN_RUN_LENGTH;
 
 #[cfg(test)]
 mod tests {
