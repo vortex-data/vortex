@@ -16,7 +16,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::TimeUnit;
-use vortex_array::extension::datetime::Timestamp;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSource;
@@ -25,10 +24,13 @@ use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::Repeat;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::array::DateTimePartsParts;
 use crate::timestamp::SECONDS_PER_DAY;
+use crate::timestamp::TemporalKind;
+use crate::timestamp::temporal_kind;
+use crate::timestamp::ticks_per_second;
+use crate::timestamp::validate_subseconds_divisor;
 
 /// Decode a [`DateTimePartsParts`] back into a [`TemporalArray`].
 ///
@@ -40,21 +42,10 @@ pub fn decode_to_temporal(
     dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<TemporalArray> {
-    let DType::Extension(ext) = dtype else {
-        vortex_panic!("expected dtype to be DType::Extension variant")
-    };
-
-    let Some(options) = ext.metadata_opt::<Timestamp>() else {
-        vortex_panic!("must decode TemporalMetadata from extension metadata");
-    };
-
-    let divisor = match options.unit {
-        TimeUnit::Nanoseconds => 1_000_000_000,
-        TimeUnit::Microseconds => 1_000_000,
-        TimeUnit::Milliseconds => 1_000,
-        TimeUnit::Seconds => 1,
-        TimeUnit::Days => vortex_panic!("cannot decode into TimeUnit::D"),
-    };
+    let kind = temporal_kind(dtype)?;
+    let unit = kind.unit();
+    validate_subseconds_divisor(unit, parts.subseconds_divisor)?;
+    let divisor = ticks_per_second(unit)?;
 
     let days = parts.days.as_::<Primitive>();
     let validity = days.validity()?;
@@ -63,50 +54,113 @@ pub fn decode_to_temporal(
     let seconds = TimePart::try_new(&parts.seconds, ctx)?;
     let subseconds = TimePart::try_new(&parts.subseconds, ctx)?;
 
+    if matches!(
+        kind,
+        TemporalKind::Time {
+            unit: TimeUnit::Seconds | TimeUnit::Milliseconds
+        }
+    ) {
+        let mut values = BufferMut::<i32>::with_capacity_in(len, ctx.allocator().clone());
+        let out = &mut values.spare_capacity_mut()[..len];
+
+        match_each_integer_ptype!(days.ptype(), |D| {
+            let days = days.as_slice::<D>();
+            match (&seconds, &subseconds) {
+                (TimePart::Constant(seconds), TimePart::Constant(subseconds)) => combine_parts_i32(
+                    days,
+                    Repeat::new(*seconds, len),
+                    Repeat::new(*subseconds, len),
+                    divisor,
+                    out,
+                ),
+                (TimePart::Constant(seconds), TimePart::Values(subseconds)) => combine_parts_i32(
+                    days,
+                    Repeat::new(*seconds, len),
+                    subseconds.as_slice::<i32>(),
+                    divisor,
+                    out,
+                ),
+                (TimePart::Values(seconds), TimePart::Constant(subseconds)) => combine_parts_i32(
+                    days,
+                    seconds.as_slice::<i32>(),
+                    Repeat::new(*subseconds, len),
+                    divisor,
+                    out,
+                ),
+                (TimePart::Values(seconds), TimePart::Values(subseconds)) => combine_parts_i32(
+                    days,
+                    seconds.as_slice::<i32>(),
+                    subseconds.as_slice::<i32>(),
+                    divisor,
+                    out,
+                ),
+            }
+        });
+        // SAFETY: `combine_parts_i32` writes every lane of `out`, which spans exactly `len` items.
+        unsafe { values.set_len(len) };
+
+        return Ok(TemporalArray::new_time(
+            PrimitiveArray::new(values.freeze(), validity).into_array(),
+            unit,
+        ));
+    }
+
     let mut values = BufferMut::<i64>::with_capacity_in(len, ctx.allocator().clone());
     let out = &mut values.spare_capacity_mut()[..len];
 
     match_each_integer_ptype!(days.ptype(), |D| {
         let days = days.as_slice::<D>();
         match (&seconds, &subseconds) {
-            (TimePart::Constant(seconds), TimePart::Constant(subseconds)) => combine_parts(
-                days,
-                Repeat::new(*seconds, len),
-                Repeat::new(*subseconds, len),
-                divisor,
-                out,
-            ),
-            (TimePart::Constant(seconds), TimePart::Values(subseconds)) => combine_parts(
-                days,
-                Repeat::new(*seconds, len),
-                subseconds.as_slice::<i32>(),
-                divisor,
-                out,
-            ),
-            (TimePart::Values(seconds), TimePart::Constant(subseconds)) => combine_parts(
-                days,
-                seconds.as_slice::<i32>(),
-                Repeat::new(*subseconds, len),
-                divisor,
-                out,
-            ),
-            (TimePart::Values(seconds), TimePart::Values(subseconds)) => combine_parts(
-                days,
-                seconds.as_slice::<i32>(),
-                subseconds.as_slice::<i32>(),
-                divisor,
-                out,
-            ),
+            (TimePart::Constant(seconds), TimePart::Constant(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    Repeat::new(*seconds, len),
+                    Repeat::new(*subseconds, len),
+                    divisor,
+                    parts.subseconds_divisor,
+                    out,
+                )
+            }
+            (TimePart::Constant(seconds), TimePart::Values(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    Repeat::new(*seconds, len),
+                    subseconds.as_slice::<i32>(),
+                    divisor,
+                    parts.subseconds_divisor,
+                    out,
+                )
+            }
+            (TimePart::Values(seconds), TimePart::Constant(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    seconds.as_slice::<i32>(),
+                    Repeat::new(*subseconds, len),
+                    divisor,
+                    parts.subseconds_divisor,
+                    out,
+                )
+            }
+            (TimePart::Values(seconds), TimePart::Values(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    seconds.as_slice::<i32>(),
+                    subseconds.as_slice::<i32>(),
+                    divisor,
+                    parts.subseconds_divisor,
+                    out,
+                )
+            }
         }
     });
-    // SAFETY: `combine_parts` writes every lane of `out`, which spans exactly `len` items.
+    // SAFETY: `combine_parts_with_divisor` writes every lane of `out`, which spans exactly `len` items.
     unsafe { values.set_len(len) };
 
-    Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), validity).into_array(),
-        options.unit,
-        options.tz.clone(),
-    ))
+    let storage = PrimitiveArray::new(values.freeze(), validity).into_array();
+    Ok(match kind {
+        TemporalKind::Timestamp { unit, tz } => TemporalArray::new_timestamp(storage, unit, tz),
+        TemporalKind::Time { unit } => TemporalArray::new_time(storage, unit),
+    })
 }
 
 /// A non-nullable integer component of every timestamp.
@@ -138,8 +192,33 @@ impl TimePart {
     }
 }
 
-/// Writes `days * 86_400 * divisor + seconds * divisor + subseconds` for every lane of `out`.
-pub(crate) fn combine_parts<D, S, U>(
+/// Writes `days * 86_400 * divisor + seconds * divisor + subseconds * subseconds_divisor` for
+/// every lane of `out`.
+pub(crate) fn combine_parts_with_divisor<D, S, U>(
+    days: &[D],
+    seconds: S,
+    subseconds: U,
+    divisor: i64,
+    subseconds_divisor: u32,
+    out: &mut [MaybeUninit<i64>],
+) where
+    D: Copy + AsPrimitive<i64>,
+    S: IndexedSource,
+    S::Item: AsPrimitive<i64>,
+    U: IndexedSource,
+    U::Item: AsPrimitive<i64>,
+{
+    match subseconds_divisor {
+        1 => combine_parts::<1, _, _, _>(days, seconds, subseconds, divisor, out),
+        1_000 => combine_parts::<1_000, _, _, _>(days, seconds, subseconds, divisor, out),
+        1_000_000 => combine_parts::<1_000_000, _, _, _>(days, seconds, subseconds, divisor, out),
+        _ => unreachable!("subseconds_divisor must be validated before decoding"),
+    }
+}
+
+/// Writes `days * 86_400 * divisor + seconds * divisor + subseconds * SUB_DIV` for every lane of
+/// `out`.
+fn combine_parts<const SUB_DIV: i64, D, S, U>(
     days: &[D],
     seconds: S,
     subseconds: U,
@@ -156,7 +235,41 @@ pub(crate) fn combine_parts<D, S, U>(
     LaneZip::new(LaneZip::new(days, seconds), subseconds).map_into(
         out,
         |((day, second), subsecond)| {
-            day.as_() * day_scale + second.as_() * divisor + subsecond.as_()
+            day.as_()
+                .wrapping_mul(day_scale)
+                .wrapping_add(second.as_().wrapping_mul(divisor))
+                .wrapping_add(subsecond.as_().wrapping_mul(SUB_DIV))
+        },
+    );
+}
+
+/// Writes `(days * 86_400 * divisor + seconds * divisor + subseconds) as i32` for every lane of
+/// `out` (used by `i32`-backed `Time[s]` and `Time[ms]`, where `subseconds_divisor == 1`).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "valid Time[s]/Time[ms] values lie in 0..86_400_000 (well within i32); null slots wrap"
+)]
+fn combine_parts_i32<D, S, U>(
+    days: &[D],
+    seconds: S,
+    subseconds: U,
+    divisor: i64,
+    out: &mut [MaybeUninit<i32>],
+) where
+    D: Copy + AsPrimitive<i64>,
+    S: IndexedSource,
+    S::Item: AsPrimitive<i64>,
+    U: IndexedSource,
+    U::Item: AsPrimitive<i64>,
+{
+    let day_scale = SECONDS_PER_DAY * divisor;
+    LaneZip::new(LaneZip::new(days, seconds), subseconds).map_into(
+        out,
+        |((day, second), subsecond)| {
+            day.as_()
+                .wrapping_mul(day_scale)
+                .wrapping_add(second.as_().wrapping_mul(divisor))
+                .wrapping_add(subsecond.as_()) as i32
         },
     );
 }
@@ -242,6 +355,7 @@ mod test {
             days: date_times.days().clone(),
             seconds: date_times.seconds().clone(),
             subseconds: date_times.subseconds().clone(),
+            subseconds_divisor: date_times.subseconds_divisor(),
         };
 
         let primitive_values = decode_to_temporal(parts, &dtype, &mut ctx)?

@@ -18,38 +18,40 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::extension::datetime::TimeUnit;
-use vortex_array::extension::datetime::Timestamp;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_compute::lane_kernels::Repeat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::canonical::combine_parts;
+use crate::canonical::combine_parts_with_divisor;
+use crate::timestamp::temporal_kind;
+use crate::timestamp::ticks_per_second;
+use crate::timestamp::validate_subseconds_divisor;
 
 /// The op of a DateTimeParts array of `dtype` over its days child of `days_dtype`, once its
 /// `seconds` and `subseconds` are executed: it combines each block of days with the same rows of
 /// the time parts, as [`decode_to_temporal`](crate::canonical::decode_to_temporal) does.
 ///
-/// `None` when it decodes some other way: a unit of days, or a time part that is neither a
-/// non-null constant nor canonical `i32` values, which the level-wise decode casts.
+/// `None` when it decodes some other way: a unit of days, `i32`-backed `Time` (`Seconds` /
+/// `Milliseconds`), or a time part that is neither a non-null constant nor canonical `i32`
+/// values, which the level-wise decode casts.
 pub(crate) fn days_block_op(
     dtype: &DType,
     days_dtype: &DType,
     seconds: &ArrayRef,
     subseconds: &ArrayRef,
+    subseconds_divisor: u32,
 ) -> Option<Box<dyn BlockOp>> {
     let DType::Extension(ext) = dtype else {
         return None;
     };
-    let divisor = match ext.metadata_opt::<Timestamp>()?.unit {
-        TimeUnit::Nanoseconds => 1_000_000_000,
-        TimeUnit::Microseconds => 1_000_000,
-        TimeUnit::Milliseconds => 1_000,
-        TimeUnit::Seconds => 1,
-        TimeUnit::Days => return None,
-    };
+    if ext.storage_dtype().as_ptype() != PType::I64 {
+        return None;
+    }
+    let unit = temporal_kind(dtype).ok()?.unit();
+    validate_subseconds_divisor(unit, subseconds_divisor).ok()?;
+    let divisor = ticks_per_second(unit).ok()?;
     let DType::Primitive(days_ptype, _) = days_dtype else {
         return None;
     };
@@ -58,7 +60,7 @@ pub(crate) fn days_block_op(
     }
     let (seconds, subseconds) = (TimeColumn::new(seconds)?, TimeColumn::new(subseconds)?);
     Some(match_each_integer_ptype!(*days_ptype, |D| {
-        combine_op::<D>(seconds, subseconds, divisor)
+        combine_op::<D>(seconds, subseconds, divisor, subseconds_divisor)
     }))
 }
 
@@ -66,11 +68,13 @@ fn combine_op<D: NativePType + AsPrimitive<i64>>(
     seconds: TimeColumn,
     subseconds: TimeColumn,
     divisor: i64,
+    subseconds_divisor: u32,
 ) -> Box<dyn BlockOp> {
     Box::new(CombineParts::<D> {
         seconds,
         subseconds,
         divisor,
+        subseconds_divisor,
         _days: PhantomData,
     })
 }
@@ -103,6 +107,7 @@ struct CombineParts<D> {
     seconds: TimeColumn,
     subseconds: TimeColumn,
     divisor: i64,
+    subseconds_divisor: u32,
     _days: PhantomData<fn(D)>,
 }
 
@@ -113,39 +118,52 @@ impl<D: NativePType + AsPrimitive<i64>> BlockOp for CombineParts<D> {
             vortex_bail!("DateTimeParts combines days into a block of its own");
         };
         let days = input.as_slice::<D>();
-        let (len, divisor) = (days.len(), self.divisor);
+        let (len, divisor, subseconds_divisor) =
+            (days.len(), self.divisor, self.subseconds_divisor);
         let rows = start..start + len;
         let combine = |values: &mut [MaybeUninit<i64>]| match (&self.seconds, &self.subseconds) {
-            (TimeColumn::Constant(seconds), TimeColumn::Constant(subseconds)) => combine_parts(
-                days,
-                Repeat::new(*seconds, len),
-                Repeat::new(*subseconds, len),
-                divisor,
-                values,
-            ),
-            (TimeColumn::Constant(seconds), TimeColumn::Values(subseconds)) => combine_parts(
-                days,
-                Repeat::new(*seconds, len),
-                &subseconds[rows],
-                divisor,
-                values,
-            ),
-            (TimeColumn::Values(seconds), TimeColumn::Constant(subseconds)) => combine_parts(
-                days,
-                &seconds[rows],
-                Repeat::new(*subseconds, len),
-                divisor,
-                values,
-            ),
-            (TimeColumn::Values(seconds), TimeColumn::Values(subseconds)) => combine_parts(
-                days,
-                &seconds[rows.clone()],
-                &subseconds[rows],
-                divisor,
-                values,
-            ),
+            (TimeColumn::Constant(seconds), TimeColumn::Constant(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    Repeat::new(*seconds, len),
+                    Repeat::new(*subseconds, len),
+                    divisor,
+                    subseconds_divisor,
+                    values,
+                )
+            }
+            (TimeColumn::Constant(seconds), TimeColumn::Values(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    Repeat::new(*seconds, len),
+                    &subseconds[rows],
+                    divisor,
+                    subseconds_divisor,
+                    values,
+                )
+            }
+            (TimeColumn::Values(seconds), TimeColumn::Constant(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    &seconds[rows],
+                    Repeat::new(*subseconds, len),
+                    divisor,
+                    subseconds_divisor,
+                    values,
+                )
+            }
+            (TimeColumn::Values(seconds), TimeColumn::Values(subseconds)) => {
+                combine_parts_with_divisor(
+                    days,
+                    &seconds[rows.clone()],
+                    &subseconds[rows],
+                    divisor,
+                    subseconds_divisor,
+                    values,
+                )
+            }
         };
-        // SAFETY: `combine_parts` writes every value it is handed.
+        // SAFETY: `combine_parts_with_divisor` writes every value it is handed.
         Ok(unsafe { out.fill_with(combine) })
     }
 
@@ -169,6 +187,7 @@ mod tests {
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::match_each_integer_ptype;
@@ -374,6 +393,32 @@ block_op 0 copy {days_ptype}->i64 scratch0 -> output"
         )?
         .into_array();
         assert_eq!(fusion_trace(array, &SESSION)?, "");
+        Ok(())
+    }
+
+    #[test]
+    fn days_fuse_with_scaled_subseconds() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter(
+            (0..LEN as i64).map(|i| i * 7_919_000_000 + (i % 97) * 1_000),
+        );
+        let temporal =
+            TemporalArray::new_timestamp(values.into_array(), TimeUnit::Microseconds, None);
+        let parts = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+        assert_eq!(parts.subseconds_divisor(), 1_000);
+        let days = parts.days().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let days = match_each_integer_ptype!(days.ptype(), |T| { for_over_bitpacked::<T>(&days)? });
+        let array = DateTimeParts::try_new_with_divisor(
+            parts.dtype().clone(),
+            days,
+            parts.seconds().clone(),
+            parts.subseconds().clone(),
+            parts.subseconds_divisor(),
+        )?
+        .into_array();
+        let expected = combined_array(&array);
+        assert_eq!(fusion_trace(array.clone(), &SESSION)?, expected);
+        assert_arrays_eq!(array, temporal, &mut ctx);
         Ok(())
     }
 }

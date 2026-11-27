@@ -15,11 +15,12 @@ impl MaskReduce for DateTimeParts {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_days = array.days().clone().mask(mask.clone())?;
         Ok(Some(
-            DateTimeParts::try_new(
+            DateTimeParts::try_new_with_divisor(
                 array.dtype().as_nullable(),
                 masked_days,
                 array.seconds().clone(),
                 array.subseconds().clone(),
+                array.subseconds_divisor(),
             )?
             .into_array(),
         ))

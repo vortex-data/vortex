@@ -13,11 +13,12 @@ use crate::array::DateTimePartsArraySlotsExt;
 impl FilterReduce for DateTimeParts {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            DateTimeParts::try_new(
+            DateTimeParts::try_new_with_divisor(
                 array.dtype().clone(),
                 array.days().filter(mask.clone())?,
                 array.seconds().filter(mask.clone())?,
                 array.subseconds().filter(mask.clone())?,
+                array.subseconds_divisor(),
             )?
             .into_array(),
         ))

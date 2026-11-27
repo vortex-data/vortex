@@ -18,13 +18,14 @@ impl CastReduce for DateTimeParts {
         };
 
         Ok(Some(
-            DateTimeParts::try_new(
+            DateTimeParts::try_new_with_divisor(
                 dtype.clone(),
                 array
                     .days()
                     .cast(array.days().dtype().with_nullability(dtype.nullability()))?,
                 array.seconds().clone(),
                 array.subseconds().clone(),
+                array.subseconds_divisor(),
             )?
             .into_array(),
         ))

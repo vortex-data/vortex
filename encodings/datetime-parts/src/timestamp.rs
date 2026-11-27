@@ -6,13 +6,96 @@
 //! [`TimestampParts`] preserves the full storage range of a timestamp. Array compression can
 //! narrow the days component when the values fit.
 
+use std::sync::Arc;
+
 use num_traits::AsPrimitive;
+use vortex_array::dtype::DType;
+use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
+
+/// Temporal extension types supported by `DateTimeParts`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TemporalKind {
+    Timestamp {
+        unit: TimeUnit,
+        tz: Option<Arc<str>>,
+    },
+    Time {
+        unit: TimeUnit,
+    },
+}
+
+impl TemporalKind {
+    pub(crate) fn unit(&self) -> TimeUnit {
+        match self {
+            Self::Timestamp { unit, .. } | Self::Time { unit } => *unit,
+        }
+    }
+
+    pub(crate) fn is_timestamp(&self) -> bool {
+        matches!(self, Self::Timestamp { .. })
+    }
+}
+
+/// Extracts the supported temporal kind from a `DateTimeParts` dtype.
+pub(crate) fn temporal_kind(dtype: &DType) -> VortexResult<TemporalKind> {
+    let DType::Extension(ext) = dtype else {
+        vortex_bail!("DateTimeParts dtype must be an extension type, got {dtype}");
+    };
+    if let Some(options) = ext.metadata_opt::<Timestamp>() {
+        vortex_ensure!(
+            options.unit != TimeUnit::Days,
+            "Cannot handle day-level data"
+        );
+        return Ok(TemporalKind::Timestamp {
+            unit: options.unit,
+            tz: options.tz.clone(),
+        });
+    }
+    if let Some(&unit) = ext.metadata_opt::<Time>() {
+        vortex_ensure!(unit != TimeUnit::Days, "Cannot handle day-level data");
+        return Ok(TemporalKind::Time { unit });
+    }
+    vortex_bail!("DateTimeParts dtype must be Timestamp or Time, got {dtype}");
+}
+
+/// Returns the number of ticks per second for a sub-day [`TimeUnit`].
+pub(crate) fn ticks_per_second(unit: TimeUnit) -> VortexResult<i64> {
+    Ok(match unit {
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => vortex_bail!("Cannot handle day-level data"),
+    })
+}
+
+/// Validates that `subseconds_divisor` is permitted for `unit`.
+///
+/// Valid divisors are:
+/// - `Seconds` / `Milliseconds`: `{1}`
+/// - `Microseconds`: `{1, 1_000}`
+/// - `Nanoseconds`: `{1, 1_000, 1_000_000}`
+pub fn validate_subseconds_divisor(unit: TimeUnit, subseconds_divisor: u32) -> VortexResult<()> {
+    let valid = match unit {
+        TimeUnit::Seconds | TimeUnit::Milliseconds => subseconds_divisor == 1,
+        TimeUnit::Microseconds => matches!(subseconds_divisor, 1 | 1_000),
+        TimeUnit::Nanoseconds => matches!(subseconds_divisor, 1 | 1_000 | 1_000_000),
+        TimeUnit::Days => false,
+    };
+    vortex_ensure!(
+        valid,
+        "Invalid subseconds_divisor {subseconds_divisor} for time unit {unit}"
+    );
+    Ok(())
+}
 
 /// Components of a Unix timestamp relative to 1970-01-01 00:00:00 UTC.
 ///
@@ -67,27 +150,46 @@ pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> Timestam
     }
 }
 
-/// Combines timestamp parts back into a Unix timestamp.
+/// Combines timestamp parts back into a Unix timestamp or time-of-day count.
 ///
 /// # Errors
 ///
 /// Returns an error if `time_unit` is days, or if the parts overflow an `i64` count. Parts that
 /// [`split`] produces never overflow.
+#[cfg(test)]
 pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> VortexResult<i64> {
-    let divisor: i64 = match time_unit {
-        TimeUnit::Nanoseconds => 1_000_000_000,
-        TimeUnit::Microseconds => 1_000_000,
-        TimeUnit::Milliseconds => 1_000,
-        TimeUnit::Seconds => 1,
-        TimeUnit::Days => vortex_bail!("Cannot handle day-level data"),
-    };
+    combine_with_divisor(ts_parts, time_unit, 1)
+}
+
+/// Combines timestamp parts whose `subseconds` were divided by `subseconds_divisor` back into
+/// an `i64` temporal count.
+///
+/// # Errors
+///
+/// Returns an error if `time_unit` is days, if `subseconds_divisor` is invalid for `time_unit`,
+/// or if the parts overflow an `i64` count.
+pub fn combine_with_divisor(
+    ts_parts: TimestampParts,
+    time_unit: TimeUnit,
+    subseconds_divisor: u32,
+) -> VortexResult<i64> {
+    let divisor = ticks_per_second(time_unit)?;
+    validate_subseconds_divisor(time_unit, subseconds_divisor)?;
+    let subseconds = i64::from(ts_parts.subseconds)
+        .checked_mul(i64::from(subseconds_divisor))
+        .ok_or_else(|| {
+            vortex_err!(
+                "DateTimeParts subseconds {} overflow with divisor {subseconds_divisor}",
+                ts_parts.subseconds
+            )
+        })?;
 
     // `seconds * divisor` cannot overflow: |seconds| <= 2^31 and divisor <= 1e9.
     ts_parts
         .days
         .checked_mul(SECONDS_PER_DAY * divisor)
         .and_then(|ts| ts.checked_add(i64::from(ts_parts.seconds) * divisor))
-        .and_then(|ts| ts.checked_add(i64::from(ts_parts.subseconds)))
+        .and_then(|ts| ts.checked_add(subseconds))
         .ok_or_else(|| {
             vortex_err!(
                 "DateTimeParts days {} overflow a {time_unit} timestamp",

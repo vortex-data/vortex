@@ -21,7 +21,7 @@ use vortex_session::VortexSession;
 
 /// Initialize datetime-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(DateTimeParts);
+    session.arrays().register(DateTimePartsPlugin);
     compute::kernel::initialize(session);
 
     session.aggregate_fns().register_aggregate_kernel(

@@ -64,6 +64,13 @@ impl CudaExecute for DateTimePartsExecutor {
             vortex_bail!("DateTimePartsArray must have Timestamp metadata")
         };
 
+        if array.subseconds_divisor() != 1 {
+            vortex_bail!(
+                "DateTimePartsArray with subseconds_divisor={} is not supported on GPU",
+                array.subseconds_divisor()
+            );
+        }
+
         let time_unit = options.unit;
         let time_zone = options.tz.clone();
         let validity = array.validity()?;

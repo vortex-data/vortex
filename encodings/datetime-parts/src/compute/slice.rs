@@ -16,11 +16,12 @@ impl SliceReduce for DateTimeParts {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing all components preserves values
         Ok(Some(
-            DateTimeParts::try_new(
+            DateTimeParts::try_new_with_divisor(
                 array.dtype().clone(),
                 array.days().slice(range.clone())?,
                 array.seconds().slice(range.clone())?,
                 array.subseconds().slice(range)?,
+                array.subseconds_divisor(),
             )?
             .into_array(),
         ))
