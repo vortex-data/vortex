@@ -44,8 +44,7 @@ use vortex_utils::aliases::StringEscape;
 
 use self::decimal::parse_decimal;
 
-/// Registers [`VariantGet`], its kernel for canonical variant arrays, and its kernels for the masks
-/// that wrap them.
+/// Registers [`VariantGet`] and its kernels.
 pub(crate) fn initialize(session: &VortexSession) {
     session.scalar_fns().register(VariantGet);
     lazy::initialize(session);
@@ -160,9 +159,8 @@ impl ScalarFnVTable for VariantGet {
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
-        // The kernels of the Variant encodings, and of the masks that wrap them, extract in bulk.
-        // Another lazy input, such as a filter over a slice, is canonicalized one layer at a time
-        // until one of those kernels applies.
+        // Canonicalize other lazy inputs, such as a filter over a slice, one layer at a time until
+        // a kernel applies.
         if !input.is::<Variant>() {
             let canonical = input.clone().execute::<VariantArray>(ctx)?;
             if !wraps_input(&canonical, &input) {
@@ -331,7 +329,6 @@ fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Opti
 /// converts neither to a Boolean.
 ///
 /// Zero is false and any other number is true. A string converts as [`string_as_bool`] reads it.
-/// The value can be in a Variant, as a partially shredded field holds its values.
 pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
     if !dtype.is_boolean() {
         return None;

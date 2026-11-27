@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Kernels that push [`VariantGet`] through the masks that wrap a Variant read from a file.
-//!
-//! The kernels that extract in bulk are keyed on the Variant encodings. A masked Variant reaches
-//! `variant_get` without one, so these kernels move the extraction to the array that the mask
-//! wraps. A mask only nulls rows out, so it commutes with extraction. `vortex-array` already
-//! splits a unary function such as `variant_get` over the chunks of a chunked array.
+//! Kernels that push [`VariantGet`] through masks, so that the kernels of the Variant encodings
+//! apply. A mask only nulls rows out, so it commutes with extraction.
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -68,8 +64,7 @@ impl ExecuteParentKernel<Masked> for VariantGetMaskedKernel {
     }
 }
 
-/// Extracts from the input of the `mask` function and masks the result, as
-/// [`VariantGetMaskedKernel`] does for a masked array.
+/// Extracts from the input of the `mask` function and masks the result.
 fn execute_variant_get_of_mask(
     child: &ArrayRef,
     parent: &ArrayRef,

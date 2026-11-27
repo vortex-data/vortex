@@ -1364,7 +1364,6 @@ mod tests {
         };
         let mut ctx = SESSION.create_execution_ctx();
 
-        // `commit` is a partially shredded object, which holds the rest of the path.
         let collection = [Some("post"), None, Some("like")];
         assert_arrays_eq!(
             execute_variant_get(
@@ -1376,7 +1375,6 @@ mod tests {
             &mut ctx
         );
 
-        // A field that is not shredded comes from the residual value of `commit`.
         let rev = [Some(1i64), None, Some(2)];
         assert_arrays_eq!(
             execute_variant_get(
@@ -1437,14 +1435,14 @@ mod tests {
         DataType::Int64,
         VortexDType::Primitive(PType::I64, Nullability::Nullable)
     )]
-    // Arrow reads the string "y" as true, so the shredded strings must convert as it does.
+    // Arrow reads "y" as true.
     #[case::strings_as_boolean(DataType::Utf8, VortexDType::Bool(Nullability::Nullable))]
-    // Arrow rounds 12.345 to 12.35, so the shredded decimals must round as it does.
+    // Arrow rounds 12.345 to 12.35.
     #[case::decimal_to_smaller_scale(
         DataType::Decimal128(12, 3),
         VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
     )]
-    // Arrow parses the string "-2.345e1" as -23.45, so the shredded strings must parse as it does.
+    // Arrow parses "-2.345e1" as -23.45.
     #[case::strings_as_decimal(
         DataType::Utf8,
         VortexDType::Decimal(DecimalDType::new(12, 2), Nullability::Nullable)
@@ -1477,7 +1475,6 @@ mod tests {
             return Err(vortex_err!("expected canonical variant array"));
         };
 
-        // Shredding must not change what a path extracts to.
         let expected = execute_variant_get(unshredded, "$.a", Some(requested.clone()))?;
         assert!(
             !expected
@@ -1494,8 +1491,8 @@ mod tests {
         Ok(())
     }
 
-    /// Arrow shreds each field of an object to a nested Variant of a value and a typed value. A
-    /// struct reads its complete rows from the typed values, and the other rows from the values.
+    /// Arrow shreds each object field to a nested Variant. A struct of such fields reads as the
+    /// unshredded value does.
     #[rstest]
     #[case::complete(vec![Some(r#"{"a":1,"b":"x"}"#), Some(r#"{"a":2,"b":"y"}"#)])]
     #[case::mixed(vec![
@@ -1535,7 +1532,6 @@ mod tests {
             Nullability::Nullable,
         );
 
-        // Shredding must not change what a path extracts to.
         assert_arrays_eq!(
             execute_variant_get(shredded.into_array(), "$", Some(requested.clone()))?,
             execute_variant_get(unshredded, "$", Some(requested))?,

@@ -97,8 +97,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
         let Some((typed, remaining)) = typed else {
             return make_fallback(ctx).map(Some);
         };
-        // A shredded Variant child holds the rest of the path, in its own shredded tree or in
-        // its residual value. It also still needs VariantGet at its root to produce a concrete
+        // A shredded Variant child holds the rest of the path, and needs VariantGet to produce a
         // requested dtype.
         if typed.dtype().is_variant()
             && (!remaining.is_empty()
@@ -132,8 +131,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             )
             .map(Some);
         }
-        // A remaining path through a shredded list cannot be walked column-wise; defer to
-        // scalar extraction so shredded list elements and residual core storage are both read.
+        // A remaining path through a shredded list cannot be walked column-wise.
         if !remaining.is_empty() {
             return Ok(None);
         }
@@ -155,10 +153,8 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             return merge_typed_as_variant(typed, fallback, ctx).map(Some);
         }
 
-        // A shredded struct or list can hold only some of an object's fields or nested
-        // partially-shredded values, with the rest in core storage. A row is read from the
-        // shredded child only when every leaf of it holds a value there. Scalar extraction
-        // merges shredded and core storage for the other rows before it casts them.
+        // A shredded struct or list can keep some values in core storage. Only rows whose every
+        // leaf is shredded are read in bulk; the others are extracted row by row.
         if matches!(
             typed.dtype(),
             DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..)
@@ -211,11 +207,8 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
 }
 
 /// Fills the rows of `extracted` that `present` marks absent from the shredded child, with the
-/// extraction of the whole path from `core`.
-///
-/// Usually the absent rows are missing from core storage as well, as for a field that only some
-/// objects have. These rows are extracted on their own first: when none of them holds a value,
-/// `extracted` is the whole answer and the rest of core storage is never read.
+/// extraction of the whole path from `core`. When no absent row holds a value there, `extracted`
+/// is returned as it is.
 fn fill_absent_from_core(
     extracted: ArrayRef,
     present: Mask,
@@ -270,11 +263,8 @@ fn scatter_absent(
 }
 
 /// Returns the shredded struct or list `typed` with each nested Variant replaced by its shredded
-/// child, and the rows of it whose every leaf holds a value.
-///
-/// A null leaf can mean that the value of the leaf is in core storage, so such a row must merge
-/// the two. Returns `None` if a row cannot be read from `typed` alone, such as a row with a
-/// nested Variant that can keep a value in core storage, or a list with a null element.
+/// child, and the rows of it whose every leaf holds a value. A null leaf can have its value in
+/// core storage. Returns `None` if no row can be read from `typed` alone.
 fn complete_rows(
     typed: &ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -312,7 +302,6 @@ fn complete_rows(
                 fields.push(read);
             }
 
-            // Keep the struct as it is, unless a field was a nested Variant.
             if !changed {
                 return Ok(Some((typed.clone(), complete)));
             }
@@ -383,10 +372,8 @@ fn may_read_as(typed: &DType, target: &DType) -> bool {
     }
 }
 
-/// Returns the elements of a list as [`complete_rows`] does, if all of them are complete.
-///
-/// The check covers all elements, also elements that no list refers to. This can find a list
-/// incomplete that is complete, which only makes the extraction slower.
+/// Returns the elements of a list as [`complete_rows`] does, if all of them are complete. This
+/// also checks elements that no list refers to.
 fn complete_elements(
     elements: &ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -635,9 +622,7 @@ mod tests {
         Ok(builder.finish_into_variant()?.into_array())
     }
 
-    /// Numbers and strings read as Booleans as Arrow's Variant conversion reads them: zero is
-    /// false, and a string must have one of the spellings that Arrow accepts. A shredded value
-    /// gives what the unshredded value gives.
+    /// Numbers and strings read as Booleans as Arrow's Variant conversion reads them.
     #[rstest]
     #[case::numbers(
         Ok(PrimitiveArray::from_option_iter([Some(0i64), Some(-3), None]).into_array()),
