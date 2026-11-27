@@ -41,25 +41,11 @@ impl SignedDotProduct for Arm128 {
     #[inline]
     #[target_feature(enable = "neon,dotprod")]
     unsafe fn dot(query: &[i8], values: &[u8]) -> i32 {
-        use std::arch::aarch64::vaddvq_s32;
-        use std::arch::aarch64::vdupq_n_s32;
-        use std::arch::aarch64::vld1q_s8;
-        // vdotq_s32 is unstable on the workspace minimum Rust version.
-        let query = query[..128].as_chunks::<16>().0;
-        let values = &values[..128];
-        let mut acc = vdupq_n_s32(0);
-        for (q, v) in query.iter().zip(values.as_chunks::<16>().0) {
-            // SAFETY: both loads read a full 16-byte chunk; unaligned addresses
-            // are allowed. SDOT touches only the three vector registers.
-            unsafe {
-                let q = vld1q_s8(q.as_ptr());
-                let v = vld1q_s8(v.as_ptr().cast());
-                std::arch::asm!("sdot {acc:v}.4s, {q:v}.16b, {v:v}.16b",
-                    acc = inout(vreg) acc, q = in(vreg) q, v = in(vreg) v,
-                    options(pure, nomem, nostack, preserves_flags));
-            }
-        }
-        vaddvq_s32(acc)
+        query[..128]
+            .iter()
+            .zip(&values[..128])
+            .map(|(&q, &v)| i32::from(q) * i32::from(v as i8))
+            .sum()
     }
 }
 
