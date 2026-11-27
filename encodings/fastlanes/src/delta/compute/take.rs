@@ -54,13 +54,7 @@ impl TakeExecute for Delta {
         // Deltas are decoded as unsigned; `wrapping_add` is the same for either signedness.
         let bases = bases.reinterpret_cast(ptype.to_unsigned());
         let taken = match_each_unsigned_integer_ptype!(bases.ptype(), |T| {
-            let mut deltas = None;
-            let chunks = DeltaChunks::<T, { T::LANES }>::for_array(
-                array,
-                bases.as_slice(),
-                &mut deltas,
-                ctx,
-            )?;
+            let chunks = DeltaChunks::<T, { T::LANES }>::for_array(array, bases.to_buffer(), ctx)?;
             match_each_integer_ptype!(indices.ptype(), |I| {
                 take_from_chunks(&chunks, array, indices.as_slice::<I>(), &index_validity)?
                     .into_byte_buffer()

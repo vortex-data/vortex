@@ -38,9 +38,9 @@ use crate::delta::array::transpose::TransposeKernel;
 ///
 /// Building one executes the bases and the deltas, or for bit-packed deltas locates their packed
 /// blocks and patches, so that decoding a chunk afterwards cannot fail.
-pub(crate) struct DeltaChunks<'a, T, const LANES: usize> {
-    bases: &'a [T],
-    deltas: Deltas<'a, T>,
+pub(crate) struct DeltaChunks<T, const LANES: usize> {
+    bases: Buffer<T>,
+    deltas: Deltas<T>,
     num_chunks: usize,
     untranspose: TransposeKernel<T>,
     /// Reused buffers for one chunk. A fresh stack buffer per chunk made decoding about 1.7x
@@ -54,23 +54,21 @@ struct Scratch<T> {
     logical: [MaybeUninit<T>; FL_CHUNK_SIZE],
 }
 
-enum Deltas<'a, T> {
-    Primitive(&'a [T]),
-    Packed(PackedChunks<'a, T>),
+enum Deltas<T> {
+    Primitive(Buffer<T>),
+    Packed(PackedChunks<T>),
 }
 
-impl<'a, T, const LANES: usize> DeltaChunks<'a, T, LANES>
+impl<T, const LANES: usize> DeltaChunks<T, LANES>
 where
     T: NativePType + Delta,
 {
     /// Decode chunks of `array`, whose bases are `bases` reinterpreted as unsigned.
     ///
-    /// Bit-packed deltas are decoded in place. Other deltas are executed into `deltas`, which
-    /// the decoder borrows.
+    /// Bit-packed deltas are decoded in place. Other deltas are executed once.
     pub(crate) fn for_array(
-        array: ArrayView<'a, crate::Delta>,
-        bases: &'a [T],
-        deltas: &'a mut Option<PrimitiveArray>,
+        array: ArrayView<'_, crate::Delta>,
+        bases: Buffer<T>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let delta_child = array.deltas();
@@ -81,26 +79,23 @@ where
             .clone()
             .execute::<PrimitiveArray>(ctx)?
             .reinterpret_cast(T::PTYPE);
-        Self::primitive(bases, deltas.insert(executed).as_slice())
+        Self::primitive(bases, executed.into_buffer())
     }
 
     /// Decode chunks from `bases` and primitive `deltas`, which hold whole chunks.
-    pub(crate) fn primitive(bases: &'a [T], deltas: &'a [T]) -> VortexResult<Self> {
+    pub(crate) fn primitive(bases: Buffer<T>, deltas: Buffer<T>) -> VortexResult<Self> {
         vortex_ensure!(
             deltas.len().is_multiple_of(FL_CHUNK_SIZE),
             "deltas must be padded to a multiple of {FL_CHUNK_SIZE}"
         );
-        Self::new(
-            bases,
-            Deltas::Primitive(deltas),
-            deltas.len() / FL_CHUNK_SIZE,
-        )
+        let num_chunks = deltas.len() / FL_CHUNK_SIZE;
+        Self::new(bases, Deltas::Primitive(deltas), num_chunks)
     }
 
     /// Decode chunks from `bases` and the bit-packed `deltas`, which hold `len` values.
     pub(crate) fn packed(
-        bases: &'a [T],
-        deltas: PackedDeltas<'a>,
+        bases: Buffer<T>,
+        deltas: PackedDeltas<'_>,
         len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
@@ -113,7 +108,7 @@ where
         Self::new(bases, Deltas::Packed(packed), num_chunks)
     }
 
-    fn new(bases: &'a [T], deltas: Deltas<'a, T>, num_chunks: usize) -> VortexResult<Self> {
+    fn new(bases: Buffer<T>, deltas: Deltas<T>, num_chunks: usize) -> VortexResult<Self> {
         vortex_ensure!(
             bases.len() == num_chunks * LANES,
             "expected {} bases for {num_chunks} chunks, got {}",
@@ -164,6 +159,12 @@ where
         }
     }
 
+    pub(crate) fn decode_into(&self, chunk: usize, output: &mut [T; FL_CHUNK_SIZE]) {
+        let transposed = &mut self.scratch.borrow_mut().transposed;
+        self.decode_transposed(chunk, transposed);
+        self.untranspose.apply(transposed, output);
+    }
+
     /// Decode every chunk into a buffer of `num_chunks * 1024` values.
     pub(crate) fn decode_all(&self) -> Buffer<T> {
         let len = self.num_chunks * FL_CHUNK_SIZE;
@@ -180,7 +181,7 @@ where
 
 // SAFETY: `decode_chunk` untransposes into every value of `dst`, and `decode_indices` writes one
 // value for each index.
-unsafe impl<T, const LANES: usize> ChunkDecoder<T> for DeltaChunks<'_, T, LANES>
+unsafe impl<T, const LANES: usize> ChunkDecoder<T> for DeltaChunks<T, LANES>
 where
     T: NativePType + Delta,
 {
@@ -207,8 +208,8 @@ where
 }
 
 /// The packed blocks of bit-packed deltas, one per chunk, and their patches by chunk.
-struct PackedChunks<'a, T> {
-    packed: &'a [T],
+struct PackedChunks<T> {
+    packed: Buffer<T>,
     blocks: Blocks,
     /// The patches within the chunks, as (position in chunk, value), grouped by chunk.
     patches: Vec<(usize, T)>,
@@ -225,18 +226,22 @@ enum Blocks {
     Blocked { offsets: Buffer<u64>, first: usize },
 }
 
-impl<'a, T: NativePType + BitPacking> PackedChunks<'a, T> {
+impl<T: NativePType + BitPacking> PackedChunks<T> {
     fn new(
-        deltas: PackedDeltas<'a>,
+        deltas: PackedDeltas<'_>,
         num_chunks: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let bp = deltas.packed();
         let first = deltas.first_block();
-        let packed = bp.data().packed_slice::<T>();
+        let packed = crate::block::packed_buffer::<T>(bp)?;
         let blocks = match bp.bit_widths() {
             BitWidthsView::Global(bit_width) => {
                 let bit_width = usize::from(bit_width);
+                vortex_ensure!(
+                    bit_width <= 8 * size_of::<T>(),
+                    "invalid packed Delta bit width {bit_width}"
+                );
                 let words = FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>());
                 vortex_ensure!(
                     (first + num_chunks) * words <= packed.len(),
@@ -276,7 +281,7 @@ impl<'a, T: NativePType + BitPacking> PackedChunks<'a, T> {
     }
 
     /// The packed block of chunk `chunk` and its bit width.
-    fn block(&self, chunk: usize) -> (&'a [T], usize) {
+    fn block(&self, chunk: usize) -> (&[T], usize) {
         match &self.blocks {
             Blocks::Global { bit_width, first } => {
                 let words = FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>());
