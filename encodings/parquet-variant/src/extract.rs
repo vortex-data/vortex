@@ -28,6 +28,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
+use vortex_array::arrays::varbinview::ResolvedViews;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -59,12 +60,13 @@ pub(crate) fn extract(
         .collect::<Vec<_>>();
     let mut builder = Builder::new(dtype, &mut names, value.len())?;
     let mut cache = FieldCache::new(&names);
+    let (metadata, value) = (metadata.resolved_views(), value.resolved_views());
 
     let depth = path.len();
     match &mut builder {
-        Builder::Utf8(utf8) => append_rows(utf8, &mut cache, metadata, value, valid, depth)?,
-        Builder::Int64(int64) => append_rows(int64, &mut cache, metadata, value, valid, depth)?,
-        nested => append_rows(nested, &mut cache, metadata, value, valid, depth)?,
+        Builder::Utf8(utf8) => append_rows(utf8, &mut cache, &metadata, &value, valid, depth)?,
+        Builder::Int64(int64) => append_rows(int64, &mut cache, &metadata, &value, valid, depth)?,
+        nested => append_rows(nested, &mut cache, &metadata, &value, valid, depth)?,
     }
 
     builder.finish()
@@ -173,8 +175,8 @@ trait Append {
 fn append_rows<B: Append>(
     builder: &mut B,
     cache: &mut FieldCache<'_>,
-    metadata: &VarBinViewArray,
-    value: &VarBinViewArray,
+    metadata: &ResolvedViews<'_>,
+    value: &ResolvedViews<'_>,
     valid: &Mask,
     depth: usize,
 ) -> Option<()> {
@@ -184,7 +186,7 @@ fn append_rows<B: Append>(
             continue;
         }
         let ids = cache.resolve(metadata, idx)?;
-        match follow(ids, bytes_at(value, idx), depth)? {
+        match follow(ids, value.bytes(idx), depth)? {
             Some(value) => builder.append(ids, value)?,
             None => builder.append_null(),
         }
@@ -486,17 +488,6 @@ fn utf8(bytes: &[u8]) -> Option<&str> {
     std::str::from_utf8(bytes).ok()
 }
 
-/// The bytes of row `idx`, borrowed from `array`.
-fn bytes_at(array: &VarBinViewArray, idx: usize) -> &[u8] {
-    let view = &array.views()[idx];
-    if view.is_inlined() {
-        view.as_inlined().value()
-    } else {
-        let view = view.as_view();
-        &array.buffer(view.buffer_index as usize).as_slice()[view.as_range()]
-    }
-}
-
 /// An id that is not in any dictionary: the ids of an object are at most four bytes wide.
 const ABSENT: usize = usize::MAX;
 
@@ -531,7 +522,7 @@ impl<'a> FieldCache<'a> {
     ///
     /// Returns `None` if the metadata does not decode, or if its dictionary holds one of the
     /// names more than once, which leaves the extraction to the general kernel.
-    fn resolve(&mut self, metadata: &VarBinViewArray, idx: usize) -> Option<&[usize]> {
+    fn resolve(&mut self, metadata: &ResolvedViews<'_>, idx: usize) -> Option<&[usize]> {
         let view = metadata.views()[idx].as_u128();
         let len = self.names.len();
 
@@ -545,7 +536,7 @@ impl<'a> FieldCache<'a> {
 
                 let start = self.ids.len();
                 self.ids.resize(start + len, ABSENT);
-                fill(self.names, &mut self.ids[start..], bytes_at(metadata, idx))?;
+                fill(self.names, &mut self.ids[start..], metadata.bytes(idx))?;
                 self.views.push((view, start));
                 start
             }
@@ -1266,8 +1257,9 @@ mod tests {
                 ));
             }
         };
+        let (metadata, value) = (metadata.resolved_views(), value.resolved_views());
         for idx in 0..rows.len() {
-            let (metadata, value) = (bytes_at(&metadata, idx), bytes_at(&value, idx));
+            let (metadata, value) = (metadata.bytes(idx), value.bytes(idx));
             for len in 0..value.len() {
                 extract_damaged(metadata, &value[..len]);
             }
