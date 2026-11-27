@@ -96,9 +96,8 @@ _FIELD_BUDGET = _BODY_BUDGET - _TEMPLATE_OVERHEAD  # 55k split between the two
 def _build_template_variables(
     crash_info: CrashInfo,
     var_args: list[tuple[str, str]] | None = None,
-    claude_analysis: str = "",
 ) -> dict[str, str]:
-    """Build template variables from crash info, CLI args, and Claude analysis."""
+    """Build template variables from crash info and CLI args."""
     variables = {}
     if var_args:
         for key, value in var_args:
@@ -139,9 +138,6 @@ def _build_template_variables(
         if k not in variables:
             variables[k] = v
 
-    if claude_analysis:
-        variables.setdefault("CLAUDE_ANALYSIS", claude_analysis)
-
     return variables
 
 
@@ -154,7 +150,6 @@ def _determine_action(
       create       – new issue
       skip         – exact duplicate, do nothing
       update_count – high-confidence duplicate, bump recurrence counter
-      comment      – medium-confidence duplicate, post full comment
     """
     if not dedup_path or not Path(dedup_path).exists():
         return "create", None
@@ -166,10 +161,7 @@ def _determine_action(
     if dedup.get("confidence") == "exact":
         return "skip", dedup
 
-    if dedup.get("confidence") == "high":
-        return "update_count", dedup
-
-    return "comment", dedup
+    return "update_count", dedup
 
 
 def _render_recurrence_body(count: int) -> str:
@@ -309,13 +301,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(f"Error: Invalid crash info: {e}", file=sys.stderr)
         return 1
 
-    # Read Claude analysis if available
-    claude_analysis = ""
-    if args.claude_analysis and Path(args.claude_analysis).exists():
-        claude_analysis = Path(args.claude_analysis).read_text().strip()
-
     action, dedup = _determine_action(args.dedup_result)
-    variables = _build_template_variables(crash_info, args.var, claude_analysis)
+    variables = _build_template_variables(crash_info, args.var)
     existing_issue = dedup.get("issue_number") if dedup else None
 
     # Validate required variables before creating/commenting (skip is fine without them)
@@ -344,94 +331,67 @@ def cmd_report(args: argparse.Namespace) -> int:
         _write_github_output("issue_number", str(existing_issue))
         return 0
 
-    if action == "comment":
-        variables.setdefault("DEDUP_REASON", dedup.get("reason", ""))
-        variables.setdefault("DEDUP_CONFIDENCE", dedup.get("confidence", ""))
+    fuzz_name = variables.get("FUZZ_NAME") or variables.get("FUZZ_TARGET", "unknown")
+    title = f"Fuzzing Crash: {crash_info.error_variant} in {fuzz_name}"
 
-        body = render_template(str(TEMPLATES_DIR / "related_comment.md"), variables, use_env=False)
-        body_file = Path("comment_body.md")
-        body_file.write_text(body)
+    body = render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False)
+    body_file = Path("issue_body.md")
+    body_file.write_text(body)
 
-        _run_gh(
-            [
-                "gh",
-                "issue",
-                "comment",
-                str(existing_issue),
-                "--repo",
-                args.repo,
-                "--body-file",
-                str(body_file),
-            ],
+    print(f"Issue title: {title}", file=sys.stderr)
+    print(f"Issue body size: {len(body)} chars", file=sys.stderr)
+    print(f"Repo: {args.repo}", file=sys.stderr)
+
+    result = _run_gh(
+        [
+            "gh",
+            "issue",
+            "create",
+            "--repo",
+            args.repo,
+            "--title",
+            title,
+            "--label",
+            "bug,fuzzer",
+            "--body-file",
+            str(body_file),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    issue_url = result.stdout.strip()
+    issue_number = issue_url.rstrip("/").split("/")[-1]
+
+    print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
+    _write_github_output("issue_number", issue_number)
+    _write_github_output("issue_created", "true")
+
+    # Post full debug output as a follow-up comment (collapsed).
+    debug_output = variables.get("DEBUG_OUTPUT", "")
+    if debug_output and debug_output != "(not set)":
+        comment_body = (
+            f"<details>\n<summary>Debug Output</summary>\n\n```\n{debug_output}\n```\n</details>"
         )
-        print(f"Commented on #{existing_issue}", file=sys.stderr)
-        _write_github_output("issue_number", str(existing_issue))
-    else:
-        # Use FUZZ_NAME for the title (descriptive name), fall back to FUZZ_TARGET
-        fuzz_name = variables.get("FUZZ_NAME") or variables.get("FUZZ_TARGET", "unknown")
-        title = f"Fuzzing Crash: {crash_info.error_variant} in {fuzz_name}"
-
-        body = render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False)
-        body_file = Path("issue_body.md")
-        body_file.write_text(body)
-
-        print(f"Issue title: {title}", file=sys.stderr)
-        print(f"Issue body size: {len(body)} chars", file=sys.stderr)
-        print(f"Repo: {args.repo}", file=sys.stderr)
-
-        result = _run_gh(
-            [
-                "gh",
-                "issue",
-                "create",
-                "--repo",
-                args.repo,
-                "--title",
-                title,
-                "--label",
-                "bug,fuzzer",
-                "--body-file",
-                str(body_file),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        issue_url = result.stdout.strip()
-        issue_number = issue_url.rstrip("/").split("/")[-1]
-
-        print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
-        _write_github_output("issue_number", issue_number)
-        _write_github_output("issue_created", "true")
-
-        # Post full debug output as a follow-up comment (collapsed).
-        debug_output = variables.get("DEBUG_OUTPUT", "")
-        if debug_output and debug_output != "(not set)":
-            comment_body = (
-                "<details>\n<summary>Debug Output</summary>\n\n"
-                f"```\n{debug_output}\n```\n</details>"
+        # Truncate comment to GitHub's limit too.
+        if len(comment_body) > _BODY_BUDGET:
+            comment_body = comment_body[: _BODY_BUDGET - 50] + "\n```\n</details>\n\n*Truncated*"
+        comment_file = Path("debug_comment.md")
+        comment_file.write_text(comment_body)
+        try:
+            _run_gh(
+                [
+                    "gh",
+                    "issue",
+                    "comment",
+                    issue_number,
+                    "--repo",
+                    args.repo,
+                    "--body-file",
+                    str(comment_file),
+                ],
             )
-            # Truncate comment to GitHub's limit too.
-            if len(comment_body) > _BODY_BUDGET:
-                comment_body = (
-                    comment_body[: _BODY_BUDGET - 50] + "\n```\n</details>\n\n*Truncated*"
-                )
-            comment_file = Path("debug_comment.md")
-            comment_file.write_text(comment_body)
-            try:
-                _run_gh(
-                    [
-                        "gh",
-                        "issue",
-                        "comment",
-                        issue_number,
-                        "--repo",
-                        args.repo,
-                        "--body-file",
-                        str(comment_file),
-                    ],
-                )
-            except subprocess.CalledProcessError:
-                print("Warning: failed to post debug output comment", file=sys.stderr)
+        except subprocess.CalledProcessError:
+            print("Warning: failed to post debug output comment", file=sys.stderr)
 
     return 0
 
@@ -485,11 +445,7 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
     action, dedup = _determine_action(dedup_path)
 
     # Read Claude analysis if provided
-    claude_analysis = ""
-    if args.claude_analysis and Path(args.claude_analysis).exists():
-        claude_analysis = Path(args.claude_analysis).read_text().strip()
-
-    variables = _build_template_variables(crash_info, args.var, claude_analysis)
+    variables = _build_template_variables(crash_info, args.var)
     existing_issue = dedup.get("issue_number") if dedup else None
 
     # Validate required variables (same check as real report)
@@ -519,17 +475,9 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
         print(_render_recurrence_body(1))
         return 0
 
-    if action == "comment":
-        template_path = TEMPLATES_DIR / "related_comment.md"
-        variables.setdefault("DEDUP_REASON", dedup.get("reason", ""))
-        variables.setdefault("DEDUP_CONFIDENCE", dedup.get("confidence", ""))
-        print(f"(would comment on #{existing_issue})", file=sys.stderr)
-    else:
-        template_path = TEMPLATES_DIR / "new_issue.md"
-        print("(would create new issue)", file=sys.stderr)
-
+    print("(would create new issue)", file=sys.stderr)
     print(file=sys.stderr)
-    print(render_template(str(template_path), variables, use_env=False))
+    print(render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False))
     return 0
 
 
@@ -595,7 +543,6 @@ def main() -> int:
     report_parser.add_argument("crash_info", help="Path to crash info JSON")
     report_parser.add_argument("--repo", required=True, help="GitHub repo (owner/name)")
     report_parser.add_argument("--dedup-result", help="Path to dedup result JSON")
-    report_parser.add_argument("--claude-analysis", help="Path to Claude analysis text")
     _add_var_args(report_parser)
     report_parser.set_defaults(func=cmd_report)
 
@@ -606,7 +553,6 @@ def main() -> int:
     dryrun_parser.add_argument("--crash-dir", help="Directory to search for crash file")
     dryrun_parser.add_argument("--crash-name", help="Crash file name to find in --crash-dir")
     dryrun_parser.add_argument("--issues", help="Path to issues JSON for dedup check")
-    dryrun_parser.add_argument("--claude-analysis", help="Path to Claude analysis text")
     _add_var_args(dryrun_parser)
     dryrun_parser.set_defaults(func=cmd_dry_run)
 
