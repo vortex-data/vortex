@@ -14,6 +14,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::TemporalRounding;
 use vortex_array::extension::datetime::Time;
@@ -133,6 +134,7 @@ impl ScalarFnVTable for ChangeTimeUnit {
             }
             TemporalMetadata::Time(_) => Time::try_new(unit, nullability)?.erased(),
             TemporalMetadata::Date(_) => Date::try_new(unit, nullability)?.erased(),
+            TemporalMetadata::Duration(_) => Duration::try_new(unit, nullability)?.erased(),
         };
         Ok(DType::Extension(target))
     }

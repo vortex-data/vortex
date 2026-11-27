@@ -229,6 +229,24 @@ def test_counts_from_logs(tmp_path: Path):
     assert shards.counts_from_logs([log]) == {"vortex-buffer": {"buffer": 2}}
 
 
+def test_counts_from_logs_does_not_double_duplicate_runs(tmp_path: Path):
+    run = (
+        "2026-01-01T00:00:00.0Z Running vortex-buffer buffer\n"
+        "2026-01-01T00:00:00.0Z Measured: vortex-buffer/benches/buffer.rs::a\n"
+        "2026-01-01T00:00:00.0Z Measured: vortex-buffer/benches/buffer.rs::b\n"
+        "2026-01-01T00:00:00.0Z Done running buffer\n"
+    )
+    partial = (
+        "2026-01-01T00:00:00.0Z Running vortex-buffer buffer\n"
+        "2026-01-01T00:00:00.0Z Measured: vortex-buffer/benches/buffer.rs::a\n"
+    )
+    first = tmp_path / "run1.txt"
+    second = tmp_path / "run2.txt"
+    first.write_text(run + partial)
+    second.write_text(run)
+    assert shards.counts_from_logs([first, second]) == {"vortex-buffer": {"buffer": 2}}
+
+
 def test_durations_include_the_whole_target_and_ignore_incomplete_runs(tmp_path: Path):
     log = tmp_path / "job.txt"
     log.write_text(

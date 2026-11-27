@@ -432,8 +432,11 @@ impl BoundExpression {
     /// "is_not_null(self)", which requires evaluating "self".
     pub fn validity(&self) -> VortexResult<BoundExpression> {
         match self {
-            // The scope is exactly as valid as itself.
-            Self::Root { .. } => Ok(self.clone()),
+            Self::Root { dtype } => match dtype {
+                DType::Null => Ok(BoundExpression::literal(false.into())),
+                dtype if !dtype.is_nullable() => Ok(BoundExpression::literal(true.into())),
+                _ => BoundExpression::try_new(IsNotNull.bind(EmptyOptions), [self.clone()]),
+            },
             Self::Scalar { .. } => {
                 let node = ExpressionReduceNode::new(self);
                 Ok(match node.validity()? {
@@ -491,5 +494,45 @@ impl ExprDisplay for BoundExpression {
 
     fn display_children_count(&self) -> usize {
         self.children().len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_error::VortexResult;
+
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::BoundExpression;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::builtin::is_not_null::IsNotNull;
+
+    #[rstest]
+    #[case::non_nullable_int(DType::Primitive(PType::I32, Nullability::NonNullable), Some(true))]
+    #[case::non_nullable_bool(DType::Bool(Nullability::NonNullable), Some(true))]
+    #[case::null_dtype(DType::Null, Some(false))]
+    #[case::nullable_int(DType::Primitive(PType::I32, Nullability::Nullable), None)]
+    #[case::nullable_bool(DType::Bool(Nullability::Nullable), None)]
+    fn test_root_validity_returns_non_nullable_bool(
+        #[case] dtype: DType,
+        #[case] expected_literal: Option<bool>,
+    ) -> VortexResult<()> {
+        let root = BoundExpression::new_root(dtype);
+        let validity = root.validity()?;
+
+        assert_eq!(validity.dtype(), &DType::Bool(Nullability::NonNullable));
+        match expected_literal {
+            Some(expected) => assert_eq!(
+                validity,
+                BoundExpression::literal(Scalar::bool(expected, Nullability::NonNullable))
+            ),
+            None => {
+                assert!(validity.is::<IsNotNull>());
+                assert_eq!(validity.child(0), &root);
+            }
+        }
+        Ok(())
     }
 }

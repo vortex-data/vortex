@@ -10,6 +10,7 @@
 mod binary;
 mod bool;
 mod decimal;
+mod ext_into_py;
 mod extension;
 pub mod factory;
 mod into_py;
@@ -105,6 +106,9 @@ impl PyScalar {
     pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyScalar>> {
         // TODO(ngates): Bound::as_super would be great, but it's in newer PyO3.
         match scalar.dtype() {
+            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
+                "FixedSizeBinary scalars are not supported in Python yet",
+            )),
             DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
             DType::Primitive(..) => Self::with_subclass(py, scalar, PyPrimitiveScalar),
@@ -162,6 +166,11 @@ impl PyScalar {
     }
 
     /// Return the scalar value as a Python object.
+    ///
+    /// Dates, times, timestamps and durations become :mod:`datetime` objects, the same values that
+    /// :meth:`pyarrow.Scalar.as_py` returns. Nanosecond timestamps and durations become
+    /// :class:`pandas.Timestamp` and :class:`pandas.Timedelta` when pandas is installed. UUIDs
+    /// become :class:`uuid.UUID`. Other extension scalars return their storage value.
     pub fn as_py(&self, py: Python) -> PyResult<Py<PyAny>> {
         PyVortex(&self.0).into_pyobject(py).map(|v| v.into())
     }

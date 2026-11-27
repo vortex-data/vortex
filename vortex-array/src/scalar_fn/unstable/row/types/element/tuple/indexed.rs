@@ -123,7 +123,10 @@ impl<'a, T: InputElement> ArgColumnSource<'a, T> {
     }
 }
 
-impl<'a, T: InputElement> IndexedSource for ArgColumnSource<'a, T> {
+// SAFETY: `InputElement` keeps the length of a `Rows` view stable and makes every index below it
+// valid for an unchecked read. A `Constant` source stores a fixed `row_count`, and its read ignores
+// the index.
+unsafe impl<'a, T: InputElement> IndexedSource for ArgColumnSource<'a, T> {
     type Item = T::Elem<'a>;
 
     fn len(&self) -> usize {
@@ -151,7 +154,8 @@ struct ArgTupleSource<Sources> {
     row_count: usize,
 }
 
-impl IndexedSource for ArgTupleSource<()> {
+// SAFETY: no method changes `row_count`, and a read touches no memory.
+unsafe impl IndexedSource for ArgTupleSource<()> {
     type Item = ();
 
     fn len(&self) -> usize {
@@ -172,7 +176,9 @@ impl<'a, T: InputElement> ElementSource<'a, T> {
     }
 }
 
-impl<'a, T: InputElement> IndexedSource for ElementSource<'a, T> {
+// SAFETY: `InputElement` keeps the view length stable and makes every index below it valid for an
+// unchecked read.
+unsafe impl<'a, T: InputElement> IndexedSource for ElementSource<'a, T> {
     type Item = T::Elem<'a>;
 
     fn len(&self) -> usize {
@@ -189,7 +195,8 @@ impl<'a, T: InputElement> IndexedSource for ElementSource<'a, T> {
 /// An indexed element source yielding the one-tuples expected by a unary row closure.
 pub struct UnaryTupleSource<Source>(Source);
 
-impl<Source: IndexedSource> IndexedSource for UnaryTupleSource<Source> {
+// SAFETY: the length and every read forward to the wrapped source, which upholds the contract.
+unsafe impl<Source: IndexedSource> IndexedSource for UnaryTupleSource<Source> {
     type Item = (Source::Item,);
 
     fn len(&self) -> usize {
@@ -208,7 +215,11 @@ pub struct ElementTupleSource<'a, Args: ElementTuple> {
     row_count: usize,
 }
 
-impl<'a, Args: ElementTuple> IndexedSource for ElementTupleSource<'a, Args> {
+// SAFETY: no method changes `row_count`. The only constructor is
+// `IndexedElementTuple::indexed_source`, whose caller guarantees that every view addresses exactly
+// `row_count` rows. `InputElement` keeps those views stable, so every index below `row_count` is
+// valid for an unchecked read.
+unsafe impl<'a, Args: ElementTuple> IndexedSource for ElementTupleSource<'a, Args> {
     type Item = Args::Elems<'a>;
 
     fn len(&self) -> usize {
@@ -318,7 +329,11 @@ impl<A: InputElement, B: InputElement> private::DecodedSource for (A, B) {
 
 macro_rules! arg_tuple_source {
     ($($source:ident: $idx:tt),+) => {
-        impl<$($source: IndexedSource),+> IndexedSource
+        // SAFETY: no method changes `row_count`. `DecodedSource::decoded_source` is the only
+        // constructor, and it builds every source with `row_count` rows. The `IndexedSource`
+        // contract keeps those lengths fixed, so every index below `row_count` is valid for each
+        // forwarded read.
+        unsafe impl<$($source: IndexedSource),+> IndexedSource
             for ArgTupleSource<($($source,)+)>
         {
             type Item = ($($source::Item,)+);

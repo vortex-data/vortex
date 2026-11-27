@@ -17,9 +17,12 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_expr::Expression;
@@ -67,6 +70,8 @@ use crate::timestamp_to_time::TimestampToTime;
 use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
+use crate::variant_pack::VariantPack;
+use crate::variant_pack::VariantPackOptions;
 use crate::zip::Zip;
 
 /// Convert a [`Date`], [`Time`], or [`Timestamp`] to a coarser `unit` with an explicit
@@ -180,33 +185,59 @@ pub fn bound_case_when_no_else(
 }
 
 /// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+///
+/// # Panics
+///
+/// Panics if `when_then_pairs` is empty or has more than `u32::MAX` pairs. Use
+/// [`try_nested_case_when`] when the pairs come from input the caller does not control.
 pub fn nested_case_when(
     when_then_pairs: Vec<(Expression, Expression)>,
     else_value: Option<Expression>,
 ) -> Expression {
-    assert!(
+    try_nested_case_when(when_then_pairs, else_value)
+        .vortex_expect("nested_case_when requires between 1 and u32::MAX when/then pairs")
+}
+
+/// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+///
+/// Returns an error if `when_then_pairs` is empty or has more than `u32::MAX` pairs.
+///
+/// ```rust
+/// # use vortex_expr::lit;
+/// # use vortex_functions::expr::try_nested_case_when;
+/// assert!(try_nested_case_when(vec![(lit(true), lit(1_i32))], Some(lit(0_i32))).is_ok());
+/// assert!(try_nested_case_when(vec![], Some(lit(0_i32))).is_err());
+/// ```
+pub fn try_nested_case_when(
+    when_then_pairs: Vec<(Expression, Expression)>,
+    else_value: Option<Expression>,
+) -> VortexResult<Expression> {
+    vortex_ensure!(
         !when_then_pairs.is_empty(),
         "nested_case_when requires at least one when/then pair"
     );
+    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
+        vortex_bail!(
+            "nested_case_when has too many when/then pairs: {}",
+            when_then_pairs.len()
+        );
+    };
 
     let has_else = else_value.is_some();
     let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));
-    for (condition, then_value) in &when_then_pairs {
-        children.push(condition.clone());
-        children.push(then_value.clone());
+    for (condition, then_value) in when_then_pairs {
+        children.push(condition);
+        children.push(then_value);
     }
     if let Some(else_expr) = else_value {
         children.push(else_expr);
     }
 
-    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
-        vortex_panic!("nested_case_when has too many when/then pairs");
-    };
     let options = CaseWhenOptions {
         num_when_then_pairs,
         has_else,
     };
-    CaseWhen.new_expr(options, children)
+    Ok(CaseWhen.new_expr(options, children))
 }
 
 /// Creates a bound n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
@@ -445,9 +476,28 @@ pub fn bound_dynamic_with_options(
         .vortex_expect("dynamic comparisons require a compatible left-hand dtype")
 }
 
-/// Creates a dynamic comparison expression.
+/// Creates a dynamic comparison expression that compares in [`CompareMode::TOTAL_ORDER`].
 pub fn dynamic(
     operator: CompareOperator,
+    rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
+    rhs_dtype: DType,
+    default: bool,
+    lhs: Expression,
+) -> Expression {
+    dynamic_with_mode(
+        operator,
+        CompareMode::TOTAL_ORDER,
+        rhs_value,
+        rhs_dtype,
+        default,
+        lhs,
+    )
+}
+
+/// Creates a dynamic comparison expression that orders floats in the given [`CompareMode`].
+pub fn dynamic_with_mode(
+    operator: CompareOperator,
+    compare_mode: CompareMode,
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
     rhs_dtype: DType,
     default: bool,
@@ -456,6 +506,7 @@ pub fn dynamic(
     dynamic_with_options(
         DynamicComparisonExpr {
             operator,
+            compare_mode,
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -477,6 +528,7 @@ pub fn bound_dynamic(
     bound_dynamic_with_options(
         DynamicComparisonExpr {
             operator,
+            compare_mode: CompareMode::TOTAL_ORDER,
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -546,11 +598,18 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
 
 /// Creates an expression that checks whether a list contains a value, with explicit
 /// [`ListContainsOptions`].
+///
+/// For a literal list, the compare mode keeps only the settings that can change a comparison of
+/// its elements, so that equal filters are equal expressions.
 pub fn list_contains_opts(
     list: Expression,
     value: Expression,
-    options: ListContainsOptions,
+    mut options: ListContainsOptions,
 ) -> Expression {
+    if let Some(DType::List(element_dtype, _)) = list.as_opt::<Literal>().map(Scalar::dtype) {
+        options.compare_mode = options.compare_mode.for_dtype(element_dtype);
+    }
+
     ListContains.new_expr(options, [list, value])
 }
 
@@ -564,11 +623,22 @@ pub fn list_contains_opts(
 /// let expr = in_list(root(), lit(vec![1, 2, 3]));
 /// ```
 pub fn in_list(needle: Expression, list: Expression) -> Expression {
+    in_list_with_mode(needle, list, CompareMode::TOTAL_ORDER)
+}
+
+/// Creates `needle IN (list)` with SQL null semantics, where the needle and the elements compare
+/// floats in `compare_mode`. See [`in_list`].
+pub fn in_list_with_mode(
+    needle: Expression,
+    list: Expression,
+    compare_mode: CompareMode,
+) -> Expression {
     list_contains_opts(
         list,
         needle,
         ListContainsOptions {
             sql_null_semantics: true,
+            compare_mode,
         },
     )
 }
@@ -600,6 +670,21 @@ pub fn in_list_of(
     needle: Expression,
     element_dtype: DType,
     elements: Vec<Scalar>,
+) -> VortexResult<Expression> {
+    in_list_of_with_mode(needle, element_dtype, elements, CompareMode::TOTAL_ORDER)
+}
+
+/// Creates `needle IN (elements)` like [`in_list_of`], where the needle and the elements compare
+/// floats in `compare_mode`.
+///
+/// # Errors
+///
+/// Returns an error if an element is not a null and not of `element_dtype`.
+pub fn in_list_of_with_mode(
+    needle: Expression,
+    element_dtype: DType,
+    elements: Vec<Scalar>,
+    compare_mode: CompareMode,
 ) -> VortexResult<Expression> {
     let element_dtype = if elements.iter().any(Scalar::is_null) {
         element_dtype.as_nullable()
@@ -642,7 +727,7 @@ pub fn in_list_of(
         elements.dedup();
     }
     let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
-    Ok(in_list(needle, lit(list)))
+    Ok(in_list_with_mode(needle, lit(list), compare_mode))
 }
 
 /// The smallest and largest of non-null integer `scalars` when they hold every integer between
@@ -684,6 +769,7 @@ pub fn bound_in_list(needle: BoundExpression, list: BoundExpression) -> BoundExp
         .try_new_bound_expr(
             ListContainsOptions {
                 sql_null_semantics: true,
+                compare_mode: CompareMode::TOTAL_ORDER,
             },
             [list, needle],
         )
@@ -713,6 +799,28 @@ pub fn bound_variant_get(
     VariantGet
         .try_new_bound_expr(VariantGetOptions::new(path.into(), dtype), [child])
         .vortex_expect("variant-get expressions require a Variant child")
+}
+
+/// Creates a Variant expression from core storage and its shredded child.
+///
+/// `complete` says whether every shredded path is absent from `core`; see
+/// [`VariantPackOptions::complete`].
+pub fn variant_pack(core: Expression, shredded: Expression, complete: bool) -> Expression {
+    VariantPack.new_expr(VariantPackOptions::new(complete), vec![core, shredded])
+}
+
+/// Creates a Variant expression from core storage, a non-nullable shredded struct, and the
+/// struct's validity.
+pub fn variant_pack_with_validity(
+    core: Expression,
+    shredded: Expression,
+    validity: Expression,
+    complete: bool,
+) -> Expression {
+    VariantPack.new_expr(
+        VariantPackOptions::with_shredded_validity(complete),
+        vec![core, shredded, validity],
+    )
 }
 
 // ---- Like ----
@@ -984,3 +1092,6 @@ pub mod bound {
     pub use super::bound_variant_get as variant_get;
     pub use super::bound_zip_expr as zip_expr;
 }
+
+#[cfg(test)]
+mod tests;

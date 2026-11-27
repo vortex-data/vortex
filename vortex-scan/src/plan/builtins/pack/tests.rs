@@ -6,9 +6,11 @@ use std::collections::VecDeque;
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::StructFields;
+use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -104,5 +106,50 @@ fn pack_readiness_tracks_changes_and_consumption(
                 .contains("Pack fields ended at different rows")
         );
     }
+    Ok(())
+}
+
+#[test]
+fn pack_fieldless_nullable_struct_preserves_length() -> VortexResult<()> {
+    let mut arena = Arena::default();
+    let inlets = [arena.create(8, None, SourceEnd::Unclaimed)];
+    let mut bytes = VecDeque::new();
+    let mut reads = Default::default();
+    let mut exec = SESSION.create_execution_ctx();
+    let mut touched = InletSet::new(1);
+    let mut changed = InletSet::all(1);
+    let mut cx = Cx {
+        arena: &mut arena,
+        inlets: &inlets,
+        bytes: &mut bytes,
+        reads: &mut reads,
+        session: &SESSION,
+        exec: &mut exec,
+        touched: &mut touched,
+        changed: &mut changed,
+    };
+
+    let mut pack = PackSource::new(StructFields::empty(), true, 1);
+    let validity_bits = [false, true, true, false, true];
+    cx.arena
+        .push(inlets[0], BoolArray::from_iter(validity_bits).into_array());
+    cx.arena.close(inlets[0]);
+    cx.changed.insert(0);
+
+    assert_eq!(pack.ready(&mut cx)?, SourceReady::Ready);
+    let Step::Final(array) = pack.compute(Input::None, &mut cx)? else {
+        return Err(vortex_err!("expected Pack batch for fieldless struct"));
+    };
+    let expected = StructArray::try_new_with_dtype(
+        vec![],
+        StructFields::empty(),
+        validity_bits.len(),
+        Validity::from_iter(validity_bits),
+    )?;
+    assert_eq!(array.len(), validity_bits.len());
+    assert_arrays_eq!(array, expected.into_array(), cx.exec());
+
+    assert_eq!(pack.ready(&mut cx)?, SourceReady::Ready);
+    assert!(matches!(pack.compute(Input::None, &mut cx)?, Step::End));
     Ok(())
 }

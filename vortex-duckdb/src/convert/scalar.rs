@@ -84,6 +84,9 @@ impl ToDuckDBScalar for Scalar {
             DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
+            DType::FixedSizeBinary(..) => {
+                vortex_bail!("Vortex FixedSizeBinary scalars aren't supported yet")
+            }
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().try_to_duckdb_scalar(),
             DType::Map(..) => self.as_map().try_to_duckdb_scalar(),
             DType::Variant(_) => {
@@ -299,6 +302,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     vortex_bail!("cannot convert timeunit {unit} to a duckdb time")
                 }
             },
+            TemporalMetadata::Duration(_) => {
+                vortex_bail!("DuckDB does not support Duration extension scalar")
+            }
         })
     }
 }

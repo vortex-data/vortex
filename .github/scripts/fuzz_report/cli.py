@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .dedup import check_duplicate
@@ -19,6 +20,9 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Stable marker to find and update the recurrence-tracking comment.
 _RECURRENCE_KEY = "<!-- fuzzer-recurrence-tracker -->"
+# State marker that fuzzer-fix-automation.yml writes into its status comment.
+_FIX_STATE_RE = re.compile(r"<!-- fuzzer-fix-state: (\w+) -->")
+_FIX_RETRY_INTERVAL = timedelta(hours=24)
 # Variables that must be set (non-empty) before creating or commenting on an issue.
 REQUIRED_REPORT_VARIABLES = ["FUZZ_TARGET", "CRASH_FILE", "ARTIFACT_URL"]
 
@@ -96,9 +100,8 @@ _FIELD_BUDGET = _BODY_BUDGET - _TEMPLATE_OVERHEAD  # 55k split between the two
 def _build_template_variables(
     crash_info: CrashInfo,
     var_args: list[tuple[str, str]] | None = None,
-    claude_analysis: str = "",
 ) -> dict[str, str]:
-    """Build template variables from crash info, CLI args, and Claude analysis."""
+    """Build template variables from crash info and CLI args."""
     variables = {}
     if var_args:
         for key, value in var_args:
@@ -121,6 +124,9 @@ def _build_template_variables(
             file=sys.stderr,
         )
 
+    crash_file = variables.get("CRASH_FILE", "")
+    rss_limit_mb = "2048" if Path(crash_file).name.startswith("oom-") else "0"
+
     # Auto-populate from crash info (don't override explicit -v args)
     auto_vars = {
         "PANIC_MESSAGE": panic_msg,
@@ -130,13 +136,11 @@ def _build_template_variables(
         "SEED_HASH": crash_info.seed_hash,
         "STACK_TRACE_HASH": crash_info.stack_trace_hash,
         "MESSAGE_HASH": crash_info.message_hash,
+        "RSS_LIMIT_MB": rss_limit_mb,
     }
     for k, v in auto_vars.items():
         if k not in variables:
             variables[k] = v
-
-    if claude_analysis:
-        variables.setdefault("CLAUDE_ANALYSIS", claude_analysis)
 
     return variables
 
@@ -150,7 +154,6 @@ def _determine_action(
       create       – new issue
       skip         – exact duplicate, do nothing
       update_count – high-confidence duplicate, bump recurrence counter
-      comment      – medium-confidence duplicate, post full comment
     """
     if not dedup_path or not Path(dedup_path).exists():
         return "create", None
@@ -162,10 +165,7 @@ def _determine_action(
     if dedup.get("confidence") == "exact":
         return "skip", dedup
 
-    if dedup.get("confidence") == "high":
-        return "update_count", dedup
-
-    return "comment", dedup
+    return "update_count", dedup
 
 
 def _render_recurrence_body(count: int) -> str:
@@ -174,28 +174,10 @@ def _render_recurrence_body(count: int) -> str:
 
 
 def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
-    """Find-or-create the recurrence comment, incrementing its count.
-
-    Uses a compare-and-swap pattern: reads the current count from the
-    existing comment (if any), increments it, and writes back.
-
-    Returns the new count.
-    """
-    # List all comments on the issue
-    result = _run_gh(
-        [
-            "gh",
-            "api",
-            f"repos/{repo}/issues/{issue_number}/comments",
-            "--paginate",
-        ],
-        capture_output=True,
-        text=True,
-    )
-
+    """Increment the recurrence count on the issue and return the new count."""
     existing_id = None
     current_count = 0
-    for comment in json.loads(result.stdout or "[]"):
+    for comment in _list_comments(repo, issue_number):
         if _RECURRENCE_KEY in comment["body"]:
             existing_id = comment["id"]
             m = re.search(r"Seen \*\*(\d+)\*\*", comment["body"])
@@ -233,6 +215,43 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
         )
 
     return new_count
+
+
+def _list_comments(repo: str, issue_number: int | str) -> list[dict]:
+    result = _run_gh(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/issues/{issue_number}/comments",
+            "--paginate",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    return json.loads(result.stdout or "[]")
+
+
+def _fix_attempt_due(repo: str, issue_number: int | str) -> bool:
+    """Return whether the issue has no fix attempt or a retry is due."""
+    try:
+        comments = _list_comments(repo, issue_number)
+    except subprocess.CalledProcessError:
+        print(f"Warning: cannot read the fix state of #{issue_number}", file=sys.stderr)
+        return False
+
+    for comment in comments:
+        m = _FIX_STATE_RE.search(comment["body"])
+        if not m:
+            continue
+
+        if m.group(1) != "retry":
+            return False
+
+        updated_at = datetime.fromisoformat(comment["updated_at"].replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) - updated_at >= _FIX_RETRY_INTERVAL
+
+    return True
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
@@ -305,14 +324,12 @@ def cmd_report(args: argparse.Namespace) -> int:
         print(f"Error: Invalid crash info: {e}", file=sys.stderr)
         return 1
 
-    # Read Claude analysis if available
-    claude_analysis = ""
-    if args.claude_analysis and Path(args.claude_analysis).exists():
-        claude_analysis = Path(args.claude_analysis).read_text().strip()
-
     action, dedup = _determine_action(args.dedup_result)
-    variables = _build_template_variables(crash_info, args.var, claude_analysis)
+    variables = _build_template_variables(crash_info, args.var)
     existing_issue = dedup.get("issue_number") if dedup else None
+
+    if existing_issue:
+        _write_github_output("needs_fix", str(_fix_attempt_due(args.repo, existing_issue)).lower())
 
     # Validate required variables before creating/commenting (skip is fine without them)
     if action != "skip":
@@ -340,94 +357,68 @@ def cmd_report(args: argparse.Namespace) -> int:
         _write_github_output("issue_number", str(existing_issue))
         return 0
 
-    if action == "comment":
-        variables.setdefault("DEDUP_REASON", dedup.get("reason", ""))
-        variables.setdefault("DEDUP_CONFIDENCE", dedup.get("confidence", ""))
+    fuzz_name = variables.get("FUZZ_NAME") or variables.get("FUZZ_TARGET", "unknown")
+    title = f"Fuzzing Crash: {crash_info.error_variant} in {fuzz_name}"
 
-        body = render_template(str(TEMPLATES_DIR / "related_comment.md"), variables, use_env=False)
-        body_file = Path("comment_body.md")
-        body_file.write_text(body)
+    body = render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False)
+    body_file = Path("issue_body.md")
+    body_file.write_text(body)
 
-        _run_gh(
-            [
-                "gh",
-                "issue",
-                "comment",
-                str(existing_issue),
-                "--repo",
-                args.repo,
-                "--body-file",
-                str(body_file),
-            ],
+    print(f"Issue title: {title}", file=sys.stderr)
+    print(f"Issue body size: {len(body)} chars", file=sys.stderr)
+    print(f"Repo: {args.repo}", file=sys.stderr)
+
+    result = _run_gh(
+        [
+            "gh",
+            "issue",
+            "create",
+            "--repo",
+            args.repo,
+            "--title",
+            title,
+            "--label",
+            "bug,fuzzer",
+            "--body-file",
+            str(body_file),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    issue_url = result.stdout.strip()
+    issue_number = issue_url.rstrip("/").split("/")[-1]
+
+    print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
+    _write_github_output("issue_number", issue_number)
+    _write_github_output("issue_created", "true")
+    _write_github_output("needs_fix", "true")
+
+    # Post full debug output as a follow-up comment (collapsed).
+    debug_output = variables.get("DEBUG_OUTPUT", "")
+    if debug_output and debug_output != "(not set)":
+        comment_body = (
+            f"<details>\n<summary>Debug Output</summary>\n\n```\n{debug_output}\n```\n</details>"
         )
-        print(f"Commented on #{existing_issue}", file=sys.stderr)
-        _write_github_output("issue_number", str(existing_issue))
-    else:
-        # Use FUZZ_NAME for the title (descriptive name), fall back to FUZZ_TARGET
-        fuzz_name = variables.get("FUZZ_NAME") or variables.get("FUZZ_TARGET", "unknown")
-        title = f"Fuzzing Crash: {crash_info.error_variant} in {fuzz_name}"
-
-        body = render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False)
-        body_file = Path("issue_body.md")
-        body_file.write_text(body)
-
-        print(f"Issue title: {title}", file=sys.stderr)
-        print(f"Issue body size: {len(body)} chars", file=sys.stderr)
-        print(f"Repo: {args.repo}", file=sys.stderr)
-
-        result = _run_gh(
-            [
-                "gh",
-                "issue",
-                "create",
-                "--repo",
-                args.repo,
-                "--title",
-                title,
-                "--label",
-                "bug,fuzzer",
-                "--body-file",
-                str(body_file),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        issue_url = result.stdout.strip()
-        issue_number = issue_url.rstrip("/").split("/")[-1]
-
-        print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
-        _write_github_output("issue_number", issue_number)
-        _write_github_output("issue_created", "true")
-
-        # Post full debug output as a follow-up comment (collapsed).
-        debug_output = variables.get("DEBUG_OUTPUT", "")
-        if debug_output and debug_output != "(not set)":
-            comment_body = (
-                "<details>\n<summary>Debug Output</summary>\n\n"
-                f"```\n{debug_output}\n```\n</details>"
+        # Truncate comment to GitHub's limit too.
+        if len(comment_body) > _BODY_BUDGET:
+            comment_body = comment_body[: _BODY_BUDGET - 50] + "\n```\n</details>\n\n*Truncated*"
+        comment_file = Path("debug_comment.md")
+        comment_file.write_text(comment_body)
+        try:
+            _run_gh(
+                [
+                    "gh",
+                    "issue",
+                    "comment",
+                    issue_number,
+                    "--repo",
+                    args.repo,
+                    "--body-file",
+                    str(comment_file),
+                ],
             )
-            # Truncate comment to GitHub's limit too.
-            if len(comment_body) > _BODY_BUDGET:
-                comment_body = (
-                    comment_body[: _BODY_BUDGET - 50] + "\n```\n</details>\n\n*Truncated*"
-                )
-            comment_file = Path("debug_comment.md")
-            comment_file.write_text(comment_body)
-            try:
-                _run_gh(
-                    [
-                        "gh",
-                        "issue",
-                        "comment",
-                        issue_number,
-                        "--repo",
-                        args.repo,
-                        "--body-file",
-                        str(comment_file),
-                    ],
-                )
-            except subprocess.CalledProcessError:
-                print("Warning: failed to post debug output comment", file=sys.stderr)
+        except subprocess.CalledProcessError:
+            print("Warning: failed to post debug output comment", file=sys.stderr)
 
     return 0
 
@@ -481,11 +472,7 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
     action, dedup = _determine_action(dedup_path)
 
     # Read Claude analysis if provided
-    claude_analysis = ""
-    if args.claude_analysis and Path(args.claude_analysis).exists():
-        claude_analysis = Path(args.claude_analysis).read_text().strip()
-
-    variables = _build_template_variables(crash_info, args.var, claude_analysis)
+    variables = _build_template_variables(crash_info, args.var)
     existing_issue = dedup.get("issue_number") if dedup else None
 
     # Validate required variables (same check as real report)
@@ -515,17 +502,9 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
         print(_render_recurrence_body(1))
         return 0
 
-    if action == "comment":
-        template_path = TEMPLATES_DIR / "related_comment.md"
-        variables.setdefault("DEDUP_REASON", dedup.get("reason", ""))
-        variables.setdefault("DEDUP_CONFIDENCE", dedup.get("confidence", ""))
-        print(f"(would comment on #{existing_issue})", file=sys.stderr)
-    else:
-        template_path = TEMPLATES_DIR / "new_issue.md"
-        print("(would create new issue)", file=sys.stderr)
-
+    print("(would create new issue)", file=sys.stderr)
     print(file=sys.stderr)
-    print(render_template(str(template_path), variables, use_env=False))
+    print(render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False))
     return 0
 
 
@@ -591,7 +570,6 @@ def main() -> int:
     report_parser.add_argument("crash_info", help="Path to crash info JSON")
     report_parser.add_argument("--repo", required=True, help="GitHub repo (owner/name)")
     report_parser.add_argument("--dedup-result", help="Path to dedup result JSON")
-    report_parser.add_argument("--claude-analysis", help="Path to Claude analysis text")
     _add_var_args(report_parser)
     report_parser.set_defaults(func=cmd_report)
 
@@ -602,7 +580,6 @@ def main() -> int:
     dryrun_parser.add_argument("--crash-dir", help="Directory to search for crash file")
     dryrun_parser.add_argument("--crash-name", help="Crash file name to find in --crash-dir")
     dryrun_parser.add_argument("--issues", help="Path to issues JSON for dedup check")
-    dryrun_parser.add_argument("--claude-analysis", help="Path to Claude analysis text")
     _add_var_args(dryrun_parser)
     dryrun_parser.set_defaults(func=cmd_dry_run)
 

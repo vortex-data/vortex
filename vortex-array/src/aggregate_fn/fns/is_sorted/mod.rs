@@ -271,6 +271,7 @@ impl AggregateFnVTable for IsSorted {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
+            DType::FixedSizeBinary(..) => None,
             DType::FixedSizeList(..) if is_fixed_size_bytes(input_dtype) => {
                 Some(DType::Bool(Nullability::NonNullable))
             }
@@ -292,6 +293,7 @@ impl AggregateFnVTable for IsSorted {
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
+            DType::FixedSizeBinary(..) => None,
             DType::FixedSizeList(..) if is_fixed_size_bytes(input_dtype) => {
                 Some(make_is_sorted_partial_dtype(input_dtype))
             }

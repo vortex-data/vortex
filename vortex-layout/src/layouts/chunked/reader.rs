@@ -384,7 +384,10 @@ impl LayoutReader for ChunkedReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         if row_range.is_empty() {
-            return Ok(future::ready(Ok(Canonical::empty(expr.dtype()).into_array())).boxed());
+            return Ok(future::ready(
+                Canonical::try_empty(expr.dtype()).map(IntoArray::into_array),
+            )
+            .boxed());
         }
 
         let mut chunk_evals = vec![];
@@ -408,7 +411,10 @@ impl LayoutReader for ChunkedReader {
         }
 
         if chunk_evals.is_empty() {
-            return Ok(future::ready(Ok(Canonical::empty(expr.dtype()).into_array())).boxed());
+            return Ok(future::ready(
+                Canonical::try_empty(expr.dtype()).map(IntoArray::into_array),
+            )
+            .boxed());
         }
 
         Ok(async move {
@@ -436,6 +442,7 @@ impl LayoutReader for ChunkedReader {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Range;
     use std::sync::Arc;
 
     use futures::stream;
@@ -454,6 +461,8 @@ mod test {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -542,7 +551,7 @@ mod test {
     #[case(0..30, [0, 5, 10, 15, 20, 25, 30])]
     #[case(7..23, [7, 10, 15, 20, 23])]
     fn test_nested_chunked_layout_splits(
-        #[case] row_range: std::ops::Range<u64>,
+        #[case] row_range: Range<u64>,
         #[case] expected: impl IntoIterator<Item = u64>,
     ) {
         let layout = nested_chunked_layout();
@@ -638,5 +647,62 @@ mod test {
 
         let result = evaluate(layout, pending);
         assert_arrays_eq!(result, buffer![1i32, 8].into_array(), &mut ctx);
+    }
+
+    fn fixed_size_binary_flat(segment_id: u32) -> LayoutRef {
+        FlatLayout::new(
+            5,
+            DType::FixedSizeBinary(16, NonNullable),
+            SegmentId::from(segment_id),
+            ReadContext::new([]),
+        )
+        .into_layout()
+    }
+
+    fn fixed_size_binary_chunked() -> LayoutRef {
+        ChunkedLayout::new(
+            10,
+            DType::FixedSizeBinary(16, NonNullable),
+            OwnedLayoutChildren::layout_children(vec![
+                fixed_size_binary_flat(0),
+                fixed_size_binary_flat(1),
+            ]),
+        )
+        .into_layout()
+    }
+
+    /// A layout with a dtype that has no empty canonical form yet must return an error, not
+    /// panic, when the reader has no rows to decode.
+    #[rstest]
+    #[case::flat_no_rows_selected(fixed_size_binary_flat(0), 0..5)]
+    #[case::chunked_no_rows_selected(fixed_size_binary_chunked(), 0..10)]
+    #[case::chunked_empty_row_range(fixed_size_binary_chunked(), 0..0)]
+    fn test_fixed_size_binary_without_rows_returns_error(
+        #[case] layout: LayoutRef,
+        #[case] row_range: Range<u64>,
+    ) -> VortexResult<()> {
+        block_on(|_h| async {
+            let reader = layout.new_reader(
+                "".into(),
+                Arc::new(TestSegments::default()),
+                &SESSION,
+                &Default::default(),
+            )?;
+            let expr = root().bind(reader.dtype())?;
+            let mask = MaskFuture::ready(Mask::new_false(usize::try_from(
+                row_range.end - row_range.start,
+            )?));
+
+            let result = match reader.projection_evaluation(&row_range, &expr, mask) {
+                Ok(array) => array.await,
+                Err(err) => Err(err),
+            };
+
+            let err = result
+                .err()
+                .ok_or_else(|| vortex_err!("projection of FixedSizeBinary must fail"))?;
+            assert!(err.to_string().contains("FixedSizeBinary"), "{err}");
+            Ok(())
+        })
     }
 }

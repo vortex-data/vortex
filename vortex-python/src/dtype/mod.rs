@@ -86,6 +86,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_date, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_duration, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_time, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_timestamp, &m)?)?;
 
@@ -130,6 +131,9 @@ impl PyDType {
             DType::Decimal(..) => Self::with_subclass(py, dtype, PyDecimalDType),
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
+            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
+                "FixedSizeBinary dtypes are not supported in Python yet",
+            )),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Map(..) => Err(PyValueError::new_err(

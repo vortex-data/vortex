@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use anyhow::anyhow;
 use arrow_array::ArrayRef;
@@ -9,6 +11,8 @@ use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
+use arrow_array::record_batch as arrow_record_batch;
+use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -18,6 +22,7 @@ use arrow_schema::extension::Json as ArrowJson;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
+use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
@@ -35,6 +40,7 @@ use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::lit as df_lit;
 use datafusion_physical_plan::filter::FilterExec;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use futures::TryStreamExt;
@@ -48,6 +54,8 @@ use vortex::editions::Edition;
 use vortex::editions::EditionId;
 use vortex::editions::EditionInclusion;
 use vortex::editions::EditionSessionExt;
+use vortex::expr::Expression;
+use vortex::expr::lit as vortex_lit;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::scan::DataSourceRef;
@@ -56,7 +64,9 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ext_metadata::encode_arrow_ext_metadata;
 
 use super::VortexDataSource;
+use super::VortexTable;
 use crate::common_tests::AnyStorage;
+use crate::convert::ExpressionConverter;
 
 async fn vortex_source() -> anyhow::Result<VortexDataSource> {
     let batch =
@@ -320,6 +330,69 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
             expected
         );
     }
+    Ok(())
+}
+
+// A residual cannot recover rows dropped by a partially converted filter. The pushed comparison
+// makes `-0.0` equal to `+0.0`, as DataFusion does, so both zero rows must survive the scan and
+// the residual filter.
+#[rstest]
+#[case::static_filter(false)]
+#[case::dynamic_filter(true)]
+#[tokio::test]
+async fn floating_filters_keep_signed_zero_matches(#[case] is_dynamic: bool) -> anyhow::Result<()> {
+    let source = vortex_source_from_batch(arrow_array::record_batch!(
+        ("value", Float64, vec![-0.0, 0.0]),
+        ("id", Int32, vec![1, 1])
+    )?)
+    .await?;
+    let value = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let id = Arc::new(df_expr::Column::new("id", 1)) as Arc<dyn PhysicalExpr>;
+    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::clone(&value), Arc::clone(&id)],
+        df_expr::lit(true),
+    ));
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::BinaryExpr::new(
+            value,
+            Operator::Eq,
+            df_expr::lit(0.0_f64),
+        )),
+        Operator::And,
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                id,
+                Operator::Modulo,
+                df_expr::lit(2_i32),
+            )),
+            Operator::Eq,
+            df_expr::lit(1_i32),
+        )),
+    )) as Arc<dyn PhysicalExpr>;
+    let predicate = if is_dynamic {
+        predicate
+    } else {
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("value", 0)),
+            Operator::Eq,
+            df_expr::lit(0.0_f64),
+        )) as Arc<dyn PhysicalExpr>
+    };
+    let offered = if is_dynamic {
+        Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>
+    } else {
+        Arc::clone(&predicate)
+    };
+    let pushed = source.try_pushdown_filters(vec![offered], &ConfigOptions::new())?;
+    let source = pushed.updated_node.unwrap_or_else(|| Arc::new(source));
+    dynamic.update(Arc::clone(&predicate))?;
+    let residual = Arc::new(FilterExec::try_new(
+        predicate,
+        Arc::new(DataSourceExec::new(source)),
+    )?);
+    let batches =
+        datafusion_physical_plan::collect(residual, SessionContext::new().task_ctx()).await?;
+    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 2);
     Ok(())
 }
 
@@ -736,5 +809,226 @@ async fn test_get_field_through_extension_storage_is_pushed_down() -> anyhow::Re
         [1, 2, 3, 4]
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_double_projection_swap_composes_against_current_output() -> anyhow::Result<()> {
+    let source = vortex_source().await?;
+    let col = |name: &str, idx| Arc::new(df_expr::Column::new(name, idx)) as Arc<dyn PhysicalExpr>;
+    let bin = |l, op, r| Arc::new(df_expr::BinaryExpr::new(l, op, r)) as Arc<dyn PhysicalExpr>;
+    let swap = |src: &dyn DataSource,
+                exprs: Vec<(&str, Arc<dyn PhysicalExpr>)>|
+     -> anyhow::Result<Arc<dyn DataSource>> {
+        let proj = ProjectionExprs::from(
+            exprs
+                .into_iter()
+                .map(|(alias, expr)| ProjectionExpr::new(expr, alias))
+                .collect::<Vec<_>>(),
+        );
+        src.try_swapping_with_projection(&proj)?
+            .ok_or_else(|| anyhow!("projection was not swapped"))
+    };
+    let collect = |src: Arc<dyn DataSource>| async move {
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(DataSourceExec::new(src));
+        datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await
+    };
+
+    // Reversing and renaming columns, then selecting `a@0` (original `b`).
+    let reversed = swap(&source, vec![("a", col("b", 1)), ("b", col("a", 0))])?;
+    let selected = swap(reversed.as_ref(), vec![("out", col("a", 0))])?;
+    assert_batches_eq!(
+        [
+            "+-----+", //
+            "| out |", //
+            "+-----+", //
+            "| 30  |", //
+            "| 10  |", //
+            "| 20  |", //
+            "+-----+", //
+        ],
+        &collect(selected).await?
+    );
+
+    // Composing a literal alongside a renamed column.
+    let renamed = swap(&source, vec![("x", col("b", 1))])?;
+    let with_lit = swap(
+        renamed.as_ref(),
+        vec![("one", df_expr::lit(1_i32)), ("y", col("x", 0))],
+    )?;
+    assert_batches_eq!(
+        [
+            "+-----+----+",
+            "| one | y  |",
+            "+-----+----+",
+            "| 1   | 30 |",
+            "| 1   | 10 |",
+            "| 1   | 20 |",
+            "+-----+----+",
+        ],
+        &collect(with_lit).await?
+    );
+
+    // Unsupported first swap (leftover projection), composed with a second swap + filter pushdown,
+    // and also with the unsupported column dropped.
+    let leftover = swap(
+        &source,
+        vec![
+            ("b_val", col("b", 1)),
+            (
+                "odd",
+                bin(col("a", 0), Operator::Modulo, df_expr::lit(2_i32)),
+            ),
+        ],
+    )?;
+    let composed = swap(
+        leftover.as_ref(),
+        vec![
+            (
+                "odd_plus_10",
+                bin(col("odd", 1), Operator::Plus, df_expr::lit(10_i32)),
+            ),
+            ("b_out", col("b_val", 0)),
+        ],
+    )?;
+    let pushed = composed.try_pushdown_filters(
+        vec![bin(col("b_out", 1), Operator::Gt, df_expr::lit(15_i32))],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
+    assert_batches_eq!(
+        [
+            "+-------------+-------+",
+            "| odd_plus_10 | b_out |",
+            "+-------------+-------+",
+            "| 11          | 30    |",
+            "| 11          | 20    |",
+            "+-------------+-------+",
+        ],
+        &collect(
+            pushed
+                .updated_node
+                .ok_or_else(|| anyhow!("filter not pushed"))?
+        )
+        .await?
+    );
+
+    let dropped = swap(leftover.as_ref(), vec![("b_only", col("b_val", 0))])?;
+    assert_batches_eq!(
+        [
+            "+--------+",
+            "| b_only |",
+            "+--------+",
+            "| 30     |",
+            "| 10     |",
+            "| 20     |",
+            "+--------+",
+        ],
+        &collect(dropped).await?
+    );
+
+    // Supported first swap followed by an unsupported second swap.
+    let pushed_first = swap(
+        &source,
+        vec![
+            ("a1", bin(col("a", 0), Operator::Plus, df_expr::lit(1_i32))),
+            ("b1", col("b", 1)),
+        ],
+    )?;
+    let unsupported_second = swap(
+        pushed_first.as_ref(),
+        vec![
+            (
+                "a1_odd",
+                bin(col("a1", 0), Operator::Modulo, df_expr::lit(2_i32)),
+            ),
+            ("b2", col("b1", 1)),
+        ],
+    )?;
+    assert_batches_eq!(
+        [
+            "+--------+----+",
+            "| a1_odd | b2 |",
+            "+--------+----+",
+            "| 0      | 30 |",
+            "| 1      | 10 |",
+            "| 0      | 20 |",
+            "+--------+----+",
+        ],
+        &collect(unsupported_second).await?
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_repeated_projection_does_not_duplicate_volatile_expr() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    let batch = arrow_array::record_batch!(("a", Int32, vec![1, 2, 3, 4, 5]))?;
+    let schema = batch.schema();
+    let data_source = data_source_from_batch(batch, &session).await?;
+    let table = Arc::new(VortexTable::new(data_source, session, schema));
+
+    let ctx = SessionContext::new();
+    ctx.register_table("t", table)?;
+
+    let batches = ctx
+        .sql("SELECT r AS x, r AS y FROM (SELECT random() AS r FROM t) AS s")
+        .await?
+        .collect()
+        .await?;
+
+    let mut row_count = 0usize;
+    for batch in &batches {
+        let xs = batch.column(0).as_primitive::<Float64Type>().values();
+        let ys = batch.column(1).as_primitive::<Float64Type>().values();
+        assert_eq!(xs, ys);
+        row_count += batch.num_rows();
+    }
+    assert_eq!(row_count, 5);
+    Ok(())
+}
+
+struct AdvisoryConverter(Arc<AtomicUsize>);
+
+impl ExpressionConverter for AdvisoryConverter {
+    fn try_convert(
+        &self,
+        _expr: &Arc<dyn PhysicalExpr>,
+        _schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        Ok(None)
+    }
+
+    fn try_convert_dynamic(
+        &self,
+        _expr: &Arc<dyn PhysicalExpr>,
+        _schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(Some(vortex_lit(true)))
+    }
+}
+
+#[tokio::test]
+async fn dynamic_filter_uses_advisory_conversion_and_keeps_residual() -> anyhow::Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let session = VortexSession::default();
+    let batch = arrow_record_batch!(("a", Int32, vec![1, 2, 3]))?;
+    let schema = batch.schema();
+    let source = VortexDataSource::builder(data_source_from_batch(batch, &session).await?, session)
+        .with_arrow_schema(schema)
+        .with_expression_converter(Arc::new(AdvisoryConverter(Arc::clone(&calls))))
+        .build()
+        .await?;
+    let filter = Arc::new(DynamicFilterPhysicalExpr::new(vec![], df_lit(true)));
+    let pushed = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+    assert!(pushed.updated_node.is_some());
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+    let exact = source.try_pushdown_filters(vec![df_lit(true)], &ConfigOptions::new())?;
+    assert!(exact.updated_node.is_none());
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
     Ok(())
 }

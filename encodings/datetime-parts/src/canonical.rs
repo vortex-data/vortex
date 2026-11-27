@@ -139,7 +139,7 @@ impl TimePart {
 }
 
 /// Writes `days * 86_400 * divisor + seconds * divisor + subseconds` for every lane of `out`.
-fn combine_parts<D, S, U>(
+pub(crate) fn combine_parts<D, S, U>(
     days: &[D],
     seconds: S,
     subseconds: U,
@@ -255,6 +255,7 @@ mod test {
     #[rstest]
     #[case::seconds(TimeUnit::Seconds)]
     #[case::milliseconds(TimeUnit::Milliseconds)]
+    #[case::microseconds(TimeUnit::Microseconds)]
     #[case::nanoseconds(TimeUnit::Nanoseconds)]
     fn decode_round_trips_many_rows(#[case] unit: TimeUnit) -> VortexResult<()> {
         let divisor: i64 = match unit {

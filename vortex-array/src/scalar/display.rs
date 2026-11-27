@@ -6,12 +6,15 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_error::vortex_panic;
+
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.dtype() {
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => write!(f, "null"),
             DType::Bool(_) => write!(f, "{}", self.as_bool()),
             DType::Primitive(..) => write!(f, "{}", self.as_primitive()),

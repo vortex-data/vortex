@@ -77,13 +77,16 @@ impl ColumnExporter for FixedSizeListExporter {
 
         // Get the child vector for array elements and export the elements directly.
         let elements_vector = vector.array_vector_get_child_mut();
+        let num_elements = len * list_size;
         self.elements_exporter
-            .export(offset * list_size, len * list_size, elements_vector, ctx)?;
+            .export(offset * list_size, num_elements, elements_vector, ctx)?;
 
-        // We must flatten the child vector to ensure any child dictionary views (namely UTF-8
-        // string views in dictionaries) are materialized.
-        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
-        // detailed explanation on why we need this for now.
+        // Flatten the child vector so dictionary views are materialized, sizing it to
+        // `num_elements` first so constant children flatten past `STANDARD_VECTOR_SIZE` (2048).
+        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825.
+        //
+        // SAFETY: `elements_exporter` populated `num_elements` entries in `elements_vector`.
+        unsafe { elements_vector.set_size(num_elements)? };
         elements_vector.flatten();
 
         Ok(())

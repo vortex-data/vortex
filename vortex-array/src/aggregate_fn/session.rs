@@ -62,6 +62,7 @@ use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
 
@@ -137,6 +138,7 @@ impl Default for AggregateFnSession {
         // Temporal extension types compare like their integer storage, so comparison-based
         // aggregates are pushed down into it.
         this.register_storage_ordered(Date);
+        this.register_storage_ordered(Duration);
         this.register_storage_ordered(Time);
         this.register_storage_ordered(Timestamp);
 
@@ -298,6 +300,18 @@ impl AggregateFnSession {
         let id = array_id.into();
         let fn_id = agg_fn_id.into();
         self.grouped_encoding_kernels.insert((id, fn_id), kernel)
+    }
+
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn retain_kernels(&self, mut keep: impl FnMut(&dyn std::fmt::Debug) -> bool) -> Self {
+        let kernels = AggregateKernelRegistry::default();
+        for (key, kernel) in self.kernels.snapshot().iter().filter(|(_, k)| keep(k)) {
+            kernels.insert(*key, *kernel);
+        }
+        Self {
+            kernels,
+            ..self.clone()
+        }
     }
 
     /// Captures the currently registered aggregate kernels, so repeated lookups skip the session

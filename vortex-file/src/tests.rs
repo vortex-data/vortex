@@ -6,6 +6,7 @@
 mod scan_metrics;
 
 use std::fs;
+use std::io;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -26,6 +27,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
+use tokio::sync::watch;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -93,6 +95,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_expr::BoundExpression;
 use vortex_expr::Expression;
 use vortex_expr::ScalarFnExprExt;
@@ -110,6 +113,7 @@ use vortex_expr::or;
 use vortex_expr::root;
 use vortex_functions::expr::lower;
 use vortex_functions::expr::select;
+use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 #[cfg(feature = "object_store")]
 use vortex_io::object_store::ObjectStoreWrite;
@@ -1692,61 +1696,44 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 }
 
 #[tokio::test]
-async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
+async fn open_with_unknown_field_dtype_tag_fails() -> VortexResult<()> {
     use vortex_array::dtype::flatbuffers as dtype_fb;
-    use vortex_array::flatbuffers::FlatBuffer;
 
-    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
-
+    let array = StructArray::try_new(
+        [""].into(),
+        vec![BoolArray::from_iter(Vec::<bool>::new()).into_array()],
+        0,
+        Validity::NonNullable,
+    )?
+    .into_array();
     let mut writer = vec![];
     SESSION
         .write_options()
-        .exclude_dtype()
         .write(&mut writer, array.to_array_stream())
         .await?;
-    let buffer: Bytes = writer.into();
 
-    let vxf = SESSION
+    let dtype_bytes = array.dtype().write_flatbuffer_bytes()?;
+    let dtype_bytes: &[u8] = dtype_bytes.as_ref();
+    let segment = writer
+        .windows(dtype_bytes.len())
+        .position(|window| window == dtype_bytes)
+        .expect("the dtype segment is written verbatim");
+    let field = flatbuffers::root::<dtype_fb::DType>(dtype_bytes)?
+        .type__as_struct_()
+        .and_then(|struct_| struct_.dtypes())
+        .expect("a struct dtype")
+        .get(0);
+    let tag =
+        field._tab.loc() + usize::from(field._tab.vtable().get(dtype_fb::DType::VT_TYPE_TYPE));
+    assert_eq!(dtype_bytes[tag], dtype_fb::Type::Bool.0);
+
+    writer[segment + tag] = 200;
+    let err = SESSION
         .open_options()
-        .with_dtype(array.dtype().clone())
-        .open_buffer(buffer.clone())?;
-    assert!(vxf.file_stats().is_some());
-
-    let mut fbb = FlatBufferBuilder::new();
-    let name_a = fbb.create_string("a");
-    let names = fbb.create_vector(&[name_a]);
-    let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
-    let unknown = dtype_fb::DType::create(
-        &mut fbb,
-        &dtype_fb::DTypeArgs {
-            type_type: dtype_fb::Type(200),
-            type_: Some(unknown_type.as_union_value()),
-        },
-    );
-    let dtypes = fbb.create_vector(&[unknown]);
-    let struct_table = dtype_fb::Struct_::create(
-        &mut fbb,
-        &dtype_fb::Struct_Args {
-            names: Some(names),
-            dtypes: Some(dtypes),
-            nullable: false,
-        },
-    );
-    let root = dtype_fb::DType::create(
-        &mut fbb,
-        &dtype_fb::DTypeArgs {
-            type_type: dtype_fb::Type::Struct_,
-            type_: Some(struct_table.as_union_value()),
-        },
-    );
-    fbb.finish_minimal(root);
-    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
-
-    let vxf = SESSION
-        .open_options()
-        .with_dtype(dtype)
-        .open_buffer(buffer)?;
-    assert!(vxf.file_stats().is_none());
+        .open_buffer(Bytes::from(writer))
+        .err()
+        .expect("a corrupt field dtype must fail to open, not panic on scan");
+    assert!(err.to_string().contains("Unknown DType variant"), "{err}");
 
     Ok(())
 }
@@ -2266,6 +2253,70 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
 
     assert!(!buf.is_empty(), "Buffer should contain data");
 
+    Ok(())
+}
+
+/// Publishes how many bytes it has received.
+struct WatchedWrite(watch::Sender<u64>);
+
+impl VortexWrite for WatchedWrite {
+    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+        let len = buffer.as_slice().len() as u64;
+        self.0.send_modify(|bytes| *bytes += len);
+        Ok(buffer)
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
+    let chunks: Vec<ArrayRef> = (0..8u32)
+        .map(|chunk| PrimitiveArray::from_iter(chunk * 1024..(chunk + 1) * 1024).into_array())
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+    // Writes each chunk as one segment as soon as the chunk arrives.
+    let strategy: Arc<dyn LayoutStrategy> =
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+
+    let mut expected = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(Arc::clone(&strategy))
+        .write(
+            &mut expected,
+            ChunkedArray::from_iter(chunks.clone())
+                .into_array()
+                .to_array_stream(),
+        )
+        .await?;
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .vortex_expect("segment ends fit in u64");
+
+    let (bytes_send, mut bytes_received) = watch::channel(0);
+    let mut writer = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .spawn_writer(WatchedWrite(bytes_send), dtype);
+    for chunk in chunks {
+        writer.push(chunk).await?;
+    }
+
+    bytes_received
+        .wait_for(|bytes| *bytes >= segments_end)
+        .await
+        .map_err(|_| vortex_err!("The write dropped its sink"))?;
+
+    let summary = writer.finish().await?;
+    assert_eq!(summary.size(), expected.len() as u64);
     Ok(())
 }
 
@@ -4102,6 +4153,7 @@ mod writer_terminal_error_tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
@@ -4152,8 +4204,11 @@ mod writer_terminal_error_tests {
         }
     }
 
+    #[rstest]
+    #[case::inline(false)]
+    #[case::spawned(true)]
     #[tokio::test]
-    async fn test_writer_push_replays_terminal_error() -> VortexResult<()> {
+    async fn test_writer_push_replays_terminal_error(#[case] spawn: bool) -> VortexResult<()> {
         let chunk = make_chunk(&[1, 2, 3])?;
         let dtype = chunk.dtype().clone();
         let write_calls = Arc::new(AtomicUsize::new(0));
@@ -4163,7 +4218,12 @@ mod writer_terminal_error_tests {
             message: msg,
         };
 
-        let mut writer = SESSION.write_options().writer(sink, dtype.clone());
+        let options = SESSION.write_options();
+        let mut writer = if spawn {
+            options.spawn_writer(sink, dtype.clone())
+        } else {
+            options.writer(sink, dtype.clone())
+        };
         let mut first_err = None;
         // `bounded(1)` plus `futures::select!` branch order can let the first push buffer before
         // the writer task polls the failing sink, so push until the terminal error surfaces.
