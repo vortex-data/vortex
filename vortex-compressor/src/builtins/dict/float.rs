@@ -30,7 +30,6 @@ use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
@@ -90,15 +89,24 @@ impl Scheme for FloatDictScheme {
         ]
     }
 
+    /// Estimates the ratio analytically from the exact distinct frequencies already computed in
+    /// [`FloatStats`], like `IntDictScheme` and `DecimalDictScheme`.
+    ///
+    /// Sampling under-rates medium-cardinality dictionaries (e.g. thousands of distinct values in
+    /// a 100K–1M row chunk): a 2,048-row sample either exceeds the 50% distinctness cutoff and
+    /// skips the scheme altogether, or charges the entire sampled dictionary table against only
+    /// 2,048 rows.
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        let bit_width = data.array_as_primitive().ptype().bit_width() as u64;
         let stats = data.float_stats(exec_ctx);
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
+        if value_count == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -107,12 +115,31 @@ impl Scheme for FloatDictScheme {
         );
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count > stats.value_count() / 2 {
+        if distinct_values_count == 0 || distinct_values_count > value_count / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Let sampling determine the expected ratio.
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        let array_len = u64::from(value_count) + u64::from(stats.null_count());
+        let validity_bits = if stats.null_count() > 0 { array_len } else { 0 };
+        let values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
+        let (histogram, _max_bw) = float_code_bit_width_histogram(&stats, distinct_values_count);
+        let codes_bits = super::estimate_codes_bits(
+            array_len,
+            u64::from(value_count),
+            distinct_values_count,
+            stats.run_count(),
+            Some(&histogram),
+            compress_ctx.finished_cascading(),
+        );
+
+        let before = array_len
+            .saturating_mul(bit_width)
+            .saturating_add(validity_bits);
+        let after = values_bits
+            .saturating_add(codes_bits)
+            .saturating_add(validity_bits);
+
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(before as f64 / after as f64))
     }
 
     fn compress(
@@ -145,6 +172,29 @@ impl Scheme for FloatDictScheme {
             )
         }
     }
+}
+
+/// Computes the bit-width histogram of frequency-ordered dictionary codes from [`FloatStats`].
+fn float_code_bit_width_histogram(stats: &FloatStats, distinct_count: u32) -> ([u64; 33], u32) {
+    match stats.erased() {
+        FloatErasedStats::F16(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        FloatErasedStats::F32(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+        FloatErasedStats::F64(typed) => typed_code_bit_width_histogram(typed, distinct_count),
+    }
+}
+
+/// Computes the bit-width histogram of frequency-ordered dictionary codes from typed float stats.
+fn typed_code_bit_width_histogram<T>(
+    typed: &FloatTypedStats<T>,
+    distinct_count: u32,
+) -> ([u64; 33], u32) {
+    let distinct = typed.distinct().vortex_expect(
+        "this must be present since `DictScheme` declared that we need distinct values",
+    );
+    super::frequency_code_bit_width_histogram(
+        distinct.distinct_values().values().copied(),
+        distinct_count,
+    )
 }
 
 /// Compresses a floating-point array into a dictionary array according to attached stats.
@@ -210,7 +260,15 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::FloatDictScheme;
     use super::dictionary_encode;
+    use crate::scheme::CompressionEstimate;
+    use crate::scheme::CompressorContext;
+    use crate::scheme::EstimateVerdict;
+    use crate::scheme::MAX_CASCADE;
+    use crate::scheme::Scheme;
+    use crate::scheme::SchemeExt;
+    use crate::stats::ArrayAndStats;
     use crate::stats::FloatStats;
     use crate::stats::GenerateStatsOptions;
 
@@ -447,5 +505,101 @@ mod tests {
         );
         assert_arrays_eq!(dict, array, &mut ctx);
         Ok(())
+    }
+
+    fn estimate_ratio(array: PrimitiveArray, compress_ctx: CompressorContext) -> f64 {
+        let mut ctx = SESSION.create_execution_ctx();
+        let data = ArrayAndStats::new(array.into_array(), FloatDictScheme.stats_options());
+        match FloatDictScheme.expected_compression_ratio(&data, compress_ctx, &mut ctx) {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => ratio,
+            other => panic!("expected Ratio verdict, got {other:?}"),
+        }
+    }
+
+    #[rstest]
+    #[case::two_values(2, 60.0, 64.0)]
+    #[case::four_values(4, 30.0, 32.0)]
+    #[case::eight_values(8, 20.0, 22.0)]
+    fn analytical_ratio_handles_power_of_two_cardinalities(
+        #[case] distinct: usize,
+        #[case] min_ratio: f64,
+        #[case] max_ratio: f64,
+    ) {
+        let array = PrimitiveArray::from_iter((0..4096).map(|i| (i % distinct) as f64 * 1.25));
+        let ratio = estimate_ratio(array, CompressorContext::new());
+        assert!(
+            ratio > min_ratio && ratio < max_ratio,
+            "expected ratio in ({min_ratio}, {max_ratio}), got {ratio}"
+        );
+    }
+
+    #[test]
+    fn analytical_ratio_rewards_skewed_medium_cardinality_and_stays_conservative_on_high_cardinality()
+     {
+        // 100K rows, 5,000 distinct prices where 98% hit the top 16 prices (4-bit patched codes).
+        let skewed = PrimitiveArray::from_iter((0..100_000usize).map(|i| {
+            let cents = if i % 50 == 0 {
+                16 + ((i / 50) % 4_984)
+            } else {
+                i % 16
+            };
+            cents as f64 / 100.0
+        }));
+        let skewed_ratio = estimate_ratio(skewed, CompressorContext::new());
+        // ~4.96 bpv codes + 3.2 bpv values => ~7.8x.
+        assert!(
+            skewed_ratio > 6.5,
+            "expected skewed medium-cardinality ratio > 6.5, got {skewed_ratio}"
+        );
+
+        // 100K rows, 45,000 distinct prices drawn uniformly (16-bit codes + 45K f64 values).
+        let high_card =
+            PrimitiveArray::from_iter((0..100_000usize).map(|i| (i % 45_000) as f64 / 100.0));
+        let high_card_ratio = estimate_ratio(high_card, CompressorContext::new());
+        assert!(
+            high_card_ratio < 1.6,
+            "expected high-cardinality uniform ratio < 1.6, got {high_card_ratio}"
+        );
+    }
+
+    #[test]
+    fn finished_cascading_uses_uncompressed_narrowed_codes_and_values() {
+        let array = PrimitiveArray::from_iter((0..4096).map(|i| (i % 2) as f64 * 2.5));
+        let mut ctx = CompressorContext::new();
+        for _ in 0..MAX_CASCADE {
+            ctx = ctx.descend_with_scheme(FloatDictScheme.id(), 0);
+        }
+        assert!(ctx.finished_cascading());
+
+        let ratio = estimate_ratio(array, ctx);
+        assert!(
+            ratio > 7.5 && ratio < 8.1,
+            "expected ~8x ratio when cascading is exhausted, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn nullable_and_nan_leading_floats_estimate_cleanly() {
+        // Leading NaN and repeated NaNs must not trigger zero-run-length issues.
+        let nan_array = PrimitiveArray::from_iter(
+            (0..4096usize).map(|i| if i % 4 == 0 { f64::NAN } else { (i % 4) as f64 }),
+        );
+        let nan_ratio = estimate_ratio(nan_array, CompressorContext::new());
+        assert!(
+            nan_ratio > 30.0 && nan_ratio < 32.0,
+            "expected ~32x ratio on 4-value NaN float array, got {nan_ratio}"
+        );
+
+        // Nullable array must price codes across full array.len() plus the 1-bit validity bitmap.
+        let len = 16_384usize;
+        let values = (0..len).map(|i| (i % 256) as f64).collect::<Vec<_>>();
+        let validity = Validity::from_iter((0..len).map(|i| i % 10 != 0));
+        let nullable = PrimitiveArray::new(Buffer::from(values), validity);
+        let nullable_ratio = estimate_ratio(nullable, CompressorContext::new());
+        // Full len * 8b codes + 1b validity + 256 * 64b values => 1,064,960 / 163,840 = 6.5x.
+        assert!(
+            nullable_ratio > 6.4 && nullable_ratio < 6.6,
+            "expected ~6.5x ratio on nullable 256-value float array, got {nullable_ratio}"
+        );
     }
 }

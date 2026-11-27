@@ -99,6 +99,8 @@ pub struct FloatStats {
     value_count: u32,
     /// The average run length.
     average_run_length: u32,
+    /// The number of runs of equal consecutive valid values.
+    run_count: u32,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -157,6 +159,13 @@ impl FloatStats {
         self.average_run_length
     }
 
+    /// Returns the number of runs of equal consecutive valid values.
+    ///
+    /// Zero only when there are no valid values.
+    pub fn run_count(&self) -> u32 {
+        self.run_count
+    }
+
     /// Returns the type-erased typed statistics.
     pub fn erased(&self) -> &ErasedStats {
         &self.erased
@@ -179,6 +188,7 @@ where
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
+            run_count: 0,
             erased: TypedStats { distinct: None }.into(),
         });
     }
@@ -188,6 +198,7 @@ where
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
+            run_count: 0,
             erased: TypedStats {
                 distinct: Some(DistinctInfo {
                     distinct_values: HashMap::with_capacity_and_hasher(0, FxBuildHasher),
@@ -221,36 +232,38 @@ where
         .first()
         .vortex_expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
-    let mut prev = buff[head_idx];
+    // Compare bit patterns via `NativeValue` (matching `distinct_values` and FastLanes RLE) so
+    // identical NaNs do not trigger spurious transitions and `-0.0` vs `+0.0` stay distinct.
+    let mut prev = NativeValue(buff[head_idx]);
 
     // The nulls before the head are skipped, so the loop can start at 0.
     for_each_chunk(buff.as_slice(), &validity, |chunk, valid| match valid {
         // All nulls -> no stats to update.
         0 => {}
         u64::MAX => {
+            let native_chunk = chunk.map(NativeValue);
             if count_distinct_values {
-                for &value in chunk {
-                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                for &value in &native_chunk {
+                    *distinct_values.entry(value).or_insert(0) += 1;
                 }
             }
-            runs += u32::from(count_transitions(&prev, chunk));
-            prev = chunk[63];
+            runs += u32::from(count_transitions(&prev, &native_chunk));
+            prev = native_chunk[63];
         }
-        // Floats are not forward filled like integers, since a filled NaN would add a run.
-        // The valid values are gathered first, so their changes are counted branch-free.
+        // Gather valid values into a compact prefix so their transitions are counted branch-free.
         _ => {
-            let mut gathered = *chunk;
+            let mut gathered = [prev; 64];
             let mut n = 0;
             let mut bits = valid;
             while bits != 0 {
-                gathered[n] = chunk[bits.trailing_zeros() as usize];
+                gathered[n] = NativeValue(chunk[bits.trailing_zeros() as usize]);
                 n += 1;
                 bits &= bits - 1;
             }
             let gathered = &gathered[..n];
             if count_distinct_values {
                 for &value in gathered {
-                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                    *distinct_values.entry(value).or_insert(0) += 1;
                 }
             }
             runs += u32::from(count_transitions(&prev, gathered));
@@ -268,6 +281,7 @@ where
         null_count,
         value_count,
         average_run_length: value_count / runs,
+        run_count: runs,
         erased: TypedStats { distinct }.into(),
     })
 }
@@ -405,5 +419,33 @@ mod tests {
                 .collect();
             assert_eq!(actual, distinct);
         }
+    }
+
+    #[test]
+    fn test_float_stats_nan_and_signed_zero_runs() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let opts = GenerateStatsOptions {
+            count_distinct_values: true,
+        };
+
+        // Single NaN and all-NaN arrays must count 1 run (average_run_length >= 1, never 0).
+        let single_nan = PrimitiveArray::from_iter([f32::NAN]);
+        let stats = FloatStats::generate_opts(&single_nan, opts, &mut ctx);
+        assert_eq!(stats.run_count(), 1);
+        assert_eq!(stats.average_run_length(), 1);
+        assert_eq!(stats.distinct_count(), Some(1));
+
+        let leading_nan = PrimitiveArray::from_iter([f64::NAN, f64::NAN, 1.0, 2.0]);
+        let stats = FloatStats::generate_opts(&leading_nan, opts, &mut ctx);
+        assert_eq!(stats.run_count(), 3);
+        assert_eq!(stats.average_run_length(), 1);
+        assert_eq!(stats.distinct_count(), Some(3));
+
+        // +0.0 and -0.0 have distinct bit patterns and must count as separate runs.
+        let signed_zeros = PrimitiveArray::from_iter([0.0f64, -0.0, 0.0, -0.0]);
+        let stats = FloatStats::generate_opts(&signed_zeros, opts, &mut ctx);
+        assert_eq!(stats.run_count(), 4);
+        assert_eq!(stats.average_run_length(), 1);
+        assert_eq!(stats.distinct_count(), Some(2));
     }
 }
