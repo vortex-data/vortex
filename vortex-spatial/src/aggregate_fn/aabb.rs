@@ -14,16 +14,24 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::scalar::Scalar;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -32,7 +40,6 @@ use crate::extension::SpatialMetadata;
 use crate::extension::coordinate::Dimension;
 use crate::extension::coordinate::box_corners;
 use crate::extension::coordinate::ordinates;
-use crate::extension::flatten_coordinates;
 use crate::extension::is_native_geometry;
 
 /// Aggregates a native geometry column's 2D axis-aligned bounding box (AABB) as a native
@@ -119,26 +126,28 @@ pub(crate) fn aabb_of_array(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<SpatialRect<f64>>> {
-    // Drop null rows before reading coordinates: a null geometry's storage holds placeholder
-    // coordinates (e.g. `(0, 0)`) that would otherwise widen the zone box and drag it toward
-    // the origin. `filter` collapses an all-true mask back to the input, so a null-free batch
-    // passes through unchanged.
-    let valid = array.validity()?.execute_mask(array.len(), ctx)?;
-    let array = array.filter(valid)?;
-    if array.is_empty() {
+    vortex_ensure!(
+        is_native_geometry(array.dtype()),
+        "spatial: operand is not a native geometry extension type, was {}",
+        array.dtype()
+    );
+    let mut active = array.validity()?.execute_mask(array.len(), ctx)?;
+    if active.all_false() {
         return Ok(None);
     }
+
+    let mut node = array
+        .clone()
+        .execute::<ExtensionArray>(ctx)?
+        .storage_array()
+        .clone();
 
     if array
         .dtype()
         .as_extension_opt()
         .is_some_and(|ext| ext.is::<Rect>())
     {
-        let storage = array
-            .execute::<ExtensionArray>(ctx)?
-            .storage_array()
-            .clone()
-            .execute::<StructArray>(ctx)?;
+        let storage = node.filter(active)?.execute::<StructArray>(ctx)?;
         let xmins = ordinates(&storage, "xmin", ctx)?;
         let ymins = ordinates(&storage, "ymin", ctx)?;
         let xmaxs = ordinates(&storage, "xmax", ctx)?;
@@ -149,7 +158,55 @@ pub(crate) fn aabb_of_array(
         ));
     }
 
-    let coords = flatten_coordinates(&array, ctx)?;
+    // Propagate the union of referenced ranges through each `ListView` level instead of rebuilding
+    // lists, so null rows and unreferenced gaps are skipped while shared/overlapping views are
+    // scanned only once.
+    while node.dtype().is_list() {
+        let list_view = node.execute::<ListViewArray>(ctx)?;
+        let valid = list_view.validity()?.execute_mask(list_view.len(), ctx)?;
+        active = &active & &valid;
+        if active.all_false() {
+            return Ok(None);
+        }
+        let offsets = list_view
+            .offsets()
+            .clone()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<Buffer<u64>>(ctx)?;
+        let sizes = list_view
+            .sizes()
+            .clone()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<Buffer<u64>>(ctx)?;
+        let mut ranges = Vec::new();
+        for idx in active.to_bit_buffer().set_indices() {
+            let size = usize::try_from(sizes[idx])?;
+            if size == 0 {
+                continue;
+            }
+            let start = usize::try_from(offsets[idx])?;
+            ranges.push((start, start + size));
+        }
+        ranges.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        for (start, end) in ranges {
+            if let Some((_, last_end)) = merged.last_mut()
+                && start <= *last_end
+            {
+                *last_end = (*last_end).max(end);
+            } else {
+                merged.push((start, end));
+            }
+        }
+        let elements = list_view.elements().clone();
+        active = Mask::from_slices(elements.len(), merged);
+        if active.all_false() {
+            return Ok(None);
+        }
+        node = elements;
+    }
+
+    let coords = node.filter(active)?.execute::<StructArray>(ctx)?;
     let xs = ordinates(&coords, "x", ctx)?;
     let ys = ordinates(&coords, "y", ctx)?;
     Ok(aabb_of(&xs, &ys))
@@ -286,7 +343,12 @@ impl AggregateFnVTable for GeometryAabb {
     ) -> VortexResult<()> {
         let array = match batch {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
-            Columnar::Constant(constant) => constant.clone().into_array(),
+            Columnar::Constant(constant) => {
+                if constant.is_empty() {
+                    return Ok(());
+                }
+                ConstantArray::new(constant.scalar().clone(), 1).into_array()
+            }
         };
         if let Some(rect) = aabb_of_array(&array, ctx)? {
             partial.merge(rect);
@@ -327,6 +389,7 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -662,10 +725,42 @@ mod tests {
             SpatialMetadata::default().with_dimension(Dimension::Xy),
             Nullability::Nullable,
         )?;
-        let gapped = ExtensionArray::try_new(ext.erased(), list_view)?.into_array();
+        let gapped = ExtensionArray::try_new(ext.clone().erased(), list_view)?.into_array();
         let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, gapped.dtype().clone())?;
         acc.accumulate(&gapped, &mut ctx)?;
         assert_eq!(aabb(&acc.finish()?)?, (1.0, 4.0, 3.0, 6.0));
+
+        // 3. Overlapping `ListView` views sharing the same vertex range plus a repeated constant
+        // batch must compute the same box without expanding shared vertices.
+        let shared = ListViewArray::try_new(
+            StructArray::from_fields(&[
+                (
+                    "x",
+                    PrimitiveArray::from_iter([-999.0f64, 2.0, 4.0, 999.0]).into_array(),
+                ),
+                (
+                    "y",
+                    PrimitiveArray::from_iter([-999.0f64, 3.0, 5.0, 999.0]).into_array(),
+                ),
+            ])?
+            .into_array(),
+            PrimitiveArray::from_iter([1u32, 1, 1, 0]).into_array(),
+            PrimitiveArray::from_iter([2u32, 2, 1, 4]).into_array(),
+            Validity::from_iter([true, true, true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+        let overlapping = ExtensionArray::try_new(ext.erased(), shared)?.into_array();
+        let mut acc =
+            Accumulator::try_new(GeometryAabb, EmptyOptions, overlapping.dtype().clone())?;
+        acc.accumulate(&overlapping, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (2.0, 3.0, 4.0, 5.0));
+
+        let constant =
+            ConstantArray::new(overlapping.execute_scalar(0, &mut ctx)?, 4_096).into_array();
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, constant.dtype().clone())?;
+        acc.accumulate(&constant, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (2.0, 3.0, 4.0, 5.0));
         Ok(())
     }
 

@@ -129,15 +129,23 @@ fn distance_prune_proof(
         _ => {}
     }
     // Compared squared to avoid a `sqrt`; all operands are `>= 0`.
+    // Round `r^2` conservatively using its exact FMA residual so floating-point rounding never
+    // prunes a row right on the distance boundary (e.g. `sqrt(8.0)^2` rounding above `8.0`).
     let aabb = aabb_stat(geom);
-    let r2 = lit(radius * radius);
+    let r2 = radius * radius;
+    let err = radius.mul_add(radius, -r2);
+    let r2_hi = if err > 0.0 { r2.next_up() } else { r2 };
+    let r2_lo = if err < 0.0 { r2.next_down() } else { r2 };
+    if matches!(op, CompareOperator::Lte | CompareOperator::Lt) && !r2_hi.is_finite() {
+        return None;
+    }
     Some(match op {
         // Beyond the threshold: even the nearest the box can be exceeds `r`.
-        CompareOperator::Lte => gt(min_dist_sq(&aabb, query), r2),
-        CompareOperator::Lt => gt_eq(min_dist_sq(&aabb, query), r2),
+        CompareOperator::Lte => gt(min_dist_sq(&aabb, query), lit(r2_hi)),
+        CompareOperator::Lt => gt_eq(min_dist_sq(&aabb, query), lit(r2_hi)),
         // Within the threshold: even the farthest the box can be is below `r`.
-        CompareOperator::Gte => lt(max_dist_sq(&aabb, query), r2),
-        CompareOperator::Gt => lt_eq(max_dist_sq(&aabb, query), r2),
+        CompareOperator::Gte => lt(max_dist_sq(&aabb, query), lit(r2_lo)),
+        CompareOperator::Gt => lt_eq(max_dist_sq(&aabb, query), lit(r2_lo)),
         _ => return None,
     })
 }
@@ -358,38 +366,30 @@ mod tests {
 
     /// A NaN radius or a positive radius whose square overflows (`+Inf`, `1e200`) or underflows
     /// (`1e-200`) must decline pruning across all ordered comparisons.
-    #[rstest]
-    #[case::nan(f64::NAN)]
-    #[case::pos_inf(f64::INFINITY)]
-    #[case::square_overflow(1e200)]
-    #[case::square_underflow(1e-200)]
-    fn non_finite_or_degenerate_squared_radius_never_prunes(
-        #[case] radius: f64,
-        #[values(
+    #[test]
+    fn non_finite_or_degenerate_squared_radius_never_prunes() -> VortexResult<()> {
+        let operators = [
             CompareOperator::Lte,
             CompareOperator::Lt,
             CompareOperator::Gte,
-            CompareOperator::Gt
-        )]
-        operator: CompareOperator,
-    ) -> VortexResult<()> {
-        assert!(falsify_distance(operator, true, radius)?.is_none());
+            CompareOperator::Gt,
+        ];
+        for radius in [f64::NAN, f64::INFINITY, 1e200, 1e-200] {
+            for operator in operators {
+                assert!(
+                    falsify_distance(operator, true, radius)?.is_none(),
+                    "radius {radius} must not prune for {operator}"
+                );
+            }
+        }
         Ok(())
     }
 
     /// A query geometry containing any `NaN` ordinate (including `POINT EMPTY`, a partial `NaN`
     /// coordinate, a `LineString` with one `NaN` vertex, or a `Rect` with a `NaN` corner) must
     /// decline pruning rather than propagating `NaN` into `min_dist_sq`/`max_dist_sq`.
-    #[rstest]
-    fn nan_query_geometry_never_prunes(
-        #[values(
-            CompareOperator::Lte,
-            CompareOperator::Lt,
-            CompareOperator::Gte,
-            CompareOperator::Gt
-        )]
-        operator: CompareOperator,
-    ) -> VortexResult<()> {
+    #[test]
+    fn nan_query_geometry_never_prunes() -> VortexResult<()> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
@@ -401,18 +401,43 @@ mod tests {
                 .execute_scalar(0, &mut ctx)?,
             rect_column(vec![(0.0, 0.0, f64::NAN, 1.0)])?.execute_scalar(0, &mut ctx)?,
         ];
-        for query in queries {
-            let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(query)]);
-            let predicate = Compare
-                .new_expr(operator.into(), [distance, lit(1.0f64)])
-                .bind(&scope)?;
-            assert!(
-                SpatialDistancePrune
-                    .falsify(&predicate, &session)?
-                    .is_none(),
-                "NaN query must not produce a prune proof for {operator}"
-            );
+        for operator in [
+            CompareOperator::Lte,
+            CompareOperator::Lt,
+            CompareOperator::Gte,
+            CompareOperator::Gt,
+        ] {
+            for query in &queries {
+                let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(query.clone())]);
+                let predicate = Compare
+                    .new_expr(operator.into(), [distance, lit(1.0f64)])
+                    .bind(&scope)?;
+                assert!(
+                    SpatialDistancePrune
+                        .falsify(&predicate, &session)?
+                        .is_none(),
+                    "NaN query must not produce a prune proof for {operator}"
+                );
+            }
         }
+        Ok(())
+    }
+
+    /// Squaring a rounded radius must not prune a point sitting right on the distance boundary.
+    #[test]
+    fn rounded_squared_radius_never_prunes_boundary_match() -> VortexResult<()> {
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        // Distance from (0, 0) to (2, 2) is `sqrt(8.0)`, whose f64 square rounds above 8.0.
+        let proof =
+            falsify_distance(CompareOperator::Gte, true, 8.0_f64.sqrt())?.expect("gte proof");
+        let zones = aabb_zone_map(&dtype, &[[2.0, 2.0, 2.0, 2.0]])?;
+        assert_eq!(
+            zones
+                .prune(&proof, &spatial_session())?
+                .iter()
+                .collect::<Vec<_>>(),
+            [false]
+        );
         Ok(())
     }
 

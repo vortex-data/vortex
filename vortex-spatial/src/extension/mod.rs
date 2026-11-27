@@ -64,7 +64,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
-use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -115,11 +114,7 @@ pub(crate) fn flatten_coordinates(
         .storage_array()
         .clone();
     while node.dtype().is_list() {
-        node = node
-            .execute::<ListViewArray>(ctx)?
-            .rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, ctx)?
-            .elements()
-            .clone();
+        node = node.execute::<ListViewArray>(ctx)?.elements().clone();
     }
     node.execute::<StructArray>(ctx)
 }

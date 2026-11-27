@@ -895,8 +895,8 @@ async fn strict_and_permissive_filter_plans_are_isolated_in_cache() -> VortexRes
     assert!(!inserted.skips_unselective_dynamic());
 
     let strict = Arc::new(
-        ScanBuilder::new(session, file)
-            .with_some_filter(Some(filter))
+        ScanBuilder::new(session.clone(), file.clone())
+            .with_some_filter(Some(filter.clone()))
             .prepare()?,
     );
     assert!(!strict.filter().expect("strict filter").is_switched_off(0));
@@ -906,6 +906,14 @@ async fn strict_and_permissive_filter_plans_are_isolated_in_cache() -> VortexRes
         .map(|array| array.len())
         .sum();
     assert_eq!(rows, CHUNK_ROWS * CHUNKS - 1);
+
+    // Preparing another permissive scan after both entries exist still hits the warm permissive
+    // plan rather than the strict one.
+    let hint_again = ScanBuilder::new(session, file)
+        .with_some_filter(Some(filter))
+        .with_skip_unselective_dynamic(true)
+        .prepare()?;
+    assert!(hint_again.filter().expect("hint filter").is_switched_off(0));
     Ok(())
 }
 
