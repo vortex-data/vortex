@@ -43,7 +43,7 @@ pub(crate) const BM_LANES: usize = 32;
 /// Byte size of the 32 initial lane states (`32 * 4 = 128` bytes).
 const BM_RANS_STATE_BYTES: usize = BM_LANES * 4;
 
-/// Shared PHA bitmap-mode gating constants used by both encoder and size estimator.
+/// PHA bitmap-mode gating constants used by the encoder.
 const BM_PHA_MIN_BYTES: usize = 16;
 const BM_SPARSE_MAX_RATIO_INV: usize = 64;
 const BM_SPARSE_MIN_SAVINGS_BYTES: usize = 8;
@@ -186,7 +186,7 @@ fn build_bernoulli_table(p_num: u64) -> StaticByteTable {
     StaticByteTable { enc, dec }
 }
 
-/// Shared sparse-mode eligibility predicate used by both encoder and cost estimator.
+/// Sparse-mode eligibility predicate for the encoder's bitmap-mode gate.
 #[inline]
 fn sparse_mode_eligible(
     len: usize,
@@ -201,13 +201,13 @@ fn sparse_mode_eligible(
             .is_some_and(|v| v <= len)
 }
 
-/// Shared rANS pre-check used by both encoder and cost estimator.
+/// rANS pre-check for the encoder's bitmap-mode gate.
 #[inline]
 fn rans_mode_eligible(nbytes: usize, len: usize, n_minor: usize) -> bool {
     nbytes >= BM_RANS_MIN_BYTES && n_minor * 100 <= len * BM_RANS_MAX_MINOR_PCT
 }
 
-/// Shared speed-aware commit gate for 32-lane static byte-rANS used by both encoder and estimator.
+/// Speed-aware commit gate for 32-lane static byte-rANS in the encoder.
 #[inline]
 fn rans_passes_commit_gate(
     len: usize,

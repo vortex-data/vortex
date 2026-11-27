@@ -66,7 +66,7 @@ pub(crate) const fn encode_pow2_bin(u: u64) -> (u8, u8, u64) {
     }
 }
 
-/// Returns `(sym as usize, ebits)` for `u` without masking `raw`, used by fast histogram estimators.
+/// Returns `(sym as usize, ebits)` for `u` without masking `raw`, used for chunk symbol histogramming.
 #[inline]
 pub const fn pow2_sym_and_ebits(u: u64) -> (usize, u8) {
     if u < 32 {

@@ -1382,7 +1382,7 @@ fn nullable_garbage_in_null_slots_matches_canonical(
 }
 
 // ============================================================================
-// Tree Wire Format, Shared Cost Estimator, and Bernoulli rANS Unit Tests
+// Tree Wire Format and Bernoulli rANS Unit Tests
 // ============================================================================
 
 #[test]
