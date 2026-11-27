@@ -168,12 +168,6 @@ impl ArrayPlugin for DateTimePartsPlugin {
                     kind.is_timestamp(),
                     "vortex.datetimeparts (v1) only supports Timestamp dtypes, got {dtype}"
                 );
-                let metadata_v2 = DateTimePartsV2Metadata::decode(metadata)?;
-                vortex_ensure!(
-                    metadata_v2.subseconds_divisor == 0,
-                    "vortex.datetimeparts (v1) does not support subseconds_divisor {}",
-                    metadata_v2.subseconds_divisor
-                );
                 let metadata = DateTimePartsMetadata::decode(metadata)?;
                 vortex_ensure_eq!(
                     children.len(),
@@ -439,39 +433,6 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("v1"), "{err}");
-    }
-
-    #[test]
-    fn test_v1_deserialize_rejects_subseconds_divisor() {
-        let dtype = DType::Extension(
-            Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
-        );
-        let metadata = DateTimePartsV2Metadata {
-            days_ptype: PType::I32 as i32,
-            seconds_ptype: PType::I32 as i32,
-            subseconds_ptype: PType::I32 as i32,
-            subseconds_divisor: 1_000,
-        }
-        .encode_to_vec();
-        let children: [ArrayRef; 3] = [
-            ConstantArray::new(0i32, 2).into_array(),
-            ConstantArray::new(0i32, 2).into_array(),
-            ConstantArray::new(0i32, 2).into_array(),
-        ];
-        let err = DateTimePartsPlugin
-            .deserialize(
-                ArrayDeserialization::new(
-                    datetime_parts_v1_id(),
-                    &dtype,
-                    2,
-                    &metadata,
-                    &[],
-                    &children,
-                ),
-                &SESSION,
-            )
-            .unwrap_err();
-        assert!(err.to_string().contains("subseconds_divisor"), "{err}");
     }
 
     #[test]
