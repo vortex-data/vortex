@@ -455,15 +455,16 @@ impl FileOpener for VortexOpener {
             // The scan applies these exactly, unlike the dynamic filters below.
             let exact_filters = native_filters.clone();
             // The operator that produces a dynamic filter enforces it exactly, so the scan
-            // evaluates it only where the file has every column it reads.
+            // evaluates it only where the file has every column it reads, and not where the file
+            // statistics prove every row satisfies it, as hash join bounds often do.
             native_filters.extend(
                 dynamic_filters
                     .iter()
-                    .filter(|(columns, _)| {
+                    .filter(|(columns, expression)| {
                         columns.iter().all(|column| {
                             this_file_schema.field_with_name(column).is_ok()
                                 && !literal_value_cols.contains_key(column)
-                        })
+                        }) && !vxf.is_satisfied(expression).unwrap_or(false)
                     })
                     .map(|(_, expression)| expression.clone()),
             );
@@ -474,6 +475,9 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
                 })?;
+            if let Some(native_filter) = &native_filter {
+                tracing::debug!(path = %file.path(), %native_filter, "native scan filter");
+            }
 
             // Residual filters must see raw inputs before computed projections or aliases.
             let ProcessedProjection {
