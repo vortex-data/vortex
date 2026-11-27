@@ -18,12 +18,6 @@
 ```
 
 </details>
-{% if CLAUDE_ANALYSIS %}
-
-### Root Cause Analysis
-
-{{CLAUDE_ANALYSIS}}
-{% endif %}
 
 ### Summary
 

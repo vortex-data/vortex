@@ -14,6 +14,7 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::half::f16;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::validity::Validity;
@@ -230,5 +231,61 @@ fn sliced_pco_cannot_be_serialized() -> VortexResult<()> {
     array.serialize(&context, &SESSION, &options)?;
     let slice = array.slice(10..20)?;
     assert!(slice.serialize(&context, &SESSION, &options).is_err());
+    Ok(())
+}
+
+#[test]
+fn test_f16_roundtrip_and_slice() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter([
+        f16::from_f32(0.0),
+        f16::from_f32(-0.0),
+        f16::from_f32(1.5),
+        f16::from_f32(-42.25),
+        f16::from_bits(1), // smallest positive subnormal
+        f16::MAX,
+        f16::MIN,
+        f16::INFINITY,
+        f16::NEG_INFINITY,
+    ]);
+    let compressed = Pco::from_primitive(values.as_view(), 3, 4, &mut ctx)?;
+    assert_eq!(
+        compressed.dtype(),
+        &DType::Primitive(PType::F16, Nullability::NonNullable)
+    );
+    assert_arrays_eq!(&compressed, &values, &mut ctx);
+
+    let sliced = compressed.slice(2..7)?;
+    assert_arrays_eq!(sliced, values.clone().into_array().slice(2..7)?, &mut ctx);
+
+    let mut probe = compressed.into_array().repeated_probe();
+    for i in (0..values.len()).rev() {
+        assert_eq!(
+            probe.execute_scalar(i, &mut ctx)?,
+            values.execute_scalar(i, &mut ctx)?,
+            "f16 row {i}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_f16_nullable_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_option_iter([
+        Some(f16::from_f32(-12.5)),
+        None,
+        Some(f16::from_f32(0.25)),
+        Some(f16::from_f32(100.0)),
+        None,
+        Some(f16::from_f32(3.5)),
+    ]);
+    let compressed = Pco::from_primitive(values.as_view(), 3, 2, &mut ctx)?;
+    assert_arrays_eq!(&compressed, &values, &mut ctx);
+    assert_arrays_eq!(
+        compressed.slice(1..5)?,
+        values.into_array().slice(1..5)?,
+        &mut ctx
+    );
     Ok(())
 }

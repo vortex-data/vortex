@@ -9,11 +9,8 @@ use std::hint::black_box;
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use divan::Bencher;
-use futures::FutureExt;
 use mimalloc::MiMalloc;
-use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -21,16 +18,11 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_expr::BoundExpression;
 use vortex_expr::root;
 use vortex_io::runtime::single::block_on;
@@ -42,49 +34,12 @@ use vortex_layout::LayoutRef;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::list::ListLayout;
-use vortex_layout::segments::SegmentFuture;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::segments::SegmentSink;
 use vortex_layout::segments::SegmentSource;
+use vortex_layout::segments::TestSegments;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialArrayStreamExt;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
-
-#[derive(Default, Clone)]
-struct BenchSegments {
-    segments: Arc<Mutex<Vec<ByteBuffer>>>,
-}
-
-impl SegmentSource for BenchSegments {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        let buffer = self.segments.lock().get(*id as usize).cloned();
-        async move {
-            buffer
-                .map(BufferHandle::new_host)
-                .ok_or_else(|| vortex_err!("Segment not found"))
-        }
-        .boxed()
-    }
-}
-
-#[async_trait]
-impl SegmentSink for BenchSegments {
-    async fn write(
-        &self,
-        _sequence_id: SequenceId,
-        buffers: Vec<ByteBuffer>,
-    ) -> VortexResult<SegmentId> {
-        let mut buffer = ByteBufferMut::empty();
-        for segment in buffers {
-            buffer.extend_from_slice(segment.as_ref());
-        }
-        let mut segments = self.segments.lock();
-        let segment_id = SegmentId::from(u32::try_from(segments.len()).unwrap());
-        segments.push(buffer.freeze());
-        Ok(segment_id)
-    }
-}
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -93,7 +48,7 @@ fn main() {
     divan::main();
 }
 
-const ROW_COUNTS: [usize; 3] = [1_000, 10_000, 100_000];
+const ROW_COUNT: usize = 100_000;
 
 struct ListFixture {
     reader: LayoutReaderRef,
@@ -143,7 +98,7 @@ impl ListFixture {
                 .unwrap(),
             );
 
-            let segments = Arc::new(BenchSegments::default());
+            let segments = Arc::new(TestSegments::default());
             let elements_layout = write_flat(elements, &segments, &session).await;
             let offsets_layout = write_flat(offsets, &segments, &session).await;
             let list_dtype = DType::List(
@@ -182,14 +137,14 @@ impl ListFixture {
 
 async fn write_flat(
     array: ArrayRef,
-    segments: &Arc<BenchSegments>,
+    segments: &Arc<TestSegments>,
     session: &VortexSession,
 ) -> LayoutRef {
     let (ptr, eof) = SequenceId::root().split();
     FlatLayoutStrategy::default()
         .write_stream(
             ArrayContext::empty().into(),
-            Arc::<BenchSegments>::clone(segments),
+            Arc::<TestSegments>::clone(segments),
             array.to_array_stream().sequenced(ptr),
             eof,
             session,
@@ -198,23 +153,23 @@ async fn write_flat(
         .unwrap()
 }
 
-#[divan::bench(args = ROW_COUNTS)]
-fn full_projection_primitive_offsets(bencher: Bencher, rows: usize) {
-    let fixture = ListFixture::new(rows, false);
+#[divan::bench]
+fn full_projection_primitive_offsets(bencher: Bencher) {
+    let fixture = ListFixture::new(ROW_COUNT, false);
     let range = 0..fixture.row_count;
     bencher.bench_local(|| fixture.run_projection(range.clone()));
 }
 
-#[divan::bench(args = ROW_COUNTS)]
-fn full_projection_compressed_offsets(bencher: Bencher, rows: usize) {
-    let fixture = ListFixture::new(rows, true);
+#[divan::bench]
+fn full_projection_compressed_offsets(bencher: Bencher) {
+    let fixture = ListFixture::new(ROW_COUNT, true);
     let range = 0..fixture.row_count;
     bencher.bench_local(|| fixture.run_projection(range.clone()));
 }
 
-#[divan::bench(args = ROW_COUNTS)]
-fn bounded_projection_compressed_offsets(bencher: Bencher, rows: usize) {
-    let fixture = ListFixture::new(rows, true);
+#[divan::bench]
+fn bounded_projection_compressed_offsets(bencher: Bencher) {
+    let fixture = ListFixture::new(ROW_COUNT, true);
     let quarter = fixture.row_count / 4;
     let range = quarter..(fixture.row_count - quarter);
     bencher.bench_local(|| fixture.run_projection(range.clone()));

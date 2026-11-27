@@ -17,6 +17,7 @@ use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_integer_ptype;
+use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
@@ -192,7 +193,8 @@ where
     check_list_view_rebuild_status(&status, ctx)?;
 
     let values = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)?))
-        .slice(0..output_values_bytes);
+        .slice(0..output_values_bytes)
+        .ensure_aligned(Alignment::new(value_width))?;
     Ok((output_offsets, values))
 }
 
@@ -482,7 +484,7 @@ async fn rebuild_primitive_list_view_child(
 
     Ok((
         offsets_buffer,
-        PrimitiveArray::from_buffer_handle(values_buffer, ptype, validity),
+        PrimitiveArray::try_from_buffer_handle(values_buffer, ptype, validity)?,
     ))
 }
 

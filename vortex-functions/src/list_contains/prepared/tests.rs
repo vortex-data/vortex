@@ -42,6 +42,8 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
+use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
@@ -157,7 +159,10 @@ fn test_row_set_returns_membership_bits(
     let mut elements = members.clone();
     elements.push(Scalar::null(dtype.clone()));
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
-    let options = ListContainsOptions { sql_null_semantics };
+    let options = ListContainsOptions {
+        sql_null_semantics,
+        ..Default::default()
+    };
     let set = prepare(&list)?;
     let result = set.contains(&needles, &options, &mut ctx)?;
     // The old fallback returned a lazy OR tree here.
@@ -209,7 +214,10 @@ fn test_decimal_bitmap_across_storage_widths(
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
     let needles =
         DecimalArray::from_option_iter([Some(-2i8), Some(0), Some(1), None], decimal).into_array();
-    let options = ListContainsOptions { sql_null_semantics };
+    let options = ListContainsOptions {
+        sql_null_semantics,
+        ..Default::default()
+    };
     let set = prepare(&list)?;
     let non_match = (!sql_null_semantics).then_some(false);
     assert_arrays_eq!(
@@ -365,10 +373,18 @@ fn test_prepared_set_rows_are_the_constant_list() -> VortexResult<()> {
     Ok(())
 }
 
+const SQL: ListContainsOptions = ListContainsOptions {
+    sql_null_semantics: true,
+    compare_mode: CompareMode::new(FloatOrder::ZerosEqual),
+};
+
 #[rstest]
 #[case::default(ListContainsOptions::default(), [Some(false), Some(true), None, Some(false)])]
 #[case::sql(
-    ListContainsOptions { sql_null_semantics: true },
+    ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    },
     [None, Some(true), None, None]
 )]
 fn test_list_contains_looks_up_in_a_prepared_set_list(
@@ -387,7 +403,10 @@ fn test_list_contains_looks_up_in_a_prepared_set_list(
 
 #[rstest]
 #[case::default(ListContainsOptions::default(), Some(false))]
-#[case::sql(ListContainsOptions { sql_null_semantics: true }, None)]
+#[case::sql(ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    }, None)]
 fn test_constant_needle_gives_a_constant(
     #[case] options: ListContainsOptions,
     #[case] expected: Option<bool>,
@@ -431,7 +450,10 @@ fn test_constant_row_needle_looks_up_one_row() -> VortexResult<()> {
 
 #[rstest]
 #[case::default(ListContainsOptions::default(), [Some(true), Some(false), None])]
-#[case::sql(ListContainsOptions { sql_null_semantics: true }, [Some(true), None, None])]
+#[case::sql(ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    }, [Some(true), None, None])]
 fn test_result_from_bits_applies_null_semantics(
     #[case] options: ListContainsOptions,
     #[case] expected: [Option<bool>; 3],
@@ -552,7 +574,10 @@ fn assert_chunks_share_one_set(array: &ArrayRef) {
     [Some(false), Some(true), None, Some(false), Some(true)],
 )]
 #[case::sql(
-    ListContainsOptions { sql_null_semantics: true },
+    ListContainsOptions {
+        sql_null_semantics: true,
+        ..Default::default()
+    },
     [None, Some(true), None, None, Some(true)],
 )]
 fn test_constant_list_over_chunked_needles(
@@ -710,10 +735,10 @@ fn serialize_propagates_extension_metadata_error() -> VortexResult<()> {
 /// Dictionary needles with a null code or a null value, against a set that is empty or not.
 #[rstest]
 #[case::default(null_code_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), None, Some(true)])]
-#[case::sql(null_code_needles(), ListContainsOptions { sql_null_semantics: true }, set_with_null(), vec![Some(true), None, None, Some(true)])]
+#[case::sql(null_code_needles(), SQL, set_with_null(), vec![Some(true), None, None, Some(true)])]
 // Off SQL null semantics an empty list answers `false` even for the null code.
 #[case::empty(null_code_needles(), ListContainsOptions::default(), empty_i32_set(), vec![Some(false); 4])]
-#[case::empty_sql(null_code_needles(), ListContainsOptions { sql_null_semantics: true }, empty_i32_set(), vec![Some(false), Some(false), None, Some(false)])]
+#[case::empty_sql(null_code_needles(), SQL, empty_i32_set(), vec![Some(false), Some(false), None, Some(false)])]
 #[case::null_value(null_value_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), Some(true), None, Some(false)])]
 fn test_dictionary_needles(
     #[case] needles: VortexResult<ArrayRef>,

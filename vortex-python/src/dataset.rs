@@ -243,13 +243,12 @@ impl PyVortexDataset {
         py: Python<'py>,
         columns: Option<Vec<ProjectionColumn>>,
         row_filter: Option<&Bound<'py, PyExpr>>,
-        indices: Option<PyArrayRef>,
+        indices: Option<StrictSortedBuffer<u64>>,
         row_range: Option<(u64, u64)>,
         concurrency: Option<usize>,
     ) -> PyVortexResult<PyArrayRef> {
         let projection = projection_from_python(columns, self.dtype())?;
         let filter = filter_from_python(row_filter);
-        let indices = row_indices(py, indices)?;
         let concurrency = check_concurrency(concurrency)?;
 
         let (dtype, splits) = self.scan_stream(
@@ -577,6 +576,7 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
         concurrency: Option<usize>,
     ) -> PyVortexResult<PyArrayRef> {
+        let indices = row_indices(self_.py(), indices)?;
         self_.to_array_inner(
             self_.py(),
             columns,
