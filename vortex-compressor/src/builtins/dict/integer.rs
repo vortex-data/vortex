@@ -92,22 +92,36 @@ impl Scheme for IntDictScheme {
         let finished_cascading = compress_ctx.finished_cascading();
 
         let uncompressed_values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
-        // `FoRScheme` skips when its own `CompressorContext` has `allowed_cascading == 0`, so
-        // `Dict -> values -> FoR` requires at least 2 cascade levels remaining here.
-        let values_bits = if compress_ctx.allowed_cascading() < 2 {
-            uncompressed_values_bits
-        } else {
-            // `FoR + BitPacked` compresses `values` to the `max - min` span width (padded to
-            // 1024-element FastLanes blocks plus one reference scalar) when it beats raw storage.
-            let values_bw = u64::from(u64::BITS - stats.erased().max_minus_min().leading_zeros());
-            if values_bw + u64::from(super::BITPACKING_MIN_BITS_SAVED) <= bit_width {
-                let packed_values_bits = u64::from(distinct_values_count)
-                    .next_multiple_of(super::FASTLANES_BLOCK_LEN)
-                    .saturating_mul(values_bw)
-                    .saturating_add(bit_width);
-                uncompressed_values_bits.min(packed_values_bits)
-            } else {
-                uncompressed_values_bits
+        let values_bits = match compress_ctx.allowed_cascading() {
+            0 => uncompressed_values_bits,
+            1 if stats.erased().min_is_negative() => uncompressed_values_bits,
+            1 => {
+                // Only one cascade level remains: `FoRScheme` skips, but `BitPackingScheme`
+                // can still pack non-negative dictionary values directly.
+                let values_bw = stats.erased().max_ilog2().map_or(0, |l| u64::from(l) + 1);
+                if values_bw + u64::from(super::BITPACKING_MIN_BITS_SAVED) <= bit_width {
+                    let packed_values_bits = u64::from(distinct_values_count)
+                        .next_multiple_of(super::FASTLANES_BLOCK_LEN)
+                        .saturating_mul(values_bw);
+                    uncompressed_values_bits.min(packed_values_bits)
+                } else {
+                    uncompressed_values_bits
+                }
+            }
+            _ => {
+                // `FoR + BitPacked` compresses `values` to the `max - min` span width (padded to
+                // 1024-element FastLanes blocks plus one reference scalar) when it beats raw storage.
+                let values_bw =
+                    u64::from(u64::BITS - stats.erased().max_minus_min().leading_zeros());
+                if values_bw + u64::from(super::BITPACKING_MIN_BITS_SAVED) <= bit_width {
+                    let packed_values_bits = u64::from(distinct_values_count)
+                        .next_multiple_of(super::FASTLANES_BLOCK_LEN)
+                        .saturating_mul(values_bw)
+                        .saturating_add(bit_width);
+                    uncompressed_values_bits.min(packed_values_bits)
+                } else {
+                    uncompressed_values_bits
+                }
             }
         };
 
@@ -547,23 +561,32 @@ mod tests {
     }
 
     #[test]
-    fn one_cascade_level_left_does_not_credit_for_values_narrowing() {
+    fn test_expected_compression_ratio_one_cascade_level_left() {
         let len = 4096usize;
-        let values: Vec<i64> = (0..len).map(|i| 1_000_000 + (i % 1024) as i64).collect();
         let mut one_left = CompressorContext::new();
         for _ in 0..(MAX_CASCADE - 1) {
             one_left = one_left.descend_with_scheme(IntDictScheme.id(), 0);
         }
         assert_eq!(one_left.allowed_cascading(), 1);
 
-        let ratio_full = estimate_ratio(
-            PrimitiveArray::from_iter(values.iter().copied()),
+        // Non-negative values: FoR is unavailable, but direct BitPacking (20-bit) still applies (~4.27x vs ~5.11x).
+        let pos: Vec<i64> = (0..len).map(|i| 1_000_000 + (i % 1024) as i64).collect();
+        let pos_full = estimate_ratio(
+            PrimitiveArray::from_iter(pos.iter().copied()),
             CompressorContext::new(),
         );
-        let ratio_one_left = estimate_ratio(PrimitiveArray::from_iter(values), one_left);
+        let pos_one_left = estimate_ratio(PrimitiveArray::from_iter(pos), one_left.clone());
         assert!(
-            ratio_one_left < 3.0 && ratio_one_left < ratio_full,
-            "expected uncompressed values (~2.46x) with 1 cascade level left, got {ratio_one_left} vs full {ratio_full}"
+            pos_one_left > 4.0 && pos_one_left < 4.5 && pos_one_left < pos_full,
+            "expected direct-BitPacked values (~4.27x) with 1 level left, got {pos_one_left} vs full {pos_full}"
+        );
+
+        // Negative values: neither FoR nor direct BitPacking can run, so values stay raw (~2.46x).
+        let neg: Vec<i64> = (0..len).map(|i| -1_000_000 + (i % 1024) as i64).collect();
+        let neg_one_left = estimate_ratio(PrimitiveArray::from_iter(neg), one_left);
+        assert!(
+            neg_one_left > 2.3 && neg_one_left < 2.6,
+            "expected uncompressed negative values (~2.46x) with 1 level left, got {neg_one_left}"
         );
     }
 }
