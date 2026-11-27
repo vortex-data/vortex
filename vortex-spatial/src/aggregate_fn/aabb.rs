@@ -84,6 +84,15 @@ fn aabb_dtype() -> DType {
     )
 }
 
+/// Whole-plane bounding box used when a zone contains a `NaN` ordinate or an empty list geometry
+/// so spatial pruning conservatively retains the zone.
+fn whole_plane() -> SpatialRect<f64> {
+    SpatialRect::new(
+        (f64::NEG_INFINITY, f64::NEG_INFINITY),
+        (f64::INFINITY, f64::INFINITY),
+    )
+}
+
 /// The AABB of the raw `x`/`y` slices, or `None` when empty.
 ///
 /// A box gives no bound for a row with a `NaN` coordinate, such as `POINT EMPTY`: its distance is
@@ -96,10 +105,7 @@ fn aabb_of(xs: &[f64], ys: &[f64]) -> Option<SpatialRect<f64>> {
     }
 
     if xs.iter().chain(ys).any(|v| v.is_nan()) {
-        return Some(SpatialRect::new(
-            (f64::NEG_INFINITY, f64::NEG_INFINITY),
-            (f64::INFINITY, f64::INFINITY),
-        ));
+        return Some(whole_plane());
     }
 
     let [xmin, ymin, xmax, ymax] = box_corners(xs, ys);
@@ -182,7 +188,10 @@ pub(crate) fn aabb_of_array(
         for idx in active.to_bit_buffer().set_indices() {
             let size = usize::try_from(sizes[idx])?;
             if size == 0 {
-                continue;
+                // A valid empty geometry (e.g. a polygon with zero rings) can still match
+                // predicates such as `ST_Distance <= r` in `geo`, so widen the zone AABB to the
+                // whole plane rather than dropping it from the extent.
+                return Ok(Some(whole_plane()));
             }
             let start = usize::try_from(offsets[idx])?;
             ranges.push((start, start + size));
@@ -803,6 +812,30 @@ mod tests {
         let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, nested.dtype().clone())?;
         acc.accumulate(&nested, &mut ctx)?;
         assert_eq!(aabb(&acc.finish()?)?, (1.0, 2.0, 3.0, 4.0));
+
+        // 5. A valid empty polygon (zero rings) mixed with a distant non-empty polygon widens the
+        // zone AABB to the whole plane so pruning retains the zone.
+        let mixed_empty = polygon_column(vec![
+            vec![],
+            vec![vec![
+                (100.0, 100.0),
+                (101.0, 100.0),
+                (101.0, 101.0),
+                (100.0, 100.0),
+            ]],
+        ])?;
+        let mut acc =
+            Accumulator::try_new(GeometryAabb, EmptyOptions, mixed_empty.dtype().clone())?;
+        acc.accumulate(&mixed_empty, &mut ctx)?;
+        assert_eq!(
+            aabb(&acc.finish()?)?,
+            (
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY
+            )
+        );
         Ok(())
     }
 

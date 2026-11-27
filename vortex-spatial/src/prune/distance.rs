@@ -125,19 +125,45 @@ fn distance_prune_proof(
         CompareOperator::Lte if radius < 0.0 => return Some(lit(true)),
         CompareOperator::Lt if radius <= 0.0 => return Some(lit(true)),
         // `>= r` / `> r` with a negative radius (or zero, for `>=`) match all rows: never prune.
+        // Also decline `> 0.0` so squaring tiny coordinates cannot underflow `max_dist_sq` to `0.0`
+        // and drop a row whose `hypot` distance is positive.
         CompareOperator::Gte if radius <= 0.0 => return None,
-        CompareOperator::Gt if radius < 0.0 => return None,
+        CompareOperator::Gt if radius <= 0.0 => return None,
         _ => {}
     }
     // Compared squared to avoid a `sqrt`; all operands are `>= 0`.
-    // Round `r^2` conservatively using its exact FMA residual so floating-point rounding never
-    // prunes a row right on the distance boundary (e.g. `sqrt(8.0)^2` rounding above `8.0`).
+    // Widen `r^2` conservatively to cover both `radius * radius` rounding and distance-side
+    // rounding (`hypot` plus axis subtraction, squaring, and addition in `min_dist_sq` /
+    // `max_dist_sq`), so boundary matches are never falsely pruned.
     let aabb = aabb_stat(geom);
-    let r2 = radius * radius;
-    let err = radius.mul_add(radius, -r2);
-    let r2_hi = if err > 0.0 { r2.next_up() } else { r2 };
-    let r2_lo = if err < 0.0 { r2.next_down() } else { r2 };
+    let (r2_hi, r2_lo) = if radius == 0.0 {
+        (0.0, 0.0)
+    } else {
+        let r_hi = radius.next_up();
+        let r2_hi = r_hi * r_hi;
+        let r2_hi = if r_hi.mul_add(r_hi, -r2_hi) > 0.0 {
+            r2_hi.next_up()
+        } else {
+            r2_hi
+        } * (1.0 + 4.0 * f64::EPSILON);
+
+        let r_lo = radius.next_down();
+        let r2_lo = r_lo * r_lo;
+        let r2_lo = if r_lo.mul_add(r_lo, -r2_lo) < 0.0 {
+            r2_lo.next_down()
+        } else {
+            r2_lo
+        } * (1.0 - 4.0 * f64::EPSILON);
+
+        (r2_hi, r2_lo)
+    };
     if matches!(op, CompareOperator::Lte | CompareOperator::Lt) && !r2_hi.is_finite() {
+        return None;
+    }
+    if matches!(op, CompareOperator::Gte | CompareOperator::Gt)
+        && radius > 0.0
+        && r2_lo < f64::MIN_POSITIVE
+    {
         return None;
     }
     Some(match op {
@@ -316,11 +342,12 @@ mod tests {
     }
 
     /// All four distance comparisons prune (`<=`/`<` via min-distance, `>=`/`>` via max-distance);
-    /// `==`/`!=` are left to the scan.
+    /// `==`/`!=` are left to the scan. Zones right on the `radius` boundary stay unpruned so
+    /// floating-point rounding in `hypot` vs squared distance never drops a match.
     #[rstest]
     #[case(CompareOperator::Lte, Some([false, false, true]))]
-    #[case(CompareOperator::Lt, Some([false, true, true]))]
-    #[case(CompareOperator::Gt, Some([true, true, false]))]
+    #[case(CompareOperator::Lt, Some([false, false, true]))]
+    #[case(CompareOperator::Gt, Some([true, false, false]))]
     #[case(CompareOperator::Gte, Some([true, false, false]))]
     #[case(CompareOperator::Eq, None)]
     #[case(CompareOperator::NotEq, None)]
@@ -424,7 +451,8 @@ mod tests {
         Ok(())
     }
 
-    /// Squaring a rounded radius must not prune a point sitting right on the distance boundary.
+    /// Rounding on either `radius^2` or `min_dist_sq`/`max_dist_sq` (and `ST_Distance > 0`
+    /// underflow) must not prune a point sitting right on the distance boundary.
     #[test]
     fn rounded_squared_radius_never_prunes_boundary_match() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
@@ -439,6 +467,27 @@ mod tests {
                 .collect::<Vec<_>>(),
             [false]
         );
+
+        // `(1, 3 * 2^-28)` has `hypot == 1.0` (matches `<= 1`), while `min_dist_sq` rounds to
+        // `1.0.next_up()`.
+        let proof = falsify_distance(CompareOperator::Lte, true, 1.0)?.expect("lte proof");
+        let dy = 3.0 * 2.0_f64.powi(-28);
+        let zones = aabb_zone_map(&dtype, &[[1.0, dy, 1.0, dy]])?;
+        assert_eq!(
+            zones
+                .prune(&proof, &spatial_session())?
+                .iter()
+                .collect::<Vec<_>>(),
+            [false]
+        );
+
+        // `ST_Distance > 0` with `ZerosEqual` must not prune via squared distance, where a tiny
+        // coordinate like `(1e-200, 0)` underflows `max_dist_sq` to `0.0`.
+        let gt_zero = CompareOptions::new(
+            CompareOperator::Gt,
+            CompareMode::new(FloatOrder::ZerosEqual),
+        );
+        assert!(falsify_distance_in(gt_zero, true, 0.0)?.is_none());
         Ok(())
     }
 
