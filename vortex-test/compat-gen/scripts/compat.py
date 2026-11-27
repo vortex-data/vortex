@@ -1208,15 +1208,35 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
                 )
                 _info(f"    STALE ACCEPTED {s['name']} ({s['status']}): {action} {accepted_path} ({s['reason']})")
 
+        orphan_by_pair: dict[tuple[str, str], list[dict]] = {}
         for (ed_id, rv, fixture_name), entry in sorted(accepted_failures.items()):
             if args.editions and ed_id not in selected_ids:
                 continue
             if (ed_id, rv) in checked_pairs:
                 continue
             total_stale += 1
+            reason = str(entry["reason"])
+            orphan_by_pair.setdefault((ed_id, rv), []).append(
+                {
+                    "name": fixture_name,
+                    "status": "unchecked edition/reader_version",
+                    "reason": reason,
+                }
+            )
             _info(
                 f"    STALE ACCEPTED {ed_id}/{rv} {fixture_name} (unchecked edition/reader_version): "
-                f"remove from {accepted_path} ({entry['reason']})"
+                f"remove from {accepted_path} ({reason})"
+            )
+        for (ed_id, rv), stale_entries in sorted(orphan_by_pair.items()):
+            edition_results.append(
+                {
+                    "edition": ed_id,
+                    "reader_version": rv,
+                    "passed": [],
+                    "accepted": [],
+                    "unexpected": [],
+                    "stale": stale_entries,
+                }
             )
 
     _info(

@@ -377,14 +377,25 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
             }
         )
     )
+    orphan_json = tmp_path / "orphan_report.json"
     args_orphan = argparse.Namespace(
         profile="ci",
         editions=None,
         exclude=None,
         accepted_failures=str(orphan_path),
         python="3.12",
-        json_output=None,
+        json_output=str(orphan_json),
     )
     with pytest.raises(SystemExit) as exc:
         compat.cmd_check_editions(args_orphan)
     assert exc.value.code == 1
+    orphan_report = json.loads(orphan_json.read_text())
+    orphan_rows = [r for r in orphan_report if r["reader_version"] == "0.99.0"]
+    assert len(orphan_rows) == 1
+    assert orphan_rows[0]["stale"] == [
+        {
+            "name": "fsst.vortex",
+            "status": "unchecked edition/reader_version",
+            "reason": "stale reader version",
+        }
+    ]
