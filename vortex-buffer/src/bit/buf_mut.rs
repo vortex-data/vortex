@@ -440,8 +440,9 @@ impl BitBufferMut {
         })
     }
 
+    /// Allocates the zeroed words of `len` bits and lets `fill` write them.
     #[inline]
-    fn collect_words_in(
+    pub(crate) fn collect_words_in(
         len: usize,
         allocator: BufferAllocatorRef,
         fill: impl FnOnce(&mut [u64]),
