@@ -258,19 +258,24 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        let compressor = CascadingCompressor::new(self.allowed_schemes());
+        // The child policy applies to the Variant storage compressor too.
+        let with_policy = |compressor: CascadingCompressor| match &self.child_policy {
+            Some(policy) => compressor.with_child_policy(Arc::clone(policy)),
+            None => compressor,
+        };
+
+        let compressor = with_policy(CascadingCompressor::new(self.allowed_schemes()));
+
         // A second compressor is only needed when the storage keeps a scheme the preset drops.
         let compressor = if self.mode.variant_storage_schemes().is_empty() {
             compressor
         } else {
-            compressor.with_variant_storage_compressor(CascadingCompressor::new(
+            compressor.with_variant_storage_compressor(with_policy(CascadingCompressor::new(
                 self.variant_storage_schemes(),
-            ))
+            )))
         };
-        BtrBlocksCompressor(match self.child_policy {
-            Some(policy) => compressor.with_child_policy(policy),
-            None => compressor,
-        })
+
+        BtrBlocksCompressor(compressor)
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
@@ -399,6 +404,11 @@ mod tests {
 
     #[cfg(feature = "zstd")]
     mod variant_storage {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
+
+        use vortex_array::ArrayRef;
         use vortex_array::IntoArray;
         use vortex_array::VortexSessionExecute;
         use vortex_array::arrays::VarBinViewArray;
@@ -413,11 +423,12 @@ mod tests {
 
         use super::SESSION;
         use crate::BtrBlocksCompressorBuilder;
+        use crate::ChildDecision;
+        use crate::ChildPolicy;
+        use crate::ChildRequest;
 
-        /// The default preset compresses the unshredded value of a Variant with Zstd, but it does
-        /// not compress a plain Binary column with the same bytes with Zstd.
-        #[test]
-        fn default_uses_zstd_only_for_variant_storage() -> VortexResult<()> {
+        /// Builds an unshredded Variant column and returns it with its value child.
+        fn unshredded_variant() -> VortexResult<(ArrayRef, ArrayRef)> {
             // Each value is a Variant short string: a header byte with the length, then the bytes.
             let values: Vec<Vec<u8>> = (0..4096)
                 .map(|row| {
@@ -438,6 +449,15 @@ mod tests {
                 None,
             )?
             .into_array();
+
+            Ok((variant, value))
+        }
+
+        /// The default preset compresses the unshredded value of a Variant with Zstd, but it does
+        /// not compress a plain Binary column with the same bytes with Zstd.
+        #[test]
+        fn default_uses_zstd_only_for_variant_storage() -> VortexResult<()> {
+            let (variant, value) = unshredded_variant()?;
 
             // The test session registers no arrays, so the registry must not restrict the schemes.
             let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
@@ -469,6 +489,36 @@ mod tests {
                 "expected no Zstd, got {}",
                 compressed_binary.encoding_id()
             );
+            Ok(())
+        }
+
+        /// Counts the children it is asked about, and keeps the decisions of the schemes.
+        #[derive(Debug, Default)]
+        struct CountRequests(AtomicUsize);
+
+        impl ChildPolicy for CountRequests {
+            fn decide(&self, request: &ChildRequest<'_>) -> ChildDecision {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                request.requested
+            }
+        }
+
+        /// The child policy is also asked about the children in the storage of a Variant, which a
+        /// different compressor compresses in the default preset.
+        #[test]
+        fn child_policy_applies_to_variant_storage() -> VortexResult<()> {
+            let (variant, _) = unshredded_variant()?;
+
+            let policy = Arc::new(CountRequests::default());
+            let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+                .unrestricted()
+                .with_child_policy(Arc::clone(&policy) as Arc<dyn ChildPolicy>)
+                .build();
+            let mut ctx = SESSION.create_execution_ctx();
+
+            compressor.compress(&variant, &mut ctx)?;
+
+            assert!(policy.0.load(Ordering::Relaxed) > 0);
             Ok(())
         }
     }
