@@ -158,8 +158,7 @@ impl PyDType {
             py,
             PyClassInitializer::from(PyDType(dtype)).add_subclass(subclass),
         )?
-        .into_any()
-        .cast_into::<PyDType>()?)
+        .into_super())
     }
 
     /// Return the inner [`DType`] value.

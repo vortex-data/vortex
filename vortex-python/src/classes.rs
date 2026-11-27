@@ -5,6 +5,7 @@
 
 use pyo3::Bound;
 use pyo3::Py;
+use pyo3::PyAny;
 use pyo3::PyResult;
 use pyo3::Python;
 use pyo3::sync::PyOnceLock;
@@ -52,8 +53,20 @@ pub fn table_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
     TYPE.import(py, "pyarrow", "Table")
 }
 
-/// Returns the pyarrow.Decimal class
+/// Returns the decimal.Decimal class
 pub fn decimal_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
     static TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
     TYPE.import(py, "decimal", "Decimal")
+}
+
+/// Returns the uuid.UUID class
+pub fn uuid_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    static TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+    TYPE.import(py, "uuid", "UUID")
+}
+
+/// Returns the pyarrow.chunked_array function
+pub fn chunked_array_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
+    static FUNC: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+    FUNC.import(py, "pyarrow", "chunked_array")
 }
