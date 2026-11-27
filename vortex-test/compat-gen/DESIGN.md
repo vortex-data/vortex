@@ -29,9 +29,7 @@ Compatibility testing covers both directions:
    values against HEAD's expected Arrow output. Known defects are tracked in
    `accepted-edition-failures.json` (which is shrink-only: any unexpected
    failure fails the check, and any accepted entry that starts passing also
-   fails until removed). `core2025.06.0` carries an explicit reader override to
-   `0.42.0` there because `0.40.0` cannot open files whose footer lists
-   `vortex.pco`/`vortex.zstd`.
+   fails until removed).
 
 ## How Fixtures Work
 

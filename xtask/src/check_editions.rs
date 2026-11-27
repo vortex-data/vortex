@@ -155,8 +155,26 @@ fn newest_recorded(
     }
 }
 
+/// One-time exception: `core/core2025.06.0.toml` originally declared
+/// `min_library_version = "0.40.0"`, but `0.40.0` and `0.41.x` do not register
+/// `vortex.pco` or `vortex.zstd` in `vortex-file`'s `DEFAULT_REGISTRY`, so neither
+/// Rust's `VortexOpenOptions` nor Python's `PyRegistry` can open files written under
+/// `core2025.06.0`. `0.42.0` is the first release that registers them.
+/// See https://github.com/vortex-data/vortex/pull/12008.
+fn is_allowed_min_version_correction(
+    record_path: &str,
+    changed: &[&str],
+    before: &Table,
+    after: &Table,
+) -> bool {
+    record_path == "core/core2025.06.0.toml"
+        && changed == [FROZEN_MARKER]
+        && before.get(FROZEN_MARKER).and_then(|v| v.as_str()) == Some("0.40.0")
+        && after.get(FROZEN_MARKER).and_then(|v| v.as_str()) == Some("0.42.0")
+}
+
 /// A frozen record may not change at all; name the fields that did.
-fn check_modification(before: &Table, after: &Table, name: &str) -> Vec<String> {
+fn check_modification(before: &Table, after: &Table, record_path: &str) -> Vec<String> {
     let mut changed: Vec<&str> = before
         .keys()
         .chain(after.keys())
@@ -166,9 +184,14 @@ fn check_modification(before: &Table, after: &Table, name: &str) -> Vec<String> 
     changed.sort_unstable();
     changed.dedup();
 
-    if changed.is_empty() {
+    if changed.is_empty() || is_allowed_min_version_correction(record_path, &changed, before, after)
+    {
         return vec![];
     }
+    let name = Path::new(record_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(record_path);
     if changed.contains(&FROZEN_MARKER) && !after.contains_key(FROZEN_MARKER) {
         return vec![format!(
             "unfreezes {name}; an edition that recorded a {FROZEN_MARKER} carries a \
@@ -309,11 +332,12 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         let new = path_str(new_path);
         if delta.status() == Delta::Modified {
             let after = read_record(&repo, &head, &new)?.unwrap_or_default();
-            let name = Path::new(&new)
-                .file_name()
-                .and_then(|name| name.to_str())
+            let record_path = Path::new(&new)
+                .strip_prefix(RECORD_DIR)
+                .ok()
+                .and_then(|path| path.to_str())
                 .unwrap_or(&new);
-            errors.extend(check_modification(&before, &after, name));
+            errors.extend(check_modification(&before, &after, record_path));
         } else {
             let verb = match delta.status() {
                 Delta::Deleted => "deletes",
@@ -349,4 +373,90 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     bail!("This change breaks the edition records in {RECORD_DIR}:\n\n{listed}\n\n{REMEDY}");
+}
+
+#[cfg(test)]
+mod tests {
+    use toml::Table;
+
+    use super::check_modification;
+
+    fn parse(src: &str) -> Table {
+        src.parse().expect("valid test TOML")
+    }
+
+    const CORE_2025_06_0_BEFORE: &str = r#"
+edition = "core2025.06.0"
+min_library_version = "0.40.0"
+array = ["vortex.pco", "vortex.sequence", "vortex.zstd"]
+"#;
+
+    #[test]
+    fn allows_core_2025_06_0_min_library_version_correction() {
+        let before = parse(CORE_2025_06_0_BEFORE);
+        let after = parse(
+            r#"
+edition = "core2025.06.0"
+min_library_version = "0.42.0"
+array = ["vortex.pco", "vortex.sequence", "vortex.zstd"]
+"#,
+        );
+        assert!(check_modification(&before, &after, "core/core2025.06.0.toml").is_empty());
+    }
+
+    #[test]
+    fn rejects_other_target_version_for_core_2025_06_0() {
+        let before = parse(CORE_2025_06_0_BEFORE);
+        let after_other = parse(
+            r#"
+edition = "core2025.06.0"
+min_library_version = "0.43.0"
+array = ["vortex.pco", "vortex.sequence", "vortex.zstd"]
+"#,
+        );
+        assert!(!check_modification(&before, &after_other, "core/core2025.06.0.toml").is_empty());
+
+        let before_42 = parse(
+            r#"
+edition = "core2025.06.0"
+min_library_version = "0.42.0"
+array = ["vortex.pco", "vortex.sequence", "vortex.zstd"]
+"#,
+        );
+        assert!(
+            !check_modification(&before_42, &after_other, "core/core2025.06.0.toml").is_empty()
+        );
+    }
+
+    #[test]
+    fn rejects_same_version_change_on_other_edition() {
+        let before = parse(
+            r#"
+edition = "core2025.05.0"
+min_library_version = "0.40.0"
+array = ["vortex.primitive"]
+"#,
+        );
+        let after = parse(
+            r#"
+edition = "core2025.05.0"
+min_library_version = "0.42.0"
+array = ["vortex.primitive"]
+"#,
+        );
+        assert!(!check_modification(&before, &after, "core/core2025.05.0.toml").is_empty());
+    }
+
+    #[test]
+    fn rejects_membership_change_on_core_2025_06_0() {
+        let before = parse(CORE_2025_06_0_BEFORE);
+        let after = parse(
+            r#"
+edition = "core2025.06.0"
+min_library_version = "0.42.0"
+array = ["vortex.pco", "vortex.sequence"]
+"#,
+        );
+        assert!(!check_modification(&before, &after, "core/core2025.06.0.toml").is_empty());
+    }
 }

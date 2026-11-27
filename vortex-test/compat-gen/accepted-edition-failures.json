@@ -1,9 +1,233 @@
 {
-  "reader_overrides": {
-    "core2025.06.0": {
+  "reader_overrides": {},
+  "failures": [
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "struct_nested.vortex",
+      "reason": "vortex.struct writes nullable validity child at index 0; 0.36.0 reads index 0 as first field and panics on dtype mismatch"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "datetime.vortex",
+      "reason": "0.36.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "decimal_canonical_widths.vortex",
+      "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "decimal_narrow_storage.vortex",
+      "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "datetimeparts.vortex",
+      "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "decimal_byte_parts_narrow_msp.vortex",
+      "reason": "vortex.decimal_byte_parts v1 writes narrow I8 MSP; 0.36.0 rejects bit width narrower than decimal precision"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "fsst.vortex",
+      "reason": "vortex.fsst writes 3-buffer wire format; 0.36.0 expects legacy 2-buffer format"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "runend.vortex",
+      "reason": "vortex.runend encodes utf8 values; 0.36.0 only accepts Bool or Primitive values"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "sparse.vortex",
+      "reason": "0.36.0 SparseArray canonicalization only supports primitive PType, not utf8"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "constant.vortex",
+      "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "tpch_lineitem.regular.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "tpch_lineitem.compact.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "tpch_orders.regular.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "tpch_orders.compact.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "clickbench_hits_5k.regular.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
+    },
+    {
+      "edition": "core2025.05.0",
+      "reader_version": "0.36.0",
+      "fixture": "clickbench_hits_5k.compact.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
+    },
+    {
+      "edition": "core2025.06.0",
       "reader_version": "0.42.0",
-      "reason": "vortex-data 0.40.0 cannot open any core2025.06.0 file because the footer lists vortex.pco/vortex.zstd which are not registered in 0.40.0; 0.42.0 is the first PyPI release that registers them."
+      "fixture": "datetime.vortex",
+      "reason": "0.42.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "datetimeparts.vortex",
+      "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "fsst.vortex",
+      "reason": "vortex.fsst writes 3-buffer wire format; 0.42.0 expects legacy 2-buffer format"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "pco.vortex",
+      "reason": "vortex.pco writes pco format version 4; 0.42.0 supports up to format version 3"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "runend.vortex",
+      "reason": "vortex.runend encodes utf8 values; 0.42.0 only accepts Bool or Primitive values"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "zstd.vortex",
+      "reason": "vortex.zstd skips null values in compressed frames; 0.42.0 panics on canonical length mismatch (expected 1024, got 930)"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "constant.vortex",
+      "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "tpch_lineitem.regular.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "tpch_lineitem.compact.vortex",
+      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "tpch_orders.regular.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "tpch_orders.compact.vortex",
+      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "clickbench_hits_5k.regular.vortex",
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
+    },
+    {
+      "edition": "core2025.06.0",
+      "reader_version": "0.42.0",
+      "fixture": "clickbench_hits_5k.compact.vortex",
+      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "fsst.vortex",
+      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "pco.vortex",
+      "reason": "vortex.pco writes pco format version 4; 0.54.0 supports up to format version 3"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "runend.vortex",
+      "reason": "vortex.runend encodes utf8 values; 0.54.0 only accepts Bool or Primitive values"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "tpch_lineitem.regular.vortex",
+      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "tpch_lineitem.compact.vortex",
+      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "tpch_orders.regular.vortex",
+      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "tpch_orders.compact.vortex",
+      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "clickbench_hits_5k.regular.vortex",
+      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
+    },
+    {
+      "edition": "core2025.10.0",
+      "reader_version": "0.54.0",
+      "fixture": "clickbench_hits_5k.compact.vortex",
+      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
     }
-  },
-  "failures": []
+  ]
 }
