@@ -892,12 +892,12 @@ def _run_rust_dump_expected(
 
 def _load_accepted_edition_failures(
     path: Path | None,
-) -> tuple[dict[str, dict[str, str]], dict[tuple[str, str, str], str]]:
+) -> tuple[dict[str, dict[str, str]], dict[tuple[str, str, str], dict[str, object]]]:
     """Load `accepted-edition-failures.json`.
 
     Returns `(reader_overrides, accepted_failures)` where:
       - `reader_overrides`: `{edition: {"reader_version": str, "reason": str}}`
-      - `accepted_failures`: `{(edition, reader_version, fixture): reason}`
+      - `accepted_failures`: `{(edition, reader_version, fixture): {"reason": str, "expected_causes": list[str]}}`
     """
     if path is None or not path.exists():
         return {}, {}
@@ -924,7 +924,7 @@ def _load_accepted_edition_failures(
     raw_failures = data.get("failures", [])
     if not isinstance(raw_failures, list):
         raise ValueError(f"{path}: 'failures' must be a JSON array")
-    accepted: dict[tuple[str, str, str], str] = {}
+    accepted: dict[tuple[str, str, str], dict[str, object]] = {}
     for i, entry in enumerate(raw_failures):
         if not isinstance(entry, dict):
             raise ValueError(f"{path}: failures[{i}] must be an object")
@@ -932,10 +932,20 @@ def _load_accepted_edition_failures(
             val = entry.get(field)
             if not isinstance(val, str) or not val.strip():
                 raise ValueError(f"{path}: failures[{i}].{field} must be a non-empty string")
+        raw_causes = entry.get("expected_causes")
+        if (
+            not isinstance(raw_causes, list)
+            or not raw_causes
+            or not all(isinstance(c, str) and c.strip() for c in raw_causes)
+        ):
+            raise ValueError(f"{path}: failures[{i}].expected_causes must be a non-empty list of non-empty strings")
         key = (entry["edition"].strip(), entry["reader_version"].strip(), entry["fixture"].strip())
         if key in accepted:
             raise ValueError(f"{path}: duplicate accepted failure entry for {key}")
-        accepted[key] = entry["reason"].strip()
+        accepted[key] = {
+            "reason": entry["reason"].strip(),
+            "expected_causes": [c.strip() for c in raw_causes],
+        }
 
     return reader_overrides, accepted
 
@@ -945,14 +955,17 @@ def _evaluate_edition_results(
     reader_version: str,
     written_names: list[str],
     report: dict,
-    accepted_failures: dict[tuple[str, str, str], str],
+    accepted_failures: dict[tuple[str, str, str], dict[str, object]],
 ) -> dict:
     """Compare reader results for one edition against the accepted-failures list.
 
-    Enforces two invariants:
+    Enforces three invariants:
       1. Any failure not listed in `accepted_failures` is an unexpected failure.
-      2. Any entry in `accepted_failures` for `(edition, reader_version)` that now passes
-         (or is no longer in `written_names`) is reported as stale so the list only shrinks.
+      2. For a listed failure, every reported cause must match at least one substring in
+         `expected_causes`; any unrecognized cause is reported as an unexpected failure.
+      3. Any listed entry that now passes (or is no longer in `written_names`), or any
+         `expected_causes` substring that no longer matches any reported cause, is reported as
+         stale so the list only shrinks.
     """
     passed = list(report.get("passed", []))
     failed = list(report.get("failed", []))
@@ -961,23 +974,53 @@ def _evaluate_edition_results(
 
     accepted_hits: list[dict] = []
     unexpected_failures: list[dict] = []
+    stale_accepted: list[dict] = []
+
     for failure in failed:
         name = failure["name"]
         key = (edition, reader_version, name)
-        if key in accepted_failures:
+        if key not in accepted_failures:
+            unexpected_failures.append(failure)
+            continue
+
+        entry = accepted_failures[key]
+        reason = str(entry["reason"])
+        expected_causes = list(entry["expected_causes"])  # type: ignore[arg-type]
+        reported_causes = [c for c in failure.get("causes", []) if c]
+        if not reported_causes and failure.get("error"):
+            reported_causes = [str(failure["error"])]
+
+        unexpected_causes = [c for c in reported_causes if not any(sub in c for sub in expected_causes)]
+        stale_causes = [sub for sub in expected_causes if not any(sub in c for c in reported_causes)]
+
+        if unexpected_causes:
+            unexpected_failures.append(
+                {
+                    "name": name,
+                    "error": f"unexpected cause(s): {'; '.join(unexpected_causes)}",
+                    "causes": unexpected_causes,
+                }
+            )
+        else:
             accepted_hits.append(
                 {
                     "name": name,
                     "error": failure.get("error", ""),
-                    "causes": failure.get("causes", []),
-                    "reason": accepted_failures[key],
+                    "causes": reported_causes,
+                    "reason": reason,
                 }
             )
-        else:
-            unexpected_failures.append(failure)
 
-    stale_accepted: list[dict] = []
-    for (ed, rv, fixture_name), reason in sorted(accepted_failures.items()):
+        if stale_causes:
+            stale_accepted.append(
+                {
+                    "name": name,
+                    "status": f"stale expected_causes: {', '.join(stale_causes)}",
+                    "reason": reason,
+                }
+            )
+
+    for (ed, rv, fixture_name), entry in sorted(accepted_failures.items()):
         if ed != edition or rv != reader_version:
             continue
         if fixture_name not in failed_by_name:
@@ -986,7 +1029,7 @@ def _evaluate_edition_results(
                 {
                     "name": fixture_name,
                     "status": status,
-                    "reason": reason,
+                    "reason": str(entry["reason"]),
                 }
             )
 

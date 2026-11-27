@@ -152,6 +152,7 @@ def test_load_accepted_edition_failures_rejects_duplicates_and_bad_entries(compa
         "edition": "core2025.05.0",
         "reader_version": "0.36.0",
         "fixture": "fsst.vortex",
+        "expected_causes": ["Expected 2 buffers, got 3"],
         "reason": "legacy 2-buffer format",
     }
     dup_path.write_text(json.dumps({"failures": [entry, entry]}))
@@ -163,17 +164,49 @@ def test_load_accepted_edition_failures_rejects_duplicates_and_bad_entries(compa
     with pytest.raises(ValueError, match="reason"):
         compat._load_accepted_edition_failures(bad_path)
 
+    bad_causes_path = tmp_path / "bad_causes.json"
+    bad_causes_path.write_text(json.dumps({"failures": [{**entry, "expected_causes": []}]}))
+    with pytest.raises(ValueError, match="expected_causes"):
+        compat._load_accepted_edition_failures(bad_causes_path)
 
-def test_evaluate_edition_results_enforces_shrink_only(compat):
+
+def test_evaluate_edition_results_enforces_shrink_only_and_expected_causes(compat):
     accepted = {
-        ("core2025.05.0", "0.36.0", "known_fail.vortex"): "known issue",
-        ("core2025.05.0", "0.36.0", "fixed_now.vortex"): "was failing",
-        ("core2025.05.0", "0.36.0", "removed.vortex"): "no longer written",
+        ("core2025.05.0", "0.36.0", "known_fail.vortex"): {
+            "reason": "known issue",
+            "expected_causes": ["expected err"],
+        },
+        ("core2025.05.0", "0.36.0", "new_cause.vortex"): {
+            "reason": "known fsst issue",
+            "expected_causes": ["Expected 2 buffers, got 3"],
+        },
+        ("core2025.05.0", "0.36.0", "partial_fix.vortex"): {
+            "reason": "two old issues",
+            "expected_causes": ["Expected 2 buffers, got 3", "old fixed bug"],
+        },
+        ("core2025.05.0", "0.36.0", "fixed_now.vortex"): {
+            "reason": "was failing",
+            "expected_causes": ["gone"],
+        },
+        ("core2025.05.0", "0.36.0", "removed.vortex"): {
+            "reason": "no longer written",
+            "expected_causes": ["gone"],
+        },
     }
     report = {
         "passed": ["ok.vortex", "fixed_now.vortex"],
         "failed": [
-            {"name": "known_fail.vortex", "error": "expected err", "causes": ["expected err"]},
+            {"name": "known_fail.vortex", "error": "ValueError: expected err", "causes": ["ValueError: expected err"]},
+            {
+                "name": "new_cause.vortex",
+                "error": "ValueError: Expected 2 buffers, got 3; ValueError: brand new regression",
+                "causes": ["ValueError: Expected 2 buffers, got 3", "ValueError: brand new regression"],
+            },
+            {
+                "name": "partial_fix.vortex",
+                "error": "ValueError: Expected 2 buffers, got 3",
+                "causes": ["ValueError: Expected 2 buffers, got 3"],
+            },
             {"name": "new_regression.vortex", "error": "boom", "causes": ["boom"]},
         ],
     }
@@ -181,15 +214,24 @@ def test_evaluate_edition_results_enforces_shrink_only(compat):
     evaluated = compat._evaluate_edition_results(
         "core2025.05.0",
         "0.36.0",
-        ["ok.vortex", "fixed_now.vortex", "known_fail.vortex", "new_regression.vortex"],
+        [
+            "ok.vortex",
+            "fixed_now.vortex",
+            "known_fail.vortex",
+            "new_cause.vortex",
+            "partial_fix.vortex",
+            "new_regression.vortex",
+        ],
         report,
         accepted,
     )
 
     assert evaluated["passed"] == ["ok.vortex", "fixed_now.vortex"]
-    assert [f["name"] for f in evaluated["accepted"]] == ["known_fail.vortex"]
-    assert [f["name"] for f in evaluated["unexpected"]] == ["new_regression.vortex"]
+    assert [f["name"] for f in evaluated["accepted"]] == ["known_fail.vortex", "partial_fix.vortex"]
+    assert [f["name"] for f in evaluated["unexpected"]] == ["new_cause.vortex", "new_regression.vortex"]
+    assert "brand new regression" in evaluated["unexpected"][0]["error"]
     assert [(s["name"], s["status"]) for s in evaluated["stale"]] == [
+        ("partial_fix.vortex", "stale expected_causes: old fixed bug"),
         ("fixed_now.vortex", "passed"),
         ("removed.vortex", "not written"),
     ]
@@ -211,6 +253,7 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
                         "edition": "core2025.06.0",
                         "reader_version": "0.42.0",
                         "fixture": "fsst.vortex",
+                        "expected_causes": ["Expected 2 buffers, got 3"],
                         "reason": "known fsst issue",
                     }
                 ],

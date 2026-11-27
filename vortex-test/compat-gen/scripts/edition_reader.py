@@ -17,7 +17,9 @@ import json
 import math
 import os
 import re
+import signal
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -117,8 +119,8 @@ def _extract_panic_reason(stderr_txt: str, label: str) -> str:
     return label
 
 
-def _run_isolated(fn: Callable[[], dict]) -> dict:
-    """Run `fn()` in a forked child on POSIX so Rust FFI aborts cannot kill the worker."""
+def _run_isolated(fn: Callable[[], dict], timeout_s: float = 120.0) -> dict:
+    """Run `fn()` in a forked child on POSIX so Rust FFI aborts or hangs cannot kill the worker."""
     if not hasattr(os, "fork"):
         return fn()
 
@@ -130,18 +132,41 @@ def _run_isolated(fn: Callable[[], dict]) -> dict:
 
     pid = os.fork()
     if pid == 0:
-        err_fd = os.open(err_path, os.O_WRONLY | os.O_TRUNC)
-        os.dup2(err_fd, 2)
-        os.close(err_fd)
+        exit_code = 0
         try:
-            res = fn()
-        except Exception as e:
-            res = {"ok": False, "error": _clean_error(f"{type(e).__name__}: {e}")}
-        Path(out_path).write_text(json.dumps(res))
-        os._exit(0)
+            err_fd = os.open(err_path, os.O_WRONLY | os.O_TRUNC)
+            os.dup2(err_fd, 2)
+            os.close(err_fd)
+            try:
+                res = fn()
+            except BaseException as e:
+                res = {"ok": False, "error": _clean_error(f"{type(e).__name__}: {e}")}
+            Path(out_path).write_text(json.dumps(res))
+        except BaseException:
+            exit_code = 1
+        finally:
+            os._exit(exit_code)
 
-    _, status = os.waitpid(pid, 0)
+    deadline = time.monotonic() + timeout_s
+    status = 0
+    timed_out = False
+    while True:
+        waited_pid, status = os.waitpid(pid, os.WNOHANG)
+        if waited_pid == pid:
+            break
+        if time.monotonic() >= deadline:
+            timed_out = True
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.waitpid(pid, 0)
+            break
+        time.sleep(0.02)
+
     try:
+        if timed_out:
+            return {"ok": False, "error": f"timed out after {timeout_s:.0f}s"}
         if os.WIFSIGNALED(status):
             sig = os.WTERMSIG(status)
             stderr_txt = Path(err_path).read_text(errors="replace")
@@ -149,7 +174,12 @@ def _run_isolated(fn: Callable[[], dict]) -> dict:
         if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0:
             content = Path(out_path).read_text()
             if content.strip():
-                return json.loads(content)
+                res = json.loads(content)
+                if not res.get("ok") and "Runtime dropped task without completing it" in res.get("error", ""):
+                    stderr_txt = Path(err_path).read_text(errors="replace")
+                    if "panicked at" in stderr_txt:
+                        res["error"] = _extract_panic_reason(stderr_txt, "PanicException")
+                return res
         stderr_txt = Path(err_path).read_text(errors="replace")
         return {
             "ok": False,

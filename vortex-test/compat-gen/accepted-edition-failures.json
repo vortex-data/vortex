@@ -5,228 +5,366 @@
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "struct_nested.vortex",
+      "expected_causes": [
+        "Array dtype mismatch after building"
+      ],
       "reason": "vortex.struct writes nullable validity child at index 0; 0.36.0 reads index 0 as first field and panics on dtype mismatch"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "datetime.vortex",
+      "expected_causes": [
+        "Timestamp(Millisecond, Some(\"UTC\"))",
+        "Timestamp(Second, Some(\"America/New_York\"))"
+      ],
       "reason": "0.36.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "decimal_canonical_widths.vortex",
+      "expected_causes": [
+        "i256 decimals cannot be converted to Arrow i128 decimal"
+      ],
       "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "decimal_narrow_storage.vortex",
+      "expected_causes": [
+        "i256 decimals cannot be converted to Arrow i128 decimal"
+      ],
       "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "datetimeparts.vortex",
+      "expected_causes": [
+        "Timestamp(Millisecond, Some(\"UTC\"))",
+        "Failed to cast -86399 to U32"
+      ],
       "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "decimal_byte_parts_narrow_msp.vortex",
+      "expected_causes": [
+        "cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]"
+      ],
       "reason": "vortex.decimal_byte_parts v1 writes narrow I8 MSP; 0.36.0 rejects bit width narrower than decimal precision"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "fsst.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "vortex.fsst writes 3-buffer wire format; 0.36.0 expects legacy 2-buffer format"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "runend.vortex",
+      "expected_causes": [
+        "RunEnd array can only have Bool or Primitive values, utf8 given"
+      ],
       "reason": "vortex.runend encodes utf8 values; 0.36.0 only accepts Bool or Primitive values"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "sparse.vortex",
+      "expected_causes": [
+        "Cannot convert DType utf8? into PType"
+      ],
       "reason": "0.36.0 SparseArray canonicalization only supports primitive PType, not utf8"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "constant.vortex",
+      "expected_causes": [
+        "Timestamp(Millisecond, Some(\"UTC\"))"
+      ],
       "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "tpch_lineitem.regular.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3",
+        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I16, NonNullable)]",
+        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "tpch_lineitem.compact.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3",
+        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I16, NonNullable)]",
+        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "tpch_orders.regular.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "tpch_orders.compact.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "clickbench_hits_5k.regular.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
     },
     {
       "edition": "core2025.05.0",
       "reader_version": "0.36.0",
       "fixture": "clickbench_hits_5k.compact.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "datetime.vortex",
+      "expected_causes": [
+        "Timestamp(Millisecond, Some(\"UTC\"))",
+        "Timestamp(Second, Some(\"America/New_York\"))"
+      ],
       "reason": "0.42.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "datetimeparts.vortex",
+      "expected_causes": [
+        "Timestamp(Millisecond, Some(\"UTC\"))",
+        "Failed to cast -86399 to U32"
+      ],
       "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "fsst.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "vortex.fsst writes 3-buffer wire format; 0.42.0 expects legacy 2-buffer format"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "pco.vortex",
+      "expected_causes": [
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.pco writes pco format version 4; 0.42.0 supports up to format version 3"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "runend.vortex",
+      "expected_causes": [
+        "RunEnd array can only have Bool or Primitive values, utf8 given"
+      ],
       "reason": "vortex.runend encodes utf8 values; 0.42.0 only accepts Bool or Primitive values"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "zstd.vortex",
+      "expected_causes": [
+        "Canonical length mismatch vortex.zstd. Expected 1024 but encoded into 930."
+      ],
       "reason": "vortex.zstd skips null values in compressed frames; 0.42.0 panics on canonical length mismatch (expected 1024, got 930)"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "constant.vortex",
+      "expected_causes": [
+        "Timestamp(Millisecond, Some(\"UTC\"))"
+      ],
       "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "tpch_lineitem.regular.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "tpch_lineitem.compact.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3",
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "tpch_orders.regular.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "tpch_orders.compact.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3",
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "clickbench_hits_5k.regular.vortex",
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
     },
     {
       "edition": "core2025.06.0",
       "reader_version": "0.42.0",
       "fixture": "clickbench_hits_5k.compact.vortex",
-      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
+      "expected_causes": [
+        "Cannot convert DType bool into PType",
+        "Expected 2 buffers, got 3",
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
+      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.pco format version 4 rejected by 0.42.0"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "fsst.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "pco.vortex",
+      "expected_causes": [
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.pco writes pco format version 4; 0.54.0 supports up to format version 3"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "runend.vortex",
+      "expected_causes": [
+        "RunEnd array can only have Bool or Primitive values, utf8 given"
+      ],
       "reason": "vortex.runend encodes utf8 values; 0.54.0 only accepts Bool or Primitive values"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "tpch_lineitem.regular.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "tpch_lineitem.compact.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3",
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "tpch_orders.regular.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "tpch_orders.compact.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3",
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "clickbench_hits_5k.regular.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3"
+      ],
       "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
     },
     {
       "edition": "core2025.10.0",
       "reader_version": "0.54.0",
       "fixture": "clickbench_hits_5k.compact.vortex",
+      "expected_causes": [
+        "Expected 2 buffers, got 3",
+        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
+      ],
       "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
     }
   ]

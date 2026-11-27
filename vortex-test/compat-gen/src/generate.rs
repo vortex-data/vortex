@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fs::File;
+use std::path::Component;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -26,6 +28,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -260,13 +263,25 @@ pub fn write_fixtures(
 
     let written_names: BTreeSet<&str> = infos.iter().map(|info| info.name.as_str()).collect();
     for stale_name in prev_manifest_files {
-        if !written_names.contains(stale_name.as_str()) {
-            let stale_path = output_dir.join(&stale_name);
-            if stale_path.is_file() {
-                std::fs::remove_file(&stale_path).map_err(|e| {
-                    vortex_err!("failed to remove stale {}: {e}", stale_path.display())
-                })?;
-            }
+        if written_names.contains(stale_name.as_str()) {
+            continue;
+        }
+        if !stale_name.ends_with(".vortex")
+            || !Path::new(&stale_name)
+                .components()
+                .eq([Component::Normal(OsStr::new(&stale_name))])
+        {
+            continue;
+        }
+        let stale_path = output_dir.join(&stale_name);
+        if std::fs::symlink_metadata(&stale_path)
+            .map(|meta| meta.file_type().is_file())
+            .unwrap_or(false)
+        {
+            std::fs::remove_file(&stale_path).map_err(|e| {
+                VortexError::from(e)
+                    .with_context(format!("failed to remove stale {}", stale_path.display()))
+            })?;
         }
     }
 
@@ -363,18 +378,40 @@ mod tests {
 
     #[test]
     fn generate_reusing_dir_removes_stale_manifest_files_only() -> VortexResult<()> {
-        let dir = tempfile::tempdir()?;
+        let parent = tempfile::tempdir()?;
+        let dir = parent.path().join("out");
+        std::fs::create_dir_all(&dir)?;
         let exclude = vec!["tpch".to_string(), "clickbench".to_string()];
-        let unrelated = dir.path().join("notes.txt");
+        let unrelated = dir.join("notes.txt");
+        let outside = parent.path().join("outside.vortex");
         std::fs::write(&unrelated, "keep me")?;
+        std::fs::write(&outside, "keep outside")?;
 
-        generate(dir.path(), &exclude, None)?;
-        assert!(dir.path().join("pco.vortex").exists());
+        generate(&dir, &exclude, None)?;
+        assert!(dir.join("pco.vortex").exists());
 
-        generate(dir.path(), &exclude, Some("core2025.05.0"))?;
-        assert!(!dir.path().join("pco.vortex").exists());
-        assert!(dir.path().join("primitives.vortex").exists());
+        // Inject a traversal entry into the previous manifest to verify it is ignored.
+        let manifest_path = dir.join("fixtures.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)
+                .map_err(|e| vortex_err!("failed to parse fixtures.json: {e}"))?;
+        manifest["fixtures"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": "../outside.vortex",
+                "description": "traversal",
+                "sha256": "0"
+            }));
+        let modified = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
+        std::fs::write(&manifest_path, modified)?;
+
+        generate(&dir, &exclude, Some("core2025.05.0"))?;
+        assert!(!dir.join("pco.vortex").exists());
+        assert!(dir.join("primitives.vortex").exists());
         assert!(unrelated.exists());
+        assert!(outside.exists());
         Ok(())
     }
 }
