@@ -198,12 +198,16 @@ pub(crate) fn aabb_of_array(
                 merged.push((start, end));
             }
         }
-        let elements = list_view.elements().clone();
-        active = Mask::from_slices(elements.len(), merged);
-        if active.all_false() {
+        let Some(&(span_start, _)) = merged.first() else {
             return Ok(None);
+        };
+        let span_end = merged.last().vortex_expect("merged is non-empty").1;
+        for (start, end) in &mut merged {
+            *start -= span_start;
+            *end -= span_start;
         }
-        node = elements;
+        node = list_view.elements().slice(span_start..span_end)?;
+        active = Mask::from_slices(span_end - span_start, merged);
     }
 
     let coords = node.filter(active)?.execute::<StructArray>(ctx)?;
@@ -407,6 +411,7 @@ mod tests {
     use super::GeometryAabb;
     use super::rect_from_storage;
     use crate::extension::LineString;
+    use crate::extension::Polygon;
     use crate::extension::Rect;
     use crate::extension::SpatialMetadata;
     use crate::extension::coordinate::Dimension;
@@ -761,6 +766,43 @@ mod tests {
         let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, constant.dtype().clone())?;
         acc.accumulate(&constant, &mut ctx)?;
         assert_eq!(aabb(&acc.finish()?)?, (2.0, 3.0, 4.0, 5.0));
+
+        // 4. Nested `Polygon` (`ListView<ListView<Struct>>`) with an unreferenced outlier ring and
+        // an outer null polygon.
+        let rings = ListViewArray::try_new(
+            StructArray::from_fields(&[
+                (
+                    "x",
+                    PrimitiveArray::from_iter([-500.0f64, 500.0, 1.0, 3.0, 3.0, 1.0]).into_array(),
+                ),
+                (
+                    "y",
+                    PrimitiveArray::from_iter([-500.0f64, 500.0, 2.0, 2.0, 4.0, 2.0]).into_array(),
+                ),
+            ])?
+            .into_array(),
+            PrimitiveArray::from_iter([0u32, 2]).into_array(),
+            PrimitiveArray::from_iter([2u32, 4]).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let polygons = ListViewArray::try_new(
+            rings,
+            PrimitiveArray::from_iter([0u32, 1]).into_array(),
+            PrimitiveArray::from_iter([1u32, 1]).into_array(),
+            Validity::from_iter([false, true]),
+            &mut ctx,
+        )?
+        .into_array();
+        let poly_ext = ExtDType::<Polygon>::try_new(
+            SpatialMetadata::default().with_dimension(Dimension::Xy),
+            Nullability::Nullable,
+        )?;
+        let nested = ExtensionArray::try_new(poly_ext.erased(), polygons)?.into_array();
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, nested.dtype().clone())?;
+        acc.accumulate(&nested, &mut ctx)?;
+        assert_eq!(aabb(&acc.finish()?)?, (1.0, 2.0, 3.0, 4.0));
         Ok(())
     }
 
