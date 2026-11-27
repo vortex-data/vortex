@@ -1,0 +1,364 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Export support for Vortex FixedSizeListArray to DuckDB ARRAY type.
+//!
+//! DuckDB distinguishes between LIST (variable-size) and ARRAY (fixed-size) types.
+//! The ARRAY type in DuckDB corresponds to Vortex's [`DType::FixedSizeList`], where all
+//! lists have the same number of elements.
+//!
+//! [`DType::FixedSizeList`]: vortex::dtype::DType::FixedSizeList
+use vortex::array::ExecutionCtx;
+use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex::error::VortexResult;
+
+use super::ConversionCache;
+use super::all_invalid;
+use super::new_array_exporter_with_flatten;
+use super::validity;
+use crate::duckdb::VectorRef;
+use crate::exporter::ColumnExporter;
+
+/// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
+struct FixedSizeListExporter {
+    /// Exporter for the underlying elements array.
+    elements_exporter: Box<dyn ColumnExporter>,
+    /// The fixed number of elements in each list.
+    list_size: u32,
+    len: usize,
+}
+
+/// Creates a new exporter for converting a [`FixedSizeListArray`] to DuckDB ARRAY format.
+pub(crate) fn new_exporter(
+    array: FixedSizeListArray,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let list_size = array.list_size();
+    let len = array.len();
+    let parts = array.into_data_parts();
+    let elements = parts.elements;
+    let validity = parts.validity;
+
+    if validity.definitely_all_null() {
+        return Ok(all_invalid::new_exporter());
+    }
+
+    let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
+    let exporter = Box::new(FixedSizeListExporter {
+        elements_exporter,
+        list_size,
+        len,
+    });
+    validity::new_exporter(validity, len, exporter, ctx)
+}
+
+impl ColumnExporter for FixedSizeListExporter {
+    // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
+    // making an assertion.
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        // Verify that offset + len doesn't exceed the validity mask length.
+        assert!(
+            offset + len <= self.len,
+            "Export range [{}, {}) exceeds array length {}",
+            offset,
+            offset + len,
+            self.len
+        );
+
+        let list_size = self.list_size as usize;
+
+        // Get the child vector for array elements and export the elements directly.
+        let elements_vector = vector.array_vector_get_child_mut();
+        let num_elements = len * list_size;
+        self.elements_exporter
+            .export(offset * list_size, num_elements, elements_vector, ctx)?;
+
+        // We must flatten the child vector to ensure any child dictionary views (namely UTF-8
+        // string views in dictionaries) are materialized, and pass the explicit element count so
+        // constant vectors (whose C API default size is STANDARD_VECTOR_SIZE) flatten across all
+        // `len * list_size` elements instead of truncating at 2048.
+        // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
+        // detailed explanation on why we need this for now.
+        //
+        // SAFETY: `elements_vector` is the child of a DuckDB ARRAY vector with capacity for at
+        // least `len * list_size` (`num_elements`) entries, and `elements_exporter` populated
+        // `num_elements` entries (so flat children have capacity >= `num_elements`, dictionary and
+        // sequence children already have size `num_elements`, and constant vectors/children can be
+        // resized to `num_elements`).
+        // `ListExporter` does not need this because it slices rather than flattening its child.
+        unsafe { elements_vector.flatten_with_count(num_elements) };
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::IntoArray as _;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::buffer;
+    use vortex::error::VortexExpect;
+
+    use super::*;
+    use crate::SESSION;
+    use crate::cpp;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
+    use crate::duckdb::VectorRef;
+
+    /// Sets up a DataChunk, exports the array to it, and returns the chunk.
+    fn export_to_chunk(
+        fsl: FixedSizeListArray,
+        list_size: u32,
+        offset: usize,
+        len: usize,
+    ) -> DataChunk {
+        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, list_size);
+
+        // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
+        let mut chunk = DataChunk::new([array_type]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        new_exporter(fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(offset, len, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
+        chunk.set_len(len);
+
+        chunk
+    }
+
+    /// Asserts that the null pattern in a vector matches the expected pattern.
+    /// true = valid (not null), false = null
+    fn assert_nulls(vector: &VectorRef, expected: &[bool]) {
+        for (i, &expected_valid) in expected.iter().enumerate() {
+            if expected_valid {
+                assert!(
+                    !vector.row_is_null(i as u64),
+                    "Row {} should be valid but is null",
+                    i
+                );
+            } else {
+                assert!(
+                    vector.row_is_null(i as u64),
+                    "Row {} should be null but is valid",
+                    i
+                );
+            }
+        }
+    }
+
+    fn assert_rows(chunk: &DataChunk, expected: &[&str]) {
+        assert_eq!(usize::try_from(chunk.len()).unwrap(), expected.len());
+        let vector = chunk.get_vector(0);
+        let actual: Vec<_> = (0..chunk.len())
+            .map(|i| vector.get_value(i, chunk.len()).unwrap().to_string())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_export_empty_fixed_size_list() {
+        // Create an empty FixedSizeListArray with list_size=3.
+        let fsl = FixedSizeListArray::new(buffer![0i32; 0].into_array(), 3, Validity::AllValid, 0);
+        let chunk = export_to_chunk(fsl, 3, 0, 0);
+
+        // Should produce an empty chunk.
+        assert_eq!(chunk.len(), 0);
+    }
+
+    #[test]
+    fn test_export_non_empty_fixed_size_list() {
+        // Create a FixedSizeListArray with 3 lists of size 2.
+        // Lists: [1, 2], [3, 4], [5, 6]
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+            2,
+            Validity::AllValid,
+            3,
+        );
+        let chunk = export_to_chunk(fsl, 2, 0, 3);
+
+        assert_rows(&chunk, &["[1, 2]", "[3, 4]", "[5, 6]"]);
+    }
+
+    #[test]
+    fn test_export_fixed_size_list_with_nulls() {
+        // Create a FixedSizeListArray with 4 lists of size 3, with 2nd list null.
+        // Lists: [1, 2, 3], NULL, [7, 8, 9], [10, 11, 12]
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
+            3,
+            Validity::from_iter([true, false, true, true]),
+            4,
+        );
+        let chunk = export_to_chunk(fsl, 3, 0, 4);
+
+        assert_rows(&chunk, &["[1, 2, 3]", "NULL", "[7, 8, 9]", "[10, 11, 12]"]);
+    }
+
+    #[test]
+    fn test_export_all_null_lists() {
+        // Create a FixedSizeListArray where all lists are null.
+        let fsl = FixedSizeListArray::new(
+            buffer![0i32; 6].into_array(),
+            2,
+            Validity::from_iter([false, false, false]),
+            3,
+        );
+        let chunk = export_to_chunk(fsl, 2, 0, 3);
+
+        assert_eq!(chunk.len(), 3);
+
+        // All lists should be null.
+        let vector = chunk.get_vector(0);
+        vector.flatten();
+        assert_nulls(vector, &[false, false, false]);
+    }
+
+    #[test]
+    fn test_export_list_size_one() {
+        // Create a FixedSizeListArray with list_size=1 (single element arrays).
+        // Lists: [10], [20], [30], [40]
+        let fsl = FixedSizeListArray::new(
+            buffer![10i32, 20, 30, 40].into_array(),
+            1,
+            Validity::AllValid,
+            4,
+        );
+        let chunk = export_to_chunk(fsl, 1, 0, 4);
+
+        assert_rows(&chunk, &["[10]", "[20]", "[30]", "[40]"]);
+    }
+
+    #[test]
+    fn test_export_partial_range() {
+        // Test exporting a partial range from the middle of the array.
+        // Lists: [1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]
+        let fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
+            3,
+            Validity::AllValid,
+            4,
+        );
+
+        // Export only the middle 2 lists (indices 1 and 2).
+        let chunk = export_to_chunk(fsl, 3, 1, 2);
+
+        assert_rows(&chunk, &["[4, 5, 6]", "[7, 8, 9]"]);
+    }
+
+    /// Helper to create nested array type for DuckDB.
+    fn create_nested_array_type(inner_list_size: u32, outer_list_size: u32) -> LogicalType {
+        let inner_array_type =
+            LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
+
+        LogicalType::array_type(inner_array_type, outer_list_size)
+            .vortex_expect("failed to create nested array type")
+    }
+
+    #[test]
+    fn test_export_nested_fixed_size_list() {
+        // Test nested fixed-size lists: FSL<FSL<i32, 2>, 3>
+        // This represents an array of arrays, where:
+        // - The outer array has 3 elements
+        // - Each element is itself an array of 2 i32 values
+        //
+        // We'll create 2 outer arrays:
+        // Outer array 1: [[1, 2], [3, 4], [5, 6]]
+        // Outer array 2: [[7, 8], [9, 10], [11, 12]]
+
+        // First create the inner FSL with all the flattened elements.
+        let inner_fsl = FixedSizeListArray::new(
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].into_array(),
+            2,
+            Validity::AllValid,
+            6, // 6 inner lists total (3 per outer list * 2 outer lists)
+        );
+
+        // Now create the outer FSL that contains the inner FSL.
+        let outer_fsl = FixedSizeListArray::new(
+            inner_fsl.into_array(),
+            3, // outer list_size (3 inner lists per outer list)
+            Validity::AllValid,
+            2, // 2 outer lists
+        );
+
+        // Create the nested array type and export.
+        let outer_array_type = create_nested_array_type(2, 3);
+        let mut chunk = DataChunk::new([outer_array_type]);
+
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(outer_fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 2, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
+        chunk.set_len(2);
+
+        assert_rows(
+            &chunk,
+            &["[[1, 2], [3, 4], [5, 6]]", "[[7, 8], [9, 10], [11, 12]]"],
+        );
+    }
+
+    #[test]
+    fn test_export_nested_fixed_size_list_with_nulls() {
+        // Test nested FSL with nulls at different levels.
+        // Outer structure: FSL<FSL<i32, 2>, 3> with 3 outer arrays
+        // Outer array 1: [[1, 2], [3, 4], [5, 6]]    - valid
+        // Outer array 2: NULL                         - null outer array
+        // Outer array 3: [[13, 14], NULL, [17, 18]]  - valid outer with null inner
+
+        // Create inner FSL with mixed validity.
+        let inner_fsl = FixedSizeListArray::new(
+            buffer![
+                1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
+            ]
+            .into_array(),
+            2,
+            Validity::from_iter([
+                true, true, true, // First outer's inner arrays
+                true, true, true, // Second outer's inner arrays (unused due to outer null)
+                true, false, true, // Third outer's inner arrays (middle one is null)
+            ]),
+            9, // 9 inner lists total
+        );
+
+        // Create outer FSL with null in the middle.
+        let outer_fsl = FixedSizeListArray::new(
+            inner_fsl.into_array(),
+            3, // outer list_size
+            Validity::from_iter([true, false, true]),
+            3, // 3 outer lists
+        );
+
+        // Create the nested array type and export.
+        let outer_array_type = create_nested_array_type(2, 3);
+        let mut chunk = DataChunk::new([outer_array_type]);
+
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(outer_fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 3, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
+        chunk.set_len(3);
+
+        assert_rows(
+            &chunk,
+            &[
+                "[[1, 2], [3, 4], [5, 6]]",
+                "NULL",
+                "[[13, 14], NULL, [17, 18]]",
+            ],
+        );
+    }
+}
