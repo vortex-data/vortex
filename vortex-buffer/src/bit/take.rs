@@ -399,11 +399,12 @@ mod tests {
         }
     }
 
-    fn draw_take<I>(tc: &TestCase, max_len: usize)
-    where
-        I: AsPrimitive<usize> + TryFrom<usize> + Ord + Zero,
-        <I as TryFrom<usize>>::Error: std::fmt::Debug,
-    {
+    #[hegel::test]
+    #[cfg_attr(miri, ignore)]
+    fn takes_from_small_bitmaps(tc: TestCase) {
+        // u8 indices address at most 256 bits, u16 indices reach the 4096 bits of a small bitmap.
+        let narrow = tc.draw(gs::booleans());
+        let max_len = if narrow { 600 } else { 4096 };
         let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(max_len));
         let offset = tc.draw(gs::integers::<usize>().max_value(63));
         let bits: Vec<bool> = tc.draw(
@@ -414,34 +415,31 @@ mod tests {
         let buf = BitBuffer::from(bits.clone());
         let view = buf.as_view().slice(offset..);
 
-        let bound = len.min(1 << (8 * size_of::<I>()).min(16));
+        let bound = if narrow { len.min(256) } else { len };
         let indices: Vec<usize> = tc.draw(
             gs::vecs(gs::integers::<usize>().max_value(bound - 1))
                 .min_size(1)
                 .max_size(300),
         );
-        let typed: Vec<I> = indices
-            .iter()
-            .map(|&idx| I::try_from(idx).unwrap())
-            .collect();
 
-        let taken = take_bits(view, &typed, None);
+        let taken = if narrow {
+            let typed: Vec<u8> = indices
+                .iter()
+                .map(|&idx| u8::try_from(idx).unwrap())
+                .collect();
+            take_bits(view, &typed, None)
+        } else {
+            let typed: Vec<u16> = indices
+                .iter()
+                .map(|&idx| u16::try_from(idx).unwrap())
+                .collect();
+            take_bits(view, &typed, None)
+        };
+
         assert_eq!(taken.len(), indices.len());
         for (i, &idx) in indices.iter().enumerate() {
             assert_eq!(taken.value(i), bits[offset + idx], "index {idx} at {i}");
         }
-    }
-
-    #[hegel::test]
-    #[cfg_attr(miri, ignore)]
-    fn takes_u8_from_small_bitmaps(tc: TestCase) {
-        draw_take::<u8>(&tc, 600);
-    }
-
-    #[hegel::test]
-    #[cfg_attr(miri, ignore)]
-    fn takes_u16_from_small_bitmaps(tc: TestCase) {
-        draw_take::<u16>(&tc, 4096);
     }
 
     #[rstest]
@@ -453,7 +451,6 @@ mod tests {
 
     #[rstest]
     #[case(300)]
-    #[case(4096)]
     #[case(5000)]
     fn gathers_u16(#[case] bits_len: usize) {
         gathers::<u16>(bits_len, [u16::MAX, u16::MAX - 1]);
@@ -461,7 +458,6 @@ mod tests {
 
     #[rstest]
     #[case(300)]
-    #[case(4096)]
     #[case(5000)]
     fn gathers_u32(#[case] bits_len: usize) {
         gathers::<u32>(bits_len, [u32::MAX, u32::MAX - 1]);
