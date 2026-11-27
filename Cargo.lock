@@ -11952,7 +11952,6 @@ version = "0.1.0"
 dependencies = [
  "roaring",
  "vortex-array",
- "vortex-buffer",
  "vortex-error",
  "vortex-expr",
  "vortex-functions",
