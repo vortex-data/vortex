@@ -72,68 +72,55 @@ where
             min >= I::zero() && max.as_() < bits.len(),
             "take index out of bounds"
         );
-
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-        if let Some(taken) = lut::take(bits, indices) {
-            return taken;
-        }
-
-        return if bits.len() <= COLLECT_TO_VEC {
-            // The gather beats a byte per bit on CPUs with AVX-512, but not on CPUs with only
-            // AVX2, such as Zen 3. Its 32-bit loads need the buffer padded, which a small copy,
-            // at most 520 bytes, provides.
-            #[cfg(target_arch = "x86_64")]
-            if is_x86_feature_detected!("avx512f") {
-                let padded = padded_table::<{ COLLECT_TO_VEC / 8 + 8 }>(bits);
-                let padded = BitBufferView::new(&padded, bits.len());
-                if let Some(taken) = avx2::take(padded, indices, None) {
-                    return taken;
-                }
-            }
-
-            let bools = expand_bools(bits);
-            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
-                // SAFETY: we're already iterating over every index, a bound
-                // is excessive
-                let idx = indices.get_unchecked(i).as_();
-                // SAFETY: we've asserted index is in bounds before
-                *bools.get_unchecked(idx)
-            })
-        } else {
-            #[cfg(target_arch = "x86_64")]
-            if let Some(taken) = avx2::take(bits, indices, None) {
-                return taken;
-            }
-
-            let ptr = bits.inner().as_ptr();
-            let offset = bits.offset();
-            BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
-                // SAFETY: we're already iterating over every index, a bound
-                // is excessive
-                let idx = indices.get_unchecked(i).as_();
-                // SAFETY: we've asserted index is in bounds before
-                get_bit_unchecked(ptr, offset + idx)
-            })
-        };
+        return take_all_valid(bits, indices);
     };
 
+    take_nullable(bits, indices, validity)
+}
+
+/// Takes the bits at `indices`, which the caller checked to be in bounds.
+fn take_all_valid<I: AsPrimitive<usize>>(bits: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    if let Some(taken) = lut::take(bits, indices) {
+        return taken;
+    }
+
+    // On a small bitmap, the gather beats a byte per bit on CPUs with AVX-512, but not on CPUs
+    // with only AVX2, such as Zen 3.
     #[cfg(target_arch = "x86_64")]
+    if (bits.len() > COLLECT_TO_VEC || is_x86_feature_detected!("avx512f"))
+        && let Some(taken) = gather(bits, indices, None)
     {
-        // The gather needs its 32-bit loads in bounds. Copy a small bitmap into a padded table,
-        // because the buffer can end before the last load.
-        let taken = if bits.len() <= COLLECT_TO_VEC {
-            let padded = padded_table::<{ COLLECT_TO_VEC / 8 + 8 }>(bits);
-            avx2::take(
-                BitBufferView::new(&padded, bits.len()),
-                indices,
-                Some(validity),
-            )
-        } else {
-            avx2::take(bits, indices, Some(validity))
-        };
-        if let Some(taken) = taken {
-            return taken;
-        }
+        return taken;
+    }
+
+    if bits.len() <= COLLECT_TO_VEC {
+        let bools = expand_bools(bits);
+        return BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
+            // SAFETY: i is less than indices.len(), and the caller checked that every index is in
+            // bounds.
+            *bools.get_unchecked(indices.get_unchecked(i).as_())
+        });
+    }
+
+    let ptr = bits.inner().as_ptr();
+    let offset = bits.offset();
+    BitBuffer::collect_bool_multiversioned(indices.len(), |i| unsafe {
+        // SAFETY: i is less than indices.len(), and the caller checked that every index is in
+        // bounds.
+        get_bit_unchecked(ptr, offset + indices.get_unchecked(i).as_())
+    })
+}
+
+/// Takes the bits at `indices` where `validity` is set. The other indices can hold any value.
+fn take_nullable<I: AsPrimitive<usize>>(
+    bits: BitBufferView<'_>,
+    indices: &[I],
+    validity: BitBufferView<'_>,
+) -> BitBuffer {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(taken) = gather(bits, indices, Some(validity)) {
+        return taken;
     }
 
     if bits.len() <= COLLECT_TO_VEC {
@@ -150,6 +137,24 @@ where
         // SAFETY: we clamp index so it's never out of bounds
         get_bit_unchecked(buf, bits_offset + idx)
     })
+}
+
+/// Gathers the bits with AVX2, or returns `None` if the CPU has no AVX2.
+///
+/// The gather's 32-bit loads can pass the end of a small bitmap's buffer, so a small bitmap is
+/// copied into a padded table first, at most 520 bytes.
+#[cfg(target_arch = "x86_64")]
+fn gather<I: AsPrimitive<usize>>(
+    bits: BitBufferView<'_>,
+    indices: &[I],
+    validity: Option<BitBufferView<'_>>,
+) -> Option<BitBuffer> {
+    if bits.len() > COLLECT_TO_VEC {
+        return avx2::take(bits, indices, validity);
+    }
+
+    let padded = padded_table::<{ COLLECT_TO_VEC / 8 + 8 }>(bits);
+    avx2::take(BitBufferView::new(&padded, bits.len()), indices, validity)
 }
 
 fn take_with_validity<I>(
