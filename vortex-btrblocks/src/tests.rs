@@ -27,6 +27,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
@@ -418,6 +419,40 @@ fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
 
     assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
+
+/// BitPacking leaves values uncompressed when packing saves too little, such as `u8` values that
+/// need 7 of their 8 bits, and packs them when it saves enough.
+#[rstest]
+#[case::saves_one_bit(64, false)]
+#[case::saves_four_bits(8, true)]
+fn test_bitpacking_skips_small_savings(
+    #[case] min_value: u8,
+    #[case] expect_packed: bool,
+    #[values(&BITPACKING_V1, &BITPACKING_V2)] scheme: &'static BitPackingScheme,
+) -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..7u8).cycle().take(10_000).map(|v| min_value + v))
+        .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert_eq!(
+        compressed.is::<BitPacked>(),
+        expect_packed,
+        "{}",
+        compressed.encoding_id()
+    );
+    assert_eq!(
+        compressed.is::<Primitive>(),
+        !expect_packed,
+        "{}",
+        compressed.encoding_id()
+    );
     Ok(())
 }
 
