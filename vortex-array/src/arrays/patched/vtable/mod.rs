@@ -136,20 +136,30 @@ impl VTable for Patched {
             let array = require_spine!(array, array.inner(), PatchedSlots::INNER => Bool);
             let validity = array.validity()?;
             let values = array.patch_values().as_::<Bool>();
-            let mut replacement_bits = values.bit_buffer_view().iter();
+            let replacement_bits = values.bit_buffer_view();
+            let mut first = 0;
             let base = array.inner().clone().downcast::<Bool>().into_bit_buffer();
             let mut output = base
                 .try_into_mut()
                 .unwrap_or_else(|bits| BitBufferMut::copy_from(&bits));
+            // Accessing typed array data performs a downcast. Resolve it once before the scatter.
+            let offset = array.offset;
+            let bit_offset = output.offset();
+            let bytes = output.as_mut_slice();
             visit_chunks::<false>(
                 array.patch_indices(),
                 array.patch_chunk_offsets(),
-                array.offset,
+                offset,
                 array.len(),
                 ctx,
                 |base, local| {
-                    for (&position, value) in local.iter().zip(replacement_bits.by_ref()) {
-                        output.set_to(base + usize::from(position) - array.offset, value);
+                    let replacements = replacement_bits.slice(first..first + local.len());
+                    first += local.len();
+                    for (&position, value) in local.iter().zip(replacements.iter()) {
+                        let bit = base + usize::from(position) - offset + bit_offset;
+                        let shift = bit % 8;
+                        let byte = &mut bytes[bit / 8];
+                        *byte = (*byte & !(1 << shift)) | (u8::from(value) << shift);
                     }
                 },
             )?;
