@@ -10,4 +10,5 @@ python3 -u scripts/minimize_fuzz_corpus.py \
   --work-dir "fuzz/minimize/$FUZZ_NAME" \
   --artifacts "fuzz/artifacts/$FUZZ_NAME" \
   --shards "${MINIMIZE_SHARDS:-8}" \
+  --rss-limit-mb "${RSS_LIMIT_MB:-2048}" \
   2>&1 | tee fuzz-minimize.log
