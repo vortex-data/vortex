@@ -2,11 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod corruption;
+mod session;
 mod settings;
+
+use std::panic;
+use std::sync::Once;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 pub use corruption::*;
+pub use session::*;
 pub use settings::*;
 use vortex::expr::Expression;
 use vortex_array::ArrayRef;
@@ -51,6 +56,17 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
             write_settings,
         })
     }
+}
+
+pub(crate) fn report_on_panic(report: fn()) {
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            report();
+            previous(info);
+        }));
+    });
 }
 
 pub fn has_nullable_struct(dtype: &DType) -> bool {

@@ -22,6 +22,7 @@ use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArray;
+use vortex_fastlanes::BitPackedDataParts;
 use vortex_fastlanes::BitWidths;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
@@ -33,11 +34,11 @@ use vortex_fastlanes::bitpacked_v2_id;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
-use crate::compress_patches;
-use crate::schemes::patches::compress_external_patches;
+use crate::schemes::patches::KeptPatches;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum BitPackingSchemeMode {
@@ -86,6 +87,83 @@ impl Default for BitPackingScheme {
     }
 }
 
+impl BitPackingScheme {
+    /// Bit-packs `data`, or returns `None` when it is empty or its best bit width is its native
+    /// width.
+    pub(super) fn try_encode(
+        &self,
+        data: &ArrayAndStats,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Encoded>> {
+        let primitive_array = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
+        let packed = match self.mode {
+            BitPackingSchemeMode::V1 => compress_global(&primitive_array, exec_ctx)?,
+            BitPackingSchemeMode::V2 => compress_blocked(&primitive_array, exec_ctx)?,
+        };
+        let Some(packed) = packed else {
+            return Ok(None);
+        };
+
+        let packed_stats = packed.statistics().to_owned();
+        let ptype = packed.dtype().as_ptype();
+        let BitPackedDataParts {
+            offset,
+            bit_widths,
+            len,
+            packed,
+            patches,
+            validity,
+        } = BitPacked::into_parts(packed);
+
+        let (mut compress, bit_width) = match bit_widths {
+            BitWidths::Global(bw) => (Vec::new(), Some(bw)),
+            BitWidths::Blocked(block_offsets) => (vec![Child::new(self, 0, block_offsets)], None),
+        };
+        let patch_index = usize::from(self.mode == BitPackingSchemeMode::V2);
+        let (patches, keep) = KeptPatches::new(
+            self,
+            patch_index,
+            &mut compress,
+            data.array(),
+            patches,
+            exec_ctx,
+        )?;
+
+        Ok(Some(
+            Encoded::new(compress, keep, move |children, _| {
+                let validity = children.validity()?;
+                let bit_widths = match bit_width {
+                    Some(bw) => BitWidths::Global(bw),
+                    None => {
+                        let [block_offsets] = children.compressed()?;
+                        BitWidths::Blocked(block_offsets)
+                    }
+                };
+                let array = patches.build(children, |patches| {
+                    let array = match bit_widths {
+                        BitWidths::Global(bw) => {
+                            BitPacked::try_new(packed, ptype, validity, patches, bw, len, offset)?
+                        }
+                        BitWidths::Blocked(block_offsets) => BitPacked::try_new_with_block_offsets(
+                            packed,
+                            ptype,
+                            validity,
+                            patches,
+                            block_offsets,
+                            len,
+                            offset,
+                        )?,
+                    };
+                    Ok(array.into_array())
+                })?;
+                array.statistics().set_all(packed_stats);
+                Ok(array)
+            })
+            .with_validity(validity),
+        ))
+    }
+}
+
 impl Scheme for BitPackingScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.int.bitpacking"
@@ -118,10 +196,7 @@ impl Scheme for BitPackingScheme {
 
     /// Children: block offsets in v2, then external patch positions when enabled.
     fn num_children(&self) -> usize {
-        match self.mode {
-            BitPackingSchemeMode::V1 => usize::from(use_experimental_patches()),
-            BitPackingSchemeMode::V2 => 1 + usize::from(use_experimental_patches()),
-        }
+        usize::from(self.mode == BitPackingSchemeMode::V2) + usize::from(use_experimental_patches())
     }
 
     fn expected_compression_ratio(
@@ -140,83 +215,27 @@ impl Scheme for BitPackingScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Children: block offsets=0 in v2 mode; patch children follow.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        Ok(self
+            .try_encode(data, exec_ctx)?
+            .unwrap_or_else(|| Encoded::leaf(data.array().clone())))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = compressor
-            .with_compressed_validity(data.array(), exec_ctx)?
-            .execute::<PrimitiveArray>(exec_ctx)?;
-        let packed = match self.mode {
-            BitPackingSchemeMode::V1 => compress_global(&primitive_array, exec_ctx)?,
-            BitPackingSchemeMode::V2 => compress_blocked(&primitive_array, exec_ctx)?,
-        };
-        let Some(packed) = packed else {
-            return Ok(primitive_array.into_array());
-        };
-
-        let packed_stats = packed.statistics().to_owned();
-        let ptype = packed.dtype().as_ptype();
-        let mut parts = BitPacked::into_parts(packed);
-
-        let patches = if use_experimental_patches() {
-            parts.patches.take()
-        } else {
-            parts.patches = parts
-                .patches
-                .take()
-                .map(|p| compress_patches(p, exec_ctx))
-                .transpose()?;
-            None
-        };
-
-        let array = match parts.bit_widths {
-            BitWidths::Global(bw) => BitPacked::try_new(
-                parts.packed,
-                ptype,
-                parts.validity,
-                parts.patches,
-                bw,
-                parts.len,
-                parts.offset,
-            )?,
-            BitWidths::Blocked(block_offsets) => {
-                let block_offsets = compressor.compress_child(
-                    &block_offsets,
-                    &compress_ctx,
-                    self.id(),
-                    0,
-                    exec_ctx,
-                )?;
-                BitPacked::try_new_with_block_offsets(
-                    parts.packed,
-                    ptype,
-                    parts.validity,
-                    parts.patches,
-                    block_offsets,
-                    parts.len,
-                    parts.offset,
-                )?
-            }
-        };
-
-        match patches {
-            None => Ok(array.with_stats_set(packed_stats).into_array()),
-            Some(p) => Ok(compress_external_patches(
-                array.into_array(),
-                &p,
-                compressor,
-                &compress_ctx,
-                self.id(),
-                self.num_children() - 1,
-                exec_ctx,
-            )?
-            .with_stats_set(packed_stats)
-            .into_array()),
-        }
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

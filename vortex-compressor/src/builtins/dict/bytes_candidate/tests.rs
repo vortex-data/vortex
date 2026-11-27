@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
 use std::sync::LazyLock;
 
 use rstest::rstest;
@@ -8,7 +9,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
@@ -33,7 +37,6 @@ use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
 use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
-use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -243,8 +246,12 @@ fn completed_candidate_is_reused() -> VortexResult<()> {
     let cached = data
         .get::<TrialOutput>()
         .ok_or_else(|| vortex_err!("completed candidate was not cached"))?;
-    let compressed =
-        StringDictScheme.compress(&compressor, &data, CompressorContext::new(), &mut exec_ctx)?;
+    let compressed = compressor.compress_with_scheme(
+        &StringDictScheme,
+        &data,
+        &CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
 
     assert!(ArrayRef::ptr_eq(&cached.array, &compressed));
     Ok(())
@@ -301,5 +308,37 @@ fn values_ratio_bound_rejects_sparse_unique_values() -> VortexResult<()> {
         ),
         Admission::Reject
     );
+    Ok(())
+}
+
+#[test]
+fn candidate_and_scheme_order_codes_by_descending_frequency() -> VortexResult<()> {
+    let mut exec_ctx = SESSION.create_execution_ctx();
+    let mut rows = Vec::with_capacity(76);
+    rows.push(Some("rare_z".to_owned()));
+    rows.extend(iter::repeat_n(Some("mid_m".to_owned()), 5));
+    rows.extend(iter::repeat_n(Some("warm_w".to_owned()), 20));
+    rows.extend(iter::repeat_n(Some("hot_h".to_owned()), 50));
+    let data = string_data(&rows);
+
+    let candidate = build_candidate(data.array(), &mut exec_ctx)?
+        .ok_or_else(|| vortex_err!("expected candidate dictionary"))?;
+    assert_arrays_eq!(
+        candidate.values(),
+        VarBinViewArray::from_iter_str(["hot_h", "warm_w", "mid_m", "rare_z"]),
+        &mut exec_ctx
+    );
+
+    let compressed =
+        CascadingCompressor::new(vec![&StringDictScheme]).compress(data.array(), &mut exec_ctx)?;
+    let dict = compressed
+        .as_opt::<Dict>()
+        .ok_or_else(|| vortex_err!("expected Dict"))?;
+    assert_arrays_eq!(
+        dict.values(),
+        VarBinViewArray::from_iter_str(["hot_h", "warm_w", "mid_m", "rare_z"]),
+        &mut exec_ctx
+    );
+    assert_arrays_eq!(compressed, data.array().clone(), &mut exec_ctx);
     Ok(())
 }

@@ -170,6 +170,7 @@ impl FloatNormalization {
             | DType::Decimal(..)
             | DType::Utf8(_)
             | DType::Binary(_)
+            | DType::FixedSizeBinary(..)
             | DType::Union(..)
             | DType::Variant(_) => array.clone(),
         })

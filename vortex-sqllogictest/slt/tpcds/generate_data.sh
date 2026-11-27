@@ -8,6 +8,8 @@
 # and checks that the Parquet and Vortex tables hold identical data before the
 # Vortex files are used by the SLT suite. Set VORTEX_SLT_PROFILE to reuse an
 # existing cargo profile for conversion and the parity test (CI uses `ci`).
+# Set VORTEX_SLT_SKIP_PARITY=1 to skip the parity test (e.g. when the caller
+# immediately runs the full SLT suite, which includes parity.slt).
 
 set -e -o pipefail
 
@@ -41,12 +43,14 @@ printf '%s\0' "${DATA_DIR}"/*.parquet | xargs -0 -n 1 -P "$(getconf _NPROCESSORS
   cd "${CRATE_DIR}" && cargo run --quiet --profile "${VORTEX_SLT_PROFILE}" --package vortex-tui --bin vx -- convert "$1"
 ' _
 
-# The parity test reads every table in both formats through DuckDB and fails if
-# any row differs, so a bad conversion is caught before the query result files
-# are trusted.
-echo "Checking that the TPC-DS Parquet and Vortex tables match..."
-(
-  cd "${CRATE_DIR}"
-  cargo test --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-sqllogictest --test sqllogictests \
-    -- --exact 'slt::duckdb::tpcds/duckdb/parity.slt'
-)
+if [ "${VORTEX_SLT_SKIP_PARITY:-0}" != "1" ]; then
+  # The parity test reads every table in both formats through DuckDB and fails if
+  # any row differs, so a bad conversion is caught before the query result files
+  # are trusted.
+  echo "Checking that the TPC-DS Parquet and Vortex tables match..."
+  (
+    cd "${CRATE_DIR}"
+    cargo test --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-sqllogictest --test sqllogictests \
+      -- --exact 'slt::duckdb::tpcds/duckdb/parity.slt'
+  )
+fi
