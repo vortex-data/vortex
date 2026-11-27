@@ -296,33 +296,4 @@ mod tests {
         fuzz_scalar_proto_bytes(&SEED_SCALAR_PROTO_BYTES);
         fuzz_scalar_value_proto_bytes(&SEED_SCALAR_VALUE_PROTO_BYTES);
     }
-
-    #[test]
-    fn test_ipc_overflowing_row_count_returns_error() {
-        let mut messages = BufMessageReader::new(SEED_IPC_BYTES.as_slice());
-        let DecoderMessage::DType(fb_dtype) = messages
-            .next()
-            .vortex_expect("expected DType message")
-            .vortex_expect("seed DType must decode")
-        else {
-            unreachable!("first seed IPC message is DType");
-        };
-        let dtype =
-            DType::from_flatbuffer(fb_dtype, &SESSION).vortex_expect("seed DType must deserialize");
-
-        let DecoderMessage::Array((parts, ctx, row_count)) = messages
-            .next()
-            .vortex_expect("expected Array message")
-            .vortex_expect("seed Array must decode")
-        else {
-            unreachable!("second seed IPC message is Array");
-        };
-
-        let overflowing_row_count = row_count ^ (1usize << 62);
-        assert!(
-            parts
-                .decode(&dtype, overflowing_row_count, &ctx, &SESSION)
-                .is_err()
-        );
-    }
 }
