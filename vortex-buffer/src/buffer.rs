@@ -995,6 +995,8 @@ fn slice_start_misaligned(alignment: Alignment, begin_byte: usize) -> ! {
 mod test {
     use std::mem::align_of;
     use std::ops::Bound;
+    use std::panic::AssertUnwindSafe;
+    use std::panic::catch_unwind;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -1323,8 +1325,22 @@ mod test {
         drop(buffer.ensure_aligned(alignment));
     }
 
+    #[track_caller]
+    fn assert_panics_with(f: impl FnOnce(), expected: &str) {
+        let err = catch_unwind(AssertUnwindSafe(f)).expect_err("expected panic");
+        let msg = err
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| err.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or_default();
+        assert!(
+            msg.contains(expected),
+            "expected panic containing `{expected}`, got `{msg}`"
+        );
+    }
+
     #[test]
-    fn slice_ref_preserves_pointer_values_and_lifetime() {
+    fn slice_ref_valid_and_empty_subsets() {
         let buf = buffer![10u32, 20, 30, 40, 50];
         let sub = &buf.as_slice()[1..4];
         let sub_ptr = sub.as_ptr();
@@ -1334,10 +1350,7 @@ mod test {
         assert_eq!(sliced.as_ptr(), sub_ptr);
         assert_eq!(sliced.as_slice(), &[20, 30, 40]);
         assert_eq!(sliced.alignment(), Alignment::of::<u32>());
-    }
 
-    #[test]
-    fn slice_ref_with_alignment_valid_and_empty_subset() {
         let buf = ByteBuffer::copy_from_aligned([0u8; 64], Alignment::new(64));
         let sub = &buf.as_slice()[16..48];
         let aligned = buf.slice_ref_with_alignment(sub, Alignment::new(16));
@@ -1351,64 +1364,70 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "slice_ref alignment must at least align to type T")]
-    fn slice_ref_with_alignment_below_type_alignment_panics() {
-        let buf = buffer![1u32, 2, 3, 4];
-        drop(buf.slice_ref_with_alignment(&buf[..2], Alignment::new(2)));
+    fn slice_ref_invalid_inputs_panic() {
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2, 3, 4];
+                drop(buf.slice_ref_with_alignment(&buf[..2], Alignment::new(2)));
+            },
+            "slice_ref alignment must at least align to type T",
+        );
+        assert_panics_with(
+            || {
+                let buf = ByteBuffer::copy_from_aligned([1u8, 2, 3, 4], Alignment::new(1));
+                drop(buf.slice_ref_with_alignment(&buf[..4], Alignment::new(4)));
+            },
+            "slice_ref subset alignment must at least align to the buffer alignment",
+        );
+        assert_panics_with(
+            || {
+                let buf = ByteBuffer::copy_from_aligned([0u8; 16], Alignment::new(8));
+                drop(buf.slice_ref_with_alignment(&buf[1..5], Alignment::new(4)));
+            },
+            "slice_ref subset must be aligned to",
+        );
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2, 3, 4];
+                let unrelated = [1u32, 2];
+                drop(buf.slice_ref(&unrelated));
+            },
+            "slice_ref subset must be contained in the buffer",
+        );
+        assert_panics_with(
+            || {
+                let parent = buffer![1u32, 2, 3, 4, 5];
+                let view = parent.slice(2..4);
+                drop(view.slice_ref(&parent[1..3]));
+            },
+            "slice_ref subset must be contained in the buffer",
+        );
     }
 
     #[test]
-    #[should_panic(
-        expected = "slice_ref subset alignment must at least align to the buffer alignment"
-    )]
-    fn slice_ref_with_alignment_stricter_than_buffer_panics() {
-        let buf = ByteBuffer::copy_from_aligned([1u8, 2, 3, 4], Alignment::new(1));
-        drop(buf.slice_ref_with_alignment(&buf[..4], Alignment::new(4)));
-    }
-
-    #[test]
-    #[should_panic(expected = "slice_ref subset must be aligned to")]
-    fn slice_ref_with_alignment_misaligned_pointer_panics() {
-        let buf = ByteBuffer::copy_from_aligned([0u8; 16], Alignment::new(8));
-        drop(buf.slice_ref_with_alignment(&buf[1..5], Alignment::new(4)));
-    }
-
-    #[test]
-    #[should_panic(expected = "slice_ref subset must be contained in the buffer")]
-    fn slice_ref_outside_buffer_panics() {
-        let buf = buffer![1u32, 2, 3, 4];
-        let unrelated = [1u32, 2];
-        drop(buf.slice_ref(&unrelated));
-    }
-
-    #[test]
-    #[should_panic(expected = "slice_ref subset must be contained in the buffer")]
-    fn slice_ref_parent_slice_outside_sliced_view_panics() {
-        let parent = buffer![1u32, 2, 3, 4, 5];
-        let view = parent.slice(2..4);
-        drop(view.slice_ref(&parent[1..3]));
-    }
-
-    #[test]
-    #[should_panic(expected = "range start must not be greater than end")]
     #[expect(clippy::reversed_empty_ranges)]
-    fn slice_inverted_range_panics() {
-        let buf = buffer![1u32, 2, 3, 4];
-        drop(buf.slice(3..1));
-    }
-
-    #[test]
-    #[should_panic(expected = "range end out of bounds")]
-    fn slice_out_of_bounds_panics() {
-        let buf = buffer![1u32, 2, 3];
-        drop(buf.slice(0..4));
-    }
-
-    #[test]
-    #[should_panic(expected = "Slice alignment must at least align to type T")]
-    fn slice_with_alignment_below_type_panics() {
-        let buf = buffer![1u32, 2, 3, 4];
-        drop(buf.slice_with_alignment(0..2, Alignment::new(2)));
+    fn slice_invalid_inputs_panic() {
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2, 3, 4];
+                drop(buf.slice(3..1));
+            },
+            "range start must not be greater than end",
+        );
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2, 3];
+                drop(buf.slice(0..4));
+            },
+            "range end out of bounds",
+        );
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2, 3, 4];
+                drop(buf.slice_with_alignment(0..2, Alignment::new(2)));
+            },
+            "Slice alignment must at least align to type T",
+        );
     }
 
     #[test]
@@ -1451,28 +1470,32 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "must be compatible with the scalar type's alignment")]
-    fn from_byte_buffer_aligned_incompatible_alignment_panics() {
-        let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4));
-        drop(Buffer::<u32>::from_byte_buffer_aligned(
-            bytes,
-            Alignment::new(2),
-        ));
-    }
-
-    #[test]
-    #[should_panic(expected = "Buffer must align to the requested alignment")]
-    fn from_byte_buffer_misaligned_ptr_panics() {
-        let bytes =
-            ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4)).slice_unaligned(1..5);
-        drop(Buffer::<u32>::from_byte_buffer(bytes));
-    }
-
-    #[test]
-    #[should_panic(expected = "Buffer length 5 must be a multiple of the scalar type's size 4")]
-    fn from_byte_buffer_length_not_multiple_panics() {
-        let bytes = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::new(4));
-        drop(Buffer::<u32>::from_byte_buffer(bytes));
+    fn from_byte_buffer_invalid_inputs_panic() {
+        assert_panics_with(
+            || {
+                let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4));
+                drop(Buffer::<u32>::from_byte_buffer_aligned(
+                    bytes,
+                    Alignment::new(2),
+                ));
+            },
+            "must be compatible with the scalar type's alignment",
+        );
+        assert_panics_with(
+            || {
+                let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4))
+                    .slice_unaligned(1..5);
+                drop(Buffer::<u32>::from_byte_buffer(bytes));
+            },
+            "Buffer must align to the requested alignment",
+        );
+        assert_panics_with(
+            || {
+                let bytes = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::new(4));
+                drop(Buffer::<u32>::from_byte_buffer(bytes));
+            },
+            "Buffer length 5 must be a multiple of the scalar type's size 4",
+        );
     }
 
     #[test]
@@ -1496,30 +1519,34 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "must be compatible with the scalar type's alignment")]
-    fn from_bytes_aligned_incompatible_alignment_panics() {
-        let raw = buffer![1u32, 2].into_bytes();
-        drop(Buffer::<u32>::from_bytes_aligned(raw, Alignment::new(2)));
-    }
-
-    #[test]
-    #[should_panic(expected = "Bytes alignment must align to the requested alignment")]
-    fn from_bytes_aligned_misaligned_ptr_panics() {
-        let raw = buffer![1u32, 2].into_bytes().slice(1..5);
-        drop(Buffer::<u32>::from_bytes_aligned(
-            raw,
-            Alignment::of::<u32>(),
-        ));
-    }
-
-    #[test]
-    #[should_panic(expected = "Bytes length 5 must be a multiple of the scalar type's size 4")]
-    fn from_bytes_aligned_length_not_multiple_panics() {
-        let raw = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::new(4)).into_bytes();
-        drop(Buffer::<u32>::from_bytes_aligned(
-            raw,
-            Alignment::of::<u32>(),
-        ));
+    fn from_bytes_aligned_invalid_inputs_panic() {
+        assert_panics_with(
+            || {
+                let raw = buffer![1u32, 2].into_bytes();
+                drop(Buffer::<u32>::from_bytes_aligned(raw, Alignment::new(2)));
+            },
+            "must be compatible with the scalar type's alignment",
+        );
+        assert_panics_with(
+            || {
+                let raw = buffer![1u32, 2].into_bytes().slice(1..5);
+                drop(Buffer::<u32>::from_bytes_aligned(
+                    raw,
+                    Alignment::of::<u32>(),
+                ));
+            },
+            "Bytes alignment must align to the requested alignment",
+        );
+        assert_panics_with(
+            || {
+                let raw = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::new(4)).into_bytes();
+                drop(Buffer::<u32>::from_bytes_aligned(
+                    raw,
+                    Alignment::of::<u32>(),
+                ));
+            },
+            "Bytes length 5 must be a multiple of the scalar type's size 4",
+        );
     }
 
     #[test]
@@ -1570,19 +1597,23 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Buffer type size mismatch")]
-    fn transmute_size_mismatch_panics() {
-        let buf = buffer![1u32, 2];
-        // SAFETY: panics on size check before reinterpreting memory.
-        drop(unsafe { buf.transmute::<u16>() });
-    }
-
-    #[test]
-    #[should_panic(expected = "Buffer type alignment mismatch")]
-    fn transmute_alignment_mismatch_panics() {
-        let buf = buffer![1u32, 2];
-        // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
-        drop(unsafe { buf.transmute::<[u8; 4]>() });
+    fn transmute_invalid_type_panics() {
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2];
+                // SAFETY: panics on size check before reinterpreting memory.
+                drop(unsafe { buf.transmute::<u16>() });
+            },
+            "Buffer type size mismatch",
+        );
+        assert_panics_with(
+            || {
+                let buf = buffer![1u32, 2];
+                // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
+                drop(unsafe { buf.transmute::<[u8; 4]>() });
+            },
+            "Buffer type alignment mismatch",
+        );
     }
 
     #[test]
@@ -1603,14 +1634,6 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Buffer is not aligned to requested alignment 4")]
-    fn ensure_aligned_misaligned_panics() {
-        let unaligned =
-            ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(8)).slice_unaligned(1..5);
-        drop(unaligned.ensure_aligned(Alignment::new(4)));
-    }
-
-    #[test]
     fn shared_owned_try_into_mut_returns_err_preserving_backing() {
         let buf = buffer![1u32, 2, 3];
         let clone = buf.clone();
@@ -1624,16 +1647,28 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Cannot advance buffer by 1 items, resulting alignment is not 4")]
-    fn bytes_buf_advance_misaligned_panics() {
-        let mut buf = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4));
-        buf.advance(1);
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot advance past the buffer length")]
-    fn bytes_buf_advance_past_length_panics() {
-        let mut buf = ByteBuffer::copy_from([1u8, 2, 3]);
-        buf.advance(4);
+    fn ensure_aligned_and_advance_invalid_inputs_panic() {
+        assert_panics_with(
+            || {
+                let unaligned = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(8))
+                    .slice_unaligned(1..5);
+                drop(unaligned.ensure_aligned(Alignment::new(4)));
+            },
+            "Buffer is not aligned to requested alignment 4",
+        );
+        assert_panics_with(
+            || {
+                let mut buf = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::new(4));
+                buf.advance(1);
+            },
+            "Cannot advance buffer by 1 items, resulting alignment is not 4",
+        );
+        assert_panics_with(
+            || {
+                let mut buf = ByteBuffer::copy_from([1u8, 2, 3]);
+                buf.advance(4);
+            },
+            "cannot advance past the buffer length",
+        );
     }
 }
