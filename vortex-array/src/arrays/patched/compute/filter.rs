@@ -19,7 +19,12 @@ impl FilterKernel for Patched {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let base = array.inner().filter(mask.clone())?;
-        super::select_rows(array, base, array.patches().filter(mask, ctx)?, ctx)
+        super::select_rows(
+            array,
+            base,
+            array.absolute_patches(ctx)?.filter(mask, ctx)?,
+            ctx,
+        )
     }
 }
 

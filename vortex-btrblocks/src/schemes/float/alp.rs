@@ -29,6 +29,7 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::patches::compress_external_patches;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -52,9 +53,9 @@ impl Scheme for ALPScheme {
         encodings
     }
 
-    /// Children: encoded_ints=0.
+    /// Children: encoded integers, then external patch positions when enabled.
     fn num_children(&self) -> usize {
-        1
+        1 + usize::from(use_experimental_patches())
     }
 
     fn expected_compression_ratio(
@@ -106,9 +107,17 @@ impl Scheme for ALPScheme {
 
             match patches {
                 None => Ok(alp_array),
-                Some(p) => Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?
-                    .with_stats_set(alp_stats)
-                    .into_array()),
+                Some(p) => Ok(compress_external_patches(
+                    alp_array,
+                    &p,
+                    compressor,
+                    &compress_ctx,
+                    self.id(),
+                    1,
+                    exec_ctx,
+                )?
+                .with_stats_set(alp_stats)
+                .into_array()),
             }
         } else {
             let patches = alp_encoded

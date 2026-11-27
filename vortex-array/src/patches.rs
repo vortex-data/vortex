@@ -359,46 +359,6 @@ impl Patches {
         })
     }
 
-    /// Supply the chunk index for encodings that require one on disk.
-    pub(crate) fn with_chunk_offsets(mut self, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if self.chunk_offsets.is_some() {
-            return Ok(self);
-        }
-        let rows = decode_sorted_positions(&self.indices, ctx)?;
-        let first_chunk = self.offset / PATCH_CHUNK_SIZE;
-        let end = self
-            .offset
-            .checked_add(self.array_len)
-            .ok_or_else(|| vortex_err!("Patch range overflows usize"))?;
-        vortex_ensure!(rows.is_sorted_by(|a, b| a < b));
-        vortex_ensure!(
-            rows.first().is_some_and(|&row| row >= self.offset as u64)
-                && rows.last().is_some_and(|&row| row < end as u64)
-        );
-        let mut rows = rows.iter().copied().peekable();
-        let mut position = 0u64;
-        let offsets = (first_chunk..end.div_ceil(PATCH_CHUNK_SIZE))
-            .map(|chunk| {
-                let start = position;
-                while rows
-                    .next_if(|row| *row / PATCH_CHUNK_SIZE as u64 == chunk as u64)
-                    .is_some()
-                {
-                    position += 1;
-                }
-                start
-            })
-            .collect::<Buffer<u64>>();
-        vortex_ensure!(rows.next().is_none(), "Patch outside chunk range");
-        self.chunk_offsets = Some(
-            PrimitiveArray::new(offsets, Validity::NonNullable)
-                .narrow(ctx)?
-                .into_array(),
-        );
-        self.offset_within_chunk = Some(0);
-        Ok(self)
-    }
-
     /// Reconstruct patches from serialized metadata and their child arrays.
     ///
     /// Preserves the number of patches sliced off within the first chunk. Metadata without this

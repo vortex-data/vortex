@@ -5,11 +5,19 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+
+use crate::CascadingCompressor;
+use crate::CompressorContext;
+use crate::SchemeId;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
@@ -53,4 +61,25 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         chunk_offsets,
         ctx,
     )
+}
+
+/// Let the cascade choose an encoding for the local u16 positions independently of the base.
+pub(super) fn compress_external_patches(
+    base: ArrayRef,
+    patches: &Patches,
+    compressor: &CascadingCompressor,
+    parent: &CompressorContext,
+    scheme: SchemeId,
+    child: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PatchedArray> {
+    let array = Patched::from_array_and_patches(base, patches, ctx)?;
+    let indices = compressor.compress_child(array.patch_indices(), parent, scheme, child, ctx)?;
+    // SAFETY: compress_child preserves the dtype, length and values of the index child.
+    Ok(unsafe {
+        array
+            .into_array()
+            .with_slot(PatchedSlots::PATCH_INDICES, indices)?
+    }
+    .downcast::<Patched>())
 }

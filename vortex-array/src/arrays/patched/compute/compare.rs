@@ -35,7 +35,7 @@ impl CompareKernel for Patched {
             .inner()
             .compare(rhs.clone(), op)?
             .execute::<BoolArray>(ctx)?;
-        let patches = array.patches().map_values(|values| {
+        let patches = array.absolute_patches(ctx)?.map_values(|values| {
             let rhs = ConstantArray::new(constant.clone(), values.len()).into_array();
             values.compare(rhs, op)
         })?;

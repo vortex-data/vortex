@@ -8,11 +8,13 @@ mod slice;
 #[cfg(test)]
 mod tests;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::Array;
@@ -26,6 +28,7 @@ use crate::IntoArray;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::FloatPatchStrategy;
 use crate::arrays::patched::IntegerPatchStrategy;
 use crate::arrays::patched::PatchStrategy;
@@ -37,16 +40,17 @@ use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
 use crate::block::Block;
 use crate::block::BlockOp;
-use crate::block::BlockPatches;
 use crate::block::Values;
 use crate::block::Written;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::require_child;
 use crate::require_spine;
+use crate::search_sorted::decode_sorted_positions;
 
 impl VTable for Patched {
     type TypedArrayData = PatchedData;
@@ -74,10 +78,14 @@ impl VTable for Patched {
         vortex_ensure_eq!(slots.patch_values.dtype(), dtype);
         vortex_ensure_eq!(slots.patch_indices.len(), slots.patch_values.len());
         vortex_ensure!((1..=len).contains(&slots.patch_indices.len()));
+        vortex_ensure!(
+            slots.patch_indices.dtype().is_unsigned_int()
+                && slots.patch_indices.dtype().as_ptype() == PType::U16
+        );
         for positions in [slots.patch_indices, slots.patch_chunk_offsets] {
             vortex_ensure!(positions.dtype().is_unsigned_int() && !positions.dtype().is_nullable());
         }
-        let offset = data.patches.offset();
+        let offset = data.offset;
         let end = offset
             .checked_add(len)
             .ok_or_else(|| vortex_err!("Patch range overflow"))?;
@@ -118,7 +126,7 @@ impl VTable for Patched {
         let array =
             require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => Primitive);
         let array = require_spine!(array, array.inner(), PatchedSlots::INNER => Primitive);
-        let patches = array.patches();
+        let patches = array.absolute_patches(ctx)?;
         let inner = array.inner().clone().downcast::<Primitive>();
         drop(array);
         Ok(ExecutionResult::done(
@@ -137,15 +145,40 @@ impl VTable for Patched {
         }
         let (PatchStrategy::Integer(IntegerPatchStrategy::Replace)
         | PatchStrategy::Float(FloatPatchStrategy::Replace)) = array.strategy();
-        let patches = array.patches();
+        let indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?
+            .to_buffer::<u16>();
+        let offsets = decode_sorted_positions(array.patch_chunk_offsets(), ctx)?;
+        let values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let valid = values.validity()?.execute_mask(values.len(), ctx)?;
         match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-            let patches = BlockPatches::try_new(&patches, ctx, |_, value: T| value)?;
-            Ok(Some(Box::new(Replace(patches)) as Box<dyn BlockOp>))
+            Ok(Some(Box::new(Replace {
+                indices,
+                offsets,
+                values: values.to_buffer::<T>(),
+                valid,
+                offset: array.offset,
+                chunk: 0,
+                position: 0,
+            }) as Box<dyn BlockOp>))
         })
     }
 }
 
-struct Replace<T>(BlockPatches<T>);
+struct Replace<T: NativePType> {
+    indices: Buffer<u16>,
+    offsets: Buffer<u64>,
+    values: Buffer<T>,
+    valid: Mask,
+    offset: usize,
+    chunk: usize,
+    position: usize,
+}
 
 impl<T: NativePType> BlockOp for Replace<T> {
     fn process<'a>(&mut self, mut block: Block<'a>) -> VortexResult<Written<'a>> {
@@ -154,8 +187,30 @@ impl<T: NativePType> BlockOp for Replace<T> {
             Values::InPlace(values) => values.written(),
             values => values.map(|v: T| v),
         };
-        self.0
-            .apply(start, written.as_mut_slice::<T>(), &mut block.validity);
+        let values = written.as_mut_slice::<T>();
+        let begin = self.offset + start;
+        let end = begin + values.len();
+        while self.position < self.indices.len() {
+            while self
+                .offsets
+                .get(self.chunk + 1)
+                .is_some_and(|&next| next <= self.position as u64)
+            {
+                self.chunk += 1;
+            }
+            let row = (self.offset / PATCH_CHUNK_SIZE + self.chunk) * PATCH_CHUNK_SIZE
+                + usize::from(self.indices[self.position]);
+            if row >= end {
+                break;
+            }
+            if row >= begin {
+                values[row - begin] = self.values[self.position];
+                block
+                    .validity
+                    .set(row - begin, self.valid.value(self.position));
+            }
+            self.position += 1;
+        }
         Ok(written)
     }
 }

@@ -57,8 +57,8 @@ fn sliced_replacements_roundtrip(#[case] indexed: bool) -> VortexResult<()> {
         2048 => Some(8),
         _ => Some(5),
     }));
-    let patches = slice.as_::<Patched>().patches();
-    assert_eq!(patches.offset_within_chunk(), Some(1));
+    let patches = slice.as_::<Patched>().absolute_patches(&mut ctx)?;
+    assert_eq!(patches.offset_within_chunk(), Some(0));
 
     let wire = ArrayContext::empty().with_allowed_ids(
         session
