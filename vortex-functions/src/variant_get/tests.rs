@@ -15,6 +15,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -1165,4 +1166,37 @@ fn converts_decimals_to_a_smaller_scale(#[case] unscaled: i64, #[case] expected:
             Nullability::Nullable,
         ))
     );
+}
+
+#[rstest]
+#[case::masked_input(false)]
+#[case::masked_core_storage(true)]
+fn variant_get_extracts_from_masked_variants(#[case] as_core_storage: bool) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let row = obj_a(5).cast(&DType::Variant(Nullability::Nullable))?;
+    let masked = MaskedArray::try_new(
+        ConstantArray::new(row, 3).into_array(),
+        Validity::from_iter([true, false, true]),
+        &mut ctx,
+    )?
+    .into_array();
+    let input = if as_core_storage {
+        VariantArray::try_new(masked, None)?.into_array()
+    } else {
+        masked
+    };
+
+    let expr = variant_get(
+        root(),
+        VariantPath::field("a"),
+        Some(DType::Primitive(PType::I32, Nullability::Nullable)),
+    );
+    let result = input.apply(&expr)?;
+
+    assert_arrays_eq!(
+        result,
+        PrimitiveArray::from_option_iter([Some(5i32), None, Some(5)]),
+        &mut ctx
+    );
+    Ok(())
 }

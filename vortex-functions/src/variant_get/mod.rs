@@ -14,11 +14,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Masked;
 use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
+use vortex_array::arrays::masked::MaskedArrayExt;
+use vortex_array::arrays::masked::MaskedArraySlotsExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builders::VariantBuilder;
@@ -183,6 +186,14 @@ impl ScalarFnVTable for VariantGet {
                 .into_array()
                 .execute::<ArrayRef>(ctx)?
                 .mask(masked.child_at(1).clone())?
+                .execute::<ArrayRef>(ctx);
+        }
+
+        if let Some(masked) = input.as_opt::<Masked>() {
+            return VariantGet::try_new(masked.child().clone(), options.clone())?
+                .into_array()
+                .execute::<ArrayRef>(ctx)?
+                .mask(masked.masked_validity().to_array(input.len()))?
                 .execute::<ArrayRef>(ctx);
         }
         // Each canonicalization unwraps one lazy layer, such as a filter over a slice over a
