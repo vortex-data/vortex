@@ -6,7 +6,11 @@ use num_traits::Zero;
 use vortex_error::VortexExpect;
 
 use crate::BitBuffer;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use crate::BitBufferMut;
 use crate::BitBufferView;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use crate::BufferAllocatorRef;
 use crate::BufferMut;
 use crate::bit::get_bit_unchecked;
 
@@ -282,24 +286,20 @@ fn collect_words<T: Copy + Default>(
     indices: &[T],
     mut kernel: impl FnMut(&[T; 64]) -> u64,
 ) -> BitBuffer {
-    let total = indices.len();
-    let mut out = BufferMut::<u64>::with_capacity(total.div_ceil(64));
+    let allocator = BufferAllocatorRef::statically_allocated();
+    BitBufferMut::collect_words_in(indices.len(), allocator, |words| {
+        let (chunks, tail) = indices.as_chunks::<64>();
+        for (word, chunk) in words.iter_mut().zip(chunks) {
+            *word = kernel(chunk);
+        }
 
-    let (chunks, tail) = indices.as_chunks::<64>();
-    for chunk in chunks {
-        // SAFETY: out has capacity for a word per 64 indices.
-        unsafe { out.push_unchecked(kernel(chunk)) };
-    }
-
-    if !tail.is_empty() {
-        let mut padded = [T::default(); 64];
-        padded[..tail.len()].copy_from_slice(tail);
-
-        // SAFETY: out has capacity for a word for the tail.
-        unsafe { out.push_unchecked(kernel(&padded)) };
-    }
-
-    BitBuffer::new(out.freeze().into_byte_buffer(), total)
+        if !tail.is_empty() {
+            let mut padded = [T::default(); 64];
+            padded[..tail.len()].copy_from_slice(tail);
+            words[chunks.len()] = kernel(&padded);
+        }
+    })
+    .freeze()
 }
 
 fn first_unset(bits: BitBufferView<'_>) -> Option<usize> {
