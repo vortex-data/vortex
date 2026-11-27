@@ -15,15 +15,20 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType::I32;
 use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
+#[cfg(not(codspeed))]
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -182,5 +187,106 @@ fn canonicalize_sparse_fixed_size_list(
                     .execute::<Canonical>(&mut ctx)
                     .vortex_expect("sparse fixed-size-list canonicalization"),
             )
+        });
+}
+
+/// Sparse counters with 1% or 10% observations, optionally missing between observations.
+#[divan::bench(args = [
+    (100, false, false), (10, false, false), (100, true, false), (10, true, false),
+    (100, false, true), (10, false, true), (100, true, true), (10, true, true),
+])]
+fn primitive_patches(bencher: Bencher, (stride, null_fill, sliced): (usize, bool, bool)) {
+    let len = 65_536u32;
+    let mut ctx = SESSION.create_execution_ctx();
+    let indices = PrimitiveArray::from_iter((0..len).step_by(stride));
+    let observed = (0..indices.len()).map(|i| (i as i64) * 7 + 12);
+    let (values, fill) = if null_fill {
+        (
+            PrimitiveArray::from_option_iter(observed.map(Some)),
+            Scalar::null_native::<i64>(),
+        )
+    } else {
+        (PrimitiveArray::from_iter(observed), Scalar::from(12i64))
+    };
+    let array = Sparse::try_new(
+        indices.into_array(),
+        values.into_array(),
+        len as usize,
+        fill,
+        &mut ctx,
+    )
+    .vortex_expect("valid sparse counters")
+    .into_array();
+    let array = if sliced {
+        array
+            .slice(17..len as usize - 9)
+            .vortex_expect("slice sparse counters")
+    } else {
+        array
+    }
+    .optimize_ctx(&SESSION)
+    .vortex_expect("optimize sparse counters");
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut ctx)| {
+            array
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("decode sparse counters")
+        });
+}
+
+/// A sparse sensor channel and a second, independently recorded set of corrections.
+#[divan::bench(args = [false, true])]
+fn patched_sparse_readings(bencher: Bencher, fusion: bool) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let rows = 65_536u32;
+    let indices = (0..rows).step_by(101);
+    let sparse = Sparse::try_new(
+        PrimitiveArray::from_iter(indices.clone()).into_array(),
+        PrimitiveArray::from_iter(indices.map(|row| row + 500)).into_array(),
+        rows as usize,
+        Scalar::from(50u32),
+        &mut ctx,
+    )
+    .vortex_expect("sparse readings fixture");
+    let corrections = (0..rows).step_by(197);
+    let patches = Patches::new(
+        rows as usize,
+        0,
+        PrimitiveArray::from_iter(corrections.clone()).into_array(),
+        PrimitiveArray::from_iter(corrections.map(|row| row + 900)).into_array(),
+        None,
+        &mut ctx,
+    )
+    .vortex_expect("corrections fixture");
+    let array = Patched::from_array_and_patches(sparse.into_array(), &patches, &mut ctx)
+        .vortex_expect("patched sparse readings")
+        .into_array()
+        .slice(31..rows as usize - 49)
+        .vortex_expect("unaligned sensor window");
+    #[cfg(not(codspeed))]
+    {
+        let trace =
+            fusion_trace(array.clone(), &SESSION).vortex_expect("blockwise and full decode agree");
+        assert!(
+            !trace.contains("fuse extend parent=vortex.patched"),
+            "{trace}"
+        );
+    }
+    bencher
+        .with_inputs(|| {
+            (
+                array.clone(),
+                if fusion {
+                    SESSION.create_execution_ctx().with_forced_block_fusion()
+                } else {
+                    SESSION.create_execution_ctx().with_block_fusion(false)
+                },
+            )
+        })
+        .bench_values(|(array, mut ctx)| {
+            array
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("decode readings")
         });
 }
