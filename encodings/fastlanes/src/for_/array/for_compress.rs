@@ -4,7 +4,6 @@
 use std::mem::MaybeUninit;
 
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::ExecutionCtx;
@@ -90,15 +89,14 @@ fn encode_chunked_typed<T: NativePType + WrappingSub + PrimInt>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FoRArray>
 where
-    u8: AsPrimitive<T>,
     PValue: From<T>,
 {
     let validity = array.validity()?;
     let mask = validity.execute_mask(array.len(), ctx)?;
     let values = array.as_slice::<T>();
     let (encoded, references) = match mask.bit_buffer() {
-        AllOr::All => encode_chunked_all_valid(values),
-        AllOr::Some(bits) => encode_chunked_mixed_validity(values, bits),
+        AllOr::All => encode_chunked_all_valid(values, ctx),
+        AllOr::Some(bits) => encode_chunked_mixed_validity(values, bits, ctx),
         // Every value is null, so constants stand in for both children.
         AllOr::None => {
             let dtype = array.dtype();
@@ -125,21 +123,27 @@ where
 }
 
 /// Find each all-valid chunk's minimum and subtract it from each value while the chunk is in cache.
-fn encode_chunked_all_valid<T: PrimInt + WrappingSub>(values: &[T]) -> (Buffer<T>, Buffer<T>) {
-    let mut encoded = BufferMut::<T>::with_capacity(values.len());
+fn encode_chunked_all_valid<T: PrimInt + WrappingSub>(
+    values: &[T],
+    ctx: &ExecutionCtx,
+) -> (Buffer<T>, Buffer<T>) {
+    let mut encoded = BufferMut::<T>::with_capacity_in(values.len(), ctx.allocator().clone());
+    let mut references = BufferMut::<T>::with_capacity_in(
+        values.len().div_ceil(FL_CHUNK_SIZE),
+        ctx.allocator().clone(),
+    );
     let out = &mut encoded.spare_capacity_mut()[..values.len()];
-    let references = values
+    for (chunk, out) in values
         .chunks(FL_CHUNK_SIZE)
         .zip(out.chunks_mut(FL_CHUNK_SIZE))
-        .map(|(chunk, out)| {
-            let min = chunk.iter().copied().fold(T::max_value(), T::min);
-            subtract(chunk, min, out);
-            min
-        })
-        .collect::<Buffer<T>>();
+    {
+        let min = chunk.iter().copied().fold(T::max_value(), T::min);
+        subtract(chunk, min, out);
+        references.push(min);
+    }
     // SAFETY: the loop above initialized every value.
     unsafe { encoded.set_len(values.len()) };
-    (encoded.freeze(), references)
+    (encoded.freeze(), references.freeze())
 }
 
 fn subtract<T: PrimInt + WrappingSub>(values: &[T], reference: T, out: &mut [MaybeUninit<T>]) {
@@ -153,10 +157,11 @@ fn subtract<T: PrimInt + WrappingSub>(values: &[T], reference: T, out: &mut [May
 fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + Default>(
     values: &[T],
     bits: &BitBuffer,
+    ctx: &ExecutionCtx,
 ) -> (Buffer<T>, Buffer<T>) {
     // A view slices each chunk's bits without cloning the buffer.
     let bits = bits.as_view();
-    let mut encoded = BufferMut::<T>::with_capacity(values.len());
+    let mut encoded = BufferMut::<T>::with_capacity_in(values.len(), ctx.allocator().clone());
     let out = &mut encoded.spare_capacity_mut()[..values.len()];
     let mins = values
         .chunks(FL_CHUNK_SIZE)
@@ -181,14 +186,12 @@ fn encode_chunked_mixed_validity<T: PrimInt + WrappingSub + Default>(
         .next()
         .copied()
         .unwrap_or_else(T::zero);
-    let references = mins
-        .into_iter()
-        .map(|min| {
-            previous = min.unwrap_or(previous);
-            previous
-        })
-        .collect::<Buffer<T>>();
-    (encoded.freeze(), references)
+    let mut references = BufferMut::<T>::with_capacity_in(mins.len(), ctx.allocator().clone());
+    for min in mins {
+        previous = min.unwrap_or(previous);
+        references.push(previous);
+    }
+    (encoded.freeze(), references.freeze())
 }
 
 /// The minimum of the valid `values`, or `None` if none are valid.
