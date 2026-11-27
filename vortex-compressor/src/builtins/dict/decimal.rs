@@ -23,6 +23,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::validity::Validity;
@@ -215,8 +216,13 @@ fn dictionary_encode_typed<T: NativeDecimalType + Hash>(
         |v| v,
         |a, b| a.cmp(&b),
     );
-    let values =
-        DecimalArray::try_new(values, array.decimal_dtype(), values_validity, ctx)?.into_array();
+    let values = DecimalArray::try_new_handle_from_trusted_values(
+        BufferHandle::new_host(values.into_byte_buffer()),
+        T::DECIMAL_TYPE,
+        array.decimal_dtype(),
+        values_validity,
+    )?
+    .into_array();
     // SAFETY: `encode_sorted_codes` emits codes in `0..values.len()` for every valid entry
     // and `counts` holds the exact distinct valid value set of `array`.
     Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
