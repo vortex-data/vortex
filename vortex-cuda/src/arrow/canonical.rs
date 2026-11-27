@@ -59,8 +59,11 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
+use vortex_cuda_driver::SyncOnDrop;
+use vortex_cuda_driver::sys;
 use vortex_onpair::OnPair;
 
 use crate::CudaBufferExt;
@@ -589,24 +592,18 @@ async fn export_binary_buffers(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(BufferHandle, BufferHandle)> {
     let mut device_data_buffers = Vec::with_capacity(data_buffers.len());
+    let mut len_values = Vec::with_capacity(data_buffers.len().max(1));
     for buffer in data_buffers {
-        device_data_buffers.push(ctx.ensure_on_device(buffer.clone())?);
+        let device_buffer = ctx.ensure_on_device(buffer.clone())?;
+        len_values.push(u64::try_from(device_buffer.len())?);
+        device_data_buffers.push(device_buffer);
     }
-
-    let mut ptr_values = Vec::with_capacity(device_data_buffers.len());
-    let mut len_values = Vec::with_capacity(device_data_buffers.len());
-    for buffer in &device_data_buffers {
-        ptr_values.push(buffer.cuda_device_ptr(ctx.stream())?);
-        len_values.push(u64::try_from(buffer.len())?);
-    }
-    if device_data_buffers.is_empty() {
-        // Kernels never dereference these when data_buffer_count is zero, but the arguments
-        // still need a real device allocation.
-        ptr_values.push(0);
+    if len_values.is_empty() {
+        // Kernels never dereference this when data_buffer_count is zero, but the argument
+        // still needs a real device allocation.
         len_values.push(0);
     }
-    let data_buffer_ptrs = device_buffer_from(ptr_values, ctx).await?;
-    let data_buffer_lens = device_buffer_from(len_values, ctx).await?;
+    let data_buffer_lens = ctx.copy_to_device(&len_values)?;
     let mut summary = ctx.device_alloc::<u32>(2)?;
     ctx.stream()
         .memset_zeros(&mut summary)
@@ -629,7 +626,7 @@ async fn export_binary_buffers(
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)?));
     let output_values = gather_binary_values(
         views,
-        &data_buffer_ptrs,
+        &device_data_buffers,
         &output_offsets,
         total_bytes,
         len,
@@ -637,19 +634,6 @@ async fn export_binary_buffers(
     )?;
 
     Ok((output_offsets, output_values))
-}
-
-/// Copy a small host vector to a device-resident buffer.
-async fn device_buffer_from<T>(
-    values: Vec<T>,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    Buffer<T>: From<Vec<T>>,
-{
-    ctx.ensure_on_device(BufferHandle::new_host(
-        Buffer::from(values).into_byte_buffer(),
-    ))
 }
 
 fn check_binary_status(status: u32) -> VortexResult<()> {
@@ -677,10 +661,8 @@ fn init_binary_scan(
     let scan_len = len + 1;
     let views_view = views.cuda_view::<u8>()?;
     // A null pointer signals an all-valid array to the kernel.
-    let validity_ptr = validity
-        .map(|v| v.cuda_device_ptr(ctx.stream()))
-        .transpose()?
-        .unwrap_or(0);
+    let validity_view = validity.map(|v| v.cuda_view::<u8>()).transpose()?;
+    let null_validity_ptr: sys::CUdeviceptr = 0;
     let lens_view = data_buffer_lens.cuda_view::<u64>()?;
     let data_buffer_count_u64 = data_buffer_count as u64;
     let len_u64 = len as u64;
@@ -688,9 +670,16 @@ fn init_binary_scan(
     let kernel = ctx.load_function_with_suffixes("arrow_binary", &["init_scan"])?;
 
     ctx.launch_kernel(&kernel, scan_len, |args| {
-        args.arg(&views_view)
-            .arg(&validity_ptr)
-            .arg(&lens_view)
+        args.arg(&views_view);
+        match &validity_view {
+            Some(view) => {
+                args.arg(view);
+            }
+            None => {
+                args.arg(&null_validity_ptr);
+            }
+        }
+        args.arg(&lens_view)
             .arg(&mut scan_input)
             .arg(&mut *status)
             .arg(&data_buffer_count_u64)
@@ -702,7 +691,7 @@ fn init_binary_scan(
 
 fn gather_binary_values(
     views: &BufferHandle,
-    data_buffer_ptrs: &BufferHandle,
+    data_buffers: &[BufferHandle],
     offsets: &BufferHandle,
     total_bytes: usize,
     len: usize,
@@ -712,20 +701,55 @@ fn gather_binary_values(
 
     if total_bytes != 0 {
         let views_view = views.cuda_view::<u8>()?;
-        let ptrs_view = data_buffer_ptrs.cuda_view::<u64>()?;
         let offsets_view = offsets.cuda_view::<i32>()?;
         let len_u64 = len as u64;
         let total_bytes_u64 = total_bytes as u64;
         let kernel = ctx.load_function_with_suffixes("arrow_binary", &["gather"])?;
 
-        ctx.launch_kernel(&kernel, total_bytes, |args| {
+        // Data buffers are passed indirectly via a device pointer table rather than as `CudaView`
+        // launch args. Keep their read guards alive until after `arrow_binary_gather` is enqueued
+        // so cross-stream frees wait for the kernel to finish reading them.
+        let data_buffer_views = data_buffers
+            .iter()
+            .map(|buffer| buffer.cuda_view::<u8>())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let stream = ctx.stream().clone();
+        let mut ptr_values = Vec::with_capacity(data_buffer_views.len().max(1));
+        let mut data_buffer_read_records = Vec::with_capacity(data_buffer_views.len());
+        for view in &data_buffer_views {
+            let (ptr, record_read) = view
+                .device_ptr(&stream)
+                .map_err(|err| vortex_err!("Arrow Binary data buffer pointer: {err}"))?;
+            ptr_values.push(ptr);
+            data_buffer_read_records.push(record_read);
+        }
+        if ptr_values.is_empty() {
+            // Kernels never dereference this when all views are inline, but the argument
+            // still needs a real device allocation.
+            ptr_values.push(0);
+        }
+        let data_buffer_ptrs = ctx.copy_to_device(&ptr_values)?;
+        let ptrs_view = data_buffer_ptrs.cuda_view::<u64>()?;
+
+        let launch_result = ctx.launch_kernel(&kernel, total_bytes, |args| {
             args.arg(&views_view)
                 .arg(&ptrs_view)
                 .arg(&offsets_view)
                 .arg(&mut output_values)
                 .arg(&len_u64)
                 .arg(&total_bytes_u64);
+        });
+        let finish_result = SyncOnDrop::finish_all(data_buffer_read_records)
+            .map_err(|err| vortex_err!("Arrow Binary data buffer tracking: {err}"));
+        launch_result.inspect_err(|_| {
+            if let Err(error) = &finish_result {
+                error!(
+                    %error,
+                    "Failed to track Arrow Binary data buffers after launch failure"
+                );
+            }
         })?;
+        finish_result?;
     }
 
     Ok(
