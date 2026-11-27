@@ -153,7 +153,7 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
     let locs = locations(&[(100, 16, 8), (200, 32, 64)]);
     let mut adaptor = ScanAdaptor::new(scan, locs);
 
-    // First compute coalesces both reads into one NeedsIO batch and retains split 1's output.
+    // First compute coalesces both reads into one NeedsIO batch and retains split 0's output.
     let AdaptorStep::NeedsIO(batch) = adaptor.compute()? else {
         vortex_bail!("expected batched IO requests");
     };
@@ -181,7 +181,7 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
             },
         ]
     );
-    // Split 1's output is buffered in `pending`, so the adaptor stays NeedsCompute before IO.
+    // Split 0's output is buffered in `pending`, so the adaptor stays NeedsCompute before IO.
     assert_eq!(adaptor.state(), State::NeedsCompute);
     let AdaptorStep::Piece(in_memory_piece) = adaptor.compute()? else {
         vortex_bail!("expected pending output piece before reads complete");
