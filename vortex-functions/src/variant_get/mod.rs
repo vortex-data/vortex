@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod decimal;
+mod lazy;
 mod variant;
 
 use std::fmt;
@@ -13,21 +14,12 @@ use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::Chunked;
-use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::Masked;
-use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
-use vortex_array::arrays::chunked::ChunkedArrayExt;
-use vortex_array::arrays::masked::MaskedArrayExt;
-use vortex_array::arrays::masked::MaskedArraySlotsExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builders::VariantBuilder;
 use vortex_array::builders::builder_with_capacity_in;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
@@ -41,7 +33,6 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
@@ -53,9 +44,11 @@ use vortex_utils::aliases::StringEscape;
 
 use self::decimal::parse_decimal;
 
-/// Registers [`VariantGet`] and its kernel for canonical variant arrays.
+/// Registers [`VariantGet`], its kernel for canonical variant arrays, and its kernels for the masks
+/// that wrap them.
 pub(crate) fn initialize(session: &VortexSession) {
     session.scalar_fns().register(VariantGet);
+    lazy::initialize(session);
     variant::initialize(session);
 }
 
@@ -167,40 +160,9 @@ impl ScalarFnVTable for VariantGet {
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
-        // The kernels that extract in bulk are keyed on the Variant encodings. A lazy input, such
-        // as a filtered or chunked Variant read from a file, reaches this point without one, so
-        // bring it to those encodings before falling back to extracting row by row.
-        if let Some(chunked) = input.as_opt::<Chunked>() {
-            let chunks = chunked
-                .iter_chunks()
-                .map(|chunk| {
-                    VariantGet::try_new(chunk.clone(), options.clone())?
-                        .into_array()
-                        .execute::<ArrayRef>(ctx)
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
-            return Ok(ChunkedArray::try_new(chunks, dtype)?.into_array());
-        }
-        // A mask only nulls rows out, so it commutes with extraction.
-        if let Some(masked) = input.as_opt::<ScalarFn>()
-            && masked.scalar_fn().id() == Mask.id()
-        {
-            return VariantGet::try_new(masked.child_at(0).clone(), options.clone())?
-                .into_array()
-                .execute::<ArrayRef>(ctx)?
-                .mask(masked.child_at(1).clone())?
-                .execute::<ArrayRef>(ctx);
-        }
-
-        if let Some(masked) = input.as_opt::<Masked>() {
-            return VariantGet::try_new(masked.child().clone(), options.clone())?
-                .into_array()
-                .execute::<ArrayRef>(ctx)?
-                .mask(masked.masked_validity().to_array(input.len()))?
-                .execute::<ArrayRef>(ctx);
-        }
-        // Each canonicalization unwraps one lazy layer, such as a filter over a slice over a
-        // shared array.
+        // The kernels of the Variant encodings, and of the masks that wrap them, extract in bulk.
+        // Another lazy input, such as a filter over a slice, is canonicalized one layer at a time
+        // until one of those kernels applies.
         if !input.is::<Variant>() {
             let canonical = input.clone().execute::<VariantArray>(ctx)?;
             if !wraps_input(&canonical, &input) {
