@@ -58,15 +58,19 @@ use vortex::session::VortexSession;
 use super::AlpRdDictionary;
 use super::CudaDispatchPlan;
 use super::MAX_PLAN_BYTES;
-use super::MaterializedStage;
 use super::PTypeTag;
 use super::PTypeTag_PTYPE_F32;
 use super::PTypeTag_PTYPE_F64;
+use super::PackedStage;
+use super::PlanHeader;
+use super::PlanPacker;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
+use super::ScalarOp_ScalarOpCode_ALPRD;
+use super::ScalarParams;
+use super::ScalarParams_AlpRdParams;
 use super::SourceOp;
 use super::pack_alprd_dictionary;
-use super::packed_plan_size;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
@@ -287,63 +291,120 @@ impl PlanPatches {
     }
 }
 
-/// Side inputs for a scalar op.
+/// A scalar operation in a stage's execution order.
 ///
-/// The planner keeps these inputs with their op because their device addresses are not known
-/// until materialization. The serializer stores the ALP-RD dictionary in the plan tail so the
-/// packed `ScalarOp` stays 32 bytes.
-enum ScalarInput {
-    /// ALP exceptions replace the entire decoded value.
-    AlpPatches(PlanPatches),
-    /// Packed codes select dictionary entries for the left bits; patches override only those bits.
+/// [`Self::Ready`] holds a complete [`ScalarOp`]: for example, a frame-of-reference op's
+/// reference and output type are both known during planning. Materialization writes that
+/// record unchanged. ALP and ALP-RD instead keep their decode parameters here so that
+/// materialization can fill in device pointers for any patches. ALP-RD also needs the device
+/// pointer to its codes and the offset from its record to the dictionary in the packed plan.
+enum StageOp {
+    Ready(ScalarOp),
+    Alp {
+        f: f64,
+        e: f64,
+        output_ptype: PTypeTag,
+        patches: Option<PlanPatches>,
+    },
     AlpRd {
         codes_buffer_index: usize,
+        codes_offset: u16,
+        code_bit_width: u8,
+        right_bit_width: u8,
+        output_ptype: PTypeTag,
         dictionary: AlpRdDictionary,
         patches: Option<PlanPatches>,
     },
 }
 
-impl ScalarInput {
-    /// Resolves the op's device pointers and returns any dictionary for the packed plan tail.
-    async fn materialize(
-        self,
-        mut op: ScalarOp,
-        source_ptrs: &[u64],
-        device_buffers: &mut Vec<BufferHandle>,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<(ScalarOp, Option<AlpRdDictionary>)> {
-        match self {
-            Self::AlpPatches(patches) => {
-                op.params.alp.patches_ptr = patches.upload(device_buffers, ctx).await?;
-                Ok((op, None))
-            }
-            Self::AlpRd {
-                codes_buffer_index,
-                dictionary,
-                patches,
-            } => {
-                op.params.alprd.codes_ptr = source_ptrs[codes_buffer_index];
-                if let Some(patches) = patches {
-                    op.params.alprd.patches_ptr = patches.upload(device_buffers, ctx).await?;
-                }
-                Ok((op, Some(dictionary)))
-            }
-        }
+impl From<ScalarOp> for StageOp {
+    /// A complete CUDA record can be written unchanged when the stage is materialized.
+    fn from(op: ScalarOp) -> Self {
+        Self::Ready(op)
     }
 }
 
-/// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
-///
-/// Patch descriptors are tied to the op that consumes them, matching the CUDA parameter layout:
-/// source patches live on `BitunpackParams`, while scalar-op patches live on `AlpParams`.
-/// Patches may also carry a logical slice range when planning has sliced the values but patch
-/// metadata must remain device-resident until materialization.
+impl StageOp {
+    /// Bytes written by this op, including any dictionary in the plan tail.
+    fn packed_bytes(&self) -> usize {
+        size_of::<ScalarOp>()
+            + match self {
+                Self::AlpRd { .. } => size_of::<AlpRdDictionary>(),
+                Self::Ready(_) | Self::Alp { .. } => 0,
+            }
+    }
+
+    /// Type used to size the stage's shared-memory output before materialization.
+    fn output_ptype(&self) -> PTypeTag {
+        match self {
+            Self::Ready(op) => op.output_ptype,
+            Self::Alp { output_ptype, .. } | Self::AlpRd { output_ptype, .. } => *output_ptype,
+        }
+    }
+
+    /// Writes the CUDA record and any dictionary bytes it references in the plan tail.
+    async fn write(
+        self,
+        packer: &mut PlanPacker,
+        source_ptrs: &[u64],
+        device_buffers: &mut Vec<BufferHandle>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<()> {
+        let op = match self {
+            Self::Ready(op) => op,
+            Self::Alp {
+                f,
+                e,
+                output_ptype,
+                patches,
+            } => {
+                let mut op = ScalarOp::alp(f, e, output_ptype);
+                if let Some(patches) = patches {
+                    op.params.alp.patches_ptr = patches.upload(device_buffers, ctx).await?;
+                }
+                op
+            }
+            Self::AlpRd {
+                codes_buffer_index,
+                codes_offset,
+                code_bit_width,
+                right_bit_width,
+                output_ptype,
+                dictionary,
+                patches,
+            } => {
+                let patches_ptr = match patches {
+                    Some(patches) => patches.upload(device_buffers, ctx).await?,
+                    None => 0,
+                };
+                ScalarOp {
+                    op_code: ScalarOp_ScalarOpCode_ALPRD,
+                    output_ptype,
+                    params: ScalarParams {
+                        alprd: ScalarParams_AlpRdParams {
+                            codes_ptr: source_ptrs[codes_buffer_index],
+                            patches_ptr,
+                            dictionary_byte_offset: packer
+                                .push_payload(dictionary.map(u16::to_le_bytes).as_flattened()),
+                            codes_offset,
+                            code_bit_width,
+                            right_bit_width,
+                        },
+                    },
+                }
+            }
+        };
+        packer.push(&op);
+        Ok(())
+    }
+}
+
+/// A source and its ordered scalar ops, before materialization resolves their device pointers.
 struct Stage {
     source: SourceOp,
     /// Patches from the source op (e.g. BitPacked overflow exceptions).
     source_patches: Option<PlanPatches>,
-    /// Scalar ops paired with the inputs they need at materialization.
-    scalar_ops: Vec<(ScalarOp, Option<ScalarInput>)>,
+    scalar_ops: Vec<StageOp>,
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
@@ -352,59 +413,61 @@ struct Stage {
 }
 
 impl Stage {
-    fn new(source: SourceOp, source_buffer_index: Option<usize>, source_ptype: PTypeTag) -> Self {
+    /// Starts a stage with no input buffer, patches, or scalar ops.
+    fn new(source: SourceOp, source_ptype: PTypeTag) -> Self {
         Self {
             source,
-            source_patches: None,
-            scalar_ops: vec![],
-            source_buffer_index,
             source_ptype,
+            source_buffer_index: None,
+            source_patches: None,
+            scalar_ops: Vec::new(),
         }
     }
 
-    fn with_source_patches(mut self, source_patches: Option<PlanPatches>) -> Self {
-        self.source_patches = source_patches;
+    /// Loads primitive values from the given source-buffer slot.
+    fn load(buffer_index: usize, source_ptype: PTypeTag) -> Self {
+        Self {
+            source_buffer_index: Some(buffer_index),
+            ..Self::new(SourceOp::load(), source_ptype)
+        }
+    }
+
+    /// Unpacks the indexed buffer starting at `element_offset`, then applies any source patches.
+    fn bitunpack(
+        buffer_index: usize,
+        source_ptype: PTypeTag,
+        bit_width: u8,
+        element_offset: u16,
+        patches: Option<PlanPatches>,
+    ) -> Self {
+        Self {
+            source_buffer_index: Some(buffer_index),
+            source_patches: patches,
+            ..Self::new(SourceOp::bitunpack(bit_width, element_offset), source_ptype)
+        }
+    }
+
+    /// Appends the next scalar op in execution order without materializing it.
+    fn then(mut self, op: impl Into<StageOp>) -> Self {
+        self.scalar_ops.push(op.into());
         self
     }
 
-    /// Resolves the stage's source and scalar ops for serialization, preserving execution order.
-    async fn materialize(
-        self,
-        smem_byte_offset: SmemByteOffset,
-        len: OutputLen,
-        source_ptrs: &[u64],
-        device_buffers: &mut Vec<BufferHandle>,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<MaterializedStage> {
-        let mut source = self.source;
-        if let Some(patches) = self.source_patches {
-            source.params.bitunpack.patches_ptr = patches.upload(device_buffers, ctx).await?;
-        }
-
-        let mut scalar_ops = Vec::with_capacity(self.scalar_ops.len());
-        for (op, input) in self.scalar_ops {
-            scalar_ops.push(match input {
-                Some(input) => {
-                    input
-                        .materialize(op, source_ptrs, device_buffers, ctx)
-                        .await?
-                }
-                None => (op, None),
-            });
-        }
-
-        Ok(MaterializedStage {
-            input_ptr: self.source_buffer_index.map_or(0, |idx| source_ptrs[idx]),
-            smem_byte_offset,
-            len,
-            source_ptype: self.source_ptype,
-            source,
-            scalar_ops,
-        })
+    /// Bytes this stage contributes to the packed plan, not its shared-memory footprint.
+    fn packed_bytes(&self) -> usize {
+        size_of::<PackedStage>()
+            + self
+                .scalar_ops
+                .iter()
+                .map(StageOp::packed_bytes)
+                .sum::<usize>()
     }
 }
 
+/// Byte offset from the start of a CUDA block's dynamic shared memory.
 type SmemByteOffset = u32;
+
+/// Number of elements a stage produces, regardless of their byte width.
 type OutputLen = u32;
 
 /// A dispatch plan before device materialization.
@@ -598,14 +661,23 @@ impl FusedPlan {
         false
     }
 
+    /// Yields `(output_rows, packed_bytes)` for each stage in execution order, output stage last.
+    ///
+    /// `packed_bytes` counts the stage header, scalar ops, and any ALP-RD dictionary bytes in
+    /// the plan tail. It excludes the plan header and is not a shared-memory size. The planner
+    /// and packer use the same byte counts to check the plan limit and reserve space. The packer
+    /// sums `output_rows` for input stages only to determine how many rows each block preloads.
+    fn stage_layout(&self) -> impl ExactSizeIterator<Item = (u32, usize)> + '_ {
+        self.stages
+            .iter()
+            .map(|(stage, _, len)| (*len, stage.packed_bytes()))
+    }
+
     /// Returns `true` if the packed plan does not fit the `DispatchPlanParam` kernel parameter,
     /// logging a trace message when it does not.
     fn exceeds_plan_size_limit(&self) -> bool {
-        let required = packed_plan_size(
-            self.stages
-                .iter()
-                .map(|(stage, ..)| stage.scalar_ops.as_slice()),
-        );
+        let required =
+            size_of::<PlanHeader>() + self.stage_layout().map(|(_, bytes)| bytes).sum::<usize>();
         if required > MAX_PLAN_BYTES as usize {
             trace!(
                 required,
@@ -620,6 +692,7 @@ impl FusedPlan {
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
     pub async fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
+        let mut packer = PlanPacker::new(self.output_ptype, self.stage_layout());
 
         let mut device_buffers = Vec::with_capacity(self.source_buffers.len());
         let mut source_ptrs = Vec::with_capacity(self.source_buffers.len());
@@ -634,23 +707,28 @@ impl FusedPlan {
             device_buffers.push(device_buf);
         }
 
-        let mut stages = Vec::with_capacity(self.stages.len());
         for (stage, smem_byte_offset, len) in self.stages {
-            stages.push(
-                stage
-                    .materialize(
-                        smem_byte_offset,
-                        len,
-                        &source_ptrs,
-                        &mut device_buffers,
-                        ctx,
-                    )
-                    .await?,
-            );
+            let mut source = stage.source;
+            if let Some(patches) = stage.source_patches {
+                source.params.bitunpack.patches_ptr =
+                    patches.upload(&mut device_buffers, ctx).await?;
+            }
+            packer.push(&PackedStage {
+                input_ptr: stage.source_buffer_index.map_or(0, |idx| source_ptrs[idx]),
+                smem_byte_offset,
+                len,
+                source_ptype: stage.source_ptype,
+                source,
+                num_scalar_ops: stage.scalar_ops.len() as u8,
+            });
+            for op in stage.scalar_ops {
+                op.write(&mut packer, &source_ptrs, &mut device_buffers, ctx)
+                    .await?;
+            }
         }
 
         Ok(MaterializedPlan {
-            dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
+            dispatch_plan: packer.finish(),
             device_buffers,
             shared_mem_bytes,
             validity: self.validity,
@@ -748,15 +826,16 @@ impl FusedPlan {
             let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
                 vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
             })?);
-            return Ok(Stage::new(
-                SourceOp::bitunpack(bit_width, bitpacked_offset),
-                Some(self.push_source_buffer(packed)),
+            return Ok(Stage::bitunpack(
+                self.push_source_buffer(packed),
                 source_ptype,
-            )
-            .with_source_patches(bp.patches().map(|patches| PlanPatches {
-                patches,
-                range: Some(patch_range),
-            })));
+                bit_width,
+                bitpacked_offset,
+                bp.patches().map(|patches| PlanPatches {
+                    patches,
+                    range: Some(patch_range),
+                }),
+            ));
         }
 
         // ALP doesn't implement reduce_parent. Slice the encoded child here,
@@ -795,9 +874,8 @@ impl FusedPlan {
 
     fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let prim = array.as_::<Primitive>();
-        Ok(Stage::new(
-            SourceOp::load(),
-            Some(self.push_source_buffer(prim.buffer_handle().clone())),
+        Ok(Stage::load(
+            self.push_source_buffer(prim.buffer_handle().clone()),
             ptype_to_tag(prim.ptype()),
         ))
     }
@@ -811,15 +889,16 @@ impl FusedPlan {
         let BitWidthsView::Global(bit_width) = bp.bit_widths() else {
             vortex_bail!("CUDA does not support BitPacked arrays with per-block bit widths");
         };
-        Ok(Stage::new(
-            SourceOp::bitunpack(bit_width, bp.offset()),
-            Some(self.push_source_buffer(bp.packed().clone())),
+        Ok(Stage::bitunpack(
+            self.push_source_buffer(bp.packed().clone()),
             source_ptype,
-        )
-        .with_source_patches(bp.patches().map(|patches| PlanPatches {
-            patches,
-            range: None,
-        })))
+            bit_width,
+            bp.offset(),
+            bp.patches().map(|patches| PlanPatches {
+                patches,
+                range: None,
+            }),
+        ))
     }
 
     fn walk_for(
@@ -841,14 +920,11 @@ impl FusedPlan {
                 vortex_err!("FoR must have primitive dtype, got {:?}", array.dtype())
             })?);
 
-        let mut pipeline = self.walk(encoded, pending_subtrees)?;
+        let pipeline = self.walk(encoded, pending_subtrees)?;
         let ref_u64 = ref_pvalue
             .reinterpret_cast(ref_pvalue.ptype().to_unsigned())
             .cast::<u64>()?;
-        pipeline
-            .scalar_ops
-            .push((ScalarOp::frame_of_ref(ref_u64, output_ptype), None));
-        Ok(pipeline)
+        Ok(pipeline.then(ScalarOp::frame_of_ref(ref_u64, output_ptype)))
     }
 
     fn walk_zigzag(
@@ -862,11 +938,8 @@ impl FusedPlan {
             vortex_err!("ZigZag must have primitive dtype, got {:?}", array.dtype())
         })?);
 
-        let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline
-            .scalar_ops
-            .push((ScalarOp::zigzag(output_ptype), None));
-        Ok(pipeline)
+        let pipeline = self.walk(encoded, pending_subtrees)?;
+        Ok(pipeline.then(ScalarOp::zigzag(output_ptype)))
     }
 
     fn walk_alp(
@@ -919,12 +992,13 @@ impl FusedPlan {
             ),
         };
 
-        let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push((
-            ScalarOp::alp(alp_f, alp_e, output_ptype),
-            patches.map(ScalarInput::AlpPatches),
-        ));
-        Ok(pipeline)
+        let pipeline = self.walk(encoded, pending_subtrees)?;
+        Ok(pipeline.then(StageOp::Alp {
+            f: alp_f,
+            e: alp_e,
+            output_ptype,
+            patches,
+        }))
     }
 
     /// Plans ALP-RD decoding with right parts as the stage input and left-part codes as a side input.
@@ -955,21 +1029,16 @@ impl FusedPlan {
             .left_parts_patches()
             .map(|patches| PlanPatches { patches, range });
 
-        let mut pipeline = self.walk_child(right_parts, pending_subtrees)?;
-        pipeline.scalar_ops.push((
-            ScalarOp::alprd(
-                codes_offset,
-                code_bit_width,
-                alprd.right_bit_width(),
-                ptype_to_tag(float_ptype),
-            ),
-            Some(ScalarInput::AlpRd {
-                codes_buffer_index: self.push_source_buffer(codes),
-                dictionary,
-                patches,
-            }),
-        ));
-        Ok(pipeline)
+        let pipeline = self.walk_child(right_parts, pending_subtrees)?;
+        Ok(pipeline.then(StageOp::AlpRd {
+            codes_buffer_index: self.push_source_buffer(codes),
+            codes_offset,
+            code_bit_width,
+            right_bit_width: alprd.right_bit_width(),
+            output_ptype: ptype_to_tag(float_ptype),
+            dictionary,
+            patches,
+        }))
     }
 
     /// Walk a child that may have a different element width than the output.
@@ -1025,11 +1094,7 @@ impl FusedPlan {
         let buf_idx = self.source_buffers.len();
         self.source_buffers.push(None);
         pending_subtrees.push(array);
-        Ok(Stage::new(
-            SourceOp::load(),
-            Some(buf_idx),
-            ptype_to_tag(ptype),
-        ))
+        Ok(Stage::load(buf_idx, ptype_to_tag(ptype)))
     }
 
     fn walk_dict(
@@ -1047,14 +1112,11 @@ impl FusedPlan {
         let values_spec = self.walk_child(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
 
-        let mut pipeline = self.walk_child(codes, pending_subtrees)?;
-        // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
-        // output_ptype is the values' ptype — DICT transforms codes → values.
-        pipeline.scalar_ops.push((
-            ScalarOp::dict(values_smem_byte_offset, ptype_to_tag(values_ptype)),
-            None,
-        ));
-        Ok(pipeline)
+        let pipeline = self.walk_child(codes, pending_subtrees)?;
+        Ok(pipeline.then(ScalarOp::dict(
+            values_smem_byte_offset,
+            ptype_to_tag(values_ptype),
+        )))
     }
 
     fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<Stage> {
@@ -1062,7 +1124,6 @@ impl FusedPlan {
 
         Ok(Stage::new(
             SourceOp::sequence(seq.base().cast()?, seq.multiplier().cast()?),
-            None,
             self.output_ptype,
         ))
     }
@@ -1074,12 +1135,9 @@ impl FusedPlan {
     ) -> VortexResult<Stage> {
         let cast = array.as_::<ScalarFn>();
         let target_ptype = ptype_to_tag(cast.scalar_fn().as_::<Cast>().as_ptype());
-        let mut pipeline = self.walk(cast.child_at(0).clone(), pending_subtrees)?;
+        let pipeline = self.walk(cast.child_at(0).clone(), pending_subtrees)?;
         // LOAD/BITUNPACK directly widen into the output type without an additional cast op.
-        pipeline
-            .scalar_ops
-            .push((ScalarOp::cast(target_ptype), None));
-        Ok(pipeline)
+        Ok(pipeline.then(ScalarOp::cast(target_ptype)))
     }
 
     /// Widen → decode the narrower child at the output width, then fix the high bits.
@@ -1094,11 +1152,8 @@ impl FusedPlan {
         let output_ptype = ptype_to_tag(PType::try_from(array.dtype())?);
         let values = array.as_::<Widen>().values().clone();
         let source_ptype = ptype_to_tag(PType::try_from(values.dtype())?);
-        let mut pipeline = self.walk(values, pending_subtrees)?;
-        pipeline
-            .scalar_ops
-            .push((ScalarOp::extend(source_ptype, output_ptype), None));
-        Ok(pipeline)
+        let pipeline = self.walk(values, pending_subtrees)?;
+        Ok(pipeline.then(ScalarOp::extend(source_ptype, output_ptype)))
     }
 
     fn walk_runend(
@@ -1128,7 +1183,6 @@ impl FusedPlan {
                 num_runs as u64,
                 offset,
             ),
-            None,
             self.output_ptype,
         ))
     }
@@ -1154,7 +1208,7 @@ impl FusedPlan {
         let final_ptype = spec
             .scalar_ops
             .last()
-            .map(|(op, _)| op.output_ptype)
+            .map(StageOp::output_ptype)
             .unwrap_or(spec.source_ptype);
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
         len * final_elem_bytes.max(output_elem_bytes)
