@@ -4,6 +4,7 @@
 use std::ffi::CStr;
 use std::ffi::c_void;
 use std::ops::Range;
+use std::ptr;
 
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
@@ -13,6 +14,7 @@ use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::mask::Mask;
 
 use crate::cpp;
@@ -24,6 +26,7 @@ use crate::duckdb::Value;
 use crate::duckdb::ValueRef;
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorBufferRef;
+use crate::duckdb::check_vx_error;
 use crate::lifetime_wrapper;
 
 /// External validity data for zero-copy export of validity masks to DuckDB.
@@ -63,14 +66,14 @@ impl Vector {
 
     /// Create a new vector that references other's element range.
     /// Both vectors share the same buffer.
-    pub fn slice(other: &VectorRef, range: Range<u64>) -> Self {
-        unsafe {
-            Self::own(cpp::duckdb_vx_vector_slice(
-                other.as_ptr(),
-                range.start,
-                range.end,
-            ))
-        }
+    pub fn slice(other: &VectorRef, range: Range<u64>) -> VortexResult<Self> {
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let ptr = unsafe {
+            cpp::duckdb_vx_vector_slice(other.as_ptr(), range.start, range.end, &raw mut err)
+        };
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(!ptr.is_null(), "Failed to slice vector");
+        Ok(unsafe { Self::own(ptr) })
     }
 }
 
@@ -100,20 +103,37 @@ impl VectorRef {
         dictionary_size: usize,
         sel_vec: &SelectionVectorRef,
         count: usize,
-    ) {
-        unsafe {
+    ) -> VortexResult<()> {
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let state = unsafe {
             cpp::duckdb_vx_vector_dictionary(
                 self.as_ptr(),
                 dict.as_ptr(),
                 dictionary_size as _,
                 sel_vec.as_ptr(),
                 count as _,
+                &raw mut err,
             )
-        }
+        };
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(
+            state == cpp::duckdb_state::DuckDBSuccess,
+            "Failed to create dictionary vector"
+        );
+        Ok(())
     }
 
-    pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
-        unsafe { cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity) }
+    pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) -> VortexResult<()> {
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let state = unsafe {
+            cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity, &raw mut err)
+        };
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(
+            state == cpp::duckdb_state::DuckDBSuccess,
+            "Failed to create sequence vector"
+        );
+        Ok(())
     }
 
     /// Converts a vector into a flat uncompressed vector vortex call this `canonicalize`.
@@ -127,12 +147,16 @@ impl VectorRef {
     /// # Safety
     ///
     /// - The vector buffer must not be null.
-    /// - `VectorBuffer::SetVectorSize` throws an uncaught C++ `duckdb::InternalException` across
-    ///   the `extern "C"` boundary if flat vectors (including nested struct/array children) have
-    ///   capacity < `size` (or `size * array_size` for array children), or if non-flat,
-    ///   non-constant vectors (e.g. dictionary or sequence) do not already have size `size`.
-    pub(crate) unsafe fn set_size(&mut self, size: usize) {
-        unsafe { cpp::duckdb_vx_vector_set_size(self.as_ptr(), size as idx_t) }
+    pub(crate) unsafe fn set_size(&mut self, size: usize) -> VortexResult<()> {
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let state =
+            unsafe { cpp::duckdb_vx_vector_set_size(self.as_ptr(), size as idx_t, &raw mut err) };
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(
+            state == cpp::duckdb_state::DuckDBSuccess,
+            "Failed to set vector size"
+        );
+        Ok(())
     }
 
     // NOTE(ngates): vector doesn't hold its own length. Which makes writing a safe
@@ -356,7 +380,7 @@ impl VectorRef {
 
         unsafe {
             let value_ptr = cpp::duckdb_vx_vector_get_value(self.as_ptr(), idx as idx_t);
-            Some(Value::own(value_ptr))
+            (!value_ptr.is_null()).then(|| Value::own(value_ptr))
         }
     }
 }
@@ -407,6 +431,7 @@ mod tests {
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::ReusableDict;
     use crate::duckdb::SelectionVector;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -613,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dictionary() {
+    fn test_dictionary() -> VortexResult<()> {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
         let mut dict = Vector::with_capacity(&logical_type, 2);
@@ -629,11 +654,47 @@ mod tests {
         sel_slice[1] = 1;
         sel_slice[2] = 0;
 
-        vector.dictionary(&dict, 2, &sel_vec, 3);
+        vector.dictionary(&dict, 2, &sel_vec, 3)?;
         drop(dict);
         drop(sel_vec);
         vector.flatten();
 
         assert_eq!(vector.as_slice_with_len::<i32>(3), &[100, 200, 100]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_struct_dictionary_returns_error_instead_of_unwinding() -> VortexResult<()> {
+        let struct_type = LogicalType::struct_type([LogicalType::int32()], [c"a".to_owned()])?;
+        let dict = Vector::with_capacity(&struct_type, 2);
+        let reusable = ReusableDict::new(
+            LogicalType::struct_type([LogicalType::int32()], [c"a".to_owned()])?,
+            2,
+        )?;
+        let mut vector = Vector::with_capacity(&struct_type, 2);
+
+        let mut sel_vec = SelectionVector::with_capacity(2);
+        let sel_slice = unsafe { sel_vec.as_slice_mut(2) };
+        sel_slice[0] = 0;
+        sel_slice[1] = 1;
+
+        let err = vector
+            .reuse_dictionary(&reusable, &sel_vec, 2)
+            .expect_err("struct reusable dictionary should return an error");
+        assert!(
+            err.to_string()
+                .contains("Struct vectors cannot be dictionaries"),
+            "unexpected error: {err}"
+        );
+
+        let err = vector
+            .dictionary(&dict, 10, &sel_vec, 2)
+            .expect_err("out-of-range dictionary size should return an error");
+        assert!(
+            err.to_string().contains("out of range"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
     }
 }

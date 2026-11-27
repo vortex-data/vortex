@@ -60,6 +60,11 @@ pub(crate) fn new_exporter_with_flatten(
         );
     }
 
+    if values.dtype().is_struct() {
+        // DuckDB does not support dictionary-encoded struct vectors.
+        flatten = true;
+    }
+
     match validity.execute_mask(codes_len, ctx)? {
         Mask::AllTrue(_) => {}
         Mask::AllFalse(_) => return Ok(all_invalid::new_exporter()),
@@ -178,7 +183,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // SAFETY: the selection vector has capacity for `len` entries, and all of them are written.
         self.write_codes(offset, unsafe { sel_vec.as_slice_mut(len) })?;
 
-        vector.reuse_dictionary(&self.values, &sel_vec, len);
+        vector.reuse_dictionary(&self.values, &sel_vec, len)?;
 
         Ok(())
     }
@@ -192,7 +197,9 @@ mod tests {
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexResult;
@@ -202,6 +209,7 @@ mod tests {
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
+    use crate::exporter::ArrayExporter;
     use crate::exporter::ColumnExporter;
     use crate::exporter::ConversionCache;
     use crate::exporter::dict::new_exporter_with_flatten;
@@ -367,6 +375,77 @@ mod tests {
             String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - DICTIONARY INTEGER: 0 = [ ]
+"#
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_dict_of_struct() -> VortexResult<()> {
+        let values = StructArray::try_new(
+            ["a", "b"].into(),
+            vec![
+                PrimitiveArray::from_option_iter([Some(10i32), None]).into_array(),
+                VarBinViewArray::from_iter_str(["x", "y"]).into_array(),
+            ],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let arr = DictArray::try_new(buffer![0u32, 1, 0, 1].into_array(), values)?;
+        let table = StructArray::from_fields(&[("s", arr.into_array())])?;
+
+        let struct_type = LogicalType::struct_type(
+            [LogicalType::int32(), LogicalType::varchar()],
+            [c"a".to_owned(), c"b".to_owned()],
+        )?;
+        let mut chunk = DataChunk::new([struct_type]);
+        let mut exporter = ArrayExporter::try_new(
+            &table,
+            &ConversionCache::default(),
+            SESSION.create_execution_ctx(),
+        )?;
+
+        assert!(exporter.export(&mut chunk, None)?);
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(a INTEGER, b VARCHAR): 4 = [ {'a': 10, 'b': x}, {'a': NULL, 'b': y}, {'a': 10, 'b': x}, {'a': NULL, 'b': y}]
+"#
+        );
+        assert!(!exporter.export(&mut chunk, None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_dict_of_nullable_struct_with_nullable_codes() -> VortexResult<()> {
+        let values = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![1i32, 2].into_array()],
+            2,
+            Validity::from_iter([true, false]),
+        )?
+        .into_array();
+        let codes = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), Some(0)]);
+        let arr = DictArray::try_new(codes.into_array(), values)?;
+
+        let struct_type = LogicalType::struct_type([LogicalType::int32()], [c"a".to_owned()])?;
+        let mut chunk = DataChunk::new([struct_type]);
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            4,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(4);
+
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(a INTEGER): 4 = [ {'a': 1}, NULL, NULL, {'a': 1}]
 "#
         );
 

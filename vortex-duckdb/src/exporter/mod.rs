@@ -108,7 +108,6 @@ impl ArrayExporter {
         let position = self.array_len - self.remaining;
         let chunk_len = duckdb_vector_size().min(self.remaining);
         self.remaining -= chunk_len;
-        chunk.set_len(chunk_len);
 
         // If DuckDB requests a zero-column projection from read_vortex like count(*),
         // its planner tries to get any column:
@@ -120,6 +119,7 @@ impl ArrayExporter {
         // virtual column.
         // See virtual_columns in vortex-duckdb/cpp/table_function.cpp
         if zero_projection {
+            chunk.set_len(chunk_len);
             return Ok(true);
         }
 
@@ -146,6 +146,11 @@ impl ArrayExporter {
             let field = fields.next().vortex_expect("field count mismatch");
             field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
         }
+
+        // Set the chunk cardinality after exporting all columns so constant vectors (whose
+        // `duckdb_vector_reference_value` defaults to `STANDARD_VECTOR_SIZE`) are resized to
+        // `chunk_len` along with their nested struct children.
+        chunk.set_len(chunk_len);
 
         Ok(true)
     }
@@ -212,7 +217,7 @@ fn cached_values_dict(
     if let Some(entry) = cache.dict_cache.get(&key) {
         return Ok(entry.value().1.clone());
     }
-    let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len());
+    let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len())?;
     // ReusableDict's values must be flattened. When we call
     // vector.reuse_dictionary() with dict returned from this function, if
     // data is not flat, duckdb's functions like TupleDataScatter read inner
@@ -304,12 +309,21 @@ fn copy_from_slice(target: &mut [u64], source: &[u8], offset: usize, len: usize)
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::ConstantArray;
+    use vortex::array::arrays::StructArray;
     use vortex::buffer::BitBuffer;
+    use vortex::error::VortexResult;
     use vortex::mask::Mask;
 
+    use crate::SESSION;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
+    use crate::exporter::ArrayExporter;
+    use crate::exporter::ConversionCache;
     use crate::exporter::copy_from_slice;
 
     #[test]
@@ -557,5 +571,34 @@ mod tests {
             "{:#08x} == {:#08x}",
             target[1], 0xe0_40_38_30_2f_e7_ef_f7_u64,
         );
+    }
+
+    #[test]
+    fn test_array_exporter_constant_vector_size_matches_chunk_len() -> VortexResult<()> {
+        let nested = StructArray::from_fields(&[("c", ConstantArray::new(7i32, 5).into_array())])?
+            .into_array();
+        let table = StructArray::from_fields(&[
+            ("k", ConstantArray::new(42i32, 5).into_array()),
+            ("s", nested),
+        ])?;
+
+        let struct_type = LogicalType::struct_type([LogicalType::int32()], [c"c".to_owned()])?;
+        let mut chunk = DataChunk::new([LogicalType::int32(), struct_type]);
+        let mut exporter = ArrayExporter::try_new(
+            &table,
+            &ConversionCache::default(),
+            SESSION.create_execution_ctx(),
+        )?;
+
+        assert!(exporter.export(&mut chunk, None)?);
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [2 Columns]
+- CONSTANT INTEGER: 5 = [ 42]
+- FLAT STRUCT(c INTEGER): 5 = [ {'c': 7}, {'c': 7}, {'c': 7}, {'c': 7}, {'c': 7}]
+"#
+        );
+        assert!(!exporter.export(&mut chunk, None)?);
+        Ok(())
     }
 }

@@ -6,13 +6,14 @@ use std::ptr;
 
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
-use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 
 use crate::cpp;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_error;
 use crate::duckdb::Vector;
 use crate::duckdb::VectorRef;
+use crate::duckdb::check_vx_error;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -80,19 +81,11 @@ impl TryFrom<&DataChunkRef> for String {
         #[cfg(debug_assertions)]
         unsafe {
             cpp::duckdb_data_chunk_verify(value.as_ptr(), &raw mut err);
-            if !err.is_null() {
-                vortex_bail!(
-                    "{}",
-                    CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
-                )
-            }
+            check_vx_error(err)?;
         };
         let debug = unsafe { cpp::duckdb_data_chunk_to_string(value.as_ptr(), &raw mut err) };
-        if !err.is_null() {
-            vortex_bail!("{}", unsafe {
-                CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
-            })
-        }
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(!debug.is_null(), "Failed to format DataChunk");
         let string = unsafe { CStr::from_ptr(debug).to_string_lossy() }.to_string();
         unsafe { cpp::duckdb_free(debug.cast_mut().cast()) };
         Ok(string)

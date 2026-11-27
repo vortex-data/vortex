@@ -26,6 +26,7 @@
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 
 #include <cstring>
+#include <new>
 #include <string>
 
 using namespace duckdb;
@@ -81,29 +82,25 @@ extern "C" duckdb_vx_data duckdb_vx_data_create(void *data, duckdb_delete_callba
 }
 
 extern "C" const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk, duckdb_vx_error *err) {
-    try {
+    char *result = nullptr;
+    TryWrap(err, [&]() {
         auto dchunk = reinterpret_cast<DataChunk *>(chunk);
         auto str = dchunk->ToString();
-        auto result = static_cast<char *>(duckdb_malloc(str.size() + 1));
-        memcpy(result, str.c_str(), str.size() + 1);
-        *err = nullptr;
-        return result;
-    } catch (std::runtime_error &e) {
-        auto s = e.what();
-        *err = duckdb_vx_error_create(s, strlen(s));
-        return nullptr;
-    }
+        auto allocated = static_cast<char *>(duckdb_malloc(str.size() + 1));
+        if (allocated == nullptr) {
+            throw std::bad_alloc();
+        }
+        memcpy(allocated, str.c_str(), str.size() + 1);
+        result = allocated;
+    });
+    return result;
 }
 
 extern "C" void duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err) {
-    try {
+    TryWrap(err, [&]() {
         auto dchunk = reinterpret_cast<DataChunk *>(chunk);
         dchunk->Verify();
-        *err = nullptr;
-    } catch (std::runtime_error &e) {
-        auto s = e.what();
-        *err = duckdb_vx_error_create(s, strlen(s));
-    }
+    });
 }
 
 extern "C" duckdb_vx_error duckdb_vx_error_create(const char *message, size_t message_length) {
@@ -204,11 +201,16 @@ struct ReusableDict {
     }
 };
 
-extern "C" duckdb_vx_reusable_dict duckdb_vx_reusable_dict_create(duckdb_logical_type ffi_type, idx_t size) {
-    const LogicalType &type = *reinterpret_cast<LogicalType *>(ffi_type);
-    auto buffer = DictionaryVector::CreateReusableDictionary(type, size);
-    auto ptr = std::make_unique<ReusableDict>(std::move(buffer));
-    return reinterpret_cast<duckdb_vx_reusable_dict>(ptr.release());
+extern "C" duckdb_vx_reusable_dict
+duckdb_vx_reusable_dict_create(duckdb_logical_type ffi_type, idx_t size, duckdb_vx_error *error_out) {
+    duckdb_vx_reusable_dict result = nullptr;
+    TryWrap(error_out, [&]() {
+        const LogicalType &type = *reinterpret_cast<LogicalType *>(ffi_type);
+        auto buffer = DictionaryVector::CreateReusableDictionary(type, size);
+        auto ptr = std::make_unique<ReusableDict>(std::move(buffer));
+        result = reinterpret_cast<duckdb_vx_reusable_dict>(ptr.release());
+    });
+    return result;
 }
 
 extern "C" void duckdb_vx_reusable_dict_destroy(duckdb_vx_reusable_dict *dict) {
@@ -229,14 +231,17 @@ extern "C" void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusa
     *out_vector = reinterpret_cast<duckdb_vector>(&wrapper->buffer->data);
 }
 
-extern "C" void duckdb_vx_vector_dictionary_reusable(duckdb_vector ffi_vector,
-                                                     duckdb_vx_reusable_dict reusable,
-                                                     duckdb_selection_vector ffi_sel_vec,
-                                                     idx_t sel_count) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto *wrapper = reinterpret_cast<ReusableDict *>(reusable);
-    auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
-    vector->Dictionary(wrapper->buffer, *sel_vec, sel_count);
+extern "C" duckdb_state duckdb_vx_vector_dictionary_reusable(duckdb_vector ffi_vector,
+                                                             duckdb_vx_reusable_dict reusable,
+                                                             duckdb_selection_vector ffi_sel_vec,
+                                                             idx_t sel_count,
+                                                             duckdb_vx_error *error_out) {
+    return TryWrap(error_out, [&]() {
+        auto vector = reinterpret_cast<Vector *>(ffi_vector);
+        auto *wrapper = reinterpret_cast<ReusableDict *>(reusable);
+        auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
+        vector->Dictionary(wrapper->buffer, *sel_vec, sel_count);
+    });
 }
 
 extern "C" duckdb_value duckdb_vx_value_create_null(duckdb_logical_type ty) {

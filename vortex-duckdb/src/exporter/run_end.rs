@@ -52,8 +52,9 @@ pub(crate) fn new_exporter_with_flatten(
         return canonical::new_exporter(Canonical::empty(array.dtype()).into_array(), cache, ctx);
     }
 
-    // Canonicalize directly to avoid building a dictionary that DuckDB would immediately flatten.
-    if flatten {
+    // Canonicalize directly to avoid building a dictionary that DuckDB would immediately flatten
+    // or reject (DuckDB does not support dictionary-encoded struct vectors).
+    if flatten || array.dtype().is_struct() {
         return canonical::new_exporter(array.into_array(), cache, ctx);
     }
 
@@ -171,7 +172,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         // requested range, and write_run_codes fills every entry before DuckDB reads the selection.
         let codes = unsafe { selection.as_slice_mut(len) };
         self.write_run_codes(offset, first_run, codes);
-        vector.reuse_dictionary(&self.values_dict, &selection, len);
+        vector.reuse_dictionary(&self.values_dict, &selection, len)?;
 
         Ok(())
     }
@@ -334,5 +335,28 @@ mod tests {
         };
 
         check_exports(array, &[(1, 6, crossing)])
+    }
+
+    #[test]
+    fn run_end_of_struct_flattens_instead_of_dictionary() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values =
+            StructArray::from_fields(&[("a", buffer![10i32, 20].into_array())])?.into_array();
+        let field = RunEnd::try_new(buffer![2u32, 5].into_array(), values, &mut ctx)?.into_array();
+        let table = StructArray::from_fields(&[("s", field)])?;
+
+        let struct_type = LogicalType::struct_type([LogicalType::int32()], [c"a".to_owned()])?;
+        let mut chunk = DataChunk::new([struct_type]);
+        let mut exporter = ArrayExporter::try_new(&table, &ConversionCache::default(), ctx)?;
+
+        assert!(exporter.export(&mut chunk, None)?);
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(a INTEGER): 5 = [ {'a': 10}, {'a': 10}, {'a': 20}, {'a': 20}, {'a': 20}]
+"#
+        );
+        assert!(!exporter.export(&mut chunk, None)?);
+        Ok(())
     }
 }

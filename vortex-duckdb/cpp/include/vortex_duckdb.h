@@ -46,7 +46,8 @@ duckdb_state duckdb_vx_register_scan_replacement(duckdb_database duckdb_database
 duckdb_state duckdb_vx_optimizer_extension_register(duckdb_database ffi_db);
 
 /// Creates a new reusable dictionary from a logical type and size.
-duckdb_vx_reusable_dict duckdb_vx_reusable_dict_create(duckdb_logical_type logical_type, idx_t size);
+duckdb_vx_reusable_dict
+duckdb_vx_reusable_dict_create(duckdb_logical_type logical_type, idx_t size, duckdb_vx_error *error_out);
 
 /// Destroys the reusable dictionary.
 void duckdb_vx_reusable_dict_destroy(duckdb_vx_reusable_dict *dict);
@@ -58,10 +59,11 @@ duckdb_vx_reusable_dict duckdb_vx_reusable_dict_clone(duckdb_vx_reusable_dict di
 void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusable, duckdb_vector *out_vector);
 
 /// Creates a dictionary vector using a reusable dictionary and a selection vector.
-void duckdb_vx_vector_dictionary_reusable(duckdb_vector vector,
-                                          duckdb_vx_reusable_dict reusable,
-                                          duckdb_selection_vector sel_vec,
-                                          idx_t sel_count);
+duckdb_state duckdb_vx_vector_dictionary_reusable(duckdb_vector vector,
+                                                  duckdb_vx_reusable_dict reusable,
+                                                  duckdb_selection_vector sel_vec,
+                                                  idx_t sel_count,
+                                                  duckdb_vx_error *error_out);
 
 // Create a null value with a reference to a logical type.
 duckdb_value duckdb_vx_value_create_null(duckdb_logical_type ty);
