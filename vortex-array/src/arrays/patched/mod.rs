@@ -22,8 +22,8 @@ pub(crate) fn initialize(session: &VortexSession) {
 ///
 /// This is set using the environment variable `VORTEX_EXPERIMENTAL_PATCHED_ARRAY`.
 ///
-/// When this is true, any arrays with interior `Patches` will be read as a `Patched`
-/// array, and eliminate the interior patches.
+/// When enabled, readers externalize interior patches from ALP, BitPacked and
+/// integer Sparse arrays into a `Patched` array.
 ///
 /// The builtin compressor will also generate Patched arrays.
 pub fn use_experimental_patches() -> bool {
