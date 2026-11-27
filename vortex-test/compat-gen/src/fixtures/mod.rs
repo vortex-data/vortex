@@ -32,6 +32,9 @@ pub trait Fixture {
     /// Generate the fixture file(s) into `dir`, returning manifest entries.
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>>;
 
+    /// Build the in-memory expected array directly without serializing through Vortex.
+    fn build_expected(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
     /// Write the file that `check` compares with a published file. Defaults to [`Self::write`].
     fn write_expected(
         &self,
@@ -138,6 +141,10 @@ impl Fixture for FlatLayoutAdapter {
         self.write_array(ctx.session(), dir, array)
     }
 
+    fn build_expected(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.0.build(ctx)
+    }
+
     fn write_expected(
         &self,
         dir: &Path,
@@ -187,6 +194,10 @@ impl Fixture for DatasetFixtureAdapter {
 
     fn description(&self) -> &str {
         self.inner.description()
+    }
+
+    fn build_expected(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.inner.build(&ctx.session().arrow())
     }
 
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {

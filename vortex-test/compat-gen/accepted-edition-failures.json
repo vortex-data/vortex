@@ -25,6 +25,7 @@
       "reader_version": "0.36.0",
       "fixture": "decimal_canonical_widths.vortex",
       "expected_causes": [
+        "Decimal precision out of range [1, 38]: 39",
         "i256 decimals cannot be converted to Arrow i128 decimal"
       ],
       "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
@@ -34,6 +35,7 @@
       "reader_version": "0.36.0",
       "fixture": "decimal_narrow_storage.vortex",
       "expected_causes": [
+        "Decimal precision out of range [1, 38]: 40",
         "i256 decimals cannot be converted to Arrow i128 decimal"
       ],
       "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
@@ -366,6 +368,24 @@
         "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
       ],
       "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
+    },
+    {
+      "edition": "core2026.08.2",
+      "reader_version": "0.85.0",
+      "fixture": "map.vortex",
+      "expected_causes": [
+        "type mismatch in column sorted_attrs: actual=pyarrow.Field<sorted_attrs: map<string_view, int64> not null>, expected=pyarrow.Field<sorted_attrs: map<string_view, int64, keys_sorted> not null>"
+      ],
+      "reason": "0.85.0 preserves keys_sorted=true in Vortex DType but drops keys_sorted during Arrow export"
+    },
+    {
+      "edition": "core2026.08.3",
+      "reader_version": "0.85.0",
+      "fixture": "map.vortex",
+      "expected_causes": [
+        "type mismatch in column sorted_attrs: actual=pyarrow.Field<sorted_attrs: map<string_view, int64> not null>, expected=pyarrow.Field<sorted_attrs: map<string_view, int64, keys_sorted> not null>"
+      ],
+      "reason": "0.85.0 preserves keys_sorted=true in Vortex DType but drops keys_sorted during Arrow export"
     }
   ]
 }

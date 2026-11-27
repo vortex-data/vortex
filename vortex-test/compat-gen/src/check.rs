@@ -326,6 +326,15 @@ mod tests {
             "stub test fixture"
         }
 
+        #[allow(clippy::panic)]
+        fn build_expected(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+            match &self.behavior {
+                ExpectedBehavior::Array(array) => Ok(array.clone()),
+                ExpectedBehavior::Error(msg) => vortex_bail!("{msg}"),
+                ExpectedBehavior::Panic(msg) => panic!("{msg}"),
+            }
+        }
+
         fn write(&self, dir: &Path, _ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
             let ExpectedBehavior::Array(array) = &self.behavior else {
                 vortex_bail!("write() is only used with array stub fixtures");

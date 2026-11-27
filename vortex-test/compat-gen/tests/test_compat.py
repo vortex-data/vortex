@@ -10,6 +10,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from http.client import IncompleteRead
 from pathlib import Path
 from types import ModuleType
 
@@ -399,3 +400,73 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
             "reason": "stale reader version",
         }
     ]
+
+
+def test_incomplete_read_retried_and_collected(compat, monkeypatch, tmp_path, capsys):
+    # S3Store.read retries transient IncompleteRead and succeeds on a later attempt.
+    attempts = 0
+
+    class _Resp:
+        def __enter__(self) -> _Resp:
+            return self
+
+        def __exit__(self, *_exc: object) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise IncompleteRead(b"partial", 10)
+            return b"complete"
+
+    monkeypatch.setattr(compat, "urlopen", lambda _url, timeout=10: _Resp())
+    monkeypatch.setattr(compat.time, "sleep", lambda _s: None)
+    assert compat.S3Store("bucket").read("v0.62.0/arrays/a.vortex") == b"complete"
+    assert attempts == 2
+
+    # Exhausted IncompleteRead on a manifest or fixture is collected so later versions still run.
+    class TruncatingStore(compat.Store):
+        def list_versions(self) -> list[str]:
+            return ["0.61.0", "0.62.0"]
+
+        def display_name(self) -> str:
+            return "s3://fake"
+
+        def read(self, key: str) -> bytes | None:
+            if key == "v0.61.0/arrays/manifest.json":
+                raise IncompleteRead(b"{", 100)
+            if key == "v0.62.0/arrays/manifest.json":
+                return json.dumps(
+                    {
+                        "version": "0.62.0",
+                        "generated_at": "2026-01-01T00:00:00Z",
+                        "fixtures": [
+                            {"name": "trunc.vortex", "description": "", "sha256": ""},
+                            {"name": "ok.vortex", "description": "", "sha256": ""},
+                        ],
+                    }
+                ).encode()
+            if key.endswith("trunc.vortex"):
+                raise IncompleteRead(b"partial", 50)
+            return b"good"
+
+    checked: list[list[str]] = []
+    monkeypatch.setattr(compat, "_parse_store", lambda _spec: TruncatingStore())
+    monkeypatch.setattr(
+        compat,
+        "_run_rust_check",
+        lambda d, mode="superset", profile="release": (
+            checked.append(sorted(p.name for p in d.glob("*.vortex"))),
+            {"passed": ["ok.vortex"], "failed": [], "skipped": ["trunc.vortex"]},
+        )[1],
+    )
+
+    args = argparse.Namespace(store="s3://fake", versions=None, mode="all", profile="ci")
+    with pytest.raises(SystemExit) as exc:
+        compat.cmd_check(args)
+    assert exc.value.code == 1
+    assert checked == [["ok.vortex"]]
+    stderr = capsys.readouterr().err
+    assert "v0.61.0/(manifest):" in stderr
+    assert "v0.62.0/trunc.vortex: download failed:" in stderr

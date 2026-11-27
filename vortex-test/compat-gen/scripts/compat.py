@@ -38,6 +38,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -183,7 +184,7 @@ class S3Store(Store):
                 if e.code in (403, 404):
                     return None
                 raise
-            except (URLError, ConnectionError, TimeoutError):
+            except (URLError, ConnectionError, TimeoutError, IncompleteRead):
                 if attempt < 2:
                     time.sleep(1 * (attempt + 1))
                     continue
@@ -585,7 +586,7 @@ def cmd_check(args: argparse.Namespace) -> None:
         _info(f"\n--- v{version} ---")
         try:
             manifest = _read_manifest(store, version)
-        except (ValueError, HTTPError, URLError, OSError) as e:
+        except (ValueError, HTTPError, URLError, OSError, IncompleteRead) as e:
             _info(f"  v{version}: failed to load manifest: {e}")
             all_failures.append((version, "(manifest)", str(e)))
             total_failed += 1
@@ -803,7 +804,7 @@ def _parallel_download(
         name = entry["name"]
         try:
             data = store.read(f"{prefix}/{name}")
-        except (HTTPError, URLError, OSError) as e:
+        except (HTTPError, URLError, OSError, IncompleteRead) as e:
             return name, None, f"download failed: {e}"
         if data is None:
             return name, None, f"not found at {prefix}/{name}"

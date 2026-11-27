@@ -41,6 +41,11 @@ def _values_equal(a: object, b: object) -> bool:
     return a == b
 
 
+def _normalize_field(field: pa.Field) -> pa.Field:
+    """Normalize an Arrow field's representation type while preserving its name and nullability."""
+    return pa.field(field.name, _normalize_type(field.type), nullable=field.nullable)
+
+
 def _normalize_type(dtype: pa.DataType) -> pa.DataType:
     """Normalize Arrow representation variants across Vortex/PyArrow versions without erasing logical types."""
     if pa.types.is_string_view(dtype) or pa.types.is_large_string(dtype):
@@ -48,13 +53,20 @@ def _normalize_type(dtype: pa.DataType) -> pa.DataType:
     if pa.types.is_binary_view(dtype) or pa.types.is_large_binary(dtype):
         return pa.binary()
     if pa.types.is_list_view(dtype) or pa.types.is_large_list(dtype) or pa.types.is_list(dtype):
-        return pa.list_(_normalize_type(dtype.value_type))
+        return pa.list_(pa.field("item", _normalize_type(dtype.value_type), nullable=dtype.value_field.nullable))
     if pa.types.is_fixed_size_list(dtype):
-        return pa.list_(_normalize_type(dtype.value_type), dtype.list_size)
+        return pa.list_(
+            pa.field("item", _normalize_type(dtype.value_type), nullable=dtype.value_field.nullable),
+            dtype.list_size,
+        )
     if pa.types.is_struct(dtype):
-        return pa.struct([pa.field(f.name, _normalize_type(f.type)) for f in dtype])
+        return pa.struct([_normalize_field(f) for f in dtype])
     if pa.types.is_map(dtype):
-        return pa.map_(_normalize_type(dtype.key_type), _normalize_type(dtype.item_type))
+        return pa.map_(
+            pa.field("key", _normalize_type(dtype.key_type), nullable=dtype.key_field.nullable),
+            pa.field("value", _normalize_type(dtype.item_type), nullable=dtype.item_field.nullable),
+            keys_sorted=dtype.keys_sorted,
+        )
     if pa.types.is_dictionary(dtype):
         return _normalize_type(dtype.value_type)
     return dtype
@@ -76,20 +88,22 @@ def _tables_equal(actual: pa.Table, expected: pa.Table) -> tuple[bool, str | Non
     if actual.equals(expected):
         return True, None
     for i in range(actual.num_columns):
-        field_name = actual.schema.field(i).name
+        actual_field = actual.schema.field(i)
+        expected_field = expected.schema.field(i)
+        field_name = actual_field.name
+        if _normalize_field(actual_field) != _normalize_field(expected_field):
+            return (
+                False,
+                f"type mismatch in column {field_name}: actual={actual_field}, expected={expected_field}",
+            )
         ac = actual.column(i).combine_chunks()
         ec = expected.column(i).combine_chunks()
         if ac.equals(ec):
             continue
-        if _normalize_type(ac.type) != _normalize_type(ec.type):
-            return (
-                False,
-                f"type mismatch in column {i} ({field_name}): actual={ac.type}, expected={ec.type}",
-            )
         if not _values_equal(ac.to_pylist(), ec.to_pylist()):
             return (
                 False,
-                f"value mismatch in column {i} ({field_name}, actual_type={ac.type}, expected_type={ec.type})",
+                f"value mismatch in column {field_name} (actual_type={ac.type}, expected_type={ec.type})",
             )
     return True, None
 
@@ -199,14 +213,21 @@ def _probe_column_causes(path: Path, exp_path: Path) -> list[str]:
     if not col_names_res.get("ok"):
         return []
     columns = col_names_res.get("columns", [])
-    if len(columns) <= 1:
+    if not columns:
         return []
 
+    with ipc.open_file(str(exp_path)) as reader:
+        expected_names = reader.schema.names
+
     causes: set[str] = set()
-    for col in columns:
-        res = _run_isolated(lambda c=col: _read_single_column(path, exp_path, c))
-        if not res.get("ok") and res.get("error"):
-            causes.add(res["error"])
+    if columns != expected_names:
+        causes.add(f"column names mismatch: actual={columns}, expected={expected_names}")
+
+    if len(columns) > 1 or causes:
+        for col in columns:
+            res = _run_isolated(lambda c=col: _read_single_column(path, exp_path, c))
+            if not res.get("ok") and res.get("error"):
+                causes.add(res["error"])
     return sorted(causes)
 
 
@@ -225,24 +246,30 @@ def _read_single_column(path: Path, exp_path: Path, col: str) -> dict:
     actual_arr = vf.scan(projection=[col]).read_all().to_arrow_array()
     if isinstance(actual_arr, pa.ChunkedArray):
         actual_arr = actual_arr.combine_chunks()
-    actual_col = actual_arr.field(col) if pa.types.is_struct(actual_arr.type) else actual_arr
+    if pa.types.is_struct(actual_arr.type):
+        actual_field = actual_arr.type.field(col)
+        actual_col = actual_arr.field(col)
+    else:
+        actual_field = pa.field(col, actual_arr.type, nullable=True)
+        actual_col = actual_arr
     with ipc.open_file(str(exp_path)) as reader:
         expected_table = reader.read_all()
     if col not in expected_table.schema.names:
         return {"ok": False, "error": f"unexpected column {col} missing from expected Arrow IPC"}
+    expected_field = expected_table.schema.field(col)
     expected_col = expected_table.column(col).combine_chunks()
-    if actual_col.equals(expected_col):
-        return {"ok": True}
     if len(actual_col) != len(expected_col):
         return {
             "ok": False,
             "error": f"row count mismatch in column {col}: actual={len(actual_col)}, expected={len(expected_col)}",
         }
-    if _normalize_type(actual_col.type) != _normalize_type(expected_col.type):
+    if _normalize_field(actual_field) != _normalize_field(expected_field):
         return {
             "ok": False,
-            "error": f"type mismatch in column {col}: actual={actual_col.type}, expected={expected_col.type}",
+            "error": f"type mismatch in column {col}: actual={actual_field}, expected={expected_field}",
         }
+    if actual_col.equals(expected_col):
+        return {"ok": True}
     if not _values_equal(actual_col.to_pylist(), expected_col.to_pylist()):
         return {
             "ok": False,
@@ -272,13 +299,19 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
     if res.get("timed_out"):
         return {"ok": False, "error": err, "causes": [err]}
 
-    # Collect every distinct cause across columns so parallel scan races don't hide causes.
+    # Collect every distinct cause across columns so parallel scan races don't hide causes,
+    # while preserving any full-table error not explained by single-column projections.
     col_causes = _probe_column_causes(path, exp_path)
     if col_causes:
+        causes = list(col_causes)
+        if err not in col_causes and not (
+            err.startswith("column count mismatch:") and any(c.startswith("column names mismatch:") for c in col_causes)
+        ):
+            causes = sorted({err, *col_causes})
         return {
             "ok": False,
-            "error": "; ".join(col_causes),
-            "causes": col_causes,
+            "error": "; ".join(causes),
+            "causes": causes,
         }
     return {"ok": False, "error": err, "causes": [err]}
 

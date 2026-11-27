@@ -27,14 +27,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ExecuteArrowExt;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::adapter;
 use crate::fixtures::all_fixtures;
 
 #[derive(Serialize, Deserialize)]
@@ -110,8 +108,9 @@ pub fn resolve_edition(session: &VortexSession, name: &str) -> VortexResult<Edit
 
 /// Write expected Arrow IPC files from HEAD for every non-excluded fixture.
 ///
-/// Each fixture is written via `write_expected()` and decoded with HEAD's reader so oldest-reader
-/// checks compare historical wheels against HEAD's own oracle rather than another historical wheel.
+/// Each fixture is built directly in memory via `build_expected()` and exported to Arrow without
+/// round-tripping through Vortex serialization, so oldest-reader checks compare historical wheels
+/// against an oracle independent of HEAD's Vortex writer.
 pub fn dump_expected(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
     std::fs::create_dir_all(output_dir)
         .map_err(|e| vortex_err!("failed to create {}: {e}", output_dir.display()))?;
@@ -123,43 +122,38 @@ pub fn dump_expected(output_dir: &Path, exclude: &[String]) -> VortexResult<()> 
 
     let session = VortexSession::default();
     let mut ctx = session.create_execution_ctx();
-    let tmp_dir = tempfile::tempdir()?;
 
     eprintln!(
         "dumping expected Arrow IPC for {} fixtures...",
         fixtures.len()
     );
     for fixture in &fixtures {
-        let entries = fixture.write_expected(tmp_dir.path(), &mut ctx)?;
-        for entry in entries {
-            let bytes = ByteBuffer::from(std::fs::read(tmp_dir.path().join(&entry.name))?);
-            let array = adapter::read_file(bytes)?;
-            let arrow_array = array.execute_arrow(None, &mut ctx)?;
-            let batch =
-                if let Some(struct_arr) = arrow_array.as_any().downcast_ref::<ArrowStructArray>() {
-                    RecordBatch::from(struct_arr)
-                } else {
-                    let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
-                        "value",
-                        arrow_array.data_type().clone(),
-                        true,
-                    )]));
-                    RecordBatch::try_new(schema, vec![arrow_array]).map_err(|e| {
-                        vortex_err!("failed to build RecordBatch for {}: {e}", entry.name)
-                    })?
-                };
-            let out_path = output_dir.join(format!("{}.arrow", entry.name));
-            let file = File::create(&out_path)?;
-            let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
-                .map_err(|e| vortex_err!("failed to create IPC writer for {}: {e}", entry.name))?;
-            writer
-                .write(&batch)
-                .map_err(|e| vortex_err!("failed to write IPC batch for {}: {e}", entry.name))?;
-            writer
-                .finish()
-                .map_err(|e| vortex_err!("failed to finish IPC file for {}: {e}", entry.name))?;
-            eprintln!("  dumped {}.arrow", entry.name);
-        }
+        let name = fixture.name();
+        let array = fixture.build_expected(&mut ctx)?;
+        let arrow_array = array.execute_arrow(None, &mut ctx)?;
+        let batch =
+            if let Some(struct_arr) = arrow_array.as_any().downcast_ref::<ArrowStructArray>() {
+                RecordBatch::from(struct_arr)
+            } else {
+                let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+                    "value",
+                    arrow_array.data_type().clone(),
+                    true,
+                )]));
+                RecordBatch::try_new(schema, vec![arrow_array])
+                    .map_err(|e| vortex_err!("failed to build RecordBatch for {name}: {e}"))?
+            };
+        let out_path = output_dir.join(format!("{name}.arrow"));
+        let file = File::create(&out_path)?;
+        let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
+            .map_err(|e| vortex_err!("failed to create IPC writer for {name}: {e}"))?;
+        writer
+            .write(&batch)
+            .map_err(|e| vortex_err!("failed to write IPC batch for {name}: {e}"))?;
+        writer
+            .finish()
+            .map_err(|e| vortex_err!("failed to finish IPC file for {name}: {e}"))?;
+        eprintln!("  dumped {name}.arrow");
     }
     Ok(())
 }
