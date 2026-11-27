@@ -8,7 +8,6 @@
 
 use std::hash::Hash;
 
-use rustc_hash::FxBuildHasher;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -19,18 +18,12 @@ use vortex_array::VTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::UnsignedPType;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
@@ -173,7 +166,8 @@ pub fn dictionary_encode(
     }
 }
 
-/// Encodes a typed float array into a [`DictArray`] with frequency-ordered values and codes.
+/// Encodes a typed float array into a [`DictArray`] ordered by descending frequency, breaking
+/// ties via IEEE 754 total order.
 fn dictionary_encode_typed<T: NativePType>(
     source_array: ArrayView<'_, Primitive>,
     typed: &FloatTypedStats<T>,
@@ -184,71 +178,13 @@ where
     let distinct = typed.distinct().vortex_expect(
         "this must be present since `DictScheme` declared that we need distinct values",
     );
-
-    let codes_validity = source_array.validity()?;
-    let values_validity = match codes_validity {
-        Validity::NonNullable => Validity::NonNullable,
-        _ => Validity::AllValid,
-    };
-
-    let mut entries: Vec<(T, u32)> = distinct
-        .distinct_values()
-        .iter()
-        .map(|(&value, &count)| (value.0, count))
-        .collect();
-    entries.sort_unstable_by(|&(lhs_val, lhs_count), &(rhs_val, rhs_count)| {
-        rhs_count
-            .cmp(&lhs_count)
-            .then_with(|| lhs_val.total_compare(rhs_val))
-    });
-    let values: Buffer<T> = entries.into_iter().map(|(value, _)| value).collect();
-
-    // The largest code is one less than the dictionary length.
-    let dict_len = values.len();
-    let source_slice = source_array.as_slice::<T>();
-    let codes = if dict_len <= u8::MAX as usize + 1 {
-        let buf = encode_codes::<T, u8>(&values, source_slice);
-        PrimitiveArray::new(buf, codes_validity).into_array()
-    } else if dict_len <= u16::MAX as usize + 1 {
-        let buf = encode_codes::<T, u16>(&values, source_slice);
-        PrimitiveArray::new(buf, codes_validity).into_array()
-    } else {
-        let buf = encode_codes::<T, u32>(&values, source_slice);
-        PrimitiveArray::new(buf, codes_validity).into_array()
-    };
-
-    let values = PrimitiveArray::new(values, values_validity).into_array();
-    // SAFETY: `encode_codes` emits codes in `0..values.len()` for every valid entry
-    // and preserves the exact distinct value set computed by `FloatStats`.
-    Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
-}
-
-/// Maps `values` to their dictionary codes in `distinct`.
-fn encode_codes<T: NativePType, I: UnsignedPType>(distinct: &[T], values: &[T]) -> Buffer<I>
-where
-    NativeValue<T>: Eq + Hash,
-{
-    let mut codes = HashMap::<NativeValue<T>, I, FxBuildHasher>::with_capacity_and_hasher(
-        distinct.len(),
-        FxBuildHasher,
-    );
-    for (code, &value) in distinct.iter().enumerate() {
-        codes.insert(
-            NativeValue(value),
-            I::from(code).vortex_expect("caller ensures dictionary length fits in code type"),
-        );
-    }
-
-    let mut output = BufferMut::with_capacity(values.len());
-    for &value in values {
-        // Any code lookups which fail are for nulls, so their value does not matter.
-        // SAFETY: `output` has capacity `values.len()`.
-        unsafe {
-            output.push_unchecked(codes.get(&NativeValue(value)).copied().unwrap_or_default());
-        }
-    }
-
-    output.freeze()
+    super::dictionary_encode_from_counts(
+        source_array,
+        distinct
+            .distinct_values()
+            .iter()
+            .map(|(&value, &count)| (value.0, count)),
+    )
 }
 
 #[cfg(test)]
