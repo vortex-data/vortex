@@ -331,3 +331,60 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
     with pytest.raises(SystemExit) as exc:
         compat.cmd_check_editions(args)
     assert exc.value.code == 1
+
+    # Excluded fixtures must not be flagged as stale when omitted via --exclude.
+    def fake_generate_excluded(output: Path, profile="release", edition=None, exclude=None):
+        output.mkdir(parents=True, exist_ok=True)
+        fixtures = [{"name": "primitives.vortex", "description": "p", "sha256": "a"}]
+        if not (exclude and any(pat in "fsst.vortex" for pat in exclude)):
+            fixtures.append({"name": "fsst.vortex", "description": "f", "sha256": "b"})
+        (output / "fixtures.json").write_text(json.dumps({"edition": edition, "fixtures": fixtures}))
+
+    monkeypatch.setattr(compat, "_run_rust_generate", fake_generate_excluded)
+    monkeypatch.setattr(
+        compat,
+        "_run_edition_reader",
+        lambda reader_version, src_dir, expected_dir, python_version="3.12": {
+            "passed": ["primitives.vortex"],
+            "failed": [],
+        },
+    )
+    args_excl = argparse.Namespace(
+        profile="ci",
+        editions=None,
+        exclude="fsst",
+        accepted_failures=str(accepted_path),
+        python="3.12",
+        json_output=None,
+    )
+    compat.cmd_check_editions(args_excl)
+
+    # An accepted entry whose (edition, reader_version) is never checked must fail as stale.
+    orphan_path = tmp_path / "orphan.json"
+    orphan_path.write_text(
+        json.dumps(
+            {
+                "reader_overrides": {},
+                "failures": [
+                    {
+                        "edition": "core2025.06.0",
+                        "reader_version": "0.99.0",
+                        "fixture": "fsst.vortex",
+                        "expected_causes": ["Expected 2 buffers, got 3"],
+                        "reason": "stale reader version",
+                    }
+                ],
+            }
+        )
+    )
+    args_orphan = argparse.Namespace(
+        profile="ci",
+        editions=None,
+        exclude=None,
+        accepted_failures=str(orphan_path),
+        python="3.12",
+        json_output=None,
+    )
+    with pytest.raises(SystemExit) as exc:
+        compat.cmd_check_editions(args_orphan)
+    assert exc.value.code == 1

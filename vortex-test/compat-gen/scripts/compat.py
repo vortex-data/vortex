@@ -956,6 +956,7 @@ def _evaluate_edition_results(
     written_names: list[str],
     report: dict,
     accepted_failures: dict[tuple[str, str, str], dict[str, object]],
+    exclude: list[str] | None = None,
 ) -> dict:
     """Compare reader results for one edition against the accepted-failures list.
 
@@ -1024,6 +1025,8 @@ def _evaluate_edition_results(
         if ed != edition or rv != reader_version:
             continue
         if fixture_name not in failed_by_name:
+            if fixture_name not in written_set and exclude and any(pat in fixture_name for pat in exclude):
+                continue
             status = "passed" if fixture_name in written_set else "not written"
             stale_accepted.append(
                 {
@@ -1148,6 +1151,8 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
             generated_dirs[eid] = out_dir
 
         # 3. Verify each selected edition with its oldest release reader (or documented override).
+        checked_pairs: set[tuple[str, str]] = set()
+        selected_ids = {ed["id"] for ed in selected}
         for ed in selected:
             eid = ed["id"]
             min_ver = ed["min_library_version"]
@@ -1161,6 +1166,7 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
                 reader_ver = min_ver
                 _info(f"\n=== checking {eid} with vortex-data=={reader_ver} ===")
 
+            checked_pairs.add((eid, reader_ver))
             gen_manifest = json.loads((generated_dirs[eid] / "fixtures.json").read_text())
             written_names = [f["name"] for f in gen_manifest.get("fixtures", [])]
 
@@ -1170,7 +1176,14 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
                 expected_dir,
                 python_version=args.python,
             )
-            evaluated = _evaluate_edition_results(eid, reader_ver, written_names, report, accepted_failures)
+            evaluated = _evaluate_edition_results(
+                eid,
+                reader_ver,
+                written_names,
+                report,
+                accepted_failures,
+                exclude=exclude,
+            )
             edition_results.append(evaluated)
 
             total_passed += len(evaluated["passed"])
@@ -1194,6 +1207,17 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
                     else "remove from"
                 )
                 _info(f"    STALE ACCEPTED {s['name']} ({s['status']}): {action} {accepted_path} ({s['reason']})")
+
+        for (ed_id, rv, fixture_name), entry in sorted(accepted_failures.items()):
+            if args.editions and ed_id not in selected_ids:
+                continue
+            if (ed_id, rv) in checked_pairs:
+                continue
+            total_stale += 1
+            _info(
+                f"    STALE ACCEPTED {ed_id}/{rv} {fixture_name} (unchecked edition/reader_version): "
+                f"remove from {accepted_path} ({entry['reason']})"
+            )
 
     _info(
         f"\n=== edition check summary: {total_passed} passed, {total_accepted} accepted, "

@@ -193,8 +193,8 @@ def _run_isolated(fn: Callable[[], dict], timeout_s: float = 120.0) -> dict:
                 pass
 
 
-def _probe_column_causes(path: Path) -> list[str]:
-    """Probe each top-level struct column individually so every failure cause is reported."""
+def _probe_column_causes(path: Path, exp_path: Path) -> list[str]:
+    """Probe each top-level struct column individually so every failure or mismatch cause is reported."""
     col_names_res = _run_isolated(lambda: _get_struct_columns(path))
     if not col_names_res.get("ok"):
         return []
@@ -204,7 +204,7 @@ def _probe_column_causes(path: Path) -> list[str]:
 
     causes: set[str] = set()
     for col in columns:
-        res = _run_isolated(lambda c=col: _read_single_column(path, c))
+        res = _run_isolated(lambda c=col: _read_single_column(path, exp_path, c))
         if not res.get("ok") and res.get("error"):
             causes.add(res["error"])
     return sorted(causes)
@@ -220,9 +220,36 @@ def _get_struct_columns(path: Path) -> dict:
     return {"ok": True, "columns": names}
 
 
-def _read_single_column(path: Path, col: str) -> dict:
+def _read_single_column(path: Path, exp_path: Path, col: str) -> dict:
     vf = vortex.open(str(path))
-    vf.scan(projection=[col]).read_all().to_arrow_array()
+    actual_arr = vf.scan(projection=[col]).read_all().to_arrow_array()
+    if isinstance(actual_arr, pa.ChunkedArray):
+        actual_arr = actual_arr.combine_chunks()
+    actual_col = actual_arr.field(col) if pa.types.is_struct(actual_arr.type) else actual_arr
+    with ipc.open_file(str(exp_path)) as reader:
+        expected_table = reader.read_all()
+    if col not in expected_table.schema.names:
+        return {"ok": False, "error": f"unexpected column {col} missing from expected Arrow IPC"}
+    expected_col = expected_table.column(col).combine_chunks()
+    if actual_col.equals(expected_col):
+        return {"ok": True}
+    if len(actual_col) != len(expected_col):
+        return {
+            "ok": False,
+            "error": f"row count mismatch in column {col}: actual={len(actual_col)}, expected={len(expected_col)}",
+        }
+    if _normalize_type(actual_col.type) != _normalize_type(expected_col.type):
+        return {
+            "ok": False,
+            "error": f"type mismatch in column {col}: actual={actual_col.type}, expected={expected_col.type}",
+        }
+    if not _values_equal(actual_col.to_pylist(), expected_col.to_pylist()):
+        return {
+            "ok": False,
+            "error": (
+                f"value mismatch in column {col} (actual_type={actual_col.type}, expected_type={expected_col.type})"
+            ),
+        }
     return {"ok": True}
 
 
@@ -246,7 +273,7 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
         return {"ok": False, "error": err, "causes": [err]}
 
     # Collect every distinct cause across columns so parallel scan races don't hide causes.
-    col_causes = _probe_column_causes(path)
+    col_causes = _probe_column_causes(path, exp_path)
     if col_causes:
         return {
             "ok": False,
