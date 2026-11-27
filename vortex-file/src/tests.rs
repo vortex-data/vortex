@@ -1695,7 +1695,6 @@ async fn file_excluding_dtype() -> VortexResult<()> {
     Ok(())
 }
 
-/// Regression test for <https://github.com/vortex-data/vortex/issues/12169>.
 #[tokio::test]
 async fn open_with_unknown_field_dtype_tag_fails() -> VortexResult<()> {
     use vortex_array::dtype::flatbuffers as dtype_fb;
