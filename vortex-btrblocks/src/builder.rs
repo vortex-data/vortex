@@ -14,7 +14,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
-use crate::ChildPolicy;
+use crate::CompressionPolicy;
 use crate::CompressionSessionExt;
 use crate::Scheme;
 use crate::SchemeExt;
@@ -142,7 +142,7 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
     allowed: AllowedIds,
     mode: CompressionMode,
-    child_policy: Option<Arc<dyn ChildPolicy>>,
+    policy: Option<Arc<dyn CompressionPolicy>>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -154,7 +154,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: session.compression().schemes(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
-            child_policy: None,
+            policy: None,
         }
     }
 
@@ -167,7 +167,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: Vec::new(),
             allowed: AllowedIds::all(),
             mode: CompressionMode::All,
-            child_policy: None,
+            policy: None,
         }
     }
 
@@ -233,10 +233,11 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Sets a policy that decides, child by child, whether to compress the children schemes
-    /// register, overriding the schemes' own decisions.
-    pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
-        self.child_policy = Some(policy);
+    /// Sets a policy that selects the scheme at each compression site and decides, child by
+    /// child, whether to compress the children schemes register, overriding the compressor's
+    /// own choices.
+    pub fn with_policy(mut self, policy: Arc<dyn CompressionPolicy>) -> Self {
+        self.policy = Some(policy);
         self
     }
 
@@ -244,8 +245,8 @@ impl BtrBlocksCompressorBuilder {
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
         let compressor = CascadingCompressor::new(self.allowed_schemes());
-        BtrBlocksCompressor(match self.child_policy {
-            Some(policy) => compressor.with_child_policy(policy),
+        BtrBlocksCompressor(match self.policy {
+            Some(policy) => compressor.with_policy(policy),
             None => compressor,
         })
     }

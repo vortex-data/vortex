@@ -19,8 +19,8 @@ pub use sample::sample_aligned_chunks;
 pub(crate) use sample::sample_slices;
 
 use crate::builtins::IntDictScheme;
-use crate::scheme::ChildPolicy;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressionPolicy;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -59,7 +59,7 @@ pub struct CascadingCompressor {
     root_exclusions: Vec<DescendantExclusion>,
 
     /// Overrides schemes' decisions about which children to compress.
-    child_policy: Option<Arc<dyn ChildPolicy>>,
+    policy: Option<Arc<dyn CompressionPolicy>>,
 }
 
 impl CascadingCompressor {
@@ -77,14 +77,14 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
-            child_policy: None,
+            policy: None,
         }
     }
 
-    /// Sets a policy that decides, child by child, whether to compress what schemes register,
-    /// overriding the schemes' own decisions.
-    pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
-        self.child_policy = Some(policy);
+    /// Sets a policy that selects the scheme at each compression site and decides, child by
+    /// child, whether to compress what schemes register, overriding the compressor's own choices.
+    pub fn with_policy(mut self, policy: Arc<dyn CompressionPolicy>) -> Self {
+        self.policy = Some(policy);
         self
     }
 }

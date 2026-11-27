@@ -46,7 +46,7 @@ impl CascadingCompressor {
         bitmap: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let compressed = self.compress(bitmap, exec_ctx)?;
+        let compressed = self.compress_nested(bitmap, exec_ctx)?;
         Ok((compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
     }
 
@@ -54,11 +54,11 @@ impl CascadingCompressor {
     /// when it does not get smaller.
     ///
     /// A scheme that implements only [`Scheme::compress`] and stores a validity it builds itself
-    /// calls this before storing it. The compressor's [`ChildPolicy`] is asked about it with a
-    /// root context.
+    /// calls this before storing it. The bitmap is a nested site, so the compressor's
+    /// [`CompressionPolicy`] does not choose its scheme.
     ///
     /// [`Scheme::compress`]: crate::scheme::Scheme::compress
-    /// [`ChildPolicy`]: crate::scheme::ChildPolicy
+    /// [`CompressionPolicy`]: crate::scheme::CompressionPolicy
     ///
     /// # Errors
     ///
@@ -68,7 +68,7 @@ impl CascadingCompressor {
         validity: Validity,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Validity> {
-        self.resolve_validity(validity, &CompressorContext::new(), exec_ctx)
+        self.resolve_validity(validity, &CompressorContext::nested(), exec_ctx)
     }
 
     /// Returns `array` with its validity compressed, if it is a bool, primitive, decimal or
@@ -76,10 +76,11 @@ impl CascadingCompressor {
     ///
     /// A scheme that implements only [`Scheme::compress`] and stores its input's validity calls
     /// this on its input before encoding it, so that the encoding stores the compressed bitmap.
-    /// The compressor's [`ChildPolicy`] is asked about it with a root context.
+    /// The bitmap is a nested site, so the compressor's [`CompressionPolicy`] does not choose its
+    /// scheme.
     ///
     /// [`Scheme::compress`]: crate::scheme::Scheme::compress
-    /// [`ChildPolicy`]: crate::scheme::ChildPolicy
+    /// [`CompressionPolicy`]: crate::scheme::CompressionPolicy
     ///
     /// # Errors
     ///
@@ -94,7 +95,7 @@ impl CascadingCompressor {
         }
         let canonical = array.clone().execute::<Canonical>(exec_ctx)?;
         Ok(self
-            .compress_leaf_validity(canonical, None, &CompressorContext::new(), exec_ctx)?
+            .compress_leaf_validity(canonical, None, &CompressorContext::nested(), exec_ctx)?
             .into_array())
     }
 
@@ -148,7 +149,7 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
-        let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
+        let compressed_elems = self.compress_nested(list_array.elements(), exec_ctx)?;
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx = compress_ctx
@@ -182,7 +183,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compressed_elems = self.compress(list_view.elements(), exec_ctx)?;
+        let compressed_elems = self.compress_nested(list_view.elements(), exec_ctx)?;
 
         let offset_ctx = compress_ctx
             .clone()
@@ -250,7 +251,7 @@ impl CascadingCompressor {
             .iter()
             .map(|slot| {
                 slot.as_ref()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .map(|child| self.compress_nested(child, exec_ctx))
                     .transpose()
             })
             .collect::<VortexResult<ArraySlots>>()?;

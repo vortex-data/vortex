@@ -9,6 +9,7 @@
 use std::iter;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -52,6 +53,7 @@ use vortex_edition::EditionId;
 use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
@@ -62,9 +64,17 @@ use vortex_sparse::Sparse;
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::ChildDecision;
-use crate::ChildPolicy;
 use crate::ChildRequest;
+use crate::CompressionPolicy;
+use crate::MAX_CASCADE;
+use crate::Plan;
 use crate::SESSION;
+use crate::Scheme;
+use crate::SchemeExt;
+use crate::SchemeId;
+use crate::SchemeSelection;
+use crate::SiteOutcome;
+use crate::SiteRequest;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::integer::BitPackingScheme;
@@ -532,8 +542,8 @@ fn test_unique_text_selects_onpair_on_every_chunk() -> VortexResult<()> {
 #[derive(Debug)]
 struct KeepEverything;
 
-impl ChildPolicy for KeepEverything {
-    fn decide(&self, _request: &ChildRequest<'_>) -> ChildDecision {
+impl CompressionPolicy for KeepEverything {
+    fn decide_child(&self, _request: &ChildRequest<'_>) -> ChildDecision {
         ChildDecision::Keep
     }
 }
@@ -547,7 +557,7 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
         .with_new_scheme(&RunEndScheme)
         .with_new_scheme(&BITPACKING_V1);
     if keep {
-        builder = builder.with_child_policy(Arc::new(KeepEverything));
+        builder = builder.with_policy(Arc::new(KeepEverything));
     }
     let compressed = assert_roundtrip(&builder.build(), &input)?;
 
@@ -558,5 +568,252 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
         .flatten()
         .all(ArrayRef::is_canonical);
     assert_eq!(children_canonical, keep);
+    Ok(())
+}
+
+/// A site's cascade history and the scheme applied there.
+type Applied = (Vec<(SchemeId, usize)>, Option<SchemeId>);
+
+/// Answers every site with one selection, and records each site's applied scheme by its cascade
+/// history.
+#[derive(Debug)]
+struct SelectingPolicy {
+    selection: SchemeSelection,
+    applied: Mutex<Vec<Applied>>,
+    candidates: Mutex<Vec<Applied>>,
+}
+
+impl SelectingPolicy {
+    fn new(selection: SchemeSelection) -> Arc<Self> {
+        Arc::new(Self {
+            selection,
+            applied: Mutex::new(Vec::new()),
+            candidates: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// The scheme applied at the root of the last compressed array.
+    fn root(&self) -> Option<SchemeId> {
+        self.applied
+            .lock()
+            .iter()
+            .rev()
+            .find(|(path, _)| path.is_empty())
+            .and_then(|(_, scheme)| *scheme)
+    }
+}
+
+impl CompressionPolicy for SelectingPolicy {
+    fn select_scheme(&self, _request: &SiteRequest<'_>) -> SchemeSelection {
+        self.selection.clone()
+    }
+
+    fn observe_candidate(&self, candidate: &SiteOutcome<'_>) {
+        self.candidates
+            .lock()
+            .push((candidate.ctx.cascade_history().to_vec(), candidate.scheme));
+    }
+
+    fn observe(&self, outcome: &SiteOutcome<'_>) {
+        self.applied
+            .lock()
+            .push((outcome.ctx.cascade_history().to_vec(), outcome.scheme));
+    }
+}
+
+fn runs_compressor(policy: Option<Arc<SelectingPolicy>>) -> BtrBlocksCompressor {
+    let builder = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&BITPACKING_V1);
+    match policy {
+        Some(policy) => builder.with_policy(policy),
+        None => builder,
+    }
+    .build()
+}
+
+fn runs() -> ArrayRef {
+    PrimitiveArray::from_iter((0..100_000).map(|i| i / 100)).into_array()
+}
+
+#[test]
+fn test_policy_forces_a_scheme() -> VortexResult<()> {
+    let policy = SelectingPolicy::new(SchemeSelection::Scheme(BITPACKING_V1.id()));
+    let compressed = assert_roundtrip(&runs_compressor(Some(Arc::clone(&policy))), &runs())?;
+    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+    assert_eq!(policy.root(), Some(BITPACKING_V1.id()));
+    Ok(())
+}
+
+#[test]
+fn test_policy_keeps_an_array_canonical() -> VortexResult<()> {
+    let policy = SelectingPolicy::new(SchemeSelection::Canonical);
+    let compressed = assert_roundtrip(&runs_compressor(Some(Arc::clone(&policy))), &runs())?;
+    assert!(compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert_eq!(policy.root(), None);
+    Ok(())
+}
+
+#[test]
+fn test_policy_best_is_no_larger_than_estimates() -> VortexResult<()> {
+    let estimated = assert_roundtrip(&runs_compressor(None), &runs())?;
+    let policy = SelectingPolicy::new(SchemeSelection::Best(Vec::new()));
+    let best = assert_roundtrip(&runs_compressor(Some(Arc::clone(&policy))), &runs())?;
+    assert!(
+        best.nbytes() <= estimated.nbytes(),
+        "{} > {}",
+        best.nbytes(),
+        estimated.nbytes()
+    );
+    // Both root candidates are reported, winner or not.
+    let roots: Vec<_> = policy
+        .candidates
+        .lock()
+        .iter()
+        .filter(|(path, _)| path.is_empty())
+        .filter_map(|(_, scheme)| *scheme)
+        .collect();
+    assert_eq!(roots, [RunEndScheme.id(), BITPACKING_V1.id()]);
+    // The children of every tried scheme are reported, under their own cascade histories.
+    let applied = policy.applied.lock();
+    assert!(
+        applied
+            .iter()
+            .any(|(path, _)| path.first().is_some_and(|(s, _)| *s == RunEndScheme.id()))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_policy_ignores_an_ineligible_scheme() -> VortexResult<()> {
+    let estimated = assert_roundtrip(&runs_compressor(None), &runs())?;
+    let policy = SelectingPolicy::new(SchemeSelection::Scheme(VarBinScheme.id()));
+    let compressed = assert_roundtrip(&runs_compressor(Some(policy)), &runs())?;
+    assert_eq!(compressed.encoding_id(), estimated.encoding_id());
+    Ok(())
+}
+
+#[test]
+fn test_recorded_plan_replays_to_the_same_array() -> VortexResult<()> {
+    let compressor = runs_compressor(None);
+    let input = runs();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
+    assert_eq!(
+        compressed.nbytes(),
+        compressor.compress(&input, &mut ctx)?.nbytes()
+    );
+    assert_eq!(plan.at(&[]), &plan);
+    assert!(matches!(plan, Plan::Scheme { .. }), "{plan}");
+
+    let schemes: [&'static dyn Scheme; 2] = [&RunEndScheme, &BITPACKING_V1];
+    let parsed = Plan::parse(&plan.to_string(), &schemes)?;
+    assert_eq!(parsed, plan);
+
+    let replayed = compressor.compress_with_plan(&input, &parsed, &mut ctx)?;
+    assert_eq!(replayed.encoding_id(), compressed.encoding_id());
+    assert_eq!(replayed.nbytes(), compressed.nbytes());
+    assert_arrays_eq!(&replayed, &input, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_plan_forces_the_cascade() -> VortexResult<()> {
+    let schemes: [&'static dyn Scheme; 2] = [&RunEndScheme, &BITPACKING_V1];
+    let plan = Plan::parse(&format!("{}(canonical, _)", RunEndScheme.id()), &schemes)?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = runs_compressor(None).compress_with_plan(&runs(), &plan, &mut ctx)?;
+    assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
+    let canonical: Vec<String> = compressed
+        .slots()
+        .iter()
+        .enumerate()
+        .filter(|(_, slot)| slot.as_ref().is_some_and(ArrayRef::is_canonical))
+        .map(|(index, _)| compressed.slot_name(index))
+        .collect();
+    assert_eq!(canonical, ["values"]);
+    assert_arrays_eq!(&compressed, &runs(), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_plan_rejects_unknown_schemes() {
+    let schemes: [&'static dyn Scheme; 1] = [&RunEndScheme];
+    assert!(Plan::parse("test.nope", &schemes).is_err());
+    assert!(Plan::parse("_ _", &schemes).is_err());
+}
+
+#[test]
+fn test_plan_rejects_nesting_deeper_than_the_cascade() -> VortexResult<()> {
+    let schemes: [&'static dyn Scheme; 1] = [&RunEndScheme];
+    let nested = |depth: usize| {
+        let id = RunEndScheme.id();
+        format!("{}{}", format!("{id}(").repeat(depth), ")".repeat(depth)).replace("()", "(_)")
+    };
+    Plan::parse(&nested(MAX_CASCADE), &schemes)?;
+    assert!(Plan::parse(&nested(MAX_CASCADE + 1), &schemes).is_err());
+    assert!(Plan::parse(&nested(100_000), &schemes).is_err());
+    Ok(())
+}
+
+fn nullable_runs() -> ArrayRef {
+    PrimitiveArray::from_option_iter((0..100_000).map(|i| (i % 1_000 != 7).then_some(i / 100)))
+        .into_array()
+}
+
+/// A leaf's validity bitmap is a nested site, so a plan that keeps the leaf canonical still lets
+/// the bitmap be compressed, and recording the leaf's plan does not pick up the bitmap's scheme.
+#[test]
+fn test_nullable_leaf_plan_covers_the_leaf() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = nullable_runs();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let canonical = compressor.compress_with_plan(&input, &Plan::Canonical, &mut ctx)?;
+    assert!(canonical.is_canonical(), "{}", canonical.encoding_id());
+    let validity = canonical.validity()?;
+    let bitmap = validity
+        .as_array()
+        .vortex_expect("nullable input has a validity bitmap");
+    assert!(!bitmap.is_canonical(), "{}", bitmap.encoding_id());
+    assert_arrays_eq!(&canonical, &input, &mut ctx);
+
+    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
+    assert!(
+        matches!(&plan, Plan::Scheme { .. }),
+        "{plan} for {}",
+        compressed.encoding_id()
+    );
+    let replayed = compressor.compress_with_plan(&input, &plan, &mut ctx)?;
+    assert_eq!(replayed.nbytes(), compressed.nbytes());
+    assert_arrays_eq!(&replayed, &input, &mut ctx);
+    Ok(())
+}
+
+/// Struct fields are nested sites, so a struct's plan leaves them to estimation and replays to
+/// the same array.
+#[test]
+fn test_struct_plan_leaves_fields_to_estimation() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let strings = VarBinViewArray::from_iter_str((0..100_000).map(|i| ["a", "bb", "ccc"][i % 3]));
+    let input = StructArray::from_fields(&[
+        ("runs", runs()),
+        ("nullable", nullable_runs()),
+        ("strings", strings.into_array()),
+    ])?
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let (compressed, plan) = compressor.compress_recording_plan(&input, &mut ctx)?;
+    assert_eq!(plan, Plan::Adaptive);
+
+    let replayed = compressor.compress_with_plan(&input, &plan, &mut ctx)?;
+    assert_eq!(replayed.nbytes(), compressed.nbytes());
+    assert_arrays_eq!(&replayed, &input, &mut ctx);
     Ok(())
 }

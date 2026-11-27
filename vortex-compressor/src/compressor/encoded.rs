@@ -28,7 +28,7 @@ impl CascadingCompressor {
     ///
     /// Children in [`Encoded::compress`] and the bitmap of [`Encoded::validity`] are compressed,
     /// children in [`Encoded::keep`] are passed through, unless the compressor's
-    /// [`ChildPolicy`](crate::scheme::ChildPolicy) decides otherwise. `scheme` names the scheme
+    /// [`CompressionPolicy`](crate::scheme::CompressionPolicy) decides otherwise. `scheme` names the scheme
     /// that produced the encoding in errors.
     ///
     /// Estimate callbacks that run a trial compression use this to compress a trial encoding.
@@ -163,8 +163,8 @@ impl CascadingCompressor {
         requested: ChildDecision,
         ctx: &CompressorContext,
     ) -> ChildDecision {
-        match &self.child_policy {
-            Some(policy) => policy.decide(&ChildRequest {
+        match &self.policy {
+            Some(policy) => policy.decide_child(&ChildRequest {
                 kind,
                 array,
                 requested,

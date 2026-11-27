@@ -64,12 +64,13 @@ use super::structural;
 use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
+use crate::plan::Plan;
 use crate::scheme::Child;
 use crate::scheme::ChildDecision;
 use crate::scheme::ChildKind;
-use crate::scheme::ChildPolicy;
 use crate::scheme::ChildRequest;
 use crate::scheme::CompressionEstimate;
+use crate::scheme::CompressionPolicy;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
 use crate::scheme::Encoded;
@@ -503,6 +504,8 @@ impl Scheme for OverpromisingScheme {
 }
 
 /// Stores a dictionary as its trial output, then reports that it cannot beat the threshold.
+///
+/// Forced without an estimate, as when a plan is replayed, it dictionary-encodes directly.
 #[derive(Debug)]
 struct TrialStoringScheme;
 
@@ -540,11 +543,11 @@ impl Scheme for TrialStoringScheme {
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
+        Ok(dict_encode(data.array(), exec_ctx)?.into_array())
     }
 }
 
@@ -963,6 +966,29 @@ fn smaller_trial_output_replaces_an_overpromising_winner() -> VortexResult<()> {
 
     assert!(compressed.is::<Dict>());
     assert_arrays_eq!(compressed, array, &mut exec_ctx);
+    Ok(())
+}
+
+#[test]
+fn recorded_plan_keeps_the_trial_that_beat_the_winner() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&OverpromisingScheme, &TrialStoringScheme]);
+    let array = PrimitiveArray::from_iter((0..1024i64).map(|value| value % 4)).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let (compressed, plan) = compressor.compress_recording_plan(&array, &mut exec_ctx)?;
+    assert!(compressed.is::<Dict>());
+    assert_eq!(
+        plan,
+        Plan::Scheme {
+            scheme: TrialStoringScheme.id(),
+            children: Vec::new(),
+        }
+    );
+
+    let replayed = compressor.compress_with_plan(&array, &plan, &mut exec_ctx)?;
+    assert!(replayed.is::<Dict>());
+    assert_eq!(replayed.nbytes(), compressed.nbytes());
+    assert_arrays_eq!(replayed, array, &mut exec_ctx);
     Ok(())
 }
 
@@ -1479,8 +1505,8 @@ struct RecordingPolicy {
     requests: Mutex<Vec<(ChildKind, ChildDecision)>>,
 }
 
-impl ChildPolicy for RecordingPolicy {
-    fn decide(&self, request: &ChildRequest<'_>) -> ChildDecision {
+impl CompressionPolicy for RecordingPolicy {
+    fn decide_child(&self, request: &ChildRequest<'_>) -> ChildDecision {
         self.requests.lock().push((request.kind, request.requested));
         self.decision.unwrap_or(request.requested)
     }
@@ -1513,7 +1539,7 @@ fn policy_sees_each_registered_child() -> VortexResult<()> {
     let policy = Arc::new(RecordingPolicy::default());
     let compressor =
         CascadingCompressor::new(vec![&KEEPING_DICT])
-            .with_child_policy(Arc::<RecordingPolicy>::clone(&policy));
+            .with_policy(Arc::<RecordingPolicy>::clone(&policy));
     let input = alternating_ints();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&input, &mut ctx)?;
@@ -1541,7 +1567,7 @@ fn policy_can_compress_a_kept_child() -> VortexResult<()> {
     });
     // With the kept values compressed, the policy is asked about the values' own children too,
     // and the result still round-trips.
-    let compressor = CascadingCompressor::new(vec![&KEEPING_DICT]).with_child_policy(policy);
+    let compressor = CascadingCompressor::new(vec![&KEEPING_DICT]).with_policy(policy);
     let input = alternating_ints();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&input, &mut ctx)?;

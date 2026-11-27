@@ -17,7 +17,7 @@
 //!
 //! The compressor also drives all recursion. `encode` returns before any child is compressed, so a
 //! scheme's frame is never on the stack while its children are compressed, and the compressor has
-//! the last word on every child: see [`ChildPolicy`].
+//! the last word on every child: see [`CompressionPolicy`](crate::scheme::CompressionPolicy).
 //!
 //! [`Scheme`]: crate::scheme::Scheme
 //! [`Scheme::encode`]: crate::scheme::Scheme::encode
@@ -153,7 +153,7 @@ pub type EncodedCtor =
 ///
 /// The compressor compresses every child in [`compress`](Self::compress) and the bitmap in
 /// [`validity`](Self::validity), passes through every child in [`keep`](Self::keep), and calls
-/// [`ctor`](Self::ctor) with the results. A [`ChildPolicy`] on the compressor can move a child
+/// [`ctor`](Self::ctor) with the results. A [`CompressionPolicy`](crate::scheme::CompressionPolicy) on the compressor can move a child
 /// between the two lists.
 pub struct Encoded {
     /// Children the compressor compresses.
@@ -270,7 +270,7 @@ pub enum ChildDecision {
     Keep,
 }
 
-/// A child the compressor is about to compress or keep, as seen by a [`ChildPolicy`].
+/// A child the compressor is about to compress or keep, as seen by a [`CompressionPolicy`](crate::scheme::CompressionPolicy).
 #[derive(Debug)]
 pub struct ChildRequest<'a> {
     /// How the child would be compressed.
@@ -283,20 +283,4 @@ pub struct ChildRequest<'a> {
     pub requested: ChildDecision,
     /// The context of the scheme that registered the child.
     pub ctx: &'a CompressorContext,
-}
-
-/// Lets a compressor override a scheme's decision about a child.
-///
-/// The compressor asks the policy about every registered child and validity bitmap, and about
-/// the validity of leaves it compresses itself. A policy can keep a child a scheme asked to
-/// compress, or compress a child a scheme asked to keep. Compressing a kept child is the policy's
-/// responsibility: the scheme may rely on it staying canonical.
-///
-/// The cascade budget still applies: once a chain has used up [`MAX_CASCADE`] levels, its children
-/// are kept whatever the policy decides.
-///
-/// [`MAX_CASCADE`]: crate::scheme::MAX_CASCADE
-pub trait ChildPolicy: Debug + Send + Sync {
-    /// Decides what happens to the child.
-    fn decide(&self, request: &ChildRequest<'_>) -> ChildDecision;
 }
