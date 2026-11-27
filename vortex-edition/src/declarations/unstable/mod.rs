@@ -31,5 +31,8 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         immutable: false,
         min_library_version: None,
     },
-    added: &[EditionMember::dtype(&"vortex.duration")],
+    added: &[
+        EditionMember::dtype(&"vortex.duration"),
+        EditionMember::layout(&"vortex.variant"),
+    ],
 };
