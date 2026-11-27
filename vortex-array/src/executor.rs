@@ -732,8 +732,8 @@ impl ExecutionCtx {
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
-    /// Enable or disable block fusion of primitive encoding chains, which is on by default. See
-    /// [`crate::block`].
+    /// Select a fusion mode for differential tests and benchmarks.
+    #[cfg(any(test, feature = "_test-harness"))]
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
         self

@@ -109,21 +109,16 @@ fn alp_for_bp(blocked: bool) -> ArrayRef {
 fn alp_for_bp_execute(bencher: Bencher) {
     let array = alp_for_bp(false);
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(false),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
 #[divan::bench]
-fn alp_for_bp_fused(bencher: Bencher) {
+fn alp_for_bp_levelwise(bencher: Bencher) {
     let array = alp_for_bp(false);
     bencher
         .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(true);
+            let ctx = SESSION.create_execution_ctx().with_block_fusion(false);
             (array.clone(), ctx)
         })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
