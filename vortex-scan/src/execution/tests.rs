@@ -11,8 +11,11 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -73,7 +76,10 @@ fn new_session() -> VortexSession {
 enum Strategy {
     Flat,
     Table,
+    /// A table whose `ints` zones hold their maximum.
     ZonedTable,
+    /// A table whose `ints` zones hold their minimum, maximum and null count.
+    StatsZonedTable,
 }
 
 async fn source(
@@ -101,7 +107,7 @@ async fn source_chunks(
                 .collect::<VortexResult<_>>()?;
             ConcatPlan::try_new(dtype, plans)?.into_plan()
         }
-        Strategy::Table | Strategy::ZonedTable => {
+        Strategy::Table | Strategy::ZonedTable | Strategy::StatsZonedTable => {
             let fields = dtype.as_struct_fields();
             let columns = fields
                 .names()
@@ -118,18 +124,34 @@ async fn source_chunks(
                         .collect::<VortexResult<_>>()?;
                     let column_dtype = fields.field(name).expect("fixture field exists");
                     let data = ConcatPlan::try_new(column_dtype, chunks)?.into_plan();
-                    if matches!(strategy, Strategy::ZonedTable) && name.as_ref() == "ints" {
+                    if !matches!(strategy, Strategy::Table) && name.as_ref() == "ints" {
+                        let bound = |offset: usize| -> VortexResult<ArrayRef> {
+                            let bounds = (0..count)
+                                .map(|chunk| i32::try_from(chunk * CHUNK_ROWS + offset).map(Some))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            Ok(PrimitiveArray::from_option_iter(bounds).into_array())
+                        };
                         let max = Max.bind(NumericalAggregateOpts::skip_nans());
-                        let maxima = (0..count)
-                            .map(|chunk| i32::try_from((chunk + 1) * CHUNK_ROWS - 1).map(Some))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let maxima = PrimitiveArray::from_option_iter(maxima).into_array();
-                        let table =
-                            StructArray::from_fields(&[(max.to_string().as_str(), maxima)])?
-                                .into_array();
+                        let mut stats = vec![max.clone()];
+                        let mut zone_columns = vec![(max.to_string(), bound(CHUNK_ROWS - 1)?)];
+                        if matches!(strategy, Strategy::StatsZonedTable) {
+                            let min = Min.bind(NumericalAggregateOpts::skip_nans());
+                            let null_count = NullCount.bind(EmptyOptions);
+                            let nulls =
+                                PrimitiveArray::from_option_iter((0..count).map(|_| Some(0u64)))
+                                    .into_array();
+                            zone_columns.push((min.to_string(), bound(0)?));
+                            zone_columns.push((null_count.to_string(), nulls));
+                            stats.extend([min, null_count]);
+                        }
+                        let zone_columns = zone_columns
+                            .iter()
+                            .map(|(name, column)| (name.as_str(), column.clone()))
+                            .collect::<Vec<_>>();
+                        let table = StructArray::from_fields(&zone_columns)?.into_array();
                         let zones = store.flat(&table)?;
                         Ok(
-                            ZonedPlan::new(data, zones, CHUNK_ROWS as u64, vec![max].into())
+                            ZonedPlan::new(data, zones, CHUNK_ROWS as u64, stats.into())
                                 .into_plan(),
                         )
                     } else {
@@ -814,6 +836,58 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
     assert_eq!(rows, all - 300_000);
     let plans = scan.filter().expect("the scan has a filter");
     assert!(!plans.is_switched_off(0));
+    Ok(())
+}
+
+/// A dynamic conjunct whose zone maps prove that every row of a chunk satisfies its current value
+/// is not evaluated on that chunk, so the scan reads its zone maps but not its column. Once its
+/// value tightens, the chunks the zone maps no longer prove evaluate it again.
+#[tokio::test]
+async fn dynamic_conjuncts_proved_by_zone_maps_are_not_evaluated() -> VortexResult<()> {
+    const TABLE_CHUNKS: usize = 600;
+    let session = new_session().with_tokio();
+    let (segments, layout) =
+        source_chunks(&session, Strategy::StatsZonedTable, TABLE_CHUNKS).await?;
+    let counted = Arc::clone(&segments);
+    let file = || -> VortexResult<ScanInput> {
+        let mut file = scan_input(&segments, &layout)?;
+        file.cache = Some(ScanCache::with_retained_bytes(0));
+        Ok(file)
+    };
+
+    let (_, all, unfiltered_reads) =
+        strings_scan(&session, &counted, &layout, file()?, None, false).await?;
+    assert_eq!(all, TABLE_CHUNKS * CHUNK_ROWS);
+
+    let bound = Arc::new(AtomicI32::new(-1));
+    let ints = get_item("ints", root());
+    let filter = {
+        let bound = Arc::clone(&bound);
+        dynamic(
+            CompareOperator::Gt,
+            move || Some(bound.load(Ordering::Relaxed).into()),
+            ints.return_dtype(layout.dtype())?,
+            true,
+            ints,
+        )
+    };
+
+    // Every zone's minimum is above the bound, so the scan reads the zone map, for pruning and
+    // again for the proof since no segment is retained, but not the `ints` column.
+    let (_, rows, reads) =
+        strings_scan(&session, &counted, &layout, file()?, Some(&filter), false).await?;
+    assert_eq!(rows, all);
+    assert!(
+        reads <= unfiltered_reads + 2,
+        "{reads} > {unfiltered_reads} + 2"
+    );
+
+    // The tightened bound prunes the zones below it and splits the zone of rows 299,000..300,000,
+    // whose chunk the zone maps no longer prove, so the conjunct filters its rows.
+    bound.store(299_499, Ordering::Relaxed);
+    let (_, rows, _) =
+        strings_scan(&session, &counted, &layout, file()?, Some(&filter), false).await?;
+    assert_eq!(rows, all - 299_500);
     Ok(())
 }
 

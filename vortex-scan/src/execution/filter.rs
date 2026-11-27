@@ -54,6 +54,8 @@ pub struct FilterPlans {
     predicates: Vec<PlanRef>,
     /// A metadata-only pruning plan per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+    /// A metadata-only plan proving the rows every dynamic conjunct keeps, where it has one.
+    satisfying: Vec<Option<PlanRef>>,
 }
 
 impl FilterPlans {
@@ -91,28 +93,23 @@ impl FilterPlans {
         let pruning = expression
             .conjuncts()
             .iter()
-            .map(|expr| {
-                expr.falsify(session)?
-                    .map(|pruning| {
-                        optimize(
-                            plan_row_idx_expression(pruning, root.clone(), session)?,
-                            session,
-                        )
-                    })
-                    .transpose()
-            })
-            .map(|plan| {
-                let plan = plan?;
-                match plan {
-                    Some(plan) if metadata_only(&plan)? => Ok(Some(plan)),
-                    _ => Ok(None),
-                }
+            .map(|expr| metadata_plan(expr.falsify(session)?, root, session))
+            .collect::<VortexResult<_>>()?;
+        // Only dynamic conjuncts are proved, since a proof reads the zone maps on every chunk.
+        let satisfying = expression
+            .conjuncts()
+            .iter()
+            .enumerate()
+            .map(|(idx, expr)| match expression.dynamic_updates(idx) {
+                Some(_) => metadata_plan(expr.satisfy(session)?, root, session),
+                None => Ok(None),
             })
             .collect::<VortexResult<_>>()?;
         Ok(Self {
             expression,
             predicates,
             pruning,
+            satisfying,
         })
     }
 
@@ -151,6 +148,22 @@ impl FilterPlans {
     }
 }
 
+/// The plan of a statistics rewrite of a conjunct, kept when it reads only zone maps.
+fn metadata_plan(
+    rewrite: Option<BoundExpression>,
+    root: &PlanRef,
+    session: &VortexSession,
+) -> VortexResult<Option<PlanRef>> {
+    let Some(rewrite) = rewrite else {
+        return Ok(None);
+    };
+    let plan = optimize(
+        plan_row_idx_expression(rewrite, root.clone(), session)?,
+        session,
+    )?;
+    Ok(metadata_only(&plan)?.then_some(plan))
+}
+
 /// A pruning plan must not fetch data when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
@@ -180,8 +193,8 @@ pub(super) struct FilterPlanner {
     selected: Option<SelectedRows>,
     filter: Arc<FilterPlans>,
     remaining: BitVec,
-    /// The conjunct being evaluated, its dynamic version when it has one, and its scan.
-    active: Option<(usize, Option<u64>, ScanAdaptor)>,
+    /// The conjunct being proved or evaluated, and its scan.
+    active: Option<Active>,
     pieces: Vec<Mask>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -203,6 +216,16 @@ pub(super) fn segments_read<'a>(
     segments.sort_unstable();
     segments.dedup();
     Ok(segments)
+}
+
+/// A conjunct's scan over a chunk's selected rows.
+struct Active {
+    index: usize,
+    /// The conjunct's dynamic version when it has one, sampled before its scans started.
+    version: Option<u64>,
+    /// Whether the scan proves the rows the conjunct keeps, rather than evaluating it.
+    proving: bool,
+    adaptor: ScanAdaptor,
 }
 
 impl FilterPlanner {
@@ -249,10 +272,28 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
 }
 
+impl FilterPlanner {
+    /// The scan of `plan` over the chunk's selected rows.
+    fn conjunct_scan(&self, plan: &PlanRef) -> VortexResult<ScanAdaptor> {
+        let selected = self.selected.as_ref().vortex_expect("selected rows exist");
+        let scan = Scan::try_new(
+            self.scan.session.clone(),
+            plan.clone(),
+            vec![Split {
+                rows: selected.scope.rows.clone(),
+                mask: selected.mask.clone(),
+            }],
+        )?
+        .with_row_offset(self.scan.row_offset)
+        .with_value_cache(self.scan.values.clone());
+        Ok(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)))
+    }
+}
+
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, _, adaptor)) = &mut self.active {
-            adaptor.set_io_result(request, result);
+        if let Some(active) = &mut self.active {
+            active.adaptor.set_io_result(request, result);
         }
     }
 }
@@ -263,7 +304,7 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some((_, _, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
+            Some(active) if active.adaptor.state() != State::Done => active.adaptor.state(),
             _ => State::NeedsCompute,
         }
     }
@@ -282,9 +323,12 @@ impl Planner for FilterPlanner {
                 self.filter
                     .predicates
                     .iter()
+                    .zip(&self.filter.satisfying)
                     .enumerate()
                     .filter(|(idx, _)| !expression.is_switched_off(*idx))
-                    .map(|(_, plan)| plan),
+                    // A conjunct that can be proved reads its zone maps first, and its column
+                    // only when they do not prove it.
+                    .map(|(_, (plan, satisfying))| satisfying.as_ref().unwrap_or(plan)),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -317,9 +361,9 @@ impl Planner for FilterPlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some((index, version, adaptor)) = &mut self.active {
-            if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
+        if let Some(active) = &mut self.active {
+            if active.adaptor.state() != State::Done {
+                return Ok(match active.adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
                     AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
                     AdaptorStep::Piece(piece) => {
@@ -330,27 +374,51 @@ impl Planner for FilterPlanner {
             }
             let input = selected.mask.true_count();
             let result = Mask::concat(self.pieces.iter())?;
+            self.pieces.clear();
             vortex_ensure_eq!(result.len(), input);
-            selected.mask = selected.mask.intersect_by_rank(&result);
-            tracing::debug!(
-                row_start = selected.scope.rows.start,
-                row_end = selected.scope.rows.end,
-                input_rows = input,
-                output_rows = selected.mask.true_count(),
-                conjunct = *index,
-                "v2 filter conjunct evaluated"
-            );
-            let selectivity = selected.mask.true_count() as f64 / input as f64;
-            self.filter
-                .expression
-                .report_selectivity(*index, selectivity);
-            if let Some(version) = version {
+            let Active {
+                index,
+                version,
+                proving,
+                ..
+            } = self.active.take().vortex_expect("active scan exists");
+            if proving {
+                if result.all_true() {
+                    tracing::debug!(
+                        row_start = selected.scope.rows.start,
+                        row_end = selected.scope.rows.end,
+                        conjunct = index,
+                        "v2 filter conjunct satisfied by statistics"
+                    );
+                } else {
+                    self.active = Some(Active {
+                        index,
+                        version,
+                        proving: false,
+                        adaptor: self.conjunct_scan(&self.filter.predicates[index])?,
+                    });
+                    return Ok(PlannerOutput::Continue);
+                }
+            } else {
+                selected.mask = selected.mask.intersect_by_rank(&result);
+                tracing::debug!(
+                    row_start = selected.scope.rows.start,
+                    row_end = selected.scope.rows.end,
+                    input_rows = input,
+                    output_rows = selected.mask.true_count(),
+                    conjunct = index,
+                    "v2 filter conjunct evaluated"
+                );
+                let selectivity = selected.mask.true_count() as f64 / input as f64;
                 self.filter
                     .expression
-                    .report_dynamic_selectivity(*index, *version, selectivity);
+                    .report_selectivity(index, selectivity);
+                if let Some(version) = version {
+                    self.filter
+                        .expression
+                        .report_dynamic_selectivity(index, version, selectivity);
+                }
             }
-            self.active = None;
-            self.pieces.clear();
         }
         if selected.mask.all_false() {
             self.selected = None;
@@ -374,21 +442,18 @@ impl Planner for FilterPlanner {
                 );
                 continue;
             }
-            let scan = Scan::try_new(
-                self.scan.session.clone(),
-                self.filter.predicates[index].clone(),
-                vec![Split {
-                    rows: selected.scope.rows.clone(),
-                    mask: selected.mask.clone(),
-                }],
-            )?
-            .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
-            self.active = Some((
+            // A dynamic conjunct whose current values the zone maps prove for every selected row
+            // is not evaluated. It is proved again on each chunk, so a later version is too.
+            let (proving, plan) = match &self.filter.satisfying[index] {
+                Some(satisfying) => (true, satisfying),
+                None => (false, &self.filter.predicates[index]),
+            };
+            self.active = Some(Active {
                 index,
                 version,
-                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
-            ));
+                proving,
+                adaptor: self.conjunct_scan(plan)?,
+            });
             return Ok(PlannerOutput::Continue);
         }
         let selected = self.selected.take().vortex_expect("selected rows exist");

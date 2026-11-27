@@ -356,6 +356,14 @@ impl StatsRewriteRule for DynamicComparisonNanCountStatsRewrite {
     ) -> VortexResult<Option<BoundExpression>> {
         dynamic_comparison_falsify::<NanCountProof>(expr, session)
     }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_comparison_satisfy(expr, session)
+    }
 }
 
 #[derive(Debug)]
@@ -397,6 +405,33 @@ fn dynamic_comparison_falsify<P: NonNanProof>(
         lhs_stat,
     );
     with_non_nan_guards::<P>([lhs], value_predicate, session)
+}
+
+/// Proves every row satisfies the comparison when the bound of the input facing the dynamic
+/// value satisfies it, and the input has no nulls or NaNs. While the dynamic value is unknown,
+/// the proof takes the comparison's default, like every row does.
+fn dynamic_comparison_satisfy(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let dynamic = expr.as_::<DynamicComparison>();
+    let lhs = expr.child(0);
+
+    let lhs_stat = match dynamic.operator() {
+        CompareOperator::Eq | CompareOperator::NotEq => None,
+        CompareOperator::Gt | CompareOperator::Gte => min(lhs, session),
+        CompareOperator::Lt | CompareOperator::Lte => max(lhs, session),
+    };
+    let Some((lhs_stat, null_count)) = lhs_stat.zip(null_count(lhs, session)) else {
+        return Ok(None);
+    };
+
+    let value_predicate = dynamic_with_options(dynamic.clone(), lhs_stat);
+    with_non_nan_guards::<NanCountProof>(
+        [lhs],
+        and(eq(null_count, lit(0u64)), value_predicate),
+        session,
+    )
 }
 
 /// Bounds the statistics of `lower(input)` from the byte-ordered min/max of `input`.
@@ -802,6 +837,36 @@ mod tests {
                 [stat(col("a"), Stat::Max)],
             ))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_dynamic_comparison_satisfier() -> VortexResult<()> {
+        let expr = dynamic(
+            CompareOperator::Gt,
+            || Some(10i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            col("a"),
+        );
+        let options = expr.as_::<DynamicComparison>().clone();
+
+        assert_rewrite_eq!(
+            satisfy(&expr)?,
+            Some(and(
+                eq(stat(col("a"), Stat::NullCount), lit(0u64)),
+                DynamicComparison.new_expr(options, [stat(col("a"), Stat::Min)]),
+            ))
+        );
+
+        let eq_expr = dynamic(
+            CompareOperator::Eq,
+            || Some(10i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            col("a"),
+        );
+        assert_rewrite_eq!(satisfy(&eq_expr)?, None);
         Ok(())
     }
 
