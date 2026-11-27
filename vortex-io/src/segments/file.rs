@@ -907,18 +907,29 @@ mod tests {
         exec.run_until_stalled();
         assert_eq!(sim.in_flight_count(), 4);
 
-        // Complete three reads while leaving the oldest read blocked as a straggler. Each freed
-        // slot must be refilled before the next completion; a batch-barrier implementation would
-        // instead fall from four active reads to one and submit no replacement work.
-        for expected_calls in 2..=4 {
-            assert!(sim.complete_last().is_some());
+        // Complete three of the original reads while leaving the oldest read blocked as a
+        // straggler. Each freed slot must be refilled before the next completion; a batch-barrier
+        // implementation would instead fall from four active reads to one and submit no
+        // replacement work.
+        for (expected_calls, read_id) in
+            (2..=4).zip([PendingReadId(3), PendingReadId(2), PendingReadId(1)])
+        {
+            assert!(sim.complete(read_id));
             exec.run_until_stalled();
             assert_eq!(sim.read_ranges_batch_sizes().len(), expected_calls);
             assert_eq!(sim.in_flight_count(), 4);
         }
 
         assert_eq!(sim.read_ranges_batch_sizes(), [4, 1, 1, 1]);
-        assert_eq!(sim.pending_ids()[0], PendingReadId(0));
+        assert_eq!(
+            sim.pending_ids(),
+            [
+                PendingReadId(0),
+                PendingReadId(4),
+                PendingReadId(5),
+                PendingReadId(6),
+            ]
+        );
         assert_eq!(sim.in_flight_count(), 4);
         assert_eq!(sim.max_in_flight(), 4);
 
