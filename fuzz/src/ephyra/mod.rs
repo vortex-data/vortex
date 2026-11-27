@@ -51,9 +51,16 @@ use crate::FuzzSource;
 #[derive(Clone, Debug, ephyra::Arbitrary, serde::Serialize, serde::Deserialize)]
 pub struct ChoicePlan {
     /// One number per decision; no decision has more than 65,536 outcomes worth telling apart.
-    #[ephyra(gen = gens::vec(ephyra::any::<u16>()).len(0..=4096))]
+    #[ephyra(gen = gens::frequency(vec![
+        (3, gens::vec(ephyra::any::<u16>()).len(0..=256).boxed()),
+        (1, gens::vec(ephyra::any::<u16>()).len(0..=4096).boxed()),
+    ]))]
     pub choices: Vec<u16>,
-    #[ephyra(gen = gens::vec(gens::vec(gens::int(0u8..=255)).len(0..=4096)).len(0..=8))]
+    /// Mostly short, so that generating and recording a plan stays cheap.
+    #[ephyra(gen = gens::vec(gens::frequency(vec![
+        (3, gens::vec(gens::int(0u8..=255)).len(0..=64).boxed()),
+        (1, gens::vec(gens::int(0u8..=255)).len(0..=4096).boxed()),
+    ])).len(0..=6))]
     pub values: Vec<Vec<u8>>,
 }
 

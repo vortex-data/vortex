@@ -226,261 +226,283 @@ impl FuzzArrayAction {
         for _ in 0..action_count {
             let action_type = valid_actions[src.choose_index(valid_actions.len())?];
 
-            actions.push(match action_type {
-                ActionType::Compress => {
-                    if actions
-                        .last()
-                        .map(|(l, _)| matches!(l, Action::Compress(_)))
-                        .unwrap_or(false)
-                    {
-                        return Err(EmptyChoose);
-                    }
-                    let strategy = CompressorStrategy::generate(src)?;
-                    (
-                        Action::Compress(strategy),
-                        ExpectedValue::Array(current_array.clone()),
-                    )
-                }
-                ActionType::Slice => {
-                    let start = src.choose_index(current_array.len())?;
-                    let stop = src.int_in_range(start..=current_array.len())?;
-                    current_array = slice_canonical_array(&current_array, start, stop, &mut ctx)
-                        .vortex_expect("slice_canonical_array should succeed in fuzz test");
-
-                    (
-                        Action::Slice(start..stop),
-                        ExpectedValue::Array(current_array.clone()),
-                    )
-                }
-                ActionType::Take => {
-                    if current_array.is_empty() {
-                        return Err(EmptyChoose);
-                    }
-
-                    let indices = random_vec_in_range(src, 0, current_array.len() - 1)?;
-                    let nullable = indices.contains(&None);
-
-                    current_array = take_canonical_array(&current_array, &indices, &mut ctx)
-                        .vortex_expect("take_canonical_array should succeed in fuzz test");
-                    let indices_array = if nullable {
-                        PrimitiveArray::from_option_iter(
-                            indices.iter().map(|i| i.map(|i| i as u64)),
+            // An action that does not apply to the current array is skipped, not the whole case.
+            // Every branch rejects before it changes `current_array`.
+            let step = (|| -> arbitrary::Result<(Action, ExpectedValue)> {
+                Ok(match action_type {
+                    ActionType::Compress => {
+                        if actions
+                            .last()
+                            .map(|(l, _)| matches!(l, Action::Compress(_)))
+                            .unwrap_or(false)
+                        {
+                            return Err(EmptyChoose);
+                        }
+                        let strategy = CompressorStrategy::generate(src)?;
+                        (
+                            Action::Compress(strategy),
+                            ExpectedValue::Array(current_array.clone()),
                         )
-                        .into_array()
-                    } else {
-                        PrimitiveArray::from_iter(
-                            indices
-                                .iter()
-                                .map(|i| i.vortex_expect("must be present"))
-                                .map(|i| i as u64),
+                    }
+                    ActionType::Slice => {
+                        let start = src.choose_index(current_array.len())?;
+                        let stop = src.int_in_range(start..=current_array.len())?;
+                        current_array =
+                            slice_canonical_array(&current_array, start, stop, &mut ctx)
+                                .vortex_expect("slice_canonical_array should succeed in fuzz test");
+
+                        (
+                            Action::Slice(start..stop),
+                            ExpectedValue::Array(current_array.clone()),
                         )
-                        .into_array()
-                    };
-
-                    let compressed = BtrBlocksCompressor::from_session(&SESSION)
-                        .compress(&indices_array, &mut ctx)
-                        .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
-                    (
-                        Action::Take(compressed),
-                        ExpectedValue::Array(current_array.clone()),
-                    )
-                }
-                ActionType::SearchSorted => {
-                    if current_array.dtype().is_struct() {
-                        return Err(EmptyChoose);
                     }
+                    ActionType::Take => {
+                        if current_array.is_empty() {
+                            return Err(EmptyChoose);
+                        }
 
-                    let scalar = if src.bool()? {
-                        current_array
-                            .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
-                            .vortex_expect("scalar_at")
-                    } else {
-                        src.bytes(|u| random_scalar(u, current_array.dtype()))?
-                    };
+                        let indices = random_vec_in_range(src, 0, current_array.len() - 1)?;
+                        let nullable = indices.contains(&None);
 
-                    if scalar.is_null() {
-                        return Err(EmptyChoose);
-                    }
-
-                    let sorted = sort_canonical_array(&current_array, &mut ctx)
-                        .vortex_expect("sort_canonical_array should succeed in fuzz test");
-
-                    let side = if src.bool()? {
-                        SearchSortedSide::Left
-                    } else {
-                        SearchSortedSide::Right
-                    };
-                    (
-                        Action::SearchSorted(scalar.clone(), side),
-                        ExpectedValue::Search(
-                            search_sorted_canonical_array(&sorted, &scalar, side, &mut ctx)
-                                .vortex_expect(
-                                    "search_sorted_canonical_array should succeed in fuzz test",
-                                ),
-                        ),
-                    )
-                }
-                ActionType::Filter => {
-                    let mask = (0..current_array.len())
-                        .map(|_| src.bool())
-                        .collect::<arbitrary::Result<Vec<_>>>()?;
-                    current_array = filter_canonical_array(&current_array, &mask, &mut ctx)
-                        .vortex_expect("filter_canonical_array should succeed in fuzz test");
-                    (
-                        Action::Filter(Mask::from_iter(mask)),
-                        ExpectedValue::Array(current_array.clone()),
-                    )
-                }
-                ActionType::Compare => {
-                    let scalar = if src.bool()? {
-                        current_array
-                            .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
-                            .vortex_expect("scalar_at")
-                    } else {
-                        // We can compare arrays with different nullability
-                        let null: Nullability = src.bytes(|u| u.arbitrary())?;
-                        let dtype = current_array.dtype().union_nullability(null);
-                        src.bytes(|u| random_scalar(u, &dtype))?
-                    };
-
-                    let op: CompareOperator = src.bytes(|u| u.arbitrary())?;
-                    current_array = compare_canonical_array(&current_array, &scalar, op, &mut ctx);
-                    (
-                        Action::Compare(scalar, op),
-                        ExpectedValue::Array(current_array.clone()),
-                    )
-                }
-                ActionType::Cast => {
-                    let to = cast_target(src, current_array.dtype())?;
-                    let Some(result) = cast_canonical_array(&current_array, &to, &mut ctx)
-                        .vortex_expect("cast oracle should succeed")
-                    else {
-                        return Err(EmptyChoose);
-                    };
-
-                    current_array = result.clone();
-                    (Action::Cast(to), ExpectedValue::Array(result))
-                }
-                ActionType::Sum => {
-                    // Do not try to fuzz float operations, they have unpredictable error behavior
-                    if current_array.dtype().is_float() {
-                        return Err(EmptyChoose);
-                    }
-
-                    let Some(sum_result) = sum_canonical_array(&current_array, &mut ctx)
-                        .vortex_expect("sum_canonical_array should succeed in fuzz test")
-                    else {
-                        // Reject sums whose overflow can depend on grouping or addition order.
-                        return Err(EmptyChoose);
-                    };
-                    (Action::Sum, ExpectedValue::Scalar(sum_result))
-                }
-                ActionType::MinMax => {
-                    // MinMax - returns a scalar, does NOT update current_array (terminal operation)
-                    let current_array_canonical = current_array
-                        .clone()
-                        .execute::<Canonical>(&mut ctx)
-                        .vortex_expect("execute canonical should succeed in fuzz test");
-                    let min_max_result = min_max_canonical_array(current_array_canonical, &mut ctx)
-                        .vortex_expect("min_max_canonical_array should succeed in fuzz test");
-                    (Action::MinMax, ExpectedValue::MinMax(min_max_result))
-                }
-                ActionType::FillNull => {
-                    // FillNull - returns an array, updates current_array
-                    if !current_array.dtype().nullability().is_nullable() {
-                        return Err(EmptyChoose);
-                    }
-                    let fill_value = if src.bool()? && !current_array.is_empty() {
-                        current_array
-                            .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
-                            .vortex_expect("scalar_at")
-                    } else {
-                        let dtype = current_array
-                            .dtype()
-                            .with_nullability(Nullability::NonNullable);
-                        src.bytes(|u| random_scalar(u, &dtype))?
-                    };
-
-                    if fill_value.is_null() {
-                        return Err(EmptyChoose);
-                    }
-
-                    // Compute expected result on canonical form
-                    let current_array_canonical = current_array
-                        .clone()
-                        .execute::<Canonical>(&mut ctx)
-                        .vortex_expect("execute canonical should succeed in fuzz test");
-                    let expected_result =
-                        fill_null_canonical_array(current_array_canonical, &fill_value, &mut ctx)
-                            .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
-                    // Update current_array to the result for chaining
-                    current_array = expected_result.clone();
-                    (
-                        Action::FillNull(fill_value),
-                        ExpectedValue::Array(expected_result),
-                    )
-                }
-                ActionType::Mask => {
-                    // Mask - returns an array, updates current_array
-                    let mask = (0..current_array.len())
-                        .map(|_| src.bool())
-                        .collect::<arbitrary::Result<Vec<_>>>()?;
-
-                    // Compute expected result on canonical form
-                    let current_array_canonical = current_array
-                        .clone()
-                        .execute::<Canonical>(&mut ctx)
-                        .vortex_expect("execute canonical should succeed in fuzz test");
-                    let expected_result = mask_canonical_array(
-                        current_array_canonical,
-                        &Mask::from_iter(mask.clone()),
-                        &mut ctx,
-                    )
-                    .vortex_expect("mask_canonical_array should succeed in fuzz test");
-                    // Update current_array to the result for chaining
-                    current_array = expected_result.clone();
-                    (
-                        Action::Mask(Mask::from_iter(mask)),
-                        ExpectedValue::Array(expected_result),
-                    )
-                }
-                ActionType::ScalarAt => {
-                    if current_array.is_empty() {
-                        return Err(EmptyChoose);
-                    }
-
-                    let num_indices = src.int_in_range(1..=5.min(current_array.len()))?;
-                    let indices_vec = (0..num_indices)
-                        .map(|_| {
-                            src.choose_index(current_array.len())
-                                .ok()
-                                .vortex_expect("cannot pick")
-                        })
-                        .unique()
-                        .collect::<Vec<_>>();
-
-                    // Compute expected scalars using the baseline implementation
-                    let expected_scalars: Vec<Scalar> = indices_vec
-                        .iter()
-                        .map(|&idx| {
-                            let canonical = current_array
-                                .clone()
-                                .execute::<Canonical>(&mut ctx)
-                                .vortex_expect("execute canonical should succeed in fuzz test");
-                            scalar_at_canonical_array(canonical, idx, &mut ctx).vortex_expect(
-                                "scalar_at_canonical_array should succeed in fuzz test",
+                        current_array = take_canonical_array(&current_array, &indices, &mut ctx)
+                            .vortex_expect("take_canonical_array should succeed in fuzz test");
+                        let indices_array = if nullable {
+                            PrimitiveArray::from_option_iter(
+                                indices.iter().map(|i| i.map(|i| i as u64)),
                             )
-                        })
-                        .collect();
+                            .into_array()
+                        } else {
+                            PrimitiveArray::from_iter(
+                                indices
+                                    .iter()
+                                    .map(|i| i.vortex_expect("must be present"))
+                                    .map(|i| i as u64),
+                            )
+                            .into_array()
+                        };
 
-                    (
-                        Action::ScalarAt(indices_vec),
-                        ExpectedValue::ScalarVec(expected_scalars),
-                    )
-                }
-            })
+                        let compressed = BtrBlocksCompressor::from_session(&SESSION)
+                            .compress(&indices_array, &mut ctx)
+                            .vortex_expect(
+                                "BtrBlocksCompressor compress should succeed in fuzz test",
+                            );
+                        (
+                            Action::Take(compressed),
+                            ExpectedValue::Array(current_array.clone()),
+                        )
+                    }
+                    ActionType::SearchSorted => {
+                        if current_array.dtype().is_struct() {
+                            return Err(EmptyChoose);
+                        }
+
+                        let scalar = if src.bool()? {
+                            current_array
+                                .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
+                                .vortex_expect("scalar_at")
+                        } else {
+                            src.bytes(|u| random_scalar(u, current_array.dtype()))?
+                        };
+
+                        if scalar.is_null() {
+                            return Err(EmptyChoose);
+                        }
+
+                        let sorted = sort_canonical_array(&current_array, &mut ctx)
+                            .vortex_expect("sort_canonical_array should succeed in fuzz test");
+
+                        let side = if src.bool()? {
+                            SearchSortedSide::Left
+                        } else {
+                            SearchSortedSide::Right
+                        };
+                        (
+                            Action::SearchSorted(scalar.clone(), side),
+                            ExpectedValue::Search(
+                                search_sorted_canonical_array(&sorted, &scalar, side, &mut ctx)
+                                    .vortex_expect(
+                                        "search_sorted_canonical_array should succeed in fuzz test",
+                                    ),
+                            ),
+                        )
+                    }
+                    ActionType::Filter => {
+                        let mask = (0..current_array.len())
+                            .map(|_| src.bool())
+                            .collect::<arbitrary::Result<Vec<_>>>()?;
+                        current_array = filter_canonical_array(&current_array, &mask, &mut ctx)
+                            .vortex_expect("filter_canonical_array should succeed in fuzz test");
+                        (
+                            Action::Filter(Mask::from_iter(mask)),
+                            ExpectedValue::Array(current_array.clone()),
+                        )
+                    }
+                    ActionType::Compare => {
+                        let scalar = if src.bool()? {
+                            current_array
+                                .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
+                                .vortex_expect("scalar_at")
+                        } else {
+                            // We can compare arrays with different nullability
+                            let null: Nullability = src.bytes(|u| u.arbitrary())?;
+                            let dtype = current_array.dtype().union_nullability(null);
+                            src.bytes(|u| random_scalar(u, &dtype))?
+                        };
+
+                        let op: CompareOperator = src.bytes(|u| u.arbitrary())?;
+                        current_array =
+                            compare_canonical_array(&current_array, &scalar, op, &mut ctx);
+                        (
+                            Action::Compare(scalar, op),
+                            ExpectedValue::Array(current_array.clone()),
+                        )
+                    }
+                    ActionType::Cast => {
+                        let to = cast_target(src, current_array.dtype())?;
+                        let Some(result) = cast_canonical_array(&current_array, &to, &mut ctx)
+                            .vortex_expect("cast oracle should succeed")
+                        else {
+                            return Err(EmptyChoose);
+                        };
+
+                        current_array = result.clone();
+                        (Action::Cast(to), ExpectedValue::Array(result))
+                    }
+                    ActionType::Sum => {
+                        // Do not try to fuzz float operations, they have unpredictable error behavior
+                        if current_array.dtype().is_float() {
+                            return Err(EmptyChoose);
+                        }
+
+                        let Some(sum_result) = sum_canonical_array(&current_array, &mut ctx)
+                            .vortex_expect("sum_canonical_array should succeed in fuzz test")
+                        else {
+                            // Reject sums whose overflow can depend on grouping or addition order.
+                            return Err(EmptyChoose);
+                        };
+                        (Action::Sum, ExpectedValue::Scalar(sum_result))
+                    }
+                    ActionType::MinMax => {
+                        // MinMax - returns a scalar, does NOT update current_array (terminal operation)
+                        let current_array_canonical = current_array
+                            .clone()
+                            .execute::<Canonical>(&mut ctx)
+                            .vortex_expect("execute canonical should succeed in fuzz test");
+                        let min_max_result =
+                            min_max_canonical_array(current_array_canonical, &mut ctx)
+                                .vortex_expect(
+                                    "min_max_canonical_array should succeed in fuzz test",
+                                );
+                        (Action::MinMax, ExpectedValue::MinMax(min_max_result))
+                    }
+                    ActionType::FillNull => {
+                        // FillNull - returns an array, updates current_array
+                        if !current_array.dtype().nullability().is_nullable() {
+                            return Err(EmptyChoose);
+                        }
+                        let fill_value = if src.bool()? && !current_array.is_empty() {
+                            current_array
+                                .execute_scalar(src.choose_index(current_array.len())?, &mut ctx)
+                                .vortex_expect("scalar_at")
+                        } else {
+                            let dtype = current_array
+                                .dtype()
+                                .with_nullability(Nullability::NonNullable);
+                            src.bytes(|u| random_scalar(u, &dtype))?
+                        };
+
+                        if fill_value.is_null() {
+                            return Err(EmptyChoose);
+                        }
+
+                        // Compute expected result on canonical form
+                        let current_array_canonical = current_array
+                            .clone()
+                            .execute::<Canonical>(&mut ctx)
+                            .vortex_expect("execute canonical should succeed in fuzz test");
+                        let expected_result = fill_null_canonical_array(
+                            current_array_canonical,
+                            &fill_value,
+                            &mut ctx,
+                        )
+                        .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
+                        // Update current_array to the result for chaining
+                        current_array = expected_result.clone();
+                        (
+                            Action::FillNull(fill_value),
+                            ExpectedValue::Array(expected_result),
+                        )
+                    }
+                    ActionType::Mask => {
+                        // Mask - returns an array, updates current_array
+                        let mask = (0..current_array.len())
+                            .map(|_| src.bool())
+                            .collect::<arbitrary::Result<Vec<_>>>()?;
+
+                        // Compute expected result on canonical form
+                        let current_array_canonical = current_array
+                            .clone()
+                            .execute::<Canonical>(&mut ctx)
+                            .vortex_expect("execute canonical should succeed in fuzz test");
+                        let expected_result = mask_canonical_array(
+                            current_array_canonical,
+                            &Mask::from_iter(mask.clone()),
+                            &mut ctx,
+                        )
+                        .vortex_expect("mask_canonical_array should succeed in fuzz test");
+                        // Update current_array to the result for chaining
+                        current_array = expected_result.clone();
+                        (
+                            Action::Mask(Mask::from_iter(mask)),
+                            ExpectedValue::Array(expected_result),
+                        )
+                    }
+                    ActionType::ScalarAt => {
+                        if current_array.is_empty() {
+                            return Err(EmptyChoose);
+                        }
+
+                        let num_indices = src.int_in_range(1..=5.min(current_array.len()))?;
+                        let indices_vec = (0..num_indices)
+                            .map(|_| {
+                                src.choose_index(current_array.len())
+                                    .ok()
+                                    .vortex_expect("cannot pick")
+                            })
+                            .unique()
+                            .collect::<Vec<_>>();
+
+                        // Compute expected scalars using the baseline implementation
+                        let expected_scalars: Vec<Scalar> = indices_vec
+                            .iter()
+                            .map(|&idx| {
+                                let canonical = current_array
+                                    .clone()
+                                    .execute::<Canonical>(&mut ctx)
+                                    .vortex_expect("execute canonical should succeed in fuzz test");
+                                scalar_at_canonical_array(canonical, idx, &mut ctx).vortex_expect(
+                                    "scalar_at_canonical_array should succeed in fuzz test",
+                                )
+                            })
+                            .collect();
+
+                        (
+                            Action::ScalarAt(indices_vec),
+                            ExpectedValue::ScalarVec(expected_scalars),
+                        )
+                    }
+                })
+            })();
+            match step {
+                Ok(step) => actions.push(step),
+                Err(EmptyChoose) => {}
+                Err(e) => return Err(e),
+            }
         }
 
+        if actions.is_empty() {
+            return Err(EmptyChoose);
+        }
         Ok(Self { array, actions })
     }
 }
