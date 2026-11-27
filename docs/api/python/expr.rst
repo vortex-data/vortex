@@ -38,6 +38,7 @@ Expressions are picklable, so a filter built in one process can be sent to anoth
    ~vortex.expr.sub
    ~vortex.expr.mul
    ~vortex.expr.div
+   ~vortex.expr.compare
    ~vortex.expr.between
    ~vortex.expr.is_null
    ~vortex.expr.is_not_null
@@ -113,6 +114,8 @@ Comparisons and arithmetic
 .. autofunction:: vortex.expr.mul
 
 .. autofunction:: vortex.expr.div
+
+.. autofunction:: vortex.expr.compare
 
 .. autofunction:: vortex.expr.between
 

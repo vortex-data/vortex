@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -156,6 +157,87 @@ def test_run_streams_logs_without_counting_them(tmp_path: Path) -> None:
 
     assert results == ['{"engine":"duckdb","format":"parquet","query":0}']
     assert streamed == results
+
+
+def test_run_terminates_and_reaps_child_when_on_result_raises(tmp_path: Path) -> None:
+    pid_file = tmp_path / "child.pid"
+    script = tmp_path / "slow-bench.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import os
+            from pathlib import Path
+            import time
+
+            Path({str(pid_file)!r}).write_text(str(os.getpid()))
+            print('{{"query":0}}', flush=True)
+            time.sleep(60)
+            """
+        )
+    )
+    script.chmod(0o755)
+
+    def fail(_line: str) -> None:
+        raise OSError("output stream closed")
+
+    executor = BenchmarkExecutor(script, Engine.DATAFUSION)
+    with pytest.raises(OSError, match="output stream closed"):
+        executor.run(
+            benchmark=Benchmark.TPCH,
+            formats=[Format.VORTEX],
+            iterations=1,
+            on_result=fail,
+        )
+
+    pid = int(pid_file.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_run_separates_stderr_and_delivers_batched_stdout_lines_immediately(tmp_path: Path) -> None:
+    ack = tmp_path / "ack"
+    script = tmp_path / "batched-bench.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import os
+            from pathlib import Path
+            import sys
+            import time
+
+            os.write(2, b'{{"level":"info","msg":"stderr json"}}\\n')
+            os.write(1, b'{{"query":1}}\\n{{"query":2}}\\n')
+            ack = Path({str(ack)!r})
+            deadline = time.monotonic() + 2.0
+            while not ack.exists():
+                if time.monotonic() >= deadline:
+                    sys.exit(1)
+                time.sleep(0.01)
+            """
+        )
+    )
+    script.chmod(0o755)
+
+    executor = BenchmarkExecutor(script, Engine.DATAFUSION)
+    streamed: list[str] = []
+
+    def record(line: str) -> None:
+        streamed.append(line)
+        if len(streamed) == 2:
+            ack.touch()
+
+    results = executor.run(
+        benchmark=Benchmark.TPCH,
+        formats=[Format.VORTEX],
+        iterations=1,
+        on_result=record,
+    )
+
+    assert results == ['{"query":1}', '{"query":2}']
+    assert streamed == results
+    assert ack.exists()
 
 
 def test_datasource_integration_registers_vortex_table() -> None:

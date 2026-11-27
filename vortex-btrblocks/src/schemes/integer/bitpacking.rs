@@ -15,6 +15,7 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::dtype::PType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
@@ -212,31 +213,41 @@ impl Scheme for BitPackingScheme {
     }
 }
 
-/// Returns `None` when the best width is the native width.
+/// The fewest bits per value that packing must save.
+const MIN_BITS_SAVED: usize = 2;
+
+fn should_pack(ptype: PType, bit_width: u8) -> bool {
+    ptype.bit_width() - usize::from(bit_width) >= MIN_BITS_SAVED
+}
+
+/// Returns `None` when compressing is not beneficial.
 fn compress_global(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<BitPackedArray>> {
     let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
     let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
-    if usize::from(bw) == primitive_array.ptype().bit_width() {
+    if !should_pack(primitive_array.ptype(), bw) {
         return Ok(None);
     }
     bitpack_encode(primitive_array, bw, Some(&histogram), exec_ctx).map(Some)
 }
 
-/// Uses global packing for uniform widths. Returns `None` for empty input or all-native widths.
+/// Uses global packing for uniform widths. Returns `None` for empty input or when compressing is
+/// not beneficial.
 fn compress_blocked(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<BitPackedArray>> {
     let (bit_widths, num_exceptions) = find_best_bit_widths(primitive_array, exec_ctx)?;
-    if bit_widths.is_empty() {
+    if !bit_widths
+        .iter()
+        .any(|&bw| should_pack(primitive_array.ptype(), bw))
+    {
         return Ok(None);
     }
 
     match bit_widths.iter().copied().all_equal_value() {
-        Ok(bw) if usize::from(bw) == primitive_array.ptype().bit_width() => Ok(None),
         Ok(bw) => bitpack_encode(primitive_array, bw, None, exec_ctx).map(Some),
         Err(_) => {
             bitpack_encode_blocked(primitive_array, &bit_widths, Some(num_exceptions), exec_ctx)

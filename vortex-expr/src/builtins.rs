@@ -83,7 +83,7 @@ impl ExprBuiltins for Expression {
     }
 
     fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression> {
-        Compare.try_new_expr(op, [self.clone(), rhs])
+        Compare.try_new_expr(op.into(), [self.clone(), rhs])
     }
 
     fn boolean(&self, rhs: Expression, op: BooleanOperator) -> VortexResult<Expression> {

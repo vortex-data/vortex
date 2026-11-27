@@ -88,11 +88,97 @@ pub struct ShreddingSpecField {
     #[prost(message, optional, tag = "2")]
     pub dtype: ::core::option::Option<super::dtype::DType>,
 }
+/// How a type-specific comparison orders the values in its domain.
+///
+/// The mode holds one order for each type with more than one useful order. Only the float order is
+/// required. A reader fails when the float order is absent, and when it finds an order that it does
+/// not know. So a reader that knows this field never compares in another order than the writer
+/// asked for. Readers that predate this field, which include 0.95.0 and earlier, drop the mode and
+/// compare floats in total order.
+///
+/// To add the order of another type, add a variant to `TypeOrder.order`. The new entry is optional:
+/// when it is absent, the comparison orders that type as it did before the entry existed. A writer
+/// emits the entry only when the operands contain that type, so that the comparisons of other types
+/// stay readable. An older reader decodes the variant as an empty `TypeOrder` and fails.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CompareMode {
+    /// One entry for each type. A type has at most one entry.
+    #[prost(message, repeated, tag = "1")]
+    pub orders: ::prost::alloc::vec::Vec<compare_mode::TypeOrder>,
+}
+/// Nested message and enum types in `CompareMode`.
+pub mod compare_mode {
+    /// The order of the values of one type.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct TypeOrder {
+        #[prost(oneof = "type_order::Order", tags = "1")]
+        pub order: ::core::option::Option<type_order::Order>,
+    }
+    /// Nested message and enum types in `TypeOrder`.
+    pub mod type_order {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+        pub enum Order {
+            /// How a comparison orders float values.
+            #[prost(enumeration = "super::FloatOrder", tag = "1")]
+            Float(i32),
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum FloatOrder {
+        /// `-0.0 = +0.0`, and NaN values order by sign and payload.
+        ZerosEqual = 0,
+        /// The total order over the bit patterns: `-0.0 < +0.0`.
+        TotalOrder = 1,
+        /// `-0.0 = +0.0`, and all NaN values are equal and greatest.
+        Canonical = 2,
+        /// `-0.0 = +0.0`, and NaN is unordered.
+        Ieee754 = 3,
+    }
+    impl FloatOrder {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::ZerosEqual => "ZerosEqual",
+                Self::TotalOrder => "TotalOrder",
+                Self::Canonical => "Canonical",
+                Self::Ieee754 => "Ieee754",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ZerosEqual" => Some(Self::ZerosEqual),
+                "TotalOrder" => Some(Self::TotalOrder),
+                "Canonical" => Some(Self::Canonical),
+                "Ieee754" => Some(Self::Ieee754),
+                _ => None,
+            }
+        }
+    }
+}
 /// Options for `vortex.compare`
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompareOpts {
     #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
     pub op: i32,
+    /// How the comparison orders values. Options written before the mode existed have none, and
+    /// compare in total order.
+    #[prost(message, optional, tag = "2")]
+    pub mode: ::core::option::Option<CompareMode>,
 }
 /// Nested message and enum types in `CompareOpts`.
 pub mod compare_opts {
@@ -331,10 +417,14 @@ pub struct LikeOpts {
     #[prost(bool, tag = "2")]
     pub case_insensitive: bool,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListContainsOpts {
     #[prost(bool, tag = "1")]
     pub sql_null_semantics: bool,
+    /// How the needle and the elements compare. Options written before the mode existed have none,
+    /// and compare in total order.
+    #[prost(message, optional, tag = "2")]
+    pub compare_mode: ::core::option::Option<CompareMode>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CastOpts {

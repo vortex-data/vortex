@@ -159,7 +159,14 @@ struct RangeComparison<'a> {
 
 impl<'a> RangeComparison<'a> {
     fn try_new(expr: &'a BoundExpression) -> Option<Self> {
-        let operator = *expr.as_opt::<Compare>()?;
+        let options = expr.as_opt::<Compare>()?;
+
+        // `Between` compares in total order.
+        if !options.compare_mode().is_total_order() {
+            return None;
+        }
+
+        let operator = options.operator();
         let lhs = expr.child(0);
         let rhs = expr.child(1);
 

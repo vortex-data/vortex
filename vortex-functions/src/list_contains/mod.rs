@@ -5,6 +5,7 @@ mod chunked;
 mod dict;
 mod haystack;
 mod kernel;
+mod normalize;
 mod prepared;
 mod runend;
 
@@ -54,6 +55,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::is_not_null_node;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -67,6 +69,8 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+
+use crate::list_contains::normalize::FloatNormalization;
 
 /// Registers [`ListContains`], [`PreparedSet`] and the element rules of [`ListContains`] for
 /// chunked, dictionary and run-end needles.
@@ -97,7 +101,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 pub struct ListContains;
 
 /// Options for [`ListContains`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ListContainsOptions {
     /// Whether a null list element is SQL's unknown value.
     ///
@@ -111,12 +115,32 @@ pub struct ListContainsOptions {
     /// there is nothing to compare it to: off, that is `false`; on, a null needle is `null` against
     /// any list, which makes [`ListContains`] strict.
     pub sql_null_semantics: bool,
+    /// How the needle and the elements compare floats, at the top level and in nested values.
+    ///
+    /// The default options compare in [`CompareMode::TOTAL_ORDER`], which compares the bits of
+    /// floats.
+    pub compare_mode: CompareMode,
+}
+
+impl Default for ListContainsOptions {
+    fn default() -> Self {
+        Self {
+            sql_null_semantics: false,
+            compare_mode: CompareMode::TOTAL_ORDER,
+        }
+    }
 }
 
 impl Display for ListContainsOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.sql_null_semantics {
             write!(f, "sql_null_semantics")?;
+        }
+        if !self.compare_mode.is_total_order() {
+            if self.sql_null_semantics {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", self.compare_mode)?;
         }
         Ok(())
     }
@@ -235,6 +259,7 @@ impl ScalarFnVTable for ListContains {
         Ok(Some(
             pb::ListContainsOpts {
                 sql_null_semantics: instance.sql_null_semantics,
+                compare_mode: Some(instance.compare_mode.into()),
             }
             .encode_to_vec(),
         ))
@@ -246,8 +271,17 @@ impl ScalarFnVTable for ListContains {
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
         let opts = pb::ListContainsOpts::decode(metadata)?;
+
+        // Options written before the mode existed have no mode. They compare in total order.
+        let compare_mode = opts
+            .compare_mode
+            .map(CompareMode::try_from)
+            .transpose()?
+            .unwrap_or(CompareMode::TOTAL_ORDER);
+
         Ok(ListContainsOptions {
             sql_null_semantics: opts.sql_null_semantics,
+            compare_mode,
         })
     }
 
@@ -298,8 +332,12 @@ impl ScalarFnVTable for ListContains {
         let value_array = args.get(1)?;
 
         // Borrow the list: a constant list scalar owns every element, so cloning it is not free.
+        // Scalar equality compares the bits of floats, so a compare mode that normalizes them
+        // takes the lookup below.
         if let Some(value_scalar) = value_array.as_constant()
             && let Some(list) = constant_list(&list_array)
+            && FloatNormalization::try_new(options.compare_mode, value_scalar.dtype())?
+                .is_identity()
         {
             let result = compute_contains_scalar(list, value_scalar, options)?;
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
@@ -318,6 +356,7 @@ impl ScalarFnVTable for ListContains {
 
         if let Some(needle) = needle.as_constant()
             && let Some(list) = constant_list_node(&list)
+            && FloatNormalization::try_new(options.compare_mode, needle.dtype())?.is_identity()
         {
             let result = compute_contains_scalar(list, needle, options)?;
             return Ok(Some(node.new_constant(result)));
@@ -540,8 +579,13 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Compare::try_new(elems.clone(), rhs.into_array(), CompareOperator::Eq)?.into_array();
+    let matching_elements = Compare::try_new_with_mode(
+        elems.clone(),
+        rhs.into_array(),
+        CompareOperator::Eq,
+        options.compare_mode,
+    )?
+    .into_array();
 
     let mut matches = match matching_elements.execute::<Columnar>(ctx)? {
         Columnar::Constant(constant) => {
@@ -644,7 +688,9 @@ fn lists_contain_needles(
         BitBuffer::collect_bool_in(len, |row| gathered.lens[row] != 0, ctx.allocator().clone());
 
     // `any_null` is only read under SQL null semantics.
-    let comparisons = Compare::try_new(elements, needles, CompareOperator::Eq)?.into_array();
+    let comparisons =
+        Compare::try_new_with_mode(elements, needles, CompareOperator::Eq, options.compare_mode)?
+            .into_array();
     let (any_true, any_null) = match comparisons.execute::<Columnar>(ctx)? {
         // One answer for every comparison decides each row from whether it compared anything.
         Columnar::Constant(constant) => match constant.scalar().as_bool().value() {
@@ -912,6 +958,7 @@ mod tests {
 
     use itertools::Itertools;
     use num_traits::PrimInt;
+    use prost::Message;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -933,15 +980,20 @@ mod tests {
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
     use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::proto::expr as pb;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::scalar_fn::builtin::literal::Literal;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_expr::ArrayExprExt;
     use vortex_expr::Expression;
     use vortex_expr::bound;
@@ -953,6 +1005,7 @@ mod tests {
 
     use super::process_matches;
     use crate::expr::in_list;
+    use crate::expr::in_list_with_mode;
     use crate::expr::list_contains;
     use crate::expr::list_contains_opts;
     use crate::list_contains::ListContains;
@@ -983,114 +1036,91 @@ mod tests {
     }
 
     #[test]
-    pub fn test_one() {
+    pub fn test_one() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(1));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(true), Some(false)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_all() {
+    pub fn test_all() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(true), Some(true)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_none() {
+    pub fn test_none() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         let expr = list_contains(root(), lit(4));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(false), Some(false)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_empty() {
+    pub fn test_empty() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::AllValid,
             &mut ctx,
-        )
-        .unwrap()
+        )?
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
+        assert_arrays_eq!(
+            item,
+            BoolArray::from_iter([Some(true), Some(false)]),
+            &mut ctx
         );
-        assert_eq!(
-            item.execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::Nullable)
-        );
+        Ok(())
     }
 
     #[test]
-    pub fn test_nullable() {
+    pub fn test_nullable() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
             Validity::Array(BoolArray::from(BitBuffer::from(vec![true, false])).into_array()),
             &mut ctx,
-        )
-        .unwrap()
+        )?
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr)?;
 
-        assert_eq!(
-            item.execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::Nullable)
-        );
-        assert!(
-            !item
-                .is_valid(1, &mut SESSION.create_execution_ctx())
-                .unwrap()
-        );
+        assert_arrays_eq!(item, BoolArray::from_iter([Some(true), None]), &mut ctx);
+        Ok(())
     }
 
     #[test]
@@ -1125,7 +1155,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_constant_scalars() {
+    pub fn test_constant_scalars() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = test_array();
 
         // Both list and needle are constants - should use scalar optimization
@@ -1137,23 +1168,14 @@ mod tests {
 
         // Test contains true
         let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
-        let result = arr.clone().apply(&expr).unwrap();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(true, Nullability::NonNullable)
-        );
+        let result = arr.clone().apply(&expr)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true]), &mut ctx);
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.apply(&expr).unwrap();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            Scalar::bool(false, Nullability::NonNullable)
-        );
+        let result = arr.apply(&expr)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false]), &mut ctx);
+        Ok(())
     }
 
     #[test]
@@ -1167,22 +1189,20 @@ mod tests {
 
         let expr = list_contains(lit(list.clone()), lit(needle.clone()));
         let result = array.clone().apply(&expr)?;
-        assert_eq!(
-            result.execute_scalar(0, &mut ctx)?,
-            Scalar::bool(false, Nullability::Nullable)
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false), Some(false)]),
+            &mut ctx
         );
 
         let expr = list_contains(lit(list), lit(2i32));
         let result = array.clone().apply(&expr)?;
-        assert_eq!(
-            result.execute_scalar(0, &mut ctx)?,
-            Scalar::bool(false, Nullability::NonNullable)
-        );
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false]), &mut ctx);
 
         let list = Scalar::null(DType::List(dtype, Nullability::Nullable));
         let expr = list_contains(lit(list), lit(needle));
         let result = array.apply(&expr)?;
-        assert!(result.execute_scalar(0, &mut ctx)?.is_null());
+        assert_arrays_eq!(result, BoolArray::from_iter([None, None]), &mut ctx);
         Ok(())
     }
 
@@ -1469,6 +1489,7 @@ mod tests {
 
     const SQL: ListContainsOptions = ListContainsOptions {
         sql_null_semantics: true,
+        compare_mode: CompareMode::TOTAL_ORDER,
     };
 
     #[rstest]
@@ -1513,6 +1534,47 @@ mod tests {
             lists.apply(&list_contains_opts(root(), lit(9i32), options)),
             [Some(false), None],
         )
+    }
+
+    /// Options written before the mode existed have no mode. They compare in total order.
+    #[test]
+    fn test_deserialize_without_mode_uses_total_order() -> VortexResult<()> {
+        let bytes = pb::ListContainsOpts {
+            sql_null_semantics: true,
+            compare_mode: None,
+        }
+        .encode_to_vec();
+
+        assert_eq!(
+            ListContains.deserialize(&bytes, &SESSION)?,
+            ListContainsOptions {
+                sql_null_semantics: true,
+                compare_mode: CompareMode::TOTAL_ORDER,
+            }
+        );
+        Ok(())
+    }
+
+    /// A mode that this version cannot read fails the read, as it does for a comparison.
+    #[rstest]
+    #[case::no_float_order(vec![], "compare mode has no float order")]
+    #[case::unknown_type(
+        vec![pb::compare_mode::TypeOrder { order: None }],
+        "compare mode has the order of an unknown type"
+    )]
+    fn test_deserialize_rejects_invalid_mode(
+        #[case] orders: Vec<pb::compare_mode::TypeOrder>,
+        #[case] message: &str,
+    ) {
+        let bytes = pb::ListContainsOpts {
+            sql_null_semantics: false,
+            compare_mode: Some(pb::CompareMode { orders }),
+        }
+        .encode_to_vec();
+
+        let error = ListContains.deserialize(&bytes, &SESSION).unwrap_err();
+
+        assert!(error.to_string().contains(message), "{error}");
     }
 
     #[test]
@@ -1592,6 +1654,123 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result?, BoolArray::from_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    const ZEROS_EQUAL: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+    const CANONICAL: CompareMode = CompareMode::new(FloatOrder::Canonical);
+    const IEEE754: CompareMode = CompareMode::new(FloatOrder::Ieee754);
+
+    #[rstest]
+    #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false, false])]
+    #[case::zeros_equal(ZEROS_EQUAL, [true, true, true, false, false, false])]
+    #[case::canonical(CANONICAL, [true, true, true, true, true, false])]
+    #[case::ieee754(IEEE754, [true, true, false, false, false, false])]
+    fn float_membership_in_compare_mode(
+        #[case] mode: CompareMode,
+        #[case] expected: [bool; 6],
+    ) -> VortexResult<()> {
+        // A signaling NaN with a payload: its bits differ from those of `f64::NAN` in more than
+        // the sign.
+        let payload_nan = f64::from_bits(0x7ff0_0000_0000_0001);
+
+        let needles = PrimitiveArray::from_option_iter([
+            Some(-0.0f64),
+            Some(0.0),
+            Some(f64::NAN),
+            Some(-f64::NAN),
+            Some(payload_nan),
+            Some(1.0),
+            None,
+        ])
+        .into_array();
+        let expected = expected.map(Some).into_iter().chain([None]);
+
+        let set = f64_set(vec![0.0, f64::NAN]);
+        assert_result(
+            needles
+                .clone()
+                .apply(&in_list_with_mode(root(), lit(set.clone()), mode)),
+            expected.clone(),
+        )?;
+
+        let len = needles.len();
+        let lists = ConstantArray::new(set, len)
+            .into_array()
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())?
+            .into_array();
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: mode,
+        };
+        assert_result(
+            ListContains::try_new_opts(lists, needles, options).map(IntoArray::into_array),
+            expected,
+        )
+    }
+
+    /// A constant needle and a constant list do not fold to the bitwise answer of scalar
+    /// equality when the mode normalizes floats.
+    #[test]
+    fn constant_float_needle_in_compare_mode() -> VortexResult<()> {
+        let needle = ConstantArray::new(-0.0f64, 2).into_array();
+        let set = f64_set(vec![0.0]);
+
+        let result = needle.apply(&in_list_with_mode(root(), lit(set), CANONICAL))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true]), &mut ctx);
+        Ok(())
+    }
+
+    /// A constant float needle against a non-constant overlapping ListView takes the scalar
+    /// fast path instead of gathering every overlapping view element.
+    #[rstest]
+    #[case::total_order(CompareMode::TOTAL_ORDER, false)]
+    #[case::zeros_equal(ZEROS_EQUAL, true)]
+    #[case::canonical(CANONICAL, true)]
+    #[case::ieee754(IEEE754, true)]
+    fn constant_float_needle_overlapping_list_view(
+        #[case] mode: CompareMode,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let n = 1024u32;
+        let mut elements_vec = vec![1.0f64; n as usize];
+        elements_vec[0] = 0.0;
+        let elements = PrimitiveArray::from_iter(elements_vec).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![0u32; n as usize]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![n; n as usize]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let lists =
+            ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)?
+                .into_array();
+        let needle = ConstantArray::new(-0.0f64, n as usize).into_array();
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: mode,
+        };
+
+        let result = ListContains::try_new_opts(lists, needle, options)?.into_array();
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter(vec![expected; n as usize]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// The compare mode of a membership check survives serialization.
+    #[test]
+    fn list_contains_options_round_trip() -> VortexResult<()> {
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: IEEE754,
+        };
+        let bytes = ListContains
+            .serialize(&options)?
+            .ok_or_else(|| vortex_err!("list contains options serialize"))?;
+
+        assert_eq!(ListContains.deserialize(&bytes, &SESSION)?, options);
         Ok(())
     }
 
@@ -2233,7 +2412,10 @@ mod tests {
         );
         let list = ConstantArray::new(list_scalar, 0).into_array();
         let needle = PrimitiveArray::empty::<i32>(input_nullability).into_array();
-        let options = ListContainsOptions { sql_null_semantics };
+        let options = ListContainsOptions {
+            sql_null_semantics,
+            ..Default::default()
+        };
         let result = super::compute_list_contains(&list, &needle, &options, &mut ctx)?;
         assert_eq!(result.len(), 0);
         assert_eq!(result.dtype(), &DType::Bool(expected_nullability));

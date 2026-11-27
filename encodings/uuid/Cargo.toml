@@ -23,6 +23,7 @@ vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

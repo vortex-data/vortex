@@ -17,6 +17,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
+use vortex_array::block::BlockSource;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -54,6 +55,7 @@ use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
 use crate::bitpacking::array::validate_block_offsets;
+use crate::block::packed_source;
 mod kernels;
 mod operations;
 mod rules;
@@ -209,6 +211,13 @@ impl VTable for BitPacked {
             BitWidthsView::Blocked(offsets) => unpack_array_blocked(array.as_view(), offsets, ctx)?,
         };
         Ok(ExecutionResult::done(decoded.into_array()))
+    }
+
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        packed_source(array, ctx)
     }
 }
 

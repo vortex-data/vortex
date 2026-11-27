@@ -96,8 +96,12 @@ impl TableFilterRef {
                 };
 
                 TableFilterClass::ConjunctionOr(Conjunction {
-                    children: unsafe {
-                        std::slice::from_raw_parts(out.children, out.children_count)
+                    children: if out.children_count == 0 {
+                        &[]
+                    } else {
+                        // SAFETY: `children_count > 0`, so DuckDB populated `out.children` with a
+                        // valid pointer to `out.children_count` child handles owned by `self`.
+                        unsafe { std::slice::from_raw_parts(out.children, out.children_count) }
                     },
                 })
             }
@@ -111,8 +115,12 @@ impl TableFilterRef {
                 };
 
                 TableFilterClass::ConjunctionAnd(Conjunction {
-                    children: unsafe {
-                        std::slice::from_raw_parts(out.children, out.children_count)
+                    children: if out.children_count == 0 {
+                        &[]
+                    } else {
+                        // SAFETY: `children_count > 0`, so DuckDB populated `out.children` with a
+                        // valid pointer to `out.children_count` child handles owned by `self`.
+                        unsafe { std::slice::from_raw_parts(out.children, out.children_count) }
                     },
                 })
             }
