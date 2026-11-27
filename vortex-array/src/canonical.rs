@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
@@ -28,6 +28,8 @@ use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeBinary;
+use crate::arrays::FixedSizeBinaryArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListView;
@@ -50,6 +52,7 @@ use crate::arrays::bool::BoolArraySlotsExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_binary::FixedSizeBinaryDataParts;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
@@ -60,6 +63,7 @@ use crate::arrays::struct_::StructDataParts;
 use crate::arrays::union::UnionDataParts;
 use crate::arrays::varbinview::VarBinViewDataParts;
 use crate::arrays::variant::VariantArraySlotsExt;
+use crate::buffer::BufferHandle;
 use crate::builders::VariantBuilder;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -104,6 +108,7 @@ use crate::validity::Validity;
 /// * `PrimitiveArray`: `arrow_array::PrimitiveArray`
 /// * `DecimalArray`: `arrow_array::Decimal128Array` and `arrow_array::Decimal256Array`
 /// * `VarBinViewArray`: `arrow_array::GenericByteViewArray`
+/// * `FixedSizeBinaryArray`: `arrow_array::FixedSizeBinaryArray`
 /// * `ListViewArray`: `arrow_array::ListViewArray`
 /// * `MapArray`: Vortex `ListView<Struct<key, value>>` storage
 /// * `FixedSizeListArray`: `arrow_array::FixedSizeListArray`
@@ -140,6 +145,7 @@ pub enum Canonical {
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
     VarBinView(VarBinViewArray),
+    FixedSizeBinary(FixedSizeBinaryArray),
     List(ListViewArray),
     Map(MapArray),
     FixedSizeList(FixedSizeListArray),
@@ -160,6 +166,7 @@ macro_rules! match_each_canonical {
             Canonical::Primitive($ident) => $eval,
             Canonical::Decimal($ident) => $eval,
             Canonical::VarBinView($ident) => $eval,
+            Canonical::FixedSizeBinary($ident) => $eval,
             Canonical::List($ident) => $eval,
             Canonical::Map($ident) => $eval,
             Canonical::FixedSizeList($ident) => $eval,
@@ -187,7 +194,6 @@ impl Canonical {
     /// Returns an error if the dtype, or a dtype nested in it, has no canonical form yet.
     pub fn try_empty(dtype: &DType) -> VortexResult<Canonical> {
         Ok(match dtype {
-            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => Canonical::Null(NullArray::new(0)),
             DType::Bool(n) => Canonical::Bool(unsafe {
                 BoolArray::new_unchecked(BitBuffer::empty(), Validity::from(n))
@@ -223,6 +229,14 @@ impl Canonical {
                     Buffer::empty(),
                     Arc::new([]),
                     dtype.clone(),
+                    Validity::from(n),
+                )
+            }),
+            DType::FixedSizeBinary(byte_width, n) => Canonical::FixedSizeBinary(unsafe {
+                FixedSizeBinaryArray::new_unchecked_handle(
+                    BufferHandle::new_host(ByteBuffer::empty()),
+                    *byte_width,
+                    0,
                     Validity::from(n),
                 )
             }),
@@ -383,6 +397,22 @@ impl Canonical {
             a
         } else {
             vortex_panic!("Cannot unwrap DecimalArray from {:?}", &self)
+        }
+    }
+
+    pub fn as_fixed_size_binary(&self) -> &FixedSizeBinaryArray {
+        if let Canonical::FixedSizeBinary(a) = self {
+            a
+        } else {
+            vortex_panic!("Cannot get FixedSizeBinaryArray from {:?}", &self)
+        }
+    }
+
+    pub fn into_fixed_size_binary(self) -> FixedSizeBinaryArray {
+        if let Canonical::FixedSizeBinary(a) = self {
+            a
+        } else {
+            vortex_panic!("Cannot unwrap FixedSizeBinaryArray from {:?}", &self)
         }
     }
 
@@ -577,6 +607,22 @@ impl Executable for CanonicalValidity {
                     )
                 })))
             }
+            Canonical::FixedSizeBinary(fsb) => {
+                let len = fsb.len();
+                let FixedSizeBinaryDataParts {
+                    byte_width,
+                    values,
+                    validity,
+                } = fsb.into_data_parts();
+                Ok(CanonicalValidity(Canonical::FixedSizeBinary(unsafe {
+                    FixedSizeBinaryArray::new_unchecked_handle(
+                        values,
+                        byte_width,
+                        len,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
             Canonical::VarBinView(vbv) => {
                 let VarBinViewDataParts {
                     dtype,
@@ -750,6 +796,22 @@ impl Executable for RecursiveCanonical {
                         values,
                         values_type,
                         decimal_dtype,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::FixedSizeBinary(fsb) => {
+                let len = fsb.len();
+                let FixedSizeBinaryDataParts {
+                    byte_width,
+                    values,
+                    validity,
+                } = fsb.into_data_parts();
+                Ok(RecursiveCanonical(Canonical::FixedSizeBinary(unsafe {
+                    FixedSizeBinaryArray::new_unchecked_handle(
+                        values,
+                        byte_width,
+                        len,
                         validity.execute(ctx)?,
                     )
                 })))
@@ -983,6 +1045,18 @@ impl Executable for ExtensionArray {
     }
 }
 
+/// Execute the array to canonical form and unwrap as a [`FixedSizeBinaryArray`].
+///
+/// This will panic if the array's dtype is not fixed-size binary.
+impl Executable for FixedSizeBinaryArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_downcast::<FixedSizeBinary>() {
+            Ok(fsb) => Ok(fsb),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_binary()),
+        }
+    }
+}
+
 /// Execute the array to canonical form and unwrap as a [`DecimalArray`].
 ///
 /// This will panic if the array's dtype is not decimal.
@@ -1083,6 +1157,7 @@ pub enum CanonicalView<'a> {
     Primitive(ArrayView<'a, Primitive>),
     Decimal(ArrayView<'a, Decimal>),
     VarBinView(ArrayView<'a, VarBinView>),
+    FixedSizeBinary(ArrayView<'a, FixedSizeBinary>),
     List(ArrayView<'a, ListView>),
     Map(ArrayView<'a, Map>),
     FixedSizeList(ArrayView<'a, FixedSizeList>),
@@ -1100,6 +1175,7 @@ impl From<CanonicalView<'_>> for Canonical {
             CanonicalView::Primitive(a) => Canonical::Primitive(a.into_owned()),
             CanonicalView::Decimal(a) => Canonical::Decimal(a.into_owned()),
             CanonicalView::VarBinView(a) => Canonical::VarBinView(a.into_owned()),
+            CanonicalView::FixedSizeBinary(a) => Canonical::FixedSizeBinary(a.into_owned()),
             CanonicalView::List(a) => Canonical::List(a.into_owned()),
             CanonicalView::Map(a) => Canonical::Map(a.into_owned()),
             CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.into_owned()),
@@ -1120,6 +1196,7 @@ impl CanonicalView<'_> {
             CanonicalView::Primitive(a) => a.array().clone(),
             CanonicalView::Decimal(a) => a.array().clone(),
             CanonicalView::VarBinView(a) => a.array().clone(),
+            CanonicalView::FixedSizeBinary(a) => a.array().clone(),
             CanonicalView::List(a) => a.array().clone(),
             CanonicalView::Map(a) => a.array().clone(),
             CanonicalView::FixedSizeList(a) => a.array().clone(),
@@ -1176,6 +1253,7 @@ canonical_kinds! {
     Map => Map,
     FixedSizeList => FixedSizeList,
     VarBinView => VarBinView,
+    FixedSizeBinary => FixedSizeBinary,
     Variant => Variant,
     Extension => Extension,
 }
@@ -1317,13 +1395,12 @@ mod tests {
             Nullability::Nullable,
         )
     })]
-    fn try_empty_rejects_fixed_size_binary(#[case] wrap: fn(DType) -> DType) -> VortexResult<()> {
+    fn try_empty_fixed_size_binary(#[case] wrap: fn(DType) -> DType) -> VortexResult<()> {
         let dtype = wrap(DType::FixedSizeBinary(16, Nullability::NonNullable));
 
-        let err = Canonical::try_empty(&dtype)
-            .err()
-            .ok_or_else(|| vortex_err!("try_empty must reject {dtype}"))?;
-        assert!(err.to_string().contains("FixedSizeBinary"), "{err}");
+        let canonical = Canonical::try_empty(&dtype)?;
+        assert!(canonical.is_empty());
+        assert_eq!(canonical.dtype(), &dtype);
         Ok(())
     }
 

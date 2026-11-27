@@ -137,6 +137,9 @@ pub(super) fn execute_filter(
         Canonical::VarBinView(a) => {
             Canonical::VarBinView(varbinview::filter_varbinview(&a, mask, allocator))
         }
+        Canonical::FixedSizeBinary(a) => {
+            Canonical::FixedSizeBinary(fixed_width::filter::filter(&a, mask, allocator))
+        }
         Canonical::List(a) => Canonical::List(listview::filter_listview(&a, mask)),
         Canonical::Map(a) => Canonical::Map(filter_map(&a, mask)),
         Canonical::FixedSizeList(a) => {

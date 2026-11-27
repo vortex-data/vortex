@@ -13,6 +13,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListView;
@@ -299,7 +300,6 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
 
     // Patches are already resolved (offset subtracted) by SparseParts::resolve_patches().
     Ok(match &dtype {
-        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Null => {
             assert!(fill_value.is_null());
             NullArray::new(len).into_array()
@@ -332,6 +332,14 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
         dtype @ DType::Binary(..) => {
             let fill = fill_value.as_binary().value().cloned();
             execute_varbin(&patches, &fill_value, dtype.clone(), fill, len, ctx)?
+        }
+        DType::FixedSizeBinary(..) => {
+            // Materialize the fill value for every row, then copy the patches over it.
+            ConstantArray::new(fill_value.cast(&dtype)?, len)
+                .into_array()
+                .execute::<FixedSizeBinaryArray>(ctx)?
+                .patch(&patches, ctx)?
+                .into_array()
         }
         DType::List(values_dtype, nullability) => execute_sparse_lists(
             &patches,
@@ -879,6 +887,7 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::FixedSizeBinaryArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListViewArray;
@@ -1196,6 +1205,30 @@ mod test {
         );
         assert_arrays_eq!(sparse, expected, &mut ctx);
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::value_fill(
+        Scalar::fixed_size_binary(b"ff".to_vec(), Nullable),
+        [Some(b"ab"), Some(b"ff"), None, Some(b"ff"), Some(b"cd")],
+    )]
+    #[case::null_fill(
+        Scalar::null(DType::FixedSizeBinary(2, Nullable)),
+        [Some(b"ab"), None, None, None, Some(b"cd")],
+    )]
+    fn test_sparse_fixed_size_binary(
+        #[case] fill_scalar: Scalar,
+        #[case] expected: [Option<&[u8; 2]>; 5],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let indices = buffer![0u32, 2, 4].into_array();
+        let patch_values =
+            FixedSizeBinaryArray::from_option_iter([Some(b"ab"), None, Some(b"cd")], 2)
+                .into_array();
+        let sparse = Sparse::try_new(indices, patch_values, 5, fill_scalar, &mut ctx)?;
+        let expected = FixedSizeBinaryArray::from_option_iter(expected, 2);
+        assert_arrays_eq!(sparse, expected, &mut ctx);
         Ok(())
     }
 

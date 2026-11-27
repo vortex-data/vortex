@@ -29,6 +29,9 @@ pub(crate) fn new_exporter(
         Canonical::Primitive(array) => primitive::new_exporter(array, ctx),
         Canonical::Decimal(array) => decimal::new_exporter(array, ctx),
         Canonical::VarBinView(array) => varbinview::new_exporter(array, ctx),
+        Canonical::FixedSizeBinary(_) => {
+            vortex_bail!("FixedSizeBinary arrays can't be exported to DuckDB yet")
+        }
         Canonical::List(array) => list_view::new_exporter(array, cache, ctx),
         Canonical::Map(_) => vortex_bail!("Map arrays can't be exported to DuckDB"),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),

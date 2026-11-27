@@ -10,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -17,6 +18,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -107,6 +109,16 @@ pub fn mask_canonical_array(
                 array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
             )
+            .into_array()
+        }
+        Canonical::FixedSizeBinary(array) => {
+            let new_validity = mask_validity(&array.validity()?, mask, ctx);
+            FixedSizeBinaryArray::try_new_handle(
+                array.buffer_handle().clone(),
+                array.byte_width(),
+                array.len(),
+                new_validity,
+            )?
             .into_array()
         }
         Canonical::List(array) => {

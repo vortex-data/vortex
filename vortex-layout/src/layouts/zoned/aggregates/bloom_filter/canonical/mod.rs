@@ -36,6 +36,7 @@ pub(super) fn accumulate_canonical(
         // mismatch is resolved:
         // <https://github.com/vortex-data/vortex/issues/5820>
         Canonical::Decimal(_)
+        | Canonical::FixedSizeBinary(_)
         | Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::FixedSizeList(_)

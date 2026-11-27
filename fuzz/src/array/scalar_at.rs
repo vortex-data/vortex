@@ -9,6 +9,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::map::MapArrayExt;
@@ -19,6 +20,7 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -56,6 +58,10 @@ pub fn scalar_at_canonical_array(
             })
         }
         Canonical::VarBinView(array) => varbin_scalar(array.bytes_at(index), array.dtype()),
+        Canonical::FixedSizeBinary(array) => Scalar::try_new(
+            array.dtype().clone(),
+            Some(ScalarValue::Binary(array.value(index).to_vec().into())),
+        )?,
         Canonical::List(array) => {
             let list = array.list_elements_at(index, ctx)?;
             let children: Vec<Scalar> = (0..list.len())

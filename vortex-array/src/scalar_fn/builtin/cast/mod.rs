@@ -298,6 +298,9 @@ fn cast_canonical(
         CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::FixedSizeBinary(_) => {
+            vortex_bail!("FixedSizeBinary arrays don't support casting yet")
+        }
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Map(a) => <Map as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),

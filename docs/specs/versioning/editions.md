@@ -77,6 +77,8 @@ independent plugin projects state their own policy.
 changing, so its members and their wire contracts can change under the same IDs. Plugins can add
 members through ordinary edition inclusions.
 
+- `array`: `vortex.fixed_size_binary`
+
 ### `preview2026.08.0`
 
 - `array`: `fastlanes.delta`
