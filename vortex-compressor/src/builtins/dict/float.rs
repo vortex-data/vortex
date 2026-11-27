@@ -536,17 +536,27 @@ mod tests {
     #[test]
     fn analytical_ratio_rewards_skewed_medium_cardinality_and_stays_conservative_on_high_cardinality()
      {
-        // 100K rows, 5,000 distinct prices where 98% hit the top 16 prices (4-bit patched codes).
+        // 100K rows, 5,000 distinct prices where 95% hit the top 16 prices (4-bit patched codes)
+        // and 5% cover all 4,984 tail prices.
         let skewed = PrimitiveArray::from_iter((0..100_000usize).map(|i| {
-            let cents = if i % 50 == 0 {
-                16 + ((i / 50) % 4_984)
+            let cents = if i % 20 == 0 {
+                16 + ((i / 20) % 4_984)
             } else {
                 i % 16
             };
             cents as f64 / 100.0
         }));
+        let mut ctx = SESSION.create_execution_ctx();
+        let skewed_stats = FloatStats::generate_opts(
+            &skewed,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+        assert_eq!(skewed_stats.distinct_count(), Some(5_000));
         let skewed_ratio = estimate_ratio(skewed, CompressorContext::new());
-        // ~4.96 bpv codes + 3.2 bpv values => ~7.8x.
+        // ~6.4 bpv codes + 3.2 bpv values => ~6.65x.
         assert!(
             skewed_ratio > 6.5,
             "expected skewed medium-cardinality ratio > 6.5, got {skewed_ratio}"

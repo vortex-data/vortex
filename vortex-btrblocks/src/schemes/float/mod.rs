@@ -121,7 +121,7 @@ mod tests {
     fn skewed_medium_cardinality_decimal_floats_select_dict_over_alp() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // 100K rows, 5,000 distinct 0.01-stepped prices across $0.00..$50,000.00:
-        // 90% hit the top 16 prices, 8% hit the next 48 prices, 2% hit the remaining 4,936.
+        // 90% hit the top 16 prices, 5% hit the next 48 prices, 5% cover all remaining 4,936.
         let distinct_prices: Vec<f64> = (0..5_000usize)
             .map(|k| ((k * 1_000 + 37) % 5_000_000) as f64 / 100.0)
             .collect();
@@ -129,8 +129,8 @@ mod tests {
             .map(|i| {
                 let rank = match i % 100 {
                     0..90 => i % 16,
-                    90..98 => 16 + (i % 48),
-                    _ => 64 + ((i / 100) % (5_000 - 64)),
+                    90..95 => 16 + (i % 48),
+                    r => 64 + (((i / 100) * 5 + (r - 95)) % (5_000 - 64)),
                 };
                 distinct_prices[rank]
             })
@@ -148,11 +148,13 @@ mod tests {
         ])
         .compress(&array, &mut ctx)?;
 
-        assert!(
-            compressed.is::<Dict>(),
-            "expected FloatDict on skewed medium-cardinality floats, got:\n{}",
-            compressed.display_tree()
-        );
+        let dict = compressed.as_opt::<Dict>().unwrap_or_else(|| {
+            panic!(
+                "expected FloatDict on skewed medium-cardinality floats, got:\n{}",
+                compressed.display_tree()
+            )
+        });
+        assert_eq!(dict.values().len(), 5_000);
         assert!(
             compressed.nbytes() < alp_without_dict.nbytes(),
             "expected FloatDict ({} B) < ALP ({} B)",
