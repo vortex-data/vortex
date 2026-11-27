@@ -219,6 +219,44 @@ mod multipart_lifecycle_tests {
         .expect("timed out waiting for background multipart abort");
     }
 
+    #[rstest::rstest]
+    #[case::smol(tokio::runtime::Builder::new_current_thread())]
+    #[case::tokio(tokio::runtime::Builder::new_multi_thread())]
+    fn test_submitted_part_uploads_and_counts_before_flush(
+        #[case] mut runtime: tokio::runtime::Builder,
+    ) -> VortexResult<()> {
+        runtime.enable_all().build()?.block_on(async {
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let (store, counters) = make_store(UploadBehavior {
+                gate_part: Some((Arc::clone(&entered), Arc::clone(&release))),
+                ..Default::default()
+            });
+            let backpressure = Backpressure::with_limit(1);
+            let mut writer = ObjectStoreWrite::new(store, &Path::from("background.vortex"))
+                .await?
+                .with_backpressure(backpressure.clone());
+            writer.write_all(vec![1u8; CHUNK_SIZE]).await?;
+
+            // The part starts with no flush, and it holds the limit while it uploads.
+            timeout(Duration::from_secs(2), entered.notified())
+                .await
+                .map_err(io::Error::from)?;
+            assert_eq!(backpressure.in_progress_bytes(), CHUNK_SIZE as u64);
+
+            // The part releases the limit when it completes, again with no flush.
+            release.notify_one();
+            timeout(Duration::from_secs(2), backpressure.ready())
+                .await
+                .map_err(io::Error::from)?;
+            assert_eq!(backpressure.in_progress_bytes(), 0);
+
+            writer.shutdown().await?;
+            assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+    }
+
     #[tokio::test]
     async fn test_part_failure_aborts_once_and_rejects_subsequent_calls() -> anyhow::Result<()> {
         let (store, counters) = make_store(UploadBehavior {
@@ -344,10 +382,13 @@ mod multipart_lifecycle_tests {
             ObjectStoreWrite::new(store2, &Path::from("cancel-shutdown.vortex")).await?;
         writer2.write_all(b"payload".to_vec()).await?;
         {
+            // Drive shutdown past the tail part, which uploads in a task, until it waits in
+            // `complete()`.
             let mut shutdown_fut = Box::pin(writer2.shutdown());
-            let poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-            assert!(poll.is_pending());
-            timeout(Duration::from_secs(2), entered2.notified()).await?;
+            tokio::select! {
+                _ = &mut shutdown_fut => panic!("shutdown must wait in the gated complete"),
+                entered = timeout(Duration::from_secs(2), entered2.notified()) => entered?,
+            }
         }
         wait_for_abort(&counters2).await;
         assert!(writer2.shutdown().await.is_err());

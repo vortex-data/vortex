@@ -80,6 +80,10 @@ impl SegmentSink for BufferedSegmentSink {
         // reference to this one, we essentially have an exclusive lock on the segment writer.
         sequence_id.collapse().await;
 
+        // Until this point, the segment can wait for input that the write did not take yet. From
+        // here it waits only for the output, so it is work in progress.
+        let reservation = reservation.in_progress();
+
         let (segment_id, padding_buffer) = {
             let mut specs = self.segment_specs.lock();
             let segment_id = SegmentId::from(
@@ -173,6 +177,7 @@ mod tests {
         let mut write = pin!(sink.write(second, vec![ByteBuffer::zeroed(24)]));
         assert!(poll!(write.as_mut()).is_pending());
         assert_eq!(tracker.buffered_bytes(), 24);
+        assert_eq!(tracker.in_progress_bytes(), 0);
 
         // A sent segment counts until the writer drops its reservation.
         drop(first);
@@ -186,9 +191,11 @@ mod tests {
             .into_parts();
         assert_eq!(buffer.len(), 24);
         assert_eq!(tracker.buffered_bytes(), 24);
+        assert_eq!(tracker.in_progress_bytes(), 24);
 
         drop(reservation);
         assert_eq!(tracker.buffered_bytes(), 0);
+        assert_eq!(tracker.in_progress_bytes(), 0);
 
         Ok(())
     }

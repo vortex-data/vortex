@@ -7,17 +7,16 @@ use std::io::Write;
 use std::panic::resume_unwind;
 use std::sync::Arc;
 
-use async_channel::SendError;
 use async_channel::Sender;
 use async_channel::bounded;
-use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::future::BoxFuture;
-use futures::future::Fuse;
+use futures::channel::oneshot;
+use futures::future::Either;
 use futures::future::ready;
+use futures::future::select;
 use futures::pin_mut;
-use futures::select;
+use futures::stream::unfold;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
@@ -50,6 +49,7 @@ use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::JoinOutcome;
+use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutStrategy;
@@ -146,6 +146,15 @@ impl VortexWriteOptions {
     /// versions or configurations.
     pub fn disable_editions(mut self) -> Self {
         self.disable_editions = true;
+        self
+    }
+
+    /// Use `backpressure` as the byte accounting and the limit of the write.
+    ///
+    /// The write takes the next chunk from its input only while the held bytes are below the
+    /// limit of `backpressure`, or while no work is in progress. See [`Backpressure`].
+    pub fn with_backpressure(mut self, backpressure: Backpressure) -> Self {
+        self.backpressure = backpressure;
         self
     }
 
@@ -370,6 +379,18 @@ impl VortexWriteOptions {
 
         let (mut ptr, eof) = SequenceId::root().split();
 
+        // Take a chunk from the input only while the held bytes are below the limit. The second
+        // check uses the counts of the time after the wait for the chunk.
+        let stream = unfold(
+            (stream, self.backpressure.clone()),
+            |(mut stream, backpressure)| async move {
+                backpressure.ready().await;
+                let chunk = stream.next().await?;
+                backpressure.ready().await;
+                Some((chunk, (stream, backpressure)))
+            },
+        );
+
         let stream = SequentialStreamAdapter::new(
             dtype.clone(),
             stream
@@ -507,9 +528,17 @@ impl VortexWriteOptions {
 
     /// Create a push-based [`Writer`] that can be used to incrementally write arrays to the file.
     ///
-    /// Each pushed chunk must have dtype `dtype`. Call [`Writer::finish`] to close the input stream,
-    /// flush remaining buffers, and receive the [`WriteSummary`].
-    pub fn writer<'w, W: VortexWrite + Unpin + 'w>(self, write: W, dtype: DType) -> Writer<'w> {
+    /// The write runs in a task on the session's runtime, so `write` receives buffers between
+    /// pushes while that runtime runs tasks. The writer counts only the bytes it holds, so `write`
+    /// must bound its own buffers by waiting in [`VortexWrite::write_all`].
+    ///
+    /// Each pushed chunk must have dtype `dtype`. Call [`Writer::finish`] to close the input
+    /// stream, flush remaining buffers, and receive the [`WriteSummary`] and `write`.
+    pub fn writer<W: VortexWrite + Send + Unpin + 'static>(
+        self,
+        write: W,
+        dtype: DType,
+    ) -> Writer<W> {
         // Create a channel for sending arrays to the layout task. Each queued array carries the
         // reservation that counts it as uncompressed. The layout task takes the array from the
         // channel and drops the reservation, and the strategies count the array from then on.
@@ -523,38 +552,32 @@ impl VortexWriteOptions {
 
         let backpressure = self.backpressure.clone();
         let deferred_metadata = self.deferred_metadata.clone();
-        let future = self.write(write, arrays).boxed().fuse();
+
+        let (abort, aborted) = oneshot::channel::<()>();
+
+        let task = self.session.handle().spawn(async move {
+            let write_fut = async move {
+                let mut write = write;
+                let summary = self.write(&mut write, arrays).await?;
+                Ok((summary, write))
+            };
+            pin_mut!(write_fut);
+
+            // The abort signal is polled first, so an aborted write does not make progress.
+            match select(aborted, write_fut).await {
+                Either::Left(_) => Err(vortex_err!("The write was aborted")),
+                Either::Right((result, _)) => result,
+            }
+        });
 
         Writer {
             arrays: Some(arrays_send),
-            future,
+            task,
+            abort: Some(abort),
             terminal_error: None,
             backpressure,
             deferred_metadata,
         }
-    }
-
-    /// Like [`Self::writer`], but keeps writing to `write` between pushes.
-    pub fn spawn_writer<W: VortexWrite + Unpin + 'static>(
-        self,
-        write: W,
-        dtype: DType,
-    ) -> Writer<'static> {
-        let handle = self.session.handle();
-        let mut writer = self.writer(write, dtype);
-        let mut task = handle.spawn(writer.future);
-        writer.future = async move {
-            match poll_fn(|cx| task.poll_join(cx)).await {
-                JoinOutcome::Completed(result) => result,
-                JoinOutcome::Panicked(panic) => resume_unwind(panic),
-                JoinOutcome::Aborted => Err(vortex_err!(
-                    "The runtime dropped the write task before it finished"
-                )),
-            }
-        }
-        .boxed()
-        .fuse();
-        writer
     }
 }
 
@@ -693,99 +716,58 @@ type QueuedArray = (VortexResult<ArrayRef>, BackpressureReservation);
 
 /// An async API for writing Vortex files.
 ///
-/// The writer and the futures of [`Self::push`], [`Self::push_stream`] and [`Self::finish`] are
-/// `Send`, so a task on a multi-threaded executor can hold the writer across `.await` points.
-pub struct Writer<'w> {
-    // The input channel for sending arrays to the writer.
+/// The write runs in a task on the session's runtime. Dropping the writer before
+/// [`Self::finish`] cancels the write. The writer and the futures of [`Self::push`],
+/// [`Self::push_stream`] and [`Self::finish`] are `Send` when `W` is `Send`.
+pub struct Writer<W> {
+    // The input channel for sending arrays to the write task.
     arrays: Option<Sender<QueuedArray>>,
-    // The writer task that ultimately produces the footer.
-    future: Fuse<BoxFuture<'w, VortexResult<WriteSummary>>>,
-    // The first terminal error observed from the writer task.
+    // The write task that ultimately produces the footer and gives back the sink.
+    task: Task<VortexResult<(WriteSummary, W)>>,
+    // Aborts the write task when it is dropped.
+    abort: Option<oneshot::Sender<()>>,
+    // The first terminal error observed from the write task.
     terminal_error: Option<VortexError>,
-    // The byte accounting shared with the layout strategies for this write.
+    // The byte accounting shared with the write task and the layout strategies.
     backpressure: Backpressure,
     // The metadata segments that the write adds to the footer after the last chunk.
     deferred_metadata: DeferredMetadata,
 }
 
-impl Writer<'_> {
+impl<W> Writer<W> {
+    /// Returns the byte accounting of the write: the written, buffered and pending bytes, the
+    /// estimated file size, and the bytes of the work in progress.
+    pub fn backpressure(&self) -> &Backpressure {
+        &self.backpressure
+    }
+
+    /// Waits until the work in progress of the write is below the limit of its [`Backpressure`].
+    ///
+    /// A caller can wait here before it produces the next chunk, so that it does not hold a chunk
+    /// while the writer is full.
+    pub async fn ready(&self) {
+        self.backpressure.ready().await
+    }
+
     /// Push a new chunk into the writer.
+    ///
+    /// Waits while the input queue of the write task is full. The write task takes chunks from
+    /// the queue only while the held bytes are below the limit of the [`Backpressure`].
     pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        if let Some(err) = &self.terminal_error {
-            return Err(err.clone());
-        }
-
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
-        let reservation = self.backpressure.reserve_pending(chunk.nbytes());
-        let send_fut = async move { arrays.send((Ok(chunk), reservation)).await }.fuse();
-        pin_mut!(send_fut);
-
-        // We poll the writer future to continue writing bytes to the output, while waiting for
-        // enough room to push the next chunk into the channel.
-        select! {
-            result = send_fut => {
-                // If the send future failed, the writer has failed or panicked.
-                if result.is_err() {
-                    return Err(self.handle_failed_task().await);
-                }
-            },
-            result = &mut self.future => {
-                // Under normal operation, the writer future should never complete until
-                // finish() is called. Therefore, we can assume the writer has failed.
-                return Err(self.record_terminal_outcome(result));
-            }
-        }
-
-        Ok(())
+        let bytes = chunk.nbytes();
+        self.send(Ok(chunk), bytes).await
     }
 
     /// Push an entire [`ArrayStream`] into the writer, consuming it.
     ///
-    /// A task is spawned to consume the stream and push it into the writer, with the current
-    /// thread being used to write buffers to the output.
+    /// An error from the stream fails the write.
     pub async fn push_stream(&mut self, mut stream: SendableArrayStream) -> VortexResult<()> {
-        if let Some(err) = &self.terminal_error {
-            return Err(err.clone());
-        }
-
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
-        let backpressure = self.backpressure.clone();
-        let stream_fut = async move {
-            while let Some(chunk) = stream.next().await {
-                let bytes = chunk.as_ref().map_or(0, |chunk| chunk.nbytes());
-                arrays
-                    .send((chunk, backpressure.reserve_pending(bytes)))
-                    .await?;
-            }
-            Ok::<_, SendError<QueuedArray>>(())
-        }
-        .fuse();
-        pin_mut!(stream_fut);
-
-        // We poll the writer future to continue writing bytes to the output, while waiting for
-        // enough room to push the stream into the channel.
-        select! {
-            result = stream_fut => {
-                if let Err(_send_err) = result {
-                    // If the send future failed, the writer has failed or panicked.
-                    return Err(self.handle_failed_task().await);
-                }
-            }
-
-            result = &mut self.future => {
-                // Under normal operation, the writer future should never complete until
-                // finish() is called. Therefore, we can assume the writer has failed.
-                return Err(self.record_terminal_outcome(result));
-            }
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.as_ref().map_or(0, |chunk| chunk.nbytes());
+            self.send(chunk, bytes).await?;
         }
 
         Ok(())
-    }
-
-    /// Returns the byte accounting of the write: the written, buffered and pending bytes, and
-    /// the estimated file size.
-    pub fn backpressure(&self) -> &Backpressure {
-        &self.backpressure
     }
 
     /// Returns the number of bytes written to the file so far.
@@ -794,29 +776,32 @@ impl Writer<'_> {
     }
 
     /// Returns the number of compressed bytes that the writer holds and did not yet send to the
-    /// file.
-    ///
-    /// This count does not include the data that the writer did not compress yet. Use
-    /// [`Self::estimated_size`] for an estimate of the file size. See [`Backpressure`].
+    /// file. See [`Backpressure::buffered_bytes`].
     pub fn buffered_bytes(&self) -> u64 {
         self.backpressure.buffered_bytes()
     }
 
-    /// Returns an estimate of the size of the file if the write finished now.
-    ///
-    /// The estimate is the bytes written, plus the compressed bytes that the writer holds, plus
-    /// the bytes that the writer did not compress yet multiplied by the compression ratio that
-    /// the write measured so far. It does not include the footer. See [`Backpressure`].
-    ///
-    /// The estimate goes up as the writer accepts data. It can go down a small amount when the
-    /// measured compression ratio changes. [`WriteSummary::size`] gives the final size.
+    /// Returns an estimate of the size of the file if the write finished now. See
+    /// [`Backpressure::estimated_size`]. [`WriteSummary::size`] gives the final size.
     pub fn estimated_size(&self) -> u64 {
         self.backpressure.estimated_size()
     }
 
-    /// Finish writing the Vortex file, flushing any remaining buffers and returning the
-    /// new file's footer.
-    pub async fn finish(mut self) -> VortexResult<WriteSummary> {
+    /// Finish writing the Vortex file, flushing any remaining buffers.
+    ///
+    /// Returns the new file's summary and the sink. The write flushes the sink but does not shut
+    /// it down.
+    /// Cancel the write without a footer and without a flush of the sink, and wait until the
+    /// write task stops.
+    pub async fn abort(mut self) {
+        drop(self.abort.take());
+
+        // The input stays open until the task stops, so that the write cannot see the end of the
+        // input and finish the file.
+        drop(poll_fn(|cx| self.task.poll_join(cx)).await);
+    }
+
+    pub async fn finish(mut self) -> VortexResult<(WriteSummary, W)> {
         if let Some(err) = self.terminal_error.take() {
             return Err(err);
         }
@@ -824,14 +809,13 @@ impl Writer<'_> {
         // Drop the input channel to signal EOF.
         drop(self.arrays.take());
 
-        // Await the future task.
-        self.future.await
+        join_write(&mut self.task).await
     }
 
     /// Finish writing the Vortex file and add the given metadata segments to its footer.
     ///
     /// See [`VortexWriteOptions::deferred_metadata`] for the merge and limit rules.
-    pub async fn finish_with_metadata<I, K, B>(self, metadata: I) -> VortexResult<WriteSummary>
+    pub async fn finish_with_metadata<I, K, B>(self, metadata: I) -> VortexResult<(WriteSummary, W)>
     where
         I: IntoIterator<Item = (K, B)>,
         K: Into<String>,
@@ -841,20 +825,40 @@ impl Writer<'_> {
         self.finish().await
     }
 
-    /// Record the first terminal outcome from the writer future and close the input channel.
-    fn record_terminal_outcome(&mut self, result: VortexResult<WriteSummary>) -> VortexError {
-        let err = match result {
-            Ok(_) => vortex_err!("Internal error: writer future completed early"),
-            Err(e) => e,
-        };
-        drop(self.arrays.take());
-        self.terminal_error.get_or_insert(err).clone()
+    async fn send(&mut self, chunk: VortexResult<ArrayRef>, bytes: u64) -> VortexResult<()> {
+        if let Some(err) = &self.terminal_error {
+            return Err(err.clone());
+        }
+
+        let reservation = self.backpressure.reserve_pending(bytes);
+        let arrays = self.arrays.as_ref().vortex_expect("missing arrays sender");
+
+        // The write task closes the channel only when it stops before `finish`.
+        if arrays.send((chunk, reservation)).await.is_err() {
+            return Err(self.record_task_error().await);
+        }
+
+        Ok(())
     }
 
-    /// Assuming the writer task has failed, await it to get the error.
-    async fn handle_failed_task(&mut self) -> VortexError {
-        let result = (&mut self.future).await;
-        self.record_terminal_outcome(result)
+    /// Await the write task that stopped early, and keep its error for later calls.
+    async fn record_task_error(&mut self) -> VortexError {
+        let err = match join_write(&mut self.task).await {
+            Ok(_) => vortex_err!("Internal error: write task completed before finish"),
+            Err(err) => err,
+        };
+        drop(self.arrays.take());
+        self.terminal_error.insert(err).clone()
+    }
+}
+
+async fn join_write<T>(task: &mut Task<VortexResult<T>>) -> VortexResult<T> {
+    match poll_fn(|cx| task.poll_join(cx)).await {
+        JoinOutcome::Completed(result) => result,
+        JoinOutcome::Panicked(panic) => resume_unwind(panic),
+        JoinOutcome::Aborted => Err(vortex_err!(
+            "The runtime dropped the write task before it finished"
+        )),
     }
 }
 
@@ -879,64 +883,6 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
                 .write(BlockingWriteAdapter(write), iter.into_array_stream())
                 .await
         })
-    }
-
-    /// Create a blocking push-based writer for chunks with dtype `dtype`.
-    pub fn writer<'w, W: Write + Unpin + Send + 'w>(
-        self,
-        write: W,
-        dtype: DType,
-    ) -> BlockingWriter<'rt, 'w, B> {
-        BlockingWriter {
-            writer: self.options.writer(BlockingWriteAdapter(write), dtype),
-            runtime: self.runtime,
-        }
-    }
-}
-
-/// A blocking adapter around a [`Writer`], allowing incremental writing of arrays to a Vortex file.
-pub struct BlockingWriter<'rt, 'w, B: BlockingRuntime> {
-    runtime: &'rt B,
-    writer: Writer<'w>,
-}
-
-impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
-    /// Push one array chunk into the file.
-    pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        self.runtime.block_on(self.writer.push(chunk))
-    }
-
-    /// Returns the number of bytes written to the sink so far.
-    pub fn bytes_written(&self) -> u64 {
-        self.writer.bytes_written()
-    }
-
-    /// Returns the number of compressed bytes that the writer holds and did not yet send to the
-    /// file. See [`Writer::buffered_bytes`].
-    pub fn buffered_bytes(&self) -> u64 {
-        self.writer.buffered_bytes()
-    }
-
-    /// Returns an estimate of the size of the file if the write finished now. See
-    /// [`Writer::estimated_size`].
-    pub fn estimated_size(&self) -> u64 {
-        self.writer.estimated_size()
-    }
-
-    /// Finish writing and return the written file summary.
-    pub fn finish(self) -> VortexResult<WriteSummary> {
-        self.runtime.block_on(self.writer.finish())
-    }
-
-    /// Blocking version of [`Writer::finish_with_metadata`].
-    pub fn finish_with_metadata<I, K, V>(self, metadata: I) -> VortexResult<WriteSummary>
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: Into<String>,
-        V: Into<ByteBuffer>,
-    {
-        self.runtime
-            .block_on(self.writer.finish_with_metadata(metadata))
     }
 }
 
@@ -1216,12 +1162,13 @@ mod tests {
     }
 
     /// Callers hold a `Writer` inside `Send` futures; this only compiles while that holds.
-    #[test]
-    fn writer_and_its_futures_are_send() {
+    #[tokio::test]
+    async fn writer_and_its_futures_are_send() {
         fn assert_send<T: Send>(_: &T) {}
 
         let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let mut writer = VortexSession::empty()
+            .with_tokio()
             .write_options()
             .writer(Vec::<u8>::new(), array.dtype().clone());
         assert_send(&writer);

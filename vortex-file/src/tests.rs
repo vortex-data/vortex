@@ -6,16 +6,19 @@
 mod scan_metrics;
 
 use std::fs;
-use std::io;
 use std::iter;
+use std::pin::pin;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+use futures::poll;
 #[cfg(feature = "object_store")]
 use object_store::ObjectStoreExt;
 #[cfg(feature = "object_store")]
@@ -27,7 +30,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
-use tokio::sync::watch;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -113,7 +115,7 @@ use vortex_expr::or;
 use vortex_expr::root;
 use vortex_functions::expr::lower;
 use vortex_functions::expr::select;
-use vortex_io::IoBuf;
+use vortex_io::Backpressure;
 use vortex_io::VortexWrite;
 #[cfg(feature = "object_store")]
 use vortex_io::object_store::ObjectStoreWrite;
@@ -2158,11 +2160,12 @@ async fn test_writer_basic_push() -> VortexResult<()> {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?.into_array();
     let dtype = st.dtype().clone();
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype.clone());
 
     writer.push(st.clone()).await?;
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
 
     assert_eq!(summary.row_count(), 4);
 
@@ -2186,14 +2189,15 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
 
     let dtype = chunk1.dtype().clone();
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype.clone());
 
     writer.push(chunk1).await?;
     writer.push(chunk2).await?;
     writer.push(chunk3).await?;
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     assert_eq!(summary.row_count(), 9);
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -2223,12 +2227,13 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let stream = futures::stream::iter(vec![Ok(chunk1), Ok(chunk2)]);
     let sendable_stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype.clone(), stream));
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype.clone());
 
     writer.push_stream(sendable_stream).await?;
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     assert_eq!(summary.row_count(), 6);
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -2251,8 +2256,9 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
         .into_array();
     let dtype = array.dtype().clone();
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype);
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype);
 
     assert_eq!(writer.bytes_written(), 0);
 
@@ -2265,7 +2271,7 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
         "Bytes should have been written after pushing twice"
     );
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     assert_eq!(summary.row_count(), 10);
 
     assert!(!buf.is_empty(), "Buffer should contain data");
@@ -2273,27 +2279,8 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     Ok(())
 }
 
-/// Publishes how many bytes it has received.
-struct WatchedWrite(watch::Sender<u64>);
-
-impl VortexWrite for WatchedWrite {
-    async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
-        let len = buffer.as_slice().len() as u64;
-        self.0.send_modify(|bytes| *bytes += len);
-        Ok(buffer)
-    }
-
-    async fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    async fn shutdown(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 #[tokio::test]
-async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
+async fn test_writer_writes_between_pushes() -> VortexResult<()> {
     let chunks: Vec<ArrayRef> = (0..8u32)
         .map(|chunk| PrimitiveArray::from_iter(chunk * 1024..(chunk + 1) * 1024).into_array())
         .collect();
@@ -2318,22 +2305,102 @@ async fn test_spawn_writer_writes_between_pushes() -> VortexResult<()> {
         .segments_end()
         .vortex_expect("segment ends fit in u64");
 
-    let (bytes_send, mut bytes_received) = watch::channel(0);
     let mut writer = SESSION
         .write_options()
         .with_strategy(strategy)
-        .spawn_writer(WatchedWrite(bytes_send), dtype);
+        .writer(ByteBufferMut::empty(), dtype);
     for chunk in chunks {
         writer.push(chunk).await?;
     }
 
-    bytes_received
-        .wait_for(|bytes| *bytes >= segments_end)
-        .await
-        .map_err(|_| vortex_err!("The write dropped its sink"))?;
+    // Nothing awaits the writer here, so only the write task can move the segments to the sink.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while writer.bytes_written() < segments_end {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .map_err(|_| vortex_err!("wrote {} of {segments_end} bytes", writer.bytes_written()))?;
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     assert_eq!(summary.size(), expected.len() as u64);
+    assert_eq!(buf.as_slice(), expected.as_slice());
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_full_backpressure_limit_stops_the_input() -> VortexResult<()> {
+    let chunk = buffer![1u32, 2, 3].into_array();
+    let budget = Backpressure::with_limit(1);
+    // Work in progress of another write that shares the limit.
+    let other_work = budget.share_limit().reserve_buffered(1).in_progress();
+
+    let mut writer = SESSION
+        .write_options()
+        .with_backpressure(budget.clone())
+        .writer(ByteBufferMut::empty(), chunk.dtype().clone());
+    assert!(writer.ready().now_or_never().is_none());
+
+    // The first chunk waits in the input queue. The write task does not take it, so the second
+    // push cannot complete.
+    writer.push(chunk.clone()).await?;
+    {
+        let mut second = pin!(writer.push(chunk.clone()));
+        for _ in 0..16 {
+            assert!(poll!(second.as_mut()).is_pending());
+            tokio::task::yield_now().await;
+        }
+
+        drop(other_work);
+        tokio::time::timeout(Duration::from_secs(10), second)
+            .await
+            .map_err(|_| vortex_err!("the push did not complete after the limit had room"))??;
+    }
+
+    let (summary, _) = tokio::time::timeout(Duration::from_secs(10), writer.finish())
+        .await
+        .map_err(|_| vortex_err!("the write did not finish"))??;
+    assert_eq!(summary.row_count(), 6);
+    assert_eq!(budget.in_progress_bytes(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_smallest_backpressure_limit_completes_the_write() -> VortexResult<()> {
+    let chunks: Vec<ArrayRef> = (0..32u32)
+        .map(|chunk| {
+            let numbers = PrimitiveArray::from_iter(chunk * 1024..(chunk + 1) * 1024).into_array();
+            let strings =
+                VarBinViewArray::from_iter_str((0..1024).map(|row| format!("value-{}", row % 7)))
+                    .into_array();
+            Ok(
+                StructArray::from_fields(&[("numbers", numbers), ("strings", strings)])?
+                    .into_array(),
+            )
+        })
+        .collect::<VortexResult<_>>()?;
+    let expected = ChunkedArray::from_iter(chunks.clone()).into_array();
+    let budget = Backpressure::with_limit(1);
+
+    // With a limit of one byte, each chunk waits until no work is in progress.
+    let mut buf = ByteBufferMut::empty();
+    let write = SESSION
+        .write_options()
+        .with_backpressure(budget.clone())
+        .write(&mut buf, expected.to_array_stream());
+    tokio::time::timeout(Duration::from_secs(30), write)
+        .await
+        .map_err(|_| {
+            vortex_err!(
+                "the write stopped with {} bytes in progress",
+                budget.in_progress_bytes()
+            )
+        })??;
+    assert_eq!(budget.in_progress_bytes(), 0);
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
@@ -2374,10 +2441,9 @@ async fn test_writer_buffered_bytes(
         Arc::new(StructStrategy::new(validity, new_leaf()))
     };
 
-    let mut buf = ByteBufferMut::empty();
     let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
     let buffered_bytes = options.backpressure();
-    let mut writer = options.writer(&mut buf, array.dtype().clone());
+    let mut writer = options.writer(ByteBufferMut::empty(), array.dtype().clone());
 
     assert_eq!(writer.buffered_bytes(), 0);
 
@@ -2389,7 +2455,7 @@ async fn test_writer_buffered_bytes(
 
     assert_eq!(writer.buffered_bytes(), expected_buffered_bytes);
 
-    let summary = writer.finish().await?;
+    let (summary, _) = writer.finish().await?;
     assert_eq!(summary.row_count(), 12);
     assert_eq!(buffered_bytes.buffered_bytes(), 0);
 
@@ -2411,16 +2477,14 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
         leaf,
     ));
 
-    let mut first_buf = ByteBufferMut::empty();
     let mut first = SESSION
         .write_options()
         .with_strategy(Arc::clone(&strategy))
-        .writer(&mut first_buf, array.dtype().clone());
-    let mut second_buf = ByteBufferMut::empty();
+        .writer(ByteBufferMut::empty(), array.dtype().clone());
     let mut second = SESSION
         .write_options()
         .with_strategy(strategy)
-        .writer(&mut second_buf, array.dtype().clone());
+        .writer(ByteBufferMut::empty(), array.dtype().clone());
 
     first.push(array.clone()).await?;
     first.push(array.clone()).await?;
@@ -2493,14 +2557,15 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
 
     let dtype = empty.dtype().clone();
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype.clone());
 
     writer.push(empty.clone()).await?;
     writer.push(non_empty).await?;
     writer.push(empty).await?;
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     assert_eq!(summary.row_count(), 2);
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -2532,14 +2597,15 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let stream = futures::stream::iter(vec![Ok(chunk2.clone())]);
     let sendable_stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype.clone(), stream));
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype.clone());
 
     writer.push(chunk1).await?;
     writer.push_stream(sendable_stream).await?;
     writer.push(chunk3).await?;
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     assert_eq!(summary.row_count(), 6);
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -2575,11 +2641,12 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
 
     let dtype = chunk.dtype().clone();
 
-    let mut buf = ByteBufferMut::empty();
-    let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
+    let mut writer = SESSION
+        .write_options()
+        .writer(ByteBufferMut::empty(), dtype.clone());
 
     writer.push(chunk.clone()).await?;
-    let footer = writer.finish().await?;
+    let (footer, buf) = writer.finish().await?;
 
     assert_eq!(footer.row_count(), 3);
 
@@ -2818,14 +2885,13 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
         .into_array();
 
-    let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
         .with_file_statistics(pruning_aggregate_fns())
-        .writer(&mut buf, array.dtype().clone());
+        .writer(ByteBufferMut::empty(), array.dtype().clone());
 
     writer.push(array).await?;
-    let summary = writer.finish().await?;
+    let (summary, _) = writer.finish().await?;
 
     let statistics = summary.footer().statistics().expect("requested statistics");
     assert_eq!(statistics.aggregates().len(), 1);
@@ -2970,7 +3036,6 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
         StructFields::from_iter([("numbers", DType::from(PType::I64))]),
         Nullability::NonNullable,
     );
-    let mut buf = ByteBufferMut::empty();
     // `Sum` is not in the core editions.
     let mut writer = SESSION
         .write_options()
@@ -2980,7 +3045,7 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
                 .aggregate_fn()
                 .vortex_expect("sum has an aggregate fn"),
         ])
-        .writer(&mut buf, dtype);
+        .writer(ByteBufferMut::empty(), dtype);
 
     // The first chunk overflows, so the file sum must not be the second chunk's sum of 2.
     for chunk in [buffer![i64::MAX, 1], buffer![2i64]] {
@@ -2989,7 +3054,7 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
             .await?;
     }
 
-    let summary = writer.finish().await?;
+    let (summary, buf) = writer.finish().await?;
     let footer_stats = summary
         .footer()
         .statistics()
@@ -3149,12 +3214,11 @@ async fn test_file_metadata_added_at_finish() -> VortexResult<()> {
         Nullability::NonNullable,
     );
 
-    let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
         .with_metadata_segment("schema", ByteBuffer::copy_from(b"create"))
         .with_metadata_segment("bloom", ByteBuffer::copy_from(b"placeholder"))
-        .writer(&mut buf, dtype);
+        .writer(ByteBufferMut::empty(), dtype);
 
     writer
         .push(
@@ -3164,7 +3228,7 @@ async fn test_file_metadata_added_at_finish() -> VortexResult<()> {
         .await?;
 
     // The finish-time value replaces the create-time value for the same key.
-    let summary = writer
+    let (summary, buf) = writer
         .finish_with_metadata([
             ("bloom", ByteBuffer::copy_from(b"bloom-bits")),
             ("min_key", ByteBuffer::copy_from(b"a")),
@@ -3233,13 +3297,12 @@ async fn test_file_metadata_added_at_finish_is_validated() -> VortexResult<()> {
     );
 
     // Each set is in the limits, but the merged set has one segment too many.
-    let mut buf = ByteBufferMut::empty();
     let mut writer = SESSION
         .write_options()
         .with_metadata_segments(
             (0..MAX_METADATA_SEGMENTS).map(|idx| (format!("create-{idx}"), ByteBuffer::empty())),
         )
-        .writer(&mut buf, dtype);
+        .writer(ByteBufferMut::empty(), dtype);
 
     writer
         .push(StructArray::from_fields(&[("numbers", buffer![1u32].into_array())])?.into_array())
@@ -4165,12 +4228,16 @@ async fn test_splits_follow_only_the_masked_fields() -> VortexResult<()> {
 mod writer_terminal_error_tests {
     use std::future::Future;
     use std::io;
+    use std::pin::pin;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use rstest::rstest;
+    use futures::StreamExt;
+    use futures::poll;
+    use futures::stream;
+    use tokio::sync::Semaphore;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::StructArray;
@@ -4178,8 +4245,12 @@ mod writer_terminal_error_tests {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_io::Backpressure;
     use vortex_io::IoBuf;
     use vortex_io::VortexWrite;
+    use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 
     use super::SESSION;
     use crate::WriteOptionsSessionExt;
@@ -4221,11 +4292,172 @@ mod writer_terminal_error_tests {
         }
     }
 
-    #[rstest]
-    #[case::inline(false)]
-    #[case::spawned(true)]
+    /// A sink that completes one `write_all` call for each permit.
+    struct GatedWrite {
+        permits: Arc<Semaphore>,
+    }
+
+    impl VortexWrite for GatedWrite {
+        async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+            let permit = self.permits.acquire().await.map_err(io::Error::other)?;
+            permit.forget();
+            Ok(buffer)
+        }
+
+        async fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        async fn shutdown(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[tokio::test]
-    async fn test_writer_push_replays_terminal_error(#[case] spawn: bool) -> VortexResult<()> {
+    async fn test_segment_that_waits_for_the_sink_counts_on_the_limit() -> VortexResult<()> {
+        let chunk = Buffer::from_iter(0..1024u32).into_array();
+        let budget = Backpressure::with_limit(1);
+        // One permit lets the magic bytes through. The first segment then waits in the sink.
+        let permits = Arc::new(Semaphore::new(1));
+
+        let mut writer = SESSION
+            .write_options()
+            .with_strategy(Arc::new(ChunkedLayoutStrategy::new(
+                FlatLayoutStrategy::default(),
+            )))
+            .with_backpressure(budget.clone())
+            .writer(
+                GatedWrite {
+                    permits: Arc::clone(&permits),
+                },
+                chunk.dtype().clone(),
+            );
+
+        writer.push(chunk.clone()).await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while budget.in_progress_bytes() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .map_err(|_| vortex_err!("the segment did not count as work in progress"))?;
+
+        // The write task holds the second chunk at the gate and the third chunk waits in the
+        // input queue. So the fourth push cannot complete until the sink takes the segment.
+        writer.push(chunk.clone()).await?;
+        writer.push(chunk.clone()).await?;
+        {
+            let mut third = pin!(writer.push(chunk));
+            for _ in 0..16 {
+                assert!(poll!(third.as_mut()).is_pending());
+                tokio::task::yield_now().await;
+            }
+
+            permits.add_permits(Semaphore::MAX_PERMITS / 2);
+            tokio::time::timeout(Duration::from_secs(10), third)
+                .await
+                .map_err(|_| vortex_err!("the push did not complete after the sink took data"))??;
+        }
+
+        let (summary, _) = tokio::time::timeout(Duration::from_secs(10), writer.finish())
+            .await
+            .map_err(|_| vortex_err!("the write did not finish"))??;
+        assert_eq!(summary.row_count(), 4 * 1024);
+        assert_eq!(budget.in_progress_bytes(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pull_write_stops_the_source_while_the_sink_waits() -> VortexResult<()> {
+        const CHUNKS: usize = 64;
+
+        let chunk = Buffer::from_iter(0..1024u32).into_array();
+        let dtype = chunk.dtype().clone();
+        let budget = Backpressure::with_limit(1);
+        // One permit lets the magic bytes through. The first segment then waits in the sink.
+        let permits = Arc::new(Semaphore::new(1));
+
+        let pulls = Arc::new(AtomicUsize::new(0));
+        let source = {
+            let pulls = Arc::clone(&pulls);
+            // The source yields before each chunk, as a source that waits for data does.
+            stream::iter(0..CHUNKS).then(move |_| {
+                pulls.fetch_add(1, Ordering::SeqCst);
+                let chunk = chunk.clone();
+                async move {
+                    tokio::task::yield_now().await;
+                    Ok(chunk)
+                }
+            })
+        };
+
+        let sink = GatedWrite {
+            permits: Arc::clone(&permits),
+        };
+        let mut write = pin!(
+            SESSION
+                .write_options()
+                .with_strategy(Arc::new(ChunkedLayoutStrategy::new(
+                    FlatLayoutStrategy::default(),
+                )))
+                .with_backpressure(budget.clone())
+                .write(sink, ArrayStreamAdapter::new(dtype, source))
+        );
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while budget.in_progress_bytes() == 0 {
+                assert!(poll!(write.as_mut()).is_pending());
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .map_err(|_| vortex_err!("the segment did not count as work in progress"))?;
+
+        // The caller polls the write, but the write does not pull the source past the limit.
+        let pulled = pulls.load(Ordering::SeqCst);
+        for _ in 0..64 {
+            assert!(poll!(write.as_mut()).is_pending());
+            tokio::task::yield_now().await;
+        }
+        assert!(pulled < CHUNKS);
+        assert_eq!(pulls.load(Ordering::SeqCst), pulled);
+
+        permits.add_permits(Semaphore::MAX_PERMITS / 2);
+        let summary = tokio::time::timeout(Duration::from_secs(10), write)
+            .await
+            .map_err(|_| vortex_err!("the write did not finish"))??;
+
+        assert_eq!(pulls.load(Ordering::SeqCst), CHUNKS);
+        assert_eq!(summary.row_count(), (CHUNKS * 1024) as u64);
+        assert_eq!(budget.in_progress_bytes(), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_writer_abort_stops_a_write_that_waits_for_the_sink() -> VortexResult<()> {
+        let chunk = make_chunk(&[1, 2, 3])?;
+        // Without a permit, the write waits in the sink at the magic bytes.
+        let permits = Arc::new(Semaphore::new(0));
+
+        let mut writer = SESSION.write_options().writer(
+            GatedWrite {
+                permits: Arc::clone(&permits),
+            },
+            chunk.dtype().clone(),
+        );
+        writer.push(chunk).await?;
+
+        tokio::time::timeout(Duration::from_secs(10), writer.abort())
+            .await
+            .map_err(|_| vortex_err!("the abort did not complete"))?;
+
+        // The write task dropped the sink.
+        assert_eq!(Arc::strong_count(&permits), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_writer_push_replays_terminal_error() -> VortexResult<()> {
         let chunk = make_chunk(&[1, 2, 3])?;
         let dtype = chunk.dtype().clone();
         let write_calls = Arc::new(AtomicUsize::new(0));
@@ -4235,15 +4467,10 @@ mod writer_terminal_error_tests {
             message: msg,
         };
 
-        let options = SESSION.write_options();
-        let mut writer = if spawn {
-            options.spawn_writer(sink, dtype.clone())
-        } else {
-            options.writer(sink, dtype.clone())
-        };
+        let mut writer = SESSION.write_options().writer(sink, dtype.clone());
         let mut first_err = None;
-        // `bounded(1)` plus `futures::select!` branch order can let the first push buffer before
-        // the writer task polls the failing sink, so push until the terminal error surfaces.
+        // The first pushes can enter the input queue before the write task polls the failing sink,
+        // so push until the terminal error surfaces.
         for _ in 0..4 {
             if let Err(err) = writer.push(chunk.clone()).await {
                 first_err = Some(err);
@@ -4263,7 +4490,7 @@ mod writer_terminal_error_tests {
 
         let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype,
-            futures::stream::iter(vec![Ok(chunk)]),
+            stream::iter(vec![Ok(chunk)]),
         ));
         expect_replayed(writer.push_stream(stream), msg).await;
         assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
