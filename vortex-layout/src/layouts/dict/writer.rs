@@ -24,13 +24,14 @@ use futures::stream::iter;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
@@ -39,8 +40,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_decimal_byte_parts::DecimalByteParts;
-use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -55,6 +54,7 @@ use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::compressed::CompressorPlugin;
 use crate::layouts::dict::DictLayout;
+use crate::layouts::dict::probe::probe_dictionary;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;
@@ -137,6 +137,8 @@ pub struct DictStrategy {
 }
 
 impl DictStrategy {
+    /// If `probe_compressor` has a dictionary scheme for a column, a cost model of one dictionary
+    /// pass over the probe sample decides. Otherwise the compressed sample must be a dictionary.
     pub fn new<Codes: LayoutStrategy, Values: LayoutStrategy, Fallback: LayoutStrategy>(
         codes: Codes,
         values: Values,
@@ -187,19 +189,33 @@ impl LayoutStrategy for DictStrategy {
             None => None, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
-                    .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
-                let sample_size =
-                    u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
-                        .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
-                ctx.size_scope()
-                    .record_probe(sample_size, compressed.nbytes());
+                let sample = sample.execute::<Canonical>(&mut exec_ctx)?.into_array();
+                let probe_compressor = &self.probe_compressor;
 
-                probe_dict_codes(&compressed).map(|codes| {
-                    let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
-                    (codes.len() as u64 * element_size, codes.nbytes())
-                })
+                match probe_compressor.has_scheme_for(&sample, &Dict.id(), &mut exec_ctx)? {
+                    Some(false) => None,
+                    Some(true) => {
+                        let constraints = options.constraints.clone().into();
+                        let probe = probe_dictionary(&sample, &constraints, &mut exec_ctx)?;
+                        ctx.size_scope()
+                            .record_probe(probe.uncompressed_bytes, probe.estimated_bytes);
+                        probe.codes
+                    }
+                    None => {
+                        let compressed = probe_compressor.compress_chunk(&sample, &mut exec_ctx)?;
+                        let sample_size =
+                            u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
+                                .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
+                        ctx.size_scope()
+                            .record_probe(sample_size, compressed.nbytes());
+
+                        compressed.as_opt::<Dict>().map(|dict| {
+                            let codes = dict.codes();
+                            let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
+                            (codes.len() as u64 * element_size, codes.nbytes())
+                        })
+                    }
+                }
             }
         };
         let should_fallback = codes_probe.is_none();
@@ -588,27 +604,6 @@ async fn peek_probe_sample(
     Ok((stream, Some(sample)))
 }
 
-/// Returns the probe dictionary's codes array when the probe compressor chose a dictionary.
-///
-/// Byte parts with only a most significant part can also hold the dictionary, under an integer
-/// `Widen` when compression narrowed that part. The dictionary then holds the unscaled decimals
-/// with the same codes, so the column gets a dict layout either way. Byte parts with lower parts
-/// do not count, because a dictionary of one part says little about the distinct count of the
-/// whole decimals.
-fn probe_dict_codes(compressed: &ArrayRef) -> Option<ArrayRef> {
-    if let Some(dict) = compressed.as_opt::<Dict>() {
-        return Some(dict.codes().clone());
-    }
-
-    let parts = compressed.as_opt::<DecimalByteParts>()?;
-    if !parts.lower_parts().is_empty() {
-        return None;
-    }
-
-    let stored = WidenArray::to_stored_integer(parts.msp());
-    stored.as_opt::<Dict>().map(|dict| dict.codes().clone())
-}
-
 pub fn dict_layout_supported(dtype: &DType) -> bool {
     matches!(
         dtype,
@@ -677,10 +672,8 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::DecimalArray;
-    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
@@ -691,8 +684,8 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::session::ArraySession;
-    use vortex_buffer::buffer;
-    use vortex_decimal_byte_parts::DecimalByteParts;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::schemes::string::StringDictScheme;
     use vortex_error::VortexResult;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
@@ -706,7 +699,6 @@ mod tests {
     use super::DictionaryChunk;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
-    use super::probe_dict_codes;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::dict::Dict;
@@ -954,37 +946,46 @@ mod tests {
         Ok(())
     }
 
-    /// The probe counts a dictionary under byte parts with only a most significant part, also
-    /// under an integer `Widen` there, and does not count one next to lower parts.
     #[rstest]
-    #[case::msp(false, false, true)]
-    #[case::widen_msp(true, false, true)]
-    #[case::lower_parts(false, true, false)]
-    fn probe_finds_dictionary_in_byte_parts(
-        #[case] widen: bool,
-        #[case] lower_part: bool,
-        #[case] expected: bool,
-    ) -> VortexResult<()> {
-        let codes = buffer![0u8, 1, 0, 1].into_array();
-        let msp = if widen {
-            let dict = DictArray::try_new(codes, buffer![100i16, -5].into_array())?.into_array();
-            WidenArray::try_new(dict, DType::Primitive(PType::I64, NonNullable))?.into_array()
-        } else {
-            DictArray::try_new(codes, buffer![100i64, -5].into_array())?.into_array()
-        };
+    #[case::dict_scheme(true)]
+    #[case::no_dict_scheme(false)]
+    fn probe_uses_only_configured_dict_schemes(#[case] dict_scheme: bool) -> VortexResult<()> {
+        let mut compressor = BtrBlocksCompressorBuilder::empty();
+        if dict_scheme {
+            compressor = compressor.with_new_scheme(&StringDictScheme);
+        }
+        let strategy = DictStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            DictLayoutOptions::default(),
+            Arc::new(compressor.build()),
+        );
 
-        let parts = if lower_part {
-            DecimalByteParts::try_new_with_lower_parts(
-                msp,
-                vec![buffer![0u64; 4].into_array()],
-                DecimalDType::new(38, 2),
-            )?
-        } else {
-            DecimalByteParts::try_new(msp, DecimalDType::new(18, 2))?
-        };
+        let values = VarBinArray::from(
+            (0..4096)
+                .map(|i| ["books", "toys", "garden"][i % 3])
+                .collect::<Vec<_>>(),
+        );
+        let dtype = values.dtype().clone();
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let input: Vec<VortexResult<_>> = vec![Ok((sequence_id.advance(), values.into_array()))];
+        drop(sequence_id);
 
-        assert_eq!(probe_dict_codes(&parts.into_array()).is_some(), expected);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::new(TestSegments::default()),
+                    SequentialStreamAdapter::new(dtype, futures::stream::iter(input)).sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
 
+        assert_eq!(layout.is::<Dict>(), dict_scheme);
         Ok(())
     }
 

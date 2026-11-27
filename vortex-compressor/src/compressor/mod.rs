@@ -18,6 +18,8 @@ pub(crate) use sample::estimate_compression_ratio_with_sampling;
 pub use sample::sample_aligned_chunks;
 pub(crate) use sample::sample_slices;
 pub(crate) use structural::leaf_validity_slot;
+use vortex_array::ArrayId;
+use vortex_array::Canonical;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildPolicy;
@@ -101,6 +103,14 @@ impl CascadingCompressor {
     pub fn with_variant_storage_compressor(mut self, compressor: CascadingCompressor) -> Self {
         self.variant_storage = Some(Arc::new(compressor));
         self
+    }
+
+    /// Returns `true` if a configured scheme matches `canonical` and can write `encoding`.
+    /// This does not look at the values of `canonical`.
+    pub fn has_scheme_producing(&self, canonical: &Canonical, encoding: &ArrayId) -> bool {
+        self.schemes.iter().any(|scheme| {
+            scheme.matches(canonical) && scheme.produced_encodings().contains(encoding)
+        })
     }
 }
 

@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
@@ -32,11 +34,31 @@ use crate::sequence::SequentialStreamExt;
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
+    /// Returns if a scheme of this plugin can write `encoding` for `chunk`, without compressing
+    /// it, or `None` if the plugin cannot tell.
+    fn has_scheme_for(
+        &self,
+        _chunk: &ArrayRef,
+        _encoding: &ArrayId,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<bool>> {
+        Ok(None)
+    }
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk, ctx)
+    }
+
+    fn has_scheme_for(
+        &self,
+        chunk: &ArrayRef,
+        encoding: &ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<bool>> {
+        self.as_ref().has_scheme_for(chunk, encoding, ctx)
     }
 }
 
@@ -52,6 +74,16 @@ where
 impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.compress(chunk, ctx)
+    }
+
+    fn has_scheme_for(
+        &self,
+        chunk: &ArrayRef,
+        encoding: &ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<bool>> {
+        let canonical = chunk.clone().execute::<Canonical>(ctx)?;
+        Ok(Some(self.0.has_scheme_producing(&canonical, encoding)))
     }
 }
 

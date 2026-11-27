@@ -123,15 +123,20 @@ impl CompressionRatio {
 #[derive(Debug, Default)]
 struct SizeScopeNode {
     bytes: BufferedBytesTracker,
+    /// The ratio of the chunks of this scope that the write compressed.
     ratio: CompressionRatio,
+    /// The ratio of the probes of this scope, which the ratio of the chunks replaces.
+    probe: CompressionRatio,
     parent: Option<Arc<SizeScopeNode>>,
 }
 
 impl SizeScopeNode {
-    /// Returns the ratio of this scope, or of the nearest ancestor that has a sample.
+    /// Returns the ratio of the chunks of this scope, or of its probes, or the ratio of the
+    /// nearest ancestor that has a sample.
     fn ratio(&self) -> Option<f64> {
         self.ratio
             .measured()
+            .or_else(|| self.probe.measured())
             .or_else(|| self.parent.as_ref().and_then(|parent| parent.ratio()))
     }
 }
@@ -176,8 +181,9 @@ impl SizeScopeRegistry {
 /// data with [`Self::record`] or [`Self::record_probe`].
 ///
 /// The estimated compressed size of the uncompressed bytes is the sum over all the scopes of the
-/// bytes multiplied by the ratio of the scope. A scope without a sample uses the ratio of its
-/// nearest ancestor with a sample, then the ratio over all the samples of the write, then one.
+/// bytes multiplied by the ratio of the scope. A scope uses the ratio of its chunks, then the ratio
+/// of its probes. A scope without a sample uses the ratio of its nearest ancestor with a sample,
+/// then the ratio over all the samples of the write, then one.
 ///
 /// Clones refer to the same scope, and all the scopes of a tree share the same totals, so a scope
 /// can be handed to a writer before the write begins and polled while it runs.
@@ -238,14 +244,11 @@ impl SizeScope {
         self.registry.overall.record(uncompressed, compressed);
     }
 
-    /// Records the result of a probe that compressed `uncompressed` bytes of the data in this
-    /// scope to `compressed` bytes.
-    ///
-    /// A strategy compresses a probe early in the write, for example to choose an encoding. The
-    /// probe gives a ratio before the first full chunk is compressed. A probe counts the same as a
-    /// chunk, and the chunks soon outweigh it.
+    /// Records a probe that compressed, or estimated, `uncompressed` bytes of this scope as
+    /// `compressed` bytes. The first chunk of the scope replaces the ratio of its probes.
     pub fn record_probe(&self, uncompressed: u64, compressed: u64) {
-        self.record(uncompressed, compressed);
+        self.node.probe.record(uncompressed, compressed);
+        self.registry.overall.record(uncompressed, compressed);
     }
 
     /// Records that `uncompressed` bytes of a chunk were written as a constant, which takes no
@@ -573,6 +576,20 @@ mod tests {
         assert_eq!(root.estimated_compressed_bytes(), 100 + 500 + 300);
         assert_eq!(root.compression_ratio(), 0.3);
         assert_eq!(root.uncompressed_bytes(), 3000);
+    }
+
+    #[test]
+    fn chunks_replace_the_probe_ratio_of_a_scope() {
+        let root = SizeScope::new();
+        let column = root.child();
+        let _bytes = column.reserve(1000);
+
+        column.record_probe(100, 50);
+        assert_eq!(root.estimated_compressed_bytes(), 500);
+
+        column.record(100, 10);
+        assert_eq!(root.estimated_compressed_bytes(), 100);
+        assert_eq!(root.compression_ratio(), 0.3);
     }
 
     #[test]
