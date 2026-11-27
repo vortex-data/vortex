@@ -465,14 +465,19 @@ mod tests {
         let mut chunks = Vec::new();
         for (rows, path, dtype) in [
             (
-                [r#"{"a":42,"raw":"first"}"#, r#"{"a":null}"#],
+                [r#"{"a":42,"left_only":"first"}"#, r#"{"a":null}"#],
                 "a",
                 DataType::Int32,
             ),
             (
-                [r#"{"b":"hello","raw":"second"}"#, r#"{"b":"only"}"#],
+                [r#"{"b":"hello","right_only":"second"}"#, r#"{"b":"only"}"#],
                 "b",
                 DataType::Utf8,
+            ),
+            (
+                [r#"{"c":true,"third_only":17}"#, r#"{"c":false}"#],
+                "c",
+                DataType::Boolean,
             ),
         ] {
             let strings: ArrowArrayRef = Arc::new(StringArray::from(rows.to_vec()));
@@ -489,11 +494,11 @@ mod tests {
 
     #[rstest]
     #[case::single_schema(typed_value_variant_array(), None)]
-    #[case::mixed_schemas(mixed_shredding_variant_array(), Some(["a", "b"]))]
+    #[case::mixed_schemas(mixed_shredding_variant_array(), Some(["a", "b", "c"]))]
     #[tokio::test]
     async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy(
         #[case] expected: VortexResult<ArrayRef>,
-        #[case] expected_fields: Option<[&str; 2]>,
+        #[case] expected_fields: Option<[&str; 3]>,
         parquet_variant_file_session: VortexResult<VortexSession>,
     ) -> VortexResult<()> {
         let expected = expected?;
