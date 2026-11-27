@@ -12,6 +12,7 @@ use std::path::Path;
 
 use clap::ValueEnum;
 use serde::Serialize;
+use vortex::VortexSessionDefault;
 use vortex_array::VortexSessionExecute;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
@@ -103,7 +104,7 @@ fn check_fixtures(
         .map_err(|err| vortex_err!("failed to read dir {}: {err}", dir.display()))?;
     dir_files.sort();
 
-    let session = VortexSession::empty();
+    let session = VortexSession::default();
     let tmp_dir =
         tempfile::tempdir().map_err(|err| vortex_err!("failed to create temp dir: {err}"))?;
 

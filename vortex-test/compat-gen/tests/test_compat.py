@@ -138,3 +138,155 @@ def test_run_rust_check_handles_invalid_json(compat, monkeypatch, tmp_path):
     assert len(result["failed"]) == 1
     assert result["failed"][0]["name"] == "(all)"
     assert "invalid JSON" in result["failed"][0]["error"]
+
+
+def test_load_accepted_edition_failures_validates_checked_in_file(compat):
+    overrides, failures = compat._load_accepted_edition_failures(compat.DEFAULT_ACCEPTED_EDITION_FAILURES)
+    assert overrides["core2025.06.0"]["reader_version"] == "0.42.0"
+    assert overrides["core2025.06.0"]["reason"]
+    assert isinstance(failures, dict)
+
+
+def test_load_accepted_edition_failures_rejects_duplicates_and_bad_entries(compat, tmp_path):
+    dup_path = tmp_path / "dup.json"
+    entry = {
+        "edition": "core2025.05.0",
+        "reader_version": "0.36.0",
+        "fixture": "fsst.vortex",
+        "reason": "legacy 2-buffer format",
+    }
+    dup_path.write_text(json.dumps({"failures": [entry, entry]}))
+    with pytest.raises(ValueError, match="duplicate"):
+        compat._load_accepted_edition_failures(dup_path)
+
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_text(json.dumps({"failures": [{**entry, "reason": "   "}]}))
+    with pytest.raises(ValueError, match="reason"):
+        compat._load_accepted_edition_failures(bad_path)
+
+
+def test_evaluate_edition_results_enforces_shrink_only(compat):
+    accepted = {
+        ("core2025.05.0", "0.36.0", "known_fail.vortex"): "known issue",
+        ("core2025.05.0", "0.36.0", "fixed_now.vortex"): "was failing",
+        ("core2025.05.0", "0.36.0", "removed.vortex"): "no longer written",
+    }
+    report = {
+        "passed": ["ok.vortex", "fixed_now.vortex"],
+        "failed": [
+            {"name": "known_fail.vortex", "error": "expected err", "causes": ["expected err"]},
+            {"name": "new_regression.vortex", "error": "boom", "causes": ["boom"]},
+        ],
+    }
+
+    evaluated = compat._evaluate_edition_results(
+        "core2025.05.0",
+        "0.36.0",
+        ["ok.vortex", "fixed_now.vortex", "known_fail.vortex", "new_regression.vortex"],
+        report,
+        accepted,
+    )
+
+    assert evaluated["passed"] == ["ok.vortex", "fixed_now.vortex"]
+    assert [f["name"] for f in evaluated["accepted"]] == ["known_fail.vortex"]
+    assert [f["name"] for f in evaluated["unexpected"]] == ["new_regression.vortex"]
+    assert [(s["name"], s["status"]) for s in evaluated["stale"]] == [
+        ("fixed_now.vortex", "passed"),
+        ("removed.vortex", "not written"),
+    ]
+
+
+def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(compat, monkeypatch, tmp_path):
+    accepted_path = tmp_path / "accepted.json"
+    accepted_path.write_text(
+        json.dumps(
+            {
+                "reader_overrides": {
+                    "core2025.06.0": {
+                        "reader_version": "0.42.0",
+                        "reason": "0.40.0 lacks vortex.pco",
+                    }
+                },
+                "failures": [
+                    {
+                        "edition": "core2025.06.0",
+                        "reader_version": "0.42.0",
+                        "fixture": "fsst.vortex",
+                        "reason": "known fsst issue",
+                    }
+                ],
+            }
+        )
+    )
+
+    monkeypatch.setattr(
+        compat,
+        "_run_rust_editions",
+        lambda profile="release": [
+            {"id": "core2025.06.0", "min_library_version": "0.40.0"},
+            {"id": "core2026.08.3", "min_library_version": "0.85.0"},
+        ],
+    )
+
+    def fake_generate(output: Path, profile="release", edition=None, exclude=None):
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "fixtures.json").write_text(
+            json.dumps(
+                {
+                    "edition": edition,
+                    "fixtures": [
+                        {"name": "primitives.vortex", "description": "p", "sha256": "a"},
+                        {"name": "fsst.vortex", "description": "f", "sha256": "b"},
+                    ],
+                }
+            )
+        )
+
+    monkeypatch.setattr(compat, "_run_rust_generate", fake_generate)
+
+    reader_calls: list[tuple[str, str]] = []
+
+    def fake_reader(subcommand, reader_version, src_dir, other_dir, python_version="3.12") -> dict[str, object]:
+        reader_calls.append((subcommand, reader_version))
+        if subcommand == "dump-expected":
+            return {"dumped": 2, "errors": []}
+        if reader_version == "0.42.0":
+            return {
+                "passed": ["primitives.vortex"],
+                "failed": [{"name": "fsst.vortex", "error": "Expected 2 buffers, got 3", "causes": []}],
+            }
+        return {"passed": ["primitives.vortex", "fsst.vortex"], "failed": []}
+
+    monkeypatch.setattr(compat, "_run_edition_reader", fake_reader)
+
+    json_out = tmp_path / "report.json"
+    args = argparse.Namespace(
+        profile="ci",
+        editions=None,
+        exclude=None,
+        accepted_failures=str(accepted_path),
+        python="3.12",
+        json_output=str(json_out),
+    )
+    compat.cmd_check_editions(args)
+
+    assert reader_calls == [
+        ("dump-expected", "0.85.0"),
+        ("verify", "0.42.0"),
+        ("verify", "0.85.0"),
+    ]
+    report = json.loads(json_out.read_text())
+    assert len(report) == 2
+    assert report[0]["reader_version"] == "0.42.0"
+    assert [f["name"] for f in report[0]["accepted"]] == ["fsst.vortex"]
+
+    # Now make fsst.vortex pass on 0.42.0 -> shrink-only check must fail with exit 1.
+    def fake_reader_fixed(subcommand, reader_version, src_dir, other_dir, python_version="3.12") -> dict[str, object]:
+        if subcommand == "dump-expected":
+            return {"dumped": 2, "errors": []}
+        return {"passed": ["primitives.vortex", "fsst.vortex"], "failed": []}
+
+    monkeypatch.setattr(compat, "_run_edition_reader", fake_reader_fixed)
+    with pytest.raises(SystemExit) as exc:
+        compat.cmd_check_editions(args)
+    assert exc.value.code == 1

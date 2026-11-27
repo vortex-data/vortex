@@ -1,8 +1,9 @@
 # vortex-compat
 
-Backward-compatibility testing for the Vortex file format. Ensures the
-current reader can always decode `.vortex` files written by any older
-released version.
+Backward-compatibility testing for the Vortex file format. Covers both
+directions: ensuring the current reader can decode `.vortex` files written by
+older releases, and ensuring the current writer targeting any supported frozen
+`core` edition can be read by that edition's oldest release.
 
 See [DESIGN.md](DESIGN.md) for full architecture and design rationale.
 
@@ -21,6 +22,12 @@ python scripts/compat.py publish
 # Check all published versions
 python scripts/compat.py check
 
+# Generate fixtures targeting an older edition
+cargo run -p vortex-compat --release -- generate --output /tmp/fixtures --edition core2025.05.0
+
+# Check all frozen core editions with each edition's oldest vortex-data reader
+uv run scripts/compat.py --profile ci check-editions
+
 # Publish current tree using a historical tag for version detection
 python scripts/compat.py publish --git-ref v0.62.0
 
@@ -31,13 +38,18 @@ python scripts/compat.py check --store /tmp/compat-store
 
 ## Rust Binary: `vortex-compat`
 
-A thin binary with two commands. It has **no** knowledge of versions, S3,
-manifests, or orchestration.
+A thin binary with three commands (`generate`, `editions`, `check`). It has
+**no** knowledge of S3, published manifests, or orchestration.
 
 **Output protocol:** progress/diagnostics to stderr, structured JSON to
-stdout (`check` only).
+stdout (`check` and `editions`).
 
-### `generate --output <DIR> [--exclude <CSV>]`
+### `generate --output <DIR> [--edition <EDITION>] [--exclude <CSV>]`
+
+When `--edition` is passed, `vortex-compat` enables that edition on the write
+session and passes the session into both flat and dataset writers. Fixtures
+whose required encoding is not permitted by the target edition are skipped and
+recorded under `"skipped"` in `fixtures.json`; any other error fails generation.
 
 Three phases:
 
@@ -67,6 +79,10 @@ Output:
   ]
 }
 ```
+
+### `editions`
+
+Prints a JSON array of all frozen `core` editions and their `min_library_version`.
 
 ### `check --dir <DIR> --mode <MODE> [--exclude <CSV>]`
 
@@ -120,7 +136,14 @@ profile (default: `release`, e.g. `compat.py --profile ci check`).
 3. Run `vortex-compat check --dir <tmpdir> --mode superset`
 4. Aggregate results across all versions and fixtures, exit 1 if any failures
 
-### `generate --output <DIR> [--git-ref <REF>]`
+### `check-editions [--editions <CSV>] [--exclude <CSV>] [--accepted-failures <PATH>] [--python <VER>] [--json-output <PATH>]`
+
+1. Queries `vortex-compat editions` for frozen `core` editions and their `min_library_version`
+2. Generates fixtures at each selected edition with `vortex-compat generate --edition <EDITION>`
+3. Dumps expected Arrow IPC tables from the newest edition, then verifies each edition using its oldest `vortex-data` release wheel (applying any documented `reader_overrides` in `accepted-edition-failures.json`, such as `core2025.06.0` -> `0.42.0`)
+4. Fails on any failure not listed in `accepted-edition-failures.json` and on any listed entry that now passes (shrink-only)
+
+### `generate --output <DIR> [--edition <EDITION>] [--git-ref <REF>]`
 
 Generate fixtures locally from the current working tree without publishing. Writes `.vortex` files and a
 `manifest.json` tagged with the version detected from HEAD (or `<REF>`).

@@ -11,10 +11,27 @@ We need back-compat!
 
 ## The Solution
 
-We maintain a library of `.vortex` fixture files, one set per released
-version, stored in S3. A test reads every old fixture with the current reader
-and compares the decoded values against a known-good oracle. If any fixture
-from any version decodes to the wrong values, the test fails.
+Compatibility testing covers both directions:
+
+1. **Forward direction (old writers -> current reader):** We maintain a library
+   of `.vortex` fixture files, one set per released version, stored in S3.
+   `compat.py check` reads every old fixture with the current reader and
+   compares decoded values against a known-good oracle. Keeping the weekly
+   `--mode all` sweep catches regressions on historical physical encodings that
+   HEAD no longer writes under the same fixture names (for example, pre-#10701
+   non-canonical decimal widths from #10754).
+2. **Reverse / edition direction (current writer -> oldest reader per edition):**
+   `vortex-compat generate --edition <EDITION>` enables a specific frozen `core`
+   edition on the write session, skipping only encoding-specific fixtures whose
+   required encoding is not permitted by that edition. `compat.py check-editions`
+   generates fixtures at every frozen `core` edition and reads them with the
+   oldest `vortex-data` release that supports that edition, comparing decoded
+   values against HEAD's expected Arrow output. Known defects are tracked in
+   `accepted-edition-failures.json` (which is shrink-only: any unexpected
+   failure fails the check, and any accepted entry that starts passing also
+   fails until removed). `core2025.06.0` carries an explicit reader override to
+   `0.42.0` there because `0.40.0` cannot open files whose footer lists
+   `vortex.pco`/`vortex.zstd`.
 
 ## How Fixtures Work
 
@@ -130,8 +147,8 @@ that is the form that the published file holds.
 │  Python orchestrator (compat.py)                 │
 │  Version-agnostic: S3, manifests, tag detection  │
 │                                                  │
-│  Commands: publish, check, generate, list,       │
-│            validate-manifest                     │
+│  Commands: publish, check, check-editions,       │
+│            generate, list, validate-manifest     │
 └──────────────────┬───────────────────────────────┘
                    │ invokes
 ┌──────────────────▼───────────────────────────────┐
@@ -139,7 +156,7 @@ that is the form that the published file holds.
 │  Version-specific: builds arrays, writes/reads   │
 │  .vortex files, compares arrays                  │
 │                                                  │
-│  Commands: generate, check                       │
+│  Commands: generate, editions, check             │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -235,15 +252,18 @@ Two-phase workflow:
 
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 
-Validates the current code against previously published fixtures. Runs weekly
-(Monday 6am UTC, using `mode: all`), via `workflow_call` (callers pass a
-required `mode`), and via manual dispatch with a `mode` input (defaults to
-`last`):
+Validates the current code against previously published fixtures and checks
+edition-targeted generation against each edition's oldest reader. Runs weekly
+(Monday 6am UTC, using `mode: all` and `check_editions: true`), via
+`workflow_call` (callers pass a required `mode` and optional `check_editions`),
+and via manual dispatch with `mode` (defaults to `last`) and `check_editions`
+(defaults to `false`):
 
 | Mode | Behavior |
 |------|----------|
 | `last` | Compare against the most recent published release only |
 | `all` | Compare against all previously published versions (weekly schedule, or when passed explicitly) |
+| `check_editions` | Generate fixtures at each frozen `core` edition and verify with its oldest `vortex-data` reader against `accepted-edition-failures.json` |
 
 ## Known Limitations
 

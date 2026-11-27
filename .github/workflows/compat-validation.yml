@@ -15,6 +15,11 @@ on:
         required: false
         type: string
         default: ""
+      check_editions:
+        description: "Also run edition write + oldest-reader checks"
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       mode:
@@ -25,6 +30,11 @@ on:
         options:
           - last
           - all
+      check_editions:
+        description: "Also run edition write + oldest-reader checks"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   compat-test:
@@ -51,3 +61,7 @@ jobs:
         run: |
           uv run vortex-test/compat-gen/scripts/compat.py --profile ci check \
             --mode "$MODE"
+      - name: Run edition compat tests
+        if: ${{ inputs.check_editions || github.event_name == 'schedule' }}
+        run: |
+          uv run vortex-test/compat-gen/scripts/compat.py --profile ci check-editions

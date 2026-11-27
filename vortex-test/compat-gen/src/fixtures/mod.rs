@@ -6,7 +6,6 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -40,6 +39,14 @@ pub trait Fixture {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Vec<FixtureEntry>> {
         self.write(dir, ctx)
+    }
+
+    /// Array encoding IDs required to serialize this fixture.
+    ///
+    /// When generating fixtures for a specific edition, fixtures requiring an encoding not
+    /// present in that edition are skipped rather than failing generation.
+    fn required_encodings(&self) -> Vec<ArrayId> {
+        vec![]
     }
 }
 
@@ -100,9 +107,14 @@ pub trait DatasetFixture {
 pub struct FlatLayoutAdapter(pub Box<dyn FlatLayoutFixture>);
 
 impl FlatLayoutAdapter {
-    fn write_array(&self, dir: &Path, array: ArrayRef) -> VortexResult<Vec<FixtureEntry>> {
+    fn write_array(
+        &self,
+        session: &VortexSession,
+        dir: &Path,
+        array: ArrayRef,
+    ) -> VortexResult<Vec<FixtureEntry>> {
         let path = dir.join(self.name());
-        adapter::write_file(&path, array)?;
+        adapter::write_file_with_session(session, &path, array)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
@@ -123,7 +135,7 @@ impl Fixture for FlatLayoutAdapter {
         let array = self.0.build_written(ctx)?;
         check_expected_encodings(&array, self.0.as_ref())?;
         compute_all_stats(&array, ctx)?;
-        self.write_array(dir, array)
+        self.write_array(ctx.session(), dir, array)
     }
 
     fn write_expected(
@@ -133,7 +145,11 @@ impl Fixture for FlatLayoutAdapter {
     ) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.0.build(ctx)?;
         compute_all_stats(&array, ctx)?;
-        self.write_array(dir, array)
+        self.write_array(ctx.session(), dir, array)
+    }
+
+    fn required_encodings(&self) -> Vec<ArrayId> {
+        self.0.expected_encodings()
     }
 }
 
@@ -174,19 +190,19 @@ impl Fixture for DatasetFixtureAdapter {
     }
 
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
-        let array = self.inner.build(&ctx.session().arrow())?;
+        let session = ctx.session();
+        let array = self.inner.build(&session.arrow())?;
         let path = dir.join(self.name());
         // Build the compressor from the session the fixture is written with, so it only chooses
         // schemes whose encodings that session's enabled editions accept.
-        let session = VortexSession::default();
-        let mut compressor = BtrBlocksCompressorBuilder::from_session(&session);
+        let mut compressor = BtrBlocksCompressorBuilder::from_session(session);
         if self.compact {
             compressor = compressor.with_compact();
         }
-        let strategy = WriteStrategyBuilder::from_session(&session)
+        let strategy = WriteStrategyBuilder::from_session(session)
             .with_btrblocks_builder(compressor)
             .build();
-        adapter::write_compressed(&path, array, strategy)?;
+        adapter::write_compressed_with_session(session, &path, array, strategy)?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),

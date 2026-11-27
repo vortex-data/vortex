@@ -1,0 +1,9 @@
+{
+  "reader_overrides": {
+    "core2025.06.0": {
+      "reader_version": "0.42.0",
+      "reason": "vortex-data 0.40.0 cannot open any core2025.06.0 file because the footer lists vortex.pco/vortex.zstd which are not registered in 0.40.0; 0.42.0 is the first PyPI release that registers them."
+    }
+  },
+  "failures": []
+}

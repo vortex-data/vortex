@@ -60,7 +60,14 @@ enum Commands {
         /// Fixture name substrings to exclude (comma-separated, e.g. "clickbench,tpch").
         #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
+
+        /// Target edition to enable on the write session (e.g. "core2025.05.0").
+        #[arg(long, value_name = "EDITION")]
+        edition: Option<String>,
     },
+
+    /// List all frozen `core` editions and their minimum reader versions as JSON.
+    Editions,
 
     /// Check .vortex files in a directory against in-memory fixtures.
     ///
@@ -95,7 +102,12 @@ fn main() -> VortexResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { output, exclude } => generate::generate(&output, &exclude),
+        Commands::Generate {
+            output,
+            exclude,
+            edition,
+        } => generate::generate(&output, &exclude, edition.as_deref()),
+        Commands::Editions => generate::list_core_editions(),
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
     }
 }
