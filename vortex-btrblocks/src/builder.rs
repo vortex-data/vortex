@@ -261,8 +261,7 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
-        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
+        let allowed = self.encoding_allowed();
         let allow_constant = allowed(&Constant.id());
         let allow_masked = allowed(&Masked.id());
 
@@ -293,10 +292,14 @@ impl BtrBlocksCompressorBuilder {
         BtrBlocksCompressor(compressor)
     }
 
+    fn encoding_allowed(&self) -> impl Fn(&ArrayId) -> bool + '_ {
+        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
+        move |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id)
+    }
+
     #[cfg(test)]
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
-        let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
-        let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
+        let allowed = self.encoding_allowed();
         self.schemes_without(self.mode.excluded_schemes(), &allowed)
     }
 
