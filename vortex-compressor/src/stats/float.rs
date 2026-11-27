@@ -227,7 +227,7 @@ where
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?;
 
-    let mut runs: u32 = 1;
+    let mut runs: u64 = 1;
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");
@@ -276,6 +276,8 @@ where
             .vortex_expect("more than u32::MAX distinct values"),
         distinct_values,
     });
+
+    let runs = u32::try_from(runs)?;
 
     Ok(FloatStats {
         null_count,

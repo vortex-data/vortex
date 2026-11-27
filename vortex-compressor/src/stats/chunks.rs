@@ -57,36 +57,12 @@ fn padded<T: Copy>(values: &[T]) -> [T; 64] {
 /// Expects `1 <= values.len() <= 64`.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-pub(super) fn count_transitions<T: NativePType>(prev: T, values: &[T]) -> u32 {
-    #[cfg(all(target_arch = "x86_64", not(target_feature = "avx2"), not(miri)))]
-    if std::arch::is_x86_feature_detected!("avx2") {
-        // SAFETY: `avx2` was just checked via `is_x86_feature_detected!`.
-        return unsafe { count_transitions_avx2(prev, values) };
-    }
-    count_transitions_inner(prev, values)
-}
-
-/// AVX2-specialized wrapper around [`count_transitions_inner`] so `f64` bitwise comparisons use
-/// `vpcmpeqq` on default x86-64 builds.
-#[cfg(all(target_arch = "x86_64", not(target_feature = "avx2"), not(miri)))]
-#[target_feature(enable = "avx2")]
-fn count_transitions_avx2<T: NativePType>(prev: T, values: &[T]) -> u32 {
-    count_transitions_inner(prev, values)
-}
-
-/// Branch-free bitwise transition counter over a 1..=64 element chunk.
-#[allow(clippy::inline_always)]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "chunk length is bounded by 64"
-)]
-#[inline(always)]
-fn count_transitions_inner<T: NativePType>(prev: T, values: &[T]) -> u32 {
+pub(super) fn count_transitions<T: NativePType>(prev: T, values: &[T]) -> u64 {
     debug_assert!(!values.is_empty() && values.len() <= 64);
     let equal_pairs: u64 = values
         .iter()
         .zip(&values[1..])
         .map(|(&a, &b)| u64::from(a.is_eq(b)))
         .sum();
-    u32::from(!values[0].is_eq(prev)) + (values.len() as u32 - 1 - equal_pairs as u32)
+    u64::from(!values[0].is_eq(prev)) + (values.len() as u64 - 1 - equal_pairs)
 }
