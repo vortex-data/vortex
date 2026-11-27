@@ -15,7 +15,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -194,9 +193,16 @@ where
         });
     }
 
-    if array.all_invalid(ctx)? {
+    let validity = array
+        .as_ref()
+        .validity()?
+        .execute_mask(array.as_ref().len(), ctx)?;
+    let null_count = u32::try_from(validity.false_count())?;
+    let value_count = u32::try_from(validity.true_count())?;
+
+    if value_count == 0 {
         return Ok(FloatStats {
-            null_count: u32::try_from(array.len())?,
+            null_count,
             value_count: 0,
             average_run_length: 0,
             run_count: 0,
@@ -210,30 +216,17 @@ where
         });
     }
 
-    let null_count = array
-        .statistics()
-        .compute_null_count(ctx)
-        .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
-    let value_count = u32::try_from(array.len() - null_count)?;
-    let null_count = u32::try_from(null_count)?;
-
     let mut distinct_values = if count_distinct_values {
         HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
     } else {
         HashMap::with_hasher(FxBuildHasher)
     };
 
-    let validity = array
-        .as_ref()
-        .validity()?
-        .execute_mask(array.as_ref().len(), ctx)?;
-
     let mut runs: u64 = 1;
-    let buff = array.to_buffer::<T>();
+    let slice = array.as_slice::<T>();
     // Compare bit patterns via `NativePType::is_eq` (matching `distinct_values` and FastLanes RLE)
     // so identical NaNs do not trigger spurious transitions and `-0.0` vs `+0.0` stay distinct.
     if !count_distinct_values && matches!(validity.bit_buffer(), AllOr::All) {
-        let slice = buff.as_slice();
         let mut prev = slice[0];
         let mut equal_pairs: u64 = 0;
         for &v in slice {
@@ -247,10 +240,10 @@ where
         let head_idx = validity
             .first()
             .vortex_expect("All null masks have been handled before");
-        let mut prev = buff[head_idx];
+        let mut prev = slice[head_idx];
 
         // The nulls before the head are skipped, so the loop can start at 0.
-        for_each_chunk(buff.as_slice(), &validity, |chunk, valid| match valid {
+        for_each_chunk(slice, &validity, |chunk, valid| match valid {
             // All nulls -> no stats to update.
             0 => {}
             u64::MAX => {
