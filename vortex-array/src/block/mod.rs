@@ -58,6 +58,10 @@ pub(crate) use value::sealed;
 /// The most rows a block holds.
 pub const BLOCK_LEN: usize = 1024;
 
+/// The executor fuses only chains longer than this: shorter ones have intermediates that stay in
+/// L1, so a program would save no memory traffic and cost more than it saves.
+pub(crate) const MAX_UNFUSED_LEN: usize = 2 * BLOCK_LEN;
+
 /// Scratch for one block of values of any primitive type.
 #[repr(C, align(64))]
 pub struct BlockBuf([u8; BLOCK_LEN * 8]);

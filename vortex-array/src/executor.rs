@@ -39,6 +39,7 @@ use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::block::BlockOp;
 use crate::block::FusedChain;
+use crate::block::MAX_UNFUSED_LEN;
 use crate::block::fusable_ptype;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -559,7 +560,7 @@ fn take_op(
 /// parent's block op: checked on the way down, before the slot executes, from what does not
 /// depend on executing it. `stack` holds the frames above `parent`.
 ///
-/// Both arrays must be primitive and non-empty, and of one length. A parent with execute-parent
+/// Both arrays must be primitive, longer than [`MAX_UNFUSED_LEN`], and of one length. A parent with execute-parent
 /// kernels of its own, or one the next parent up has a kernel for, is not fused: replacing it
 /// would skip the kernels that probe it with its child executed.
 fn spine_can_fuse(
@@ -573,7 +574,7 @@ fn spine_can_fuse(
     };
     fusable_ptype(parent).is_some()
         && fusable_ptype(child).is_some()
-        && !child.is_empty()
+        && child.len() > MAX_UNFUSED_LEN
         && child.len() == parent.len()
         && !has_execute_parent_kernels(kernels, parent)
         && !stack.last().is_some_and(|grand| {

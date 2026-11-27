@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 
 use parking_lot::Mutex;
 use smallvec::smallvec;
+use rstest::rstest;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
@@ -20,6 +21,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use super::BLOCK_LEN;
 use super::Block;
 use super::BlockBuf;
 use super::BlockOp;
@@ -415,17 +417,17 @@ block_op 1 copy i32->i32 scratch0 -> output"
 /// fused child is driven when it is popped into that parent, before the parent runs.
 #[test]
 fn non_spine_parent_drives_the_chain_below_it() -> VortexResult<()> {
-    let (counter, _) = counter(1, 1500, 0);
+    let (counter, _) = counter(1, 3000, 0);
     let array = op(TestOpKind::Pass, add(add(counter)));
     assert_eq!(
         fused(array)?,
-        "ExecuteSlot slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
-ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
-ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.counter(i32, len=1500)
-fuse start array=vortex.test.counter(i32, len=1500)
-fuse extend parent=vortex.test.op(i32, len=1500) ops=1
-fuse extend parent=vortex.test.op(i32, len=1500) ops=2
-drive ops=2 len=1500
+        "ExecuteSlot slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.counter(i32, len=3000)
+fuse start array=vortex.test.counter(i32, len=3000)
+fuse extend parent=vortex.test.op(i32, len=3000) ops=1
+fuse extend parent=vortex.test.op(i32, len=3000) ops=2
+drive ops=2 len=3000
 block_op 0 in_place i32->i32 scratch0 -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
@@ -482,7 +484,7 @@ block_op 1 copy i32->i32 scratch0 -> output"
 
 #[test]
 fn disabled_fusion_runs_level_wise() -> VortexResult<()> {
-    let (counter, fills) = counter(0, 2000, 0);
+    let (counter, fills) = counter(0, 3000, 0);
     let mut ctx = SESSION.create_execution_ctx().with_block_fusion(false);
     let traced = trace_op(|| add(add(counter)).execute::<PrimitiveArray>(&mut ctx))?;
     assert!(fills.lock().is_empty());
@@ -490,14 +492,18 @@ fn disabled_fusion_runs_level_wise() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn empty_arrays_do_not_fuse() -> VortexResult<()> {
-    let (counter, _) = counter(0, 0, 0);
-    // Decided on the way down: an empty spine runs as a plain slot, so nothing fuses.
+/// Decided on the way down: a spine of at most two blocks runs as a plain slot, so nothing fuses.
+#[rstest]
+#[case::empty(0)]
+#[case::two_blocks(2 * BLOCK_LEN)]
+fn short_chains_do_not_fuse(#[case] len: usize) -> VortexResult<()> {
+    let (counter, _) = counter(0, len, 0);
     assert_eq!(
         fused(add(add(counter)))?,
-        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=0) child=vortex.test.op(i32, len=0)
-ExecuteSpine slot=0 parent=vortex.test.op(i32, len=0) child=vortex.test.counter(i32, len=0)"
+        format!(
+            "ExecuteSpine slot=0 parent=vortex.test.op(i32, len={len}) child=vortex.test.op(i32, len={len})
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len={len}) child=vortex.test.counter(i32, len={len})"
+        )
     );
     Ok(())
 }
@@ -522,11 +528,11 @@ impl crate::matcher::Matcher for NotTestOp {
 /// even for a target that matches it.
 #[test]
 fn fused_arrays_never_leave_execute_until() -> VortexResult<()> {
-    let (counter, _) = counter(3, 2000, 0);
+    let (counter, _) = counter(3, 3000, 0);
     let mut ctx = SESSION.create_execution_ctx().with_block_fusion(true);
     let output = add(add(counter)).execute_until::<NotTestOp>(&mut ctx)?;
     assert!(output.is::<Primitive>(), "{}", output.encoding_id());
-    assert_arrays_eq!(output, PrimitiveArray::from_iter(5..2005i32), &mut ctx);
+    assert_arrays_eq!(output, PrimitiveArray::from_iter(5..3005i32), &mut ctx);
     Ok(())
 }
 
@@ -555,18 +561,18 @@ fn parents_with_kernels_are_not_fused() -> VortexResult<()> {
     session
         .kernels()
         .register_execute_parent_kernel(TestOp.id(), Primitive, DeclineKernel);
-    let (counter, _) = counter(0, 2000, 0);
+    let (counter, _) = counter(0, 3000, 0);
     let mut ctx = session.create_execution_ctx().with_block_fusion(true);
     let traced = trace_op(|| add(add(counter)).execute::<PrimitiveArray>(&mut ctx))?;
     // Decided on the way down: neither spine request can fuse, so both run as plain slots.
     assert_eq!(
         fusion_lines(&traced.trace.to_string()),
-        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=2000) child=vortex.test.op(i32, len=2000)
-ExecuteSpine slot=0 parent=vortex.test.op(i32, len=2000) child=vortex.test.counter(i32, len=2000)"
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.counter(i32, len=3000)"
     );
     assert_arrays_eq!(
         traced.output,
-        PrimitiveArray::from_iter(2..2002i32),
+        PrimitiveArray::from_iter(2..3002i32),
         &mut ctx
     );
     Ok(())
