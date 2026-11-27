@@ -4,9 +4,7 @@
 // SPDX-FileComment: Derived from pivco-huffman at commit 16b48fcf at https://github.com/MarcinZukowski/pivco-huffman
 
 //! Core `Pow2-Bin + PIVCO` block wire layout, encoder, bottom-up SIMD wavelet-tree decoder,
-//! direct spine-walking bitmap predicate pushdown, and shared compression-ratio estimator.
-
-#![expect(clippy::cast_possible_truncation)]
+//! and direct spine-walking bitmap predicate pushdown.
 
 mod decode;
 mod encode;
@@ -22,12 +20,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
-use crate::bitmap_rans::estimate_node_bitmap_bits;
-use crate::pow2_bin::EBITS_TABLE;
-use crate::pow2_bin::MAX_SYMS;
 use crate::simd::MERGE_OVERREAD;
-use crate::tree::ChildSpec;
-use crate::tree::PivcoNode;
 use crate::tree::PivcoTree;
 use crate::tree::PivcoTreeMode;
 
@@ -133,177 +126,6 @@ impl PivcoOptions {
     pub const fn with_block_shift(mut self, block_shift: u8) -> Self {
         self.block_shift = block_shift;
         self
-    }
-}
-
-/// Estimates total compressed payload bits (wavelet-tree bitmaps + flat codes + raw extra bits)
-/// for `total_valid` elements with `Pow2-Bin` symbol histogram `counts` encoded at `block_len`
-/// elements per block using `options`.
-///
-/// If `counts.iter().sum::<u64>() < total_valid as u64`, the remaining positions are null-filled
-/// into the most frequent exact symbol in `0..32`, matching the encoder's null-fill policy.
-///
-/// Returns `(estimated_bits, is_order_preserving)`, where `is_order_preserving` is `true` iff the
-/// compiled tree's leaf order is strictly sorted (enabling range predicate pushdown).
-#[cfg_attr(not(test), expect(dead_code))]
-pub(crate) fn estimate_compressed_bits(
-    counts: &[u64; MAX_SYMS],
-    total_valid: usize,
-    block_len: usize,
-    options: PivcoOptions,
-) -> VortexResult<(usize, bool)> {
-    vortex_ensure!(
-        (1..=MAX_BLOCK_VALUES).contains(&block_len),
-        "Pivco block_len {block_len} must be in 1..={MAX_BLOCK_VALUES}"
-    );
-    let hist_sum = counts
-        .iter()
-        .copied()
-        .try_fold(0u64, u64::checked_add)
-        .ok_or_else(|| vortex_err!("Pivco histogram sum overflow"))?;
-    let total_u64 = total_valid as u64;
-    if total_valid == 0 {
-        vortex_ensure_eq!(
-            hist_sum,
-            0,
-            "Non-zero histogram counts for total_valid == 0"
-        );
-        return Ok((0, true));
-    }
-    vortex_ensure!(
-        hist_sum <= total_u64,
-        "Pivco histogram sum ({hist_sum}) exceeds total_valid ({total_valid})"
-    );
-
-    let mut sym_counts = *counts;
-    if hist_sum < total_u64 {
-        let mut fill_sym = 0usize;
-        let mut best_exact = 0u64;
-        for (sym, &cnt) in sym_counts[..32].iter().enumerate() {
-            if cnt > best_exact {
-                best_exact = cnt;
-                fill_sym = sym;
-            }
-        }
-        sym_counts[fill_sym] += total_u64 - hist_sum;
-    }
-
-    let tree = PivcoTree::build(&sym_counts, options.tree_mode, options.allow_flat);
-    let mut rank_counts = vec![0u64; tree.rank_to_sym.len()];
-    for (rank, &sym) in tree.rank_to_sym.iter().enumerate() {
-        rank_counts[rank] = sym_counts[usize::from(sym)];
-    }
-
-    let mut raw_extra_bits = 0u128;
-    for (sym, &cnt) in sym_counts.iter().enumerate() {
-        let extra = EBITS_TABLE[sym];
-        if extra > 0 && cnt > 0 {
-            raw_extra_bits += u128::from(cnt) * u128::from(extra);
-        }
-    }
-
-    let tree_bits = estimate_subtree_bits(
-        &tree,
-        0,
-        0,
-        tree.rank_to_sym.len(),
-        &rank_counts,
-        total_valid,
-        block_len,
-        options.pha_enabled,
-    );
-    let total_bits = (tree_bits + (raw_extra_bits as f64)).ceil() as usize;
-    Ok((total_bits, tree.is_order_preserving))
-}
-
-#[expect(clippy::too_many_arguments)]
-#[cfg_attr(not(test), expect(dead_code))]
-fn estimate_subtree_bits(
-    tree: &PivcoTree,
-    node_idx: u16,
-    lo_rank: usize,
-    hi_rank: usize,
-    rank_counts: &[u64],
-    total_rows: usize,
-    block_len: usize,
-    pha_enabled: bool,
-) -> f64 {
-    let n_sample: u64 = rank_counts[lo_rank..hi_rank].iter().sum();
-    if n_sample == 0 {
-        return 0.0;
-    }
-    match &tree.nodes[usize::from(node_idx)] {
-        PivcoNode::SingleLeaf { .. } => 0.0,
-        PivcoNode::Flat { depth, .. } => (n_sample as f64) * f64::from(*depth),
-        PivcoNode::Internal {
-            tree_depth,
-            pivot_rank,
-            left_child,
-            right_child,
-        } => {
-            let piv = usize::from(*pivot_rank);
-            let k_left_sample: u64 = rank_counts[lo_rank..piv].iter().sum();
-            let k_right_sample = n_sample - k_left_sample;
-
-            let bm_bits = if total_rows > block_len {
-                let num_blocks = (total_rows as f64) / (block_len as f64);
-                let n_block = ((n_sample as f64) / num_blocks)
-                    .round()
-                    .clamp(1.0, block_len as f64) as usize;
-                let k_right_block = if k_right_sample == 0 {
-                    0
-                } else if k_right_sample == n_sample {
-                    n_block
-                } else {
-                    (((k_right_sample as f64) * (n_block as f64)) / (n_sample as f64))
-                        .round()
-                        .clamp(1.0, n_block.saturating_sub(1).max(1) as f64)
-                        as usize
-                };
-                (estimate_node_bitmap_bits(
-                    n_block,
-                    k_right_block,
-                    usize::from(*tree_depth),
-                    pha_enabled,
-                ) as f64)
-                    * num_blocks
-            } else {
-                estimate_node_bitmap_bits(
-                    n_sample as usize,
-                    k_right_sample as usize,
-                    usize::from(*tree_depth),
-                    pha_enabled,
-                ) as f64
-            };
-
-            let l_bits = match left_child {
-                ChildSpec::Leaf(_) => 0.0,
-                ChildSpec::Node(l_idx) => estimate_subtree_bits(
-                    tree,
-                    *l_idx,
-                    lo_rank,
-                    piv,
-                    rank_counts,
-                    total_rows,
-                    block_len,
-                    pha_enabled,
-                ),
-            };
-            let r_bits = match right_child {
-                ChildSpec::Leaf(_) => 0.0,
-                ChildSpec::Node(r_idx) => estimate_subtree_bits(
-                    tree,
-                    *r_idx,
-                    piv,
-                    hi_rank,
-                    rank_counts,
-                    total_rows,
-                    block_len,
-                    pha_enabled,
-                ),
-            };
-            bm_bits + l_bits + r_bits
-        }
     }
 }
 

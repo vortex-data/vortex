@@ -225,55 +225,6 @@ fn rans_passes_commit_gate(
     lhs <= rhs
 }
 
-/// Estimates compressed bit length (including the 1-byte marker and alignment padding) for one
-/// internal wavelet-tree node bitmap of `len` elements and `k_right` right-going elements using
-/// the exact shared `PHA` gating constants.
-#[cfg_attr(not(test), expect(dead_code))]
-pub(crate) fn estimate_node_bitmap_bits(
-    len: usize,
-    k_right: usize,
-    depth: usize,
-    pha_enabled: bool,
-) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    if k_right == 0 || k_right == len {
-        return 8;
-    }
-
-    let nbytes = len.div_ceil(8);
-    let raw_bits = (1 + nbytes) * 8;
-    if !pha_enabled || nbytes < BM_PHA_MIN_BYTES {
-        return raw_bits;
-    }
-
-    let n_minor = k_right.min(len - k_right);
-    // Expected alignment pad for sparse header is 0..=1 byte (conservatively use 1 byte).
-    let sparse_after_marker = 1 + 2 + n_minor * 2;
-    if sparse_mode_eligible(len, n_minor, sparse_after_marker, nbytes) {
-        return (1 + sparse_after_marker) * 8;
-    }
-
-    if rans_mode_eligible(nbytes, len, n_minor) {
-        let p = (n_minor as f64) / (len as f64);
-        let h2 = if p > 0.0 && p < 1.0 {
-            -p * p.log2() - (1.0 - p) * (1.0 - p).log2()
-        } else {
-            0.0
-        };
-        let entropy_bytes = ((len as f64) * h2 / 8.0).ceil() as usize;
-        let coded_len = BM_RANS_STATE_BYTES + entropy_bytes;
-        // Expected alignment pad for 4-byte aligned states is 0..=3 bytes (conservatively use 2).
-        let total_after_marker = 2 + 2 + coded_len;
-        if rans_passes_commit_gate(len, depth, coded_len, total_after_marker, nbytes) {
-            return (1 + total_after_marker) * 8;
-        }
-    }
-
-    raw_bits
-}
-
 /// Emits strictly increasing `u16` minority bit positions `< len` via word-wise `trailing_zeros`.
 fn write_sparse_indices(bm: &[u8], len: usize, xor_flip: bool, dst: &mut Vec<u8>) {
     let nbytes = len.div_ceil(8);
