@@ -480,6 +480,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => {
             // Null arrays support most operations but not Sum or MinMax (return None for dtype)
             [

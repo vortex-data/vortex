@@ -288,7 +288,8 @@ fn zip_impl(
 /// or contains a union.
 fn has_builder(dtype: &DType) -> bool {
     match dtype {
-        DType::Union(..) => false,
+        // TODO(FixedSizeBinary): there is no builder for fixed-size binary yet.
+        DType::Union(..) | DType::FixedSizeBinary(..) => false,
         DType::List(element, _) | DType::FixedSizeList(element, ..) => has_builder(element),
         DType::Map(map, _) => has_builder(&map.key_dtype()) && has_builder(&map.value_dtype()),
         DType::Struct(fields, _) => fields.fields().all(|field| has_builder(&field)),

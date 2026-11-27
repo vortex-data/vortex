@@ -64,6 +64,9 @@ pub enum vx_dtype_variant {
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {
+            DType::FixedSizeBinary(..) => {
+                vortex_panic!("FixedSizeBinary is not supported in FFI yet")
+            }
             DType::Null => vx_dtype_variant::DTYPE_NULL,
             DType::Bool(_) => vx_dtype_variant::DTYPE_BOOL,
             DType::Primitive(..) => vx_dtype_variant::DTYPE_PRIMITIVE,

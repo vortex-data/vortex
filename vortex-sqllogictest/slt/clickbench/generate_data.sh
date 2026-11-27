@@ -8,6 +8,8 @@
 # the Parquet and Vortex files hold identical data before the Vortex file is
 # used by the SLT suite. Set VORTEX_SLT_PROFILE to reuse an existing cargo
 # profile for conversion and the parity test (CI uses `ci`).
+# Set VORTEX_SLT_SKIP_PARITY=1 to skip the parity test (e.g. when the caller
+# immediately runs the full SLT suite, which includes parity.slt).
 
 set -e -o pipefail
 
@@ -30,13 +32,15 @@ echo "Converting hits.parquet to Vortex..."
 rm -f "${VORTEX_FILE}"
 (cd "${CRATE_DIR}" && cargo run --profile "${VORTEX_SLT_PROFILE:-release}" --package vortex-tui --bin vx -- convert "${PARQUET_FILE}")
 
-# The parity test reads both files through DuckDB and fails if any row differs,
-# so a bad conversion is caught before the query result files are trusted. The
-# Parquet file is kept so the parity test keeps running as part of the regular
-# suite.
-echo "Checking that hits.parquet and hits.vortex match..."
-(
-  cd "${CRATE_DIR}"
-  cargo test --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-sqllogictest --test sqllogictests \
-    -- --exact 'slt::duckdb::clickbench/duckdb/parity.slt'
-)
+if [ "${VORTEX_SLT_SKIP_PARITY:-0}" != "1" ]; then
+  # The parity test reads both files through DuckDB and fails if any row differs,
+  # so a bad conversion is caught before the query result files are trusted. The
+  # Parquet file is kept so the parity test keeps running as part of the regular
+  # suite.
+  echo "Checking that hits.parquet and hits.vortex match..."
+  (
+    cd "${CRATE_DIR}"
+    cargo test --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-sqllogictest --test sqllogictests \
+      -- --exact 'slt::duckdb::clickbench/duckdb/parity.slt'
+  )
+fi

@@ -74,7 +74,7 @@ impl FillNull {
     /// A null dtype has no non-null fill value. Union and variant values have no zip, so any dtype
     /// that contains one of them is rejected, even where its fill does not zip those values.
     pub fn supports_dtype(dtype: &DType) -> bool {
-        !matches!(dtype, DType::Null) && !contains_union_or_variant(dtype)
+        !matches!(dtype, DType::Null) && !contains_unsupported_dtype(dtype)
     }
 }
 
@@ -217,21 +217,23 @@ impl ScalarFnVTable for FillNull {
     }
 }
 
-/// Returns whether `dtype` is or contains a union or a variant.
-fn contains_union_or_variant(dtype: &DType) -> bool {
+/// Returns whether `dtype` is or contains a dtype that fill_null does not support: a union, a
+/// variant or a fixed-size binary.
+fn contains_unsupported_dtype(dtype: &DType) -> bool {
     match dtype {
-        DType::Union(..) | DType::Variant(_) => true,
+        // TODO(FixedSizeBinary): support once fixed-size binary arrays have a fill_null kernel.
+        DType::FixedSizeBinary(..) | DType::Union(..) | DType::Variant(_) => true,
         DType::List(element, _) | DType::FixedSizeList(element, ..) => {
-            contains_union_or_variant(element)
+            contains_unsupported_dtype(element)
         }
         DType::Map(map, _) => {
-            contains_union_or_variant(&map.key_dtype())
-                || contains_union_or_variant(&map.value_dtype())
+            contains_unsupported_dtype(&map.key_dtype())
+                || contains_unsupported_dtype(&map.value_dtype())
         }
         DType::Struct(fields, _) => fields
             .fields()
-            .any(|field| contains_union_or_variant(&field)),
-        DType::Extension(ext) => contains_union_or_variant(ext.storage_dtype()),
+            .any(|field| contains_unsupported_dtype(&field)),
+        DType::Extension(ext) => contains_unsupported_dtype(ext.storage_dtype()),
         DType::Null
         | DType::Bool(_)
         | DType::Primitive(..)
@@ -285,5 +287,27 @@ fn fill_null_canonical(
         CanonicalView::Null(_) | CanonicalView::Union(_) | CanonicalView::Variant(_) => {
             vortex_bail!("fill_null is not supported for {} arrays", arr.dtype())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::FillNull;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
+
+    #[rstest]
+    #[case::fixed_size_binary(DType::FixedSizeBinary(16, Nullable), false)]
+    #[case::nested_fixed_size_binary(
+        DType::struct_([("a", DType::FixedSizeBinary(16, Nullable))], Nullable),
+        false
+    )]
+    #[case::binary(DType::Binary(Nullable), true)]
+    #[case::primitive(DType::Primitive(PType::I32, Nullable), true)]
+    fn supports_dtype(#[case] dtype: DType, #[case] supported: bool) {
+        assert_eq!(FillNull::supports_dtype(&dtype), supported);
     }
 }

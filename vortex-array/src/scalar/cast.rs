@@ -69,6 +69,7 @@ impl Scalar {
         }
 
         match &self.dtype() {
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => unreachable!("Handled by the if case above"),
             DType::Bool(_) => {
                 let DType::Primitive(ptype, nullability) = target_dtype else {
