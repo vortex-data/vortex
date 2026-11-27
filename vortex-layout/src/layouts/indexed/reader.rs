@@ -44,6 +44,7 @@ use crate::layouts::indexed::index::IndexExactness;
 use crate::layouts::indexed::index::IndexId;
 use crate::layouts::indexed::index::IndexVTable;
 use crate::layouts::indexed::index::RowLocator;
+use crate::layouts::is_shared_future_usable;
 use crate::scan::split_by::SplitBy;
 use crate::segments::SegmentSource;
 
@@ -282,29 +283,40 @@ impl<V: IndexVTable> TypedOpenIndex<V> {
     /// The future holds only what decoding needs, never `self`, which owns the cache it sits in.
     fn chunk(&self, rows: Range<u64>) -> VortexResult<SharedChunk<V::Chunk>> {
         match self.chunks.entry((rows.start, rows.end)) {
-            Entry::Occupied(entry) => Ok(entry.get().clone()),
-            Entry::Vacant(entry) => {
-                let len = usize::try_from(rows.end - rows.start)?;
-                let array = self.index_reader()?.projection_evaluation(
-                    &rows,
-                    &BoundExpression::new_root(self.index_dtype.clone()),
-                    MaskFuture::new_true(len),
-                )?;
-                let vtable = Arc::clone(&self.vtable);
-                let options = Arc::clone(&self.options);
-                let session = self.session.clone();
-                let chunk = async move {
-                    let array = array.await?;
-                    let mut ctx = session.create_execution_ctx();
-                    Ok(Arc::new(vtable.decode(array, &options, &mut ctx)?))
+            Entry::Occupied(mut entry) => {
+                if is_shared_future_usable(entry.get()) {
+                    return Ok(entry.get().clone());
                 }
-                .map_err(Arc::new)
-                .boxed()
-                .shared();
+                let chunk = self.load_chunk(rows)?;
+                *entry.get_mut() = chunk.clone();
+                Ok(chunk)
+            }
+            Entry::Vacant(entry) => {
+                let chunk = self.load_chunk(rows)?;
                 entry.insert(chunk.clone());
                 Ok(chunk)
             }
         }
+    }
+
+    fn load_chunk(&self, rows: Range<u64>) -> VortexResult<SharedChunk<V::Chunk>> {
+        let len = usize::try_from(rows.end - rows.start)?;
+        let array = self.index_reader()?.projection_evaluation(
+            &rows,
+            &BoundExpression::new_root(self.index_dtype.clone()),
+            MaskFuture::new_true(len),
+        )?;
+        let vtable = Arc::clone(&self.vtable);
+        let options = Arc::clone(&self.options);
+        let session = self.session.clone();
+        Ok(async move {
+            let array = array.await?;
+            let mut ctx = session.create_execution_ctx();
+            Ok(Arc::new(vtable.decode(array, &options, &mut ctx)?))
+        }
+        .map_err(Arc::new)
+        .boxed()
+        .shared())
     }
 }
 
@@ -494,7 +506,9 @@ impl Claim {
 
             let part = if self.partitions.is_declined(partition) {
                 Part::Fill(true)
-            } else if let Some(probe) = self.probes.get(&partition) {
+            } else if let Some(probe) = self.probes.get(&partition)
+                && is_shared_future_usable(probe.value())
+            {
                 Part::Probe(probe.clone())
             } else {
                 match &resolved {
@@ -542,7 +556,14 @@ impl Claim {
     /// Start (or reuse) the probe of one partition.
     fn probe(&self, partition: usize) -> VortexResult<SharedProbe> {
         match self.probes.entry(partition) {
-            Entry::Occupied(entry) => Ok(entry.get().clone()),
+            Entry::Occupied(mut entry) => {
+                if is_shared_future_usable(entry.get()) {
+                    return Ok(entry.get().clone());
+                }
+                let probe = self.prober.probe(partition)?;
+                *entry.get_mut() = probe.clone();
+                Ok(probe)
+            }
             Entry::Vacant(entry) => {
                 let probe = self.prober.probe(partition)?;
                 entry.insert(probe.clone());

@@ -70,6 +70,7 @@ impl ToArrowDatum for Scalar {
     fn to_arrow_datum(&self) -> Result<Arc<dyn Datum>, VortexError> {
         let value = self;
         match value.dtype() {
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => Ok(Arc::new(NullArray::new(SCALAR_ARRAY_LEN))),
             DType::Bool(_) => bool_to_arrow(value.as_bool()),
             DType::Primitive(..) => primitive_to_arrow(value.as_primitive()),

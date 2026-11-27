@@ -8,30 +8,21 @@
 
 use std::hash::Hash;
 
-use rustc_hash::FxBuildHasher;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::dict::DictArrayExt;
-use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::UnsignedPType;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_map::HashMap;
 
+use super::dictionary_encoded;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
@@ -39,6 +30,7 @@ use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
+use crate::scheme::Encoded;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -122,35 +114,27 @@ impl Scheme for FloatDictScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    /// Children: values=0, codes=1. The codes carry the validity.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let stats = data.float_stats(exec_ctx);
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
+        Ok(dictionary_encoded(self, &dict))
+    }
 
-        let has_all_values_referenced = dict.has_all_values_referenced();
-
-        // Values = child 0.
-        let compressed_values =
-            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
-
-        // Codes = child 1. `dictionary_encode` already sizes the codes from the dictionary
-        // length, so there is nothing left to narrow here.
-        let compressed_codes =
-            compressor.compress_child(dict.codes(), &compress_ctx, self.id(), 1, exec_ctx)?;
-
-        // SAFETY: compressing codes or values does not alter the invariants.
-        unsafe {
-            Ok(
-                DictArray::new_unchecked(compressed_codes, compressed_values)
-                    .set_all_values_referenced(has_all_values_referenced)
-                    .into_array(),
-            )
-        }
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
@@ -173,7 +157,8 @@ pub fn dictionary_encode(
     }
 }
 
-/// Encodes a typed float array into a [`DictArray`] with frequency-ordered values and codes.
+/// Encodes a typed float array into a [`DictArray`] ordered by descending frequency, breaking
+/// ties via IEEE 754 total order.
 fn dictionary_encode_typed<T: NativePType>(
     source_array: ArrayView<'_, Primitive>,
     typed: &FloatTypedStats<T>,
@@ -184,71 +169,13 @@ where
     let distinct = typed.distinct().vortex_expect(
         "this must be present since `DictScheme` declared that we need distinct values",
     );
-
-    let codes_validity = source_array.validity()?;
-    let values_validity = match codes_validity {
-        Validity::NonNullable => Validity::NonNullable,
-        _ => Validity::AllValid,
-    };
-
-    let mut entries: Vec<(T, u32)> = distinct
-        .distinct_values()
-        .iter()
-        .map(|(&value, &count)| (value.0, count))
-        .collect();
-    entries.sort_unstable_by(|&(lhs_val, lhs_count), &(rhs_val, rhs_count)| {
-        rhs_count
-            .cmp(&lhs_count)
-            .then_with(|| lhs_val.total_compare(rhs_val))
-    });
-    let values: Buffer<T> = entries.into_iter().map(|(value, _)| value).collect();
-
-    // The largest code is one less than the dictionary length.
-    let dict_len = values.len();
-    let source_slice = source_array.as_slice::<T>();
-    let codes = if dict_len <= u8::MAX as usize + 1 {
-        let buf = encode_codes::<T, u8>(&values, source_slice);
-        PrimitiveArray::new(buf, codes_validity).into_array()
-    } else if dict_len <= u16::MAX as usize + 1 {
-        let buf = encode_codes::<T, u16>(&values, source_slice);
-        PrimitiveArray::new(buf, codes_validity).into_array()
-    } else {
-        let buf = encode_codes::<T, u32>(&values, source_slice);
-        PrimitiveArray::new(buf, codes_validity).into_array()
-    };
-
-    let values = PrimitiveArray::new(values, values_validity).into_array();
-    // SAFETY: `encode_codes` emits codes in `0..values.len()` for every valid entry
-    // and preserves the exact distinct value set computed by `FloatStats`.
-    Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
-}
-
-/// Maps `values` to their dictionary codes in `distinct`.
-fn encode_codes<T: NativePType, I: UnsignedPType>(distinct: &[T], values: &[T]) -> Buffer<I>
-where
-    NativeValue<T>: Eq + Hash,
-{
-    let mut codes = HashMap::<NativeValue<T>, I, FxBuildHasher>::with_capacity_and_hasher(
-        distinct.len(),
-        FxBuildHasher,
-    );
-    for (code, &value) in distinct.iter().enumerate() {
-        codes.insert(
-            NativeValue(value),
-            I::from(code).vortex_expect("caller ensures dictionary length fits in code type"),
-        );
-    }
-
-    let mut output = BufferMut::with_capacity(values.len());
-    for &value in values {
-        // Any code lookups which fail are for nulls, so their value does not matter.
-        // SAFETY: `output` has capacity `values.len()`.
-        unsafe {
-            output.push_unchecked(codes.get(&NativeValue(value)).copied().unwrap_or_default());
-        }
-    }
-
-    output.freeze()
+    super::dictionary_encode_from_counts(
+        source_array,
+        distinct
+            .distinct_values()
+            .iter()
+            .map(|(&value, &count)| (value.0, count)),
+    )
 }
 
 #[cfg(test)]

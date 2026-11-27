@@ -40,6 +40,11 @@ table Binary {
     nullable: bool;
 }
 
+table FixedSizeBinary {
+    size: uint32;
+    nullable: bool;
+}
+
 table Struct_ {
     names: [string];
     dtypes: [DType];
@@ -95,6 +100,7 @@ union Type {
     Variant = 11,
     Union = 12,
     Map = 13,
+    FixedSizeBinary = 14,
 }
 
 table DType {

@@ -60,6 +60,7 @@ PACKAGE_FEATURES: dict[str, tuple[str, ...]] = {
     "vortex-array": ("_test-harness",),
     "vortex-fastlanes": ("_test-harness",),
     "vortex-fsst": ("_test-harness",),
+    "vortex-layout": ("_test-harness",),
     "vortex-spatial": ("_test-harness",),
 }
 

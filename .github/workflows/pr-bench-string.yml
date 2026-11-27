@@ -18,3 +18,4 @@ jobs:
     with:
       benchmark_id: string-bench
       benchmark_name: String Encoding
+      nvme_region: true

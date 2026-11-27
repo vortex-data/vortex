@@ -293,6 +293,7 @@ fn build_values_comparator<O: RowOrder>(
     }
 
     Ok(match lhs.dtype() {
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         // Null values compare through the validity wrapper; the value comparator is trivial.
         DType::Null => Box::new(|_, _| O::EQUAL),
         DType::Bool(_) => {

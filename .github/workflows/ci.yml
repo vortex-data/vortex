@@ -153,7 +153,10 @@ jobs:
           - name: Pytest - Vortex (Polars 1.x floor)
             run: |
               uv run --all-packages --with 'polars==1.32.0' \
-                pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
+                pytest --benchmark-disable \
+                test/test_polars_.py test/test_dataset.py test/test_open_dataset.py \
+                test/test_engine_reads.py test/test_float_filters.py \
+                -k 'polars or test_file_reads_take_a_concurrency'
             working-directory: vortex-python/
           - name: Check Python documentation
             run: |
@@ -525,6 +528,7 @@ jobs:
           cargo build --profile ci --locked -p vortex-bench --bin data-gen
           cargo build --profile ci --locked -p vortex-tui --bin vx
           cargo nextest run --cargo-profile ci --locked -p vortex-sqllogictest --no-run
+      # Skip parity.slt during data generation; the nextest run below executes it.
       - parallel:
           - name: Generate TPC-H data
             run: ./vortex-sqllogictest/slt/tpch/generate_data.sh
@@ -534,10 +538,12 @@ jobs:
             run: ./vortex-sqllogictest/slt/tpcds/generate_data.sh
             env:
               VORTEX_SLT_PROFILE: ci
+              VORTEX_SLT_SKIP_PARITY: "1"
           - name: Generate ClickBench data
             run: ./vortex-sqllogictest/slt/clickbench/generate_data.sh
             env:
               VORTEX_SLT_PROFILE: ci
+              VORTEX_SLT_SKIP_PARITY: "1"
       - name: Run sqllogictest tests
         run: cargo nextest run --cargo-profile ci --locked -p vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild

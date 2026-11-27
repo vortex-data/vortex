@@ -28,6 +28,7 @@ use vortex_sequence::sequence_encode;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 
@@ -130,19 +131,30 @@ impl Scheme for SequenceScheme {
         )))
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let stats = data.integer_stats(exec_ctx);
 
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
         }
-        sequence_encode(data.array_as_primitive(), exec_ctx)?
-            .ok_or_else(|| vortex_err!("cannot sequence encode array"))
+        let sequence = sequence_encode(data.array_as_primitive(), exec_ctx)?
+            .ok_or_else(|| vortex_err!("cannot sequence encode array"))?;
+        Ok(Encoded::leaf(sequence))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
