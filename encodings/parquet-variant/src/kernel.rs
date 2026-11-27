@@ -126,12 +126,22 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
         // shredded field that the typed column does not cover. Answer from the validity of the
         // value alone, without decoding the metadata. This holds for any requested dtype,
         // Variant included: a missing path is a null of it.
+        //
+        // The root path is never missing. A valid row without a value reads as a Variant null,
+        // so a Variant read of the root path is a null only in the rows that are not valid.
+        let reads_root_variant = parent.options.path().elements().is_empty()
+            && parent.options.dtype().is_none_or(DType::is_variant);
         if array.typed_value().is_none()
             && let Some(value) = array.value()
             && value
                 .validity()?
                 .execute_mask(value.len(), ctx)?
                 .all_false()
+            && (!reads_root_variant
+                || array
+                    .parquet_variant_validity()
+                    .execute_mask(array.len(), ctx)?
+                    .all_false())
         {
             return Ok(Some(
                 ConstantArray::new(Scalar::null(parent.dtype().clone()), array.len()).into_array(),
@@ -840,6 +850,35 @@ mod tests {
         );
         assert_nth_scalar_is_null!(result, 3, &mut ctx);
 
+        Ok(())
+    }
+
+    /// Storage without a value in any row reads the root path of a valid row as a Variant null,
+    /// as the scalar of that row does, and the root path of a row that is not valid as a null.
+    #[test]
+    fn test_variant_get_root_of_rows_without_value() -> VortexResult<()> {
+        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
+        let value = VarBinViewArray::from_iter_nullable_bin([None::<&[u8]>, None]).into_array();
+        let array = ParquetVariant::try_new(
+            Validity::from_iter([true, false]),
+            metadata,
+            Some(value),
+            None,
+        )?
+        .into_array();
+
+        let result = execute_variant_get(array.clone(), "$", None)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let row0 = result.execute_scalar(0, &mut ctx)?;
+        assert_eq!(row0.as_variant().is_variant_null(), Some(true));
+        assert_eq!(
+            row0,
+            array
+                .execute_scalar(0, &mut ctx)?
+                .cast(&VortexDType::Variant(Nullability::Nullable))?
+        );
+        assert_nth_scalar_is_null!(result, 1, &mut ctx);
         Ok(())
     }
 
