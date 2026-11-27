@@ -363,21 +363,25 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[case(1, 0)]
-    #[case(2, 1)]
-    #[case(3, 2)]
-    #[case(4, 2)]
-    #[case(5, 3)]
-    #[case(256, 8)]
-    #[case(257, 9)]
-    #[case(65_536, 16)]
-    #[case(65_537, 17)]
-    fn min_code_bit_width_handles_power_of_two_boundaries(
-        #[case] distinct: u32,
-        #[case] expected_bw: u32,
-    ) {
-        assert_eq!(min_code_bit_width(distinct), expected_bw);
+    #[test]
+    fn min_code_bit_width_handles_power_of_two_boundaries() {
+        for (distinct, expected_bw) in [
+            (1, 0),
+            (2, 1),
+            (3, 2),
+            (4, 2),
+            (5, 3),
+            (256, 8),
+            (257, 9),
+            (65_536, 16),
+            (65_537, 17),
+        ] {
+            assert_eq!(
+                min_code_bit_width(distinct),
+                expected_bw,
+                "distinct={distinct}"
+            );
+        }
     }
 
     #[test]
