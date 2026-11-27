@@ -106,7 +106,7 @@ impl Scheme for EliasFanoScheme {
         )))
     }
 
-    /// Children: none of its own. The low bits are bit-packed, as `BITPACKING_V1` encodes
+    /// Children: none of its own. The low bits are bit-packed, as [`BitPackingScheme`] encodes
     /// them, and the bucket counts are forced into [`Unary`], which has no children.
     fn encode(
         &self,
