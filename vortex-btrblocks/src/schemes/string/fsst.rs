@@ -3,8 +3,6 @@
 
 //! FSST (Fast Static Symbol Table) string compression.
 
-use std::sync::Arc;
-
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -22,15 +20,15 @@ use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::FSSTArraySlotsExt;
-use vortex_fsst::FSSTSymbolTable;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
 
 /// FSST (Fast Static Symbol Table) compression.
 ///
@@ -75,64 +73,71 @@ impl Scheme for FSSTScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    /// Children: uncompressed lengths=0, codes offsets=1. The codes store the input's validity,
+    /// which is registered.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let utf8 = compressor.with_compressed_validity(data.array(), exec_ctx)?;
-        let compressor_fsst = fsst_train_compressor(&utf8, exec_ctx)?;
-        let fsst = fsst_compress(&utf8, &compressor_fsst, exec_ctx)?;
+    ) -> VortexResult<Encoded> {
+        let array = data.array();
+        let compressor_fsst = fsst_train_compressor(array, exec_ctx)?;
+        let fsst = fsst_compress(array, &compressor_fsst, exec_ctx)?;
 
-        let uncompressed_lengths_primitive = fsst
+        let uncompressed_lengths = fsst
             .uncompressed_lengths()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
-        let compressed_original_lengths = compressor.compress_child(
-            &uncompressed_lengths_primitive.into_array(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-
-        let codes_offsets_primitive = fsst
-            .codes()
+        let codes = fsst.codes();
+        let codes_offsets = codes
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
-        let compressed_codes_offsets = compressor.compress_child(
-            &codes_offsets_primitive.into_array(),
-            &compress_ctx,
-            self.id(),
-            1,
-            exec_ctx,
-        )?;
-        let compressed_codes = VarBinArray::try_new(
-            compressed_codes_offsets,
-            fsst.codes().bytes().clone(),
-            fsst.codes().dtype().clone(),
-            fsst.codes().validity()?,
-            exec_ctx,
-        )?;
 
-        // Reuse the padded symbol table as-is; only the codes and lengths change here.
-        let fsst = FSST::try_new_with_symbol_table(
-            fsst.dtype().clone(),
-            Arc::new(FSSTSymbolTable::new_padded(
-                fsst.padded_symbols().clone(),
-                fsst.padded_symbol_lengths().clone(),
-                fsst.n_symbols(),
-            )?),
-            compressed_codes,
-            compressed_original_lengths,
-            exec_ctx,
-        )?;
+        // Share the trained symbol table; only the codes and lengths change here.
+        let symbol_table = fsst.symbol_table();
+        let dtype = fsst.dtype().clone();
+        let codes_bytes = codes.bytes().clone();
+        let codes_dtype = codes.dtype().clone();
+        Ok(Encoded::new(
+            vec![
+                Child::new(self, 0, uncompressed_lengths.into_array()),
+                Child::new(self, 1, codes_offsets.into_array()),
+            ],
+            Vec::new(),
+            move |children, exec_ctx| {
+                let [uncompressed_lengths, codes_offsets] = children.compressed()?;
+                let codes = VarBinArray::try_new(
+                    codes_offsets,
+                    codes_bytes,
+                    codes_dtype,
+                    children.validity()?,
+                    exec_ctx,
+                )?;
+                Ok(FSST::try_new_with_symbol_table(
+                    dtype,
+                    symbol_table,
+                    codes,
+                    uncompressed_lengths,
+                    exec_ctx,
+                )?
+                .into_array())
+            },
+        )
+        .with_validity(codes.validity()?))
+    }
 
-        Ok(fsst.into_array())
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
