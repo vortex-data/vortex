@@ -375,8 +375,6 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
-        // The kernels of `vortex-functions` extract canonical Variants in bulk, as they do in a
-        // full session.
         vortex_functions::initialize(&session);
         crate::initialize(&session);
         vortex_uuid::initialize(&session);
