@@ -112,7 +112,7 @@ async def run_merge(merge: Merge, binary: Path, artifacts: Path, rss_limit_mb: i
                     print(f"[{merge.name}] {line.decode(errors='replace').rstrip()}", flush=True)
         status = await process.wait()
         merge.report()
-        log = merge.directory / 'merge.log'
+        log = merge.directory / "merge.log"
         if status != 0:
             print(f"::error::{merge.name} failed, see {log}")
             return False
