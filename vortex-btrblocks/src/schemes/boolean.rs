@@ -20,8 +20,12 @@ use vortex_array::arrays::runend::compress::bool_run_count;
 use vortex_array::arrays::runend::compress::runend_encode_bool;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
+use vortex_compressor::builtins::IntDictScheme;
+use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -34,6 +38,42 @@ use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
 use crate::Scheme;
+use crate::SchemeExt;
+use crate::schemes::integer::IntRLEScheme;
+use crate::schemes::integer::RunEndScheme;
+use crate::schemes::integer::SparseScheme as IntSparseScheme;
+
+/// Estimated bytes per run for `BoolRunEndScheme`: narrowed 1-based end (`1..=len`) plus 1 bit.
+fn runend_bytes_per_run(len: usize) -> f64 {
+    PType::min_unsigned_ptype_for_value(len as u64).byte_width() as f64 + 0.125
+}
+
+/// Byte width of narrowed 0-based patch indices (`0..len`) for `BoolSparseScheme`.
+fn sparse_index_width(len: usize) -> usize {
+    PType::min_unsigned_ptype_for_value(len.saturating_sub(1) as u64).byte_width()
+}
+
+/// Descendant exclusions for strictly increasing, unique position children at child index 0.
+fn monotonic_index_exclusions() -> Vec<DescendantExclusion> {
+    vec![
+        DescendantExclusion {
+            excluded: IntDictScheme.id(),
+            children: ChildSelection::One(0),
+        },
+        DescendantExclusion {
+            excluded: RunEndScheme.id(),
+            children: ChildSelection::One(0),
+        },
+        DescendantExclusion {
+            excluded: IntRLEScheme.id(),
+            children: ChildSelection::One(0),
+        },
+        DescendantExclusion {
+            excluded: IntSparseScheme.id(),
+            children: ChildSelection::One(0),
+        },
+    ]
+}
 
 /// Run-end encoding for boolean arrays with long runs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -57,6 +97,11 @@ impl Scheme for BoolRunEndScheme {
         1
     }
 
+    /// RunEnd ends (child 0) are strictly increasing positions with all unique values.
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        monotonic_index_exclusions()
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -68,10 +113,12 @@ impl Scheme for BoolRunEndScheme {
             .as_opt::<Bool>()
             .vortex_expect("boolean input")
             .to_bit_buffer();
-        // Price each run as a u64 end plus a value bit.
+        // `runend_encode_bool` narrows 1-based ends (`1..=len`) to the tightest unsigned type and
+        // stores one value bit per run.
         let runs = bool_run_count(&bits).max(1);
+        let bytes_per_run = runend_bytes_per_run(data.array_len());
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            data.array().nbytes() as f64 / (runs as f64 * 8.125),
+            data.array().nbytes() as f64 / (runs as f64 * bytes_per_run),
         ))
     }
 
@@ -129,6 +176,11 @@ impl Scheme for BoolSparseScheme {
         1
     }
 
+    /// Sparse indices (child 0) are strictly increasing positions with all unique values.
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        monotonic_index_exclusions()
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -139,8 +191,10 @@ impl Scheme for BoolSparseScheme {
         let exceptions = stats
             .true_count()
             .min(stats.value_count() - stats.true_count());
+        // `encode` narrows 0-based indices (`0..len`) to the tightest unsigned type.
+        let index_width = sparse_index_width(data.array_len());
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            data.array().nbytes() as f64 / (exceptions as f64 * 4.0 + 2.0),
+            data.array().nbytes() as f64 / (exceptions as f64 * index_width as f64 + 2.0),
         ))
     }
 
@@ -192,5 +246,110 @@ impl Scheme for BoolSparseScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::RunEnd;
+    use vortex_array::assert_arrays_eq;
+    use vortex_compressor::builtins::IntDictScheme;
+    use vortex_compressor::scheme::ChildSelection;
+    use vortex_error::VortexResult;
+    use vortex_sparse::Sparse;
+
+    use super::BoolRunEndScheme;
+    use super::BoolSparseScheme;
+    use super::runend_bytes_per_run;
+    use super::sparse_index_width;
+    use crate::BtrBlocksCompressorBuilder;
+    use crate::SESSION;
+    use crate::Scheme;
+    use crate::SchemeExt;
+    use crate::schemes::integer::IntRLEScheme;
+    use crate::schemes::integer::RunEndScheme;
+    use crate::schemes::integer::SparseScheme as IntSparseScheme;
+
+    #[test]
+    fn test_bool_runend_compresses_medium_runs() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = BoolArray::from_iter((0..4_096).map(|i| (i / 24) % 2 == 0)).into_array();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
+
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<RunEnd>(),
+            "expected RunEnd, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < input.nbytes());
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bool_sparse_prices_u16_indices_at_65536_rows() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 2,979 scattered exceptions in 65,536 rows: 8,192 B raw vs ~5,958 B with u16 indices.
+        // Hardcoding u32 (4 B/patch) priced this at ~11,918 B (< 1.0x) and left it uncompressed.
+        let input = BoolArray::from_iter((0..65_536).map(|i| i % 22 == 0)).into_array();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
+
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<Sparse>(),
+            "expected Sparse, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < input.nbytes());
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::u8_max(255, 1.125, 1)]
+    #[case::u8_to_u16(256, 2.125, 1)]
+    #[case::u16_min_sparse(257, 2.125, 2)]
+    #[case::u16_max(65_535, 2.125, 2)]
+    #[case::u16_to_u32(65_536, 4.125, 2)]
+    #[case::u32_min_sparse(65_537, 4.125, 4)]
+    fn test_bool_index_width_boundaries(
+        #[case] len: usize,
+        #[case] expected_runend_bytes: f64,
+        #[case] expected_sparse_width: usize,
+    ) {
+        assert!((runend_bytes_per_run(len) - expected_runend_bytes).abs() < 1e-12);
+        assert_eq!(sparse_index_width(len), expected_sparse_width);
+    }
+
+    #[test]
+    fn test_bool_schemes_exclude_pointless_index_schemes() {
+        let expected = [
+            IntDictScheme.id(),
+            RunEndScheme.id(),
+            IntRLEScheme.id(),
+            IntSparseScheme.id(),
+        ];
+
+        for scheme in [&BoolRunEndScheme as &dyn Scheme, &BoolSparseScheme] {
+            let exclusions = scheme.descendant_exclusions();
+            for id in expected {
+                assert!(
+                    exclusions.iter().any(|rule| {
+                        rule.excluded == id && matches!(rule.children, ChildSelection::One(0))
+                    }),
+                    "{} missing child-0 exclusion for {id}",
+                    scheme.scheme_name()
+                );
+            }
+        }
     }
 }
