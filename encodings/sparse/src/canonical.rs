@@ -723,15 +723,31 @@ fn execute_sparse_primitives<T: NativePType>(
     let source = values.as_slice::<T>();
     let offset = patches.offset();
     match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        let output = output.as_mut_slice();
         let indices = indices.as_slice::<I>();
         let rows = indices.iter().map(|&index| {
             let index: usize = index.as_();
             index - offset
         });
         if let Some(bits) = &mut validity {
-            for ((row, &value), valid) in rows.zip(source).zip(mask.iter()) {
-                output[row] = value;
-                bits.set_to(row, valid);
+            // The output bitmap was allocated above with bit offset zero.
+            let bytes = bits.as_mut_slice();
+            if mask.all_true() {
+                for (row, &value) in rows.zip(source) {
+                    output[row] = value;
+                    bytes[row / 8] |= 1 << (row % 8);
+                }
+            } else {
+                for ((row, &value), valid) in rows.zip(source).zip(mask.iter()) {
+                    output[row] = value;
+                    let bit = 1 << (row % 8);
+                    let byte = &mut bytes[row / 8];
+                    if valid {
+                        *byte |= bit;
+                    } else {
+                        *byte &= !bit;
+                    }
+                }
             }
         } else {
             for (row, &value) in rows.zip(source) {

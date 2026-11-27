@@ -349,7 +349,8 @@ mod test {
     }
 }
 
-#[cfg(all(test, not(codspeed)))]
+#[cfg(test)]
+#[cfg(not(codspeed))]
 mod fusion_tests {
     use rstest::rstest;
     use vortex_array::IntoArray;

@@ -99,21 +99,16 @@ fn date_time_parts() -> ArrayRef {
 fn date_time_parts_execute(bencher: Bencher) {
     let array = date_time_parts();
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(false),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
 }
 
 #[divan::bench]
-fn date_time_parts_fused(bencher: Bencher) {
+fn date_time_parts_levelwise(bencher: Bencher) {
     let array = date_time_parts();
     bencher
         .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(true);
+            let ctx = SESSION.create_execution_ctx().with_block_fusion(false);
             (array.clone(), ctx)
         })
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());

@@ -14,6 +14,7 @@ use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::block::MAX_UNFUSED_LEN;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -134,7 +135,10 @@ where
         }
         // Dict::execute handles this lookup at the root. Leaving the dictionary intact lets
         // a waiting spine parent consume the lookup block by block.
-        if ctx.block_fusion_enabled() && super::block::can_source(parent.codes(), array.array()) {
+        if parent.len() > MAX_UNFUSED_LEN
+            && ctx.block_fusion_enabled()
+            && super::block::can_source(parent.codes(), array.array())
+        {
             return Ok(None);
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
