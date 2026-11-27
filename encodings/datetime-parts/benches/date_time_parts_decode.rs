@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Executing DateTimeParts whose days are FoR over BitPacked level by level, where FoR writes a
-//! full-length buffer of days that DateTimeParts then combines with the time parts, and with block
-//! fusion, which combines each block of days as it is unpacked.
+//! Executing DateTimeParts over compressed days, seconds and subseconds, such as FoR over
+//! BitPacked days.
 //!
 //! Run with `cargo bench -p vortex-datetime-parts --bench date_time_parts_decode`.
 
@@ -28,8 +27,6 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::DateTimePartsArraySlotsExt;
 use vortex_fastlanes::FoR;
@@ -103,22 +100,9 @@ fn date_time_parts_execute(bencher: Bencher) {
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
 }
 
-#[divan::bench]
-fn date_time_parts_levelwise(bencher: Bencher) {
-    let array = date_time_parts();
-    bencher
-        .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(false);
-            (array.clone(), ctx)
-        })
-        .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
-}
-
 /// Event timestamps with second-level precision and compressed day numbers.
-fn bench_timestamps(bencher: Bencher, days: ArrayRef, fused: bool) {
+fn bench_timestamps(bencher: Bencher, days: ArrayRef) {
     let len = days.len();
-    #[cfg(not(codspeed))]
-    let expected_source = format!("fuse start array={}", days.encoding_id());
     let dtype =
         DType::Extension(Timestamp::new(TimeUnit::Seconds, days.dtype().nullability()).erased());
     let seconds =
@@ -131,24 +115,14 @@ fn bench_timestamps(bencher: Bencher, days: ArrayRef, fused: bool) {
     )
     .unwrap()
     .into_array();
-    #[cfg(not(codspeed))]
-    {
-        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
-        assert!(trace.contains(&expected_source), "{trace}");
-    }
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fused),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
 }
 
 /// A daily ingestion batch including one late event from the preceding day per hundred rows.
-#[divan::bench(args = [false, true])]
-fn timestamps_late_events(bencher: Bencher, fused: bool) {
+#[divan::bench]
+fn timestamps_late_events(bencher: Bencher) {
     let indices = PrimitiveArray::from_iter((0..u32::try_from(LEN).unwrap()).step_by(100));
     let values = PrimitiveArray::from_iter(std::iter::repeat_n(19_999i32, indices.len()));
     let days = Sparse::try_new(
@@ -159,20 +133,20 @@ fn timestamps_late_events(bencher: Bencher, fused: bool) {
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
-    bench_timestamps(bencher, days.into_array(), fused);
+    bench_timestamps(bencher, days.into_array());
 }
 
-#[divan::bench(args = [false, true])]
-fn intraday_packed_seconds(bencher: Bencher, fused: bool) {
-    intraday(bencher, true, fused);
+#[divan::bench]
+fn intraday_packed_seconds(bencher: Bencher) {
+    intraday(bencher, true);
 }
 
-#[divan::bench(args = [false, true])]
-fn single_second_packed_subseconds(bencher: Bencher, fused: bool) {
-    intraday(bencher, false, fused);
+#[divan::bench]
+fn single_second_packed_subseconds(bencher: Bencher) {
+    intraday(bencher, false);
 }
 
-fn intraday(bencher: Bencher, pack_seconds: bool, fused: bool) {
+fn intraday(bencher: Bencher, pack_seconds: bool) {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype =
         DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
@@ -198,20 +172,7 @@ fn intraday(bencher: Bencher, pack_seconds: bool, fused: bool) {
     let array = DateTimeParts::try_new(dtype, days, seconds, subseconds)
         .unwrap()
         .into_array();
-    #[cfg(not(codspeed))]
-    {
-        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
-        assert!(
-            trace.contains("fuse start array=fastlanes.bitpacked"),
-            "{trace}"
-        );
-    }
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fused),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<Canonical>(&mut ctx).unwrap());
 }

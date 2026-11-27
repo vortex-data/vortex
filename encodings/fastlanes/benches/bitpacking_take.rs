@@ -4,12 +4,10 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
-use fastlanes::BitPacking;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -31,11 +29,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::patches::Patches;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::trace::trace_op;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -693,8 +688,8 @@ fn bench_piecewise_take(bencher: Bencher, packed: ArrayRef, indices: ArrayRef) {
 }
 
 /// Numeric dictionary decoding with a 512-entry lookup table and 9-bit codes.
-#[divan::bench(args = [false, true])]
-fn dictionary_packed_codes(bencher: Bencher, fusion: bool) {
+#[divan::bench]
+fn dictionary_packed_codes(bencher: Bencher) {
     let rows = 65_536u32;
     let code = |row: u32| (row.wrapping_mul(2_654_435_761) >> 23) as u16;
     let value = |index: u16| u64::from(index) * 12_001 + 781;
@@ -715,18 +710,13 @@ fn dictionary_packed_codes(bencher: Bencher, fusion: bool) {
     );
     bencher
         .counter(ItemsCount::new(rows))
-        .with_inputs(|| {
-            (
-                dict.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fusion),
-            )
-        })
+        .with_inputs(|| (dict.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(dict, mut ctx)| dict.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
 /// The repeated dictionary codes produced by RunEndArray::to_dict.
-#[divan::bench(args = [false, true])]
-fn dictionary_run_codes(bencher: Bencher, fusion: bool) {
+#[divan::bench]
+fn dictionary_run_codes(bencher: Bencher) {
     let runs = 4096u64;
     let lengths = (0..runs).map(|i| 1 + (i * 7) % 31);
     let rows = lengths.clone().sum::<u64>() as usize;
@@ -755,34 +745,8 @@ fn dictionary_run_codes(bencher: Bencher, fusion: bool) {
     );
     bencher
         .counter(ItemsCount::new(rows))
-        .with_inputs(|| {
-            (
-                dict.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fusion),
-            )
-        })
+        .with_inputs(|| (dict.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
-}
-
-/// Control for plain dictionary decoding when no consumer requests a block source.
-#[divan::bench(args = [false, true])]
-fn dictionary_plain_codes(bencher: Bencher, fusion: bool) {
-    let rows = 65_536u32;
-    let codes =
-        PrimitiveArray::from_iter((0..rows).map(|i| (i.wrapping_mul(2_654_435_761) >> 23) as u16));
-    let table = PrimitiveArray::from_iter((0..512u64).map(|i| i * 12_001 + 781));
-    let dict = DictArray::try_new(codes.into_array(), table.into_array())
-        .unwrap()
-        .into_array();
-    bencher
-        .counter(ItemsCount::new(rows))
-        .with_inputs(|| {
-            (
-                dict.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fusion),
-            )
-        })
-        .bench_values(|(dict, mut ctx)| dict.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
 /// The two representations share the packed bytes and originate from the same exceptions.
@@ -792,46 +756,25 @@ enum PatchStorage {
     Wrapper,
 }
 
-/// Sliced integer telemetry with one outlier per 211 rows.
-#[divan::bench(args = [false, true])]
-fn patched_packed_decode(bencher: Bencher, fusion: bool) {
-    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, 65_536, 211);
+/// Sliced integer telemetry with an outlier every 211 rows, patched by a Patched wrapper.
+#[divan::bench(args = [65_536, 1 << 20])]
+fn patched_packed_decode(bencher: Bencher, rows: u32) {
+    bench_patched_packed(bencher, PatchStorage::Wrapper, rows, 211);
 }
 
-#[divan::bench(args = [false, true])]
-fn patched_packed_decode_million(bencher: Bencher, fusion: bool) {
-    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, 1 << 20, 97);
+/// The same telemetry with BitPacked's own exceptions.
+#[divan::bench(args = [65_536, 1 << 20])]
+fn native_packed_decode(bencher: Bencher, rows: u32) {
+    bench_patched_packed(bencher, PatchStorage::Native, rows, 211);
 }
 
-#[divan::bench(args = [(262_144, false), (262_144, true), (524_288, false), (524_288, true)])]
-fn patched_packed_window(bencher: Bencher, (rows, fusion): (u32, bool)) {
-    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, rows, 97);
-}
-
-#[divan::bench(args = [(65_536, false), (65_536, true), (262_144, false), (262_144, true),
-    (524_288, false), (524_288, true), (1_048_576, false), (1_048_576, true)])]
-fn native_packed_decode(bencher: Bencher, (rows, fusion): (u32, bool)) {
-    let stride = if rows == 65_536 { 211 } else { 97 };
-    bench_patched_packed(bencher, PatchStorage::Native, fusion, rows, stride);
-}
-
-#[divan::bench(args = [false, true])]
-fn wrapper_one_patch_per_chunk(bencher: Bencher, fusion: bool) {
-    bench_patched_packed(bencher, PatchStorage::Wrapper, fusion, 1 << 20, 1024);
-}
-
+/// One wrapper patch in every FastLanes chunk.
 #[divan::bench]
-fn native_one_patch_per_chunk(bencher: Bencher) {
-    bench_patched_packed(bencher, PatchStorage::Native, false, 1 << 20, 1024);
+fn wrapper_one_patch_per_chunk(bencher: Bencher) {
+    bench_patched_packed(bencher, PatchStorage::Wrapper, 1 << 20, 1024);
 }
 
-fn bench_patched_packed(
-    bencher: Bencher,
-    storage: PatchStorage,
-    fusion: bool,
-    rows: u32,
-    stride: usize,
-) {
+fn bench_patched_packed(bencher: Bencher, storage: PatchStorage, rows: u32, stride: usize) {
     let mut ctx = SESSION.create_execution_ctx();
     let reading = |row: u32| {
         if (row as usize).is_multiple_of(stride) {
@@ -862,177 +805,8 @@ fn bench_patched_packed(
         }
     };
     let patched = packed.slice(31..rows as usize - 49).unwrap();
-    let make_ctx = || SESSION.create_execution_ctx().with_block_fusion(fusion);
-    #[cfg(not(codspeed))]
-    {
-        let traced =
-            trace_op(|| patched.clone().execute::<PrimitiveArray>(&mut make_ctx())).unwrap();
-        let trace = traced.trace.to_string();
-        let direct = fusion && storage == PatchStorage::Wrapper;
-        assert_eq!(
-            trace.contains("fuse absorb parent=vortex.patched"),
-            direct,
-            "{trace}"
-        );
-        assert_eq!(trace.contains("drive ops=0"), direct, "{trace}");
-        assert!(
-            traced
-                .output
-                .as_slice::<u32>()
-                .iter()
-                .copied()
-                .eq((31..rows - 49).map(reading))
-        );
-    }
     bencher
         .counter(ItemsCount::new(patched.len()))
-        .with_inputs(|| (patched.clone(), make_ctx()))
+        .with_inputs(|| (patched.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
-}
-
-/// Full arrays with identical packed bytes. Clustered and spread both update 1,024 rows.
-#[divan::bench(args = ["bare", "one_total_fused", "one_total_level", "spread_fused",
-    "spread_level", "spread_native", "clustered_fused", "clustered_level",
-    "one_total_generic", "spread_generic", "clustered_generic"])]
-fn sparse_patch_full_decode(bencher: Bencher, case: &str) {
-    let rows = 1 << 20;
-    let base = |row: usize| (row as u32).wrapping_mul(2_654_435_761) >> 23;
-    let mut expected: Vec<u32> = (0..rows).map(base).collect();
-    let mut ctx = SESSION.create_execution_ctx();
-    let packed = BitPackedData::encode(
-        &PrimitiveArray::from_iter(expected.iter().copied()).into_array(),
-        9,
-        &mut ctx,
-    )
-    .unwrap();
-    let array = if case == "bare" {
-        packed.into_array()
-    } else {
-        let mut rng = StdRng::seed_from_u64(491);
-        let indices: Vec<u32> = if case.starts_with("one_total") {
-            vec![(rows / 2) as u32]
-        } else if case.starts_with("clustered") {
-            (0..CHUNK_SIZE as u32)
-                .map(|i| i + (rows / 2) as u32)
-                .collect()
-        } else {
-            (0..rows / CHUNK_SIZE)
-                .map(|i| (i * CHUNK_SIZE + rng.random_range(0..CHUNK_SIZE)) as u32)
-                .collect()
-        };
-        let values: Vec<u32> = indices.iter().map(|&i| rows as u32 + i).collect();
-        for (&index, &value) in indices.iter().zip(&values) {
-            expected[index as usize] = value;
-        }
-        let patches = Patches::new(
-            rows,
-            0,
-            PrimitiveArray::from_iter(indices).into_array(),
-            PrimitiveArray::from_iter(values).into_array(),
-            None,
-            &mut ctx,
-        )
-        .unwrap();
-        if case == "spread_native" {
-            BitPacked::try_new(
-                packed.packed().clone(),
-                PType::U32,
-                Validity::NonNullable,
-                Some(patches),
-                9,
-                rows,
-                0,
-            )
-            .unwrap()
-            .into_array()
-        } else {
-            Patched::from_array_and_patches(packed.into_array(), &patches, &mut ctx)
-                .unwrap()
-                .into_array()
-        }
-    };
-    let generic = case.ends_with("_generic");
-    let make_ctx = || {
-        SESSION
-            .create_execution_ctx()
-            .with_block_fusion(generic || case.ends_with("_fused"))
-            .with_block_source_absorption(!generic)
-    };
-    #[cfg(not(codspeed))]
-    if generic || case.ends_with("_fused") {
-        let trace = trace_op(|| array.clone().execute::<PrimitiveArray>(&mut make_ctx()))
-            .unwrap()
-            .trace
-            .to_string();
-        assert_eq!(
-            trace.contains("fuse absorb parent=vortex.patched"),
-            !generic,
-            "{trace}"
-        );
-        assert_eq!(
-            trace.contains("in_place u32->u32 output -> output"),
-            generic,
-            "{trace}"
-        );
-    }
-    let decoded = array
-        .clone()
-        .execute::<PrimitiveArray>(&mut make_ctx())
-        .unwrap();
-    assert_eq!(decoded.as_slice::<u32>(), expected);
-    drop(decoded);
-    drop(expected);
-    bencher
-        .counter(ItemsCount::new(rows))
-        .with_inputs(|| (array.clone(), make_ctx()))
-        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
-}
-
-/// Isolate the 9-bit kernel and sparse stores on the same reusable 4 MiB output.
-#[divan::bench(args = ["unpack_only", "patch_in_block", "patch_after_unpack"])]
-fn sparse_patch_kernel(bencher: Bencher, case: &str) {
-    const BLOCKS: usize = 1024;
-    const PACKED_WORDS: usize = CHUNK_SIZE * 9 / u32::BITS as usize;
-    let packed = vec![[0x92ab_715d_u32; PACKED_WORDS]; BLOCKS];
-    let mut output = vec![[0u32; CHUNK_SIZE]; BLOCKS];
-    let mut rng = StdRng::seed_from_u64(491);
-    let indices: Vec<u16> = (0..BLOCKS)
-        .map(|_| rng.random_range(0..CHUNK_SIZE) as u16)
-        .collect();
-    let values: Vec<u32> = (0..BLOCKS).map(|i| (1 << 20) + i as u32).collect();
-    let unpack = |src: &[u32; PACKED_WORDS], dst: &mut [u32; CHUNK_SIZE]| {
-        // SAFETY: src contains one 9-bit block and dst has exactly 1024 slots.
-        unsafe { u32::unchecked_unpack(9, src, dst) };
-    };
-    bencher
-        .counter(ItemsCount::new(BLOCKS * CHUNK_SIZE))
-        .bench_local(|| {
-            let output = black_box(&mut output[..]);
-            match case {
-                "patch_in_block" => {
-                    for (((src, dst), &index), &value) in packed
-                        .iter()
-                        .zip(output.iter_mut())
-                        .zip(&indices)
-                        .zip(&values)
-                    {
-                        unpack(src, dst);
-                        dst[usize::from(index)] = value;
-                    }
-                }
-                "patch_after_unpack" | "unpack_only" => {
-                    for (src, dst) in packed.iter().zip(output.iter_mut()) {
-                        unpack(src, dst);
-                    }
-                    if case == "patch_after_unpack" {
-                        for ((dst, &index), &value) in output.iter_mut().zip(&indices).zip(&values)
-                        {
-                            dst[usize::from(index)] = value;
-                        }
-                    }
-                }
-                _ => unreachable!(),
-            }
-            black_box(&*output);
-        });
 }

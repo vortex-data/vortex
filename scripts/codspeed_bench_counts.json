@@ -8,7 +8,7 @@
     "write_compression": 3
   },
   "vortex-alp": {
-    "alp_chain_decode": 16,
+    "alp_chain_decode": 8,
     "alp_compress": 36,
     "alp_fsl_take": 2,
     "alp_rd_take_chunked": 4,
@@ -99,7 +99,7 @@
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
-    "date_time_parts_decode": 8,
+    "date_time_parts_decode": 4,
     "split_temporal": 6
   },
   "vortex-decimal-byte-parts": {
@@ -108,7 +108,7 @@
     "dbp_split": 0
   },
   "vortex-elias-fano": {
-    "unary": 22
+    "unary": 21
   },
   "vortex-expr": {
     "expr_large_struct_pack": 4,
@@ -122,7 +122,7 @@
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
     "bitpacking_list_contains": 5,
-    "bitpacking_take": 84,
+    "bitpacking_take": 52,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "chunked_fsl_take": 2,
@@ -186,7 +186,7 @@
     "sequence_probe": 2
   },
   "vortex-sparse": {
-    "sparse_canonical": 16,
+    "sparse_canonical": 10,
     "sparse_dict_codes": 4,
     "sparse_pushdown": 5
   },
@@ -207,6 +207,6 @@
     "l2_norm": 6
   },
   "vortex-zigzag": {
-    "zigzag_decode": 6
+    "zigzag_decode": 3
   }
 }

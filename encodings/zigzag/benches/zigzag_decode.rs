@@ -16,8 +16,6 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::session::ArraySession;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
@@ -39,35 +37,30 @@ fn main() {
     divan::main();
 }
 
-#[divan::bench(args = [false, true])]
-fn packed_sensor_residuals(bencher: Bencher, fused: bool) {
+#[divan::bench]
+fn packed_sensor_residuals(bencher: Bencher) {
     let encoded =
         PrimitiveArray::from_iter((0..65_536u32).map(|i| i.wrapping_mul(2_654_435_761) >> 23));
     let packed = bitpack_encode(&encoded, 9, None, &mut SESSION.create_execution_ctx()).unwrap();
     let array = ZigZag::try_new(packed.into_array()).unwrap().into_array();
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fused),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
 /// The compact compressor's integer-runs golden fixture, with its standard 8 Ki Pco pages.
-#[divan::bench(args = [false, true])]
-fn pco_integer_runs(bencher: Bencher, fused: bool) {
-    bench_pco_runs(bencher, fused, false);
+#[divan::bench]
+fn pco_integer_runs(bencher: Bencher) {
+    bench_pco_runs(bencher, false);
 }
 
 /// Integer run data with missing measurements.
-#[divan::bench(args = [false, true])]
-fn pco_nullable_runs(bencher: Bencher, fused: bool) {
-    bench_pco_runs(bencher, fused, true);
+#[divan::bench]
+fn pco_nullable_runs(bencher: Bencher) {
+    bench_pco_runs(bencher, true);
 }
 
-fn bench_pco_runs(bencher: Bencher, fused: bool, nullable: bool) {
+fn bench_pco_runs(bencher: Bencher, nullable: bool) {
     let mut rng = StdRng::seed_from_u64(103);
     let mut values = Vec::with_capacity(16_384);
     while values.len() < 16_384 {
@@ -95,21 +88,7 @@ fn bench_pco_runs(bencher: Bencher, fused: bool, nullable: bool) {
     )
     .unwrap();
     let array = ZigZag::try_new(pco.into_array()).unwrap().into_array();
-    #[cfg(not(codspeed))]
-    {
-        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
-        assert_eq!(
-            trace.contains("fuse start array=vortex.pco"),
-            nullable,
-            "{trace}"
-        );
-    }
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fused),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }

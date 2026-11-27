@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Executing ALP over FoR over BitPacked, the layout the compressor writes for decimal floats, level
-//! by level, where FoR writes a full-length buffer of integers that ALP then decodes, and with block
-//! fusion, which unpacks, adds the reference and decodes one block at a time.
+//! Executing ALP over compressed integers, such as FoR over BitPacked, the layout the compressor
+//! writes for decimal floats.
 //!
 //! Run with `cargo bench -p vortex-alp --bench alp_chain_decode`.
 
@@ -31,8 +30,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
-#[cfg(not(codspeed))]
-use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_array::validity::Validity;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArrayExt;
@@ -114,44 +111,18 @@ fn alp_for_bp_execute(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn alp_for_bp_levelwise(bencher: Bencher) {
-    let array = alp_for_bp(false);
+fn alp_blocked_for_bp(bencher: Bencher) {
+    run(bencher, alp_for_bp(true));
+}
+
+fn run(bencher: Bencher, array: ArrayRef) {
     bencher
-        .with_inputs(|| {
-            let ctx = SESSION.create_execution_ctx().with_block_fusion(false);
-            (array.clone(), ctx)
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
-#[divan::bench(args = [false, true])]
-fn alp_blocked_for_bp(bencher: Bencher, fused: bool) {
-    run(bencher, alp_for_bp(true), fused, "fastlanes.for");
-}
-
-fn run(bencher: Bencher, array: ArrayRef, fused: bool, source: &str) {
-    let _ = source;
-    #[cfg(not(codspeed))]
-    {
-        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
-        assert!(
-            trace.contains(&format!("fuse start array={source}")),
-            "{trace}"
-        );
-        assert!(trace.contains("fuse extend parent=vortex.alp"), "{trace}");
-    }
-    bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fused),
-            )
-        })
-        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
-}
-
-#[divan::bench(args = [false, true])]
-fn alp_packed_delta_counter(bencher: Bencher, fused: bool) {
+#[divan::bench]
+fn alp_packed_delta_counter(bencher: Bencher) {
     let mut ctx = SESSION.create_execution_ctx();
     // A meter reading in eighths of a unit with occasional two-step increases.
     let values =
@@ -187,12 +158,12 @@ fn alp_packed_delta_counter(bencher: Bencher, fused: bool) {
     let array = ALP::try_new(delta.into_array(), alp.exponents(), alp.patches())
         .unwrap()
         .into_array();
-    run(bencher, array, fused, "fastlanes.delta");
+    run(bencher, array);
 }
 
 /// Repeated invoice amounts share a dictionary of integer cents under the ALP decoder.
-#[divan::bench(args = [false, true])]
-fn alp_dictionary_prices(bencher: Bencher, fusion: bool) {
+#[divan::bench]
+fn alp_dictionary_prices(bencher: Bencher) {
     let amount = |index: u16| 100_i64 + i64::from(index) * 73;
     let code = |row: u32| (row.wrapping_mul(2_654_435_761) >> 23) as u16;
     let codes = PrimitiveArray::from_iter((0..LEN as u32).map(code));
@@ -201,12 +172,12 @@ fn alp_dictionary_prices(bencher: Bencher, fusion: bool) {
     let array = ALP::try_new(dict.into_array(), Exponents { e: 2, f: 0 }, None)
         .unwrap()
         .into_array();
-    run(bencher, array, fusion, "vortex.dict");
+    run(bencher, array);
 }
 
 /// Dictionary prices sorted into runs of variable length, using the codes from RunEnd::to_dict.
-#[divan::bench(args = [false, true])]
-fn alp_dictionary_runs(bencher: Bencher, fusion: bool) {
+#[divan::bench]
+fn alp_dictionary_runs(bencher: Bencher) {
     let runs = 4096u64;
     let lengths = (0..runs).map(|run| 1 + (run * 7) % 31);
     let rows = lengths.clone().sum::<u64>() as usize;
@@ -222,20 +193,19 @@ fn alp_dictionary_runs(bencher: Bencher, fusion: bool) {
     let array = ALP::try_new(dict.into_array(), Exponents { e: 2, f: 0 }, None)
         .unwrap()
         .into_array();
-    run(bencher, array, fusion, "vortex.dict");
+    run(bencher, array);
 }
 
-fn bench_integer_source(bencher: Bencher, encoded: ArrayRef, fused: bool) {
-    let source = encoded.encoding_id().to_string();
+fn bench_integer_source(bencher: Bencher, encoded: ArrayRef) {
     let array = ALP::try_new(encoded, Exponents { e: 2, f: 0 }, None)
         .unwrap()
         .into_array();
-    run(bencher, array, fused, &source);
+    run(bencher, array);
 }
 
 /// A baseline sensor reading with a short-lived load spike in one row per hundred.
-#[divan::bench(args = [false, true])]
-fn alp_sparse_load(bencher: Bencher, fused: bool) {
+#[divan::bench]
+fn alp_sparse_load(bencher: Bencher) {
     let rows = u32::try_from(LEN).unwrap();
     let indices = PrimitiveArray::from_iter((0..rows).step_by(100));
     let readings = PrimitiveArray::from_iter((0..indices.len()).map(|i| 2100 + (i % 31) as i64));
@@ -247,21 +217,21 @@ fn alp_sparse_load(bencher: Bencher, fused: bool) {
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
-    bench_integer_source(bencher, sparse.into_array(), fused);
+    bench_integer_source(bencher, sparse.into_array());
 }
 
 /// Nine-bit readings with intermittent larger readings, scaled to hundredths.
-#[divan::bench(args = [false, true])]
-fn alp_patched_packed_readings(bencher: Bencher, fusion: bool) {
-    bench_patched_readings(bencher, fusion, true);
+#[divan::bench]
+fn alp_patched_packed_readings(bencher: Bencher) {
+    bench_patched_readings(bencher, true);
 }
 
-#[divan::bench(args = [false, true])]
-fn alp_native_packed_readings(bencher: Bencher, fusion: bool) {
-    bench_patched_readings(bencher, fusion, false);
+#[divan::bench]
+fn alp_native_packed_readings(bencher: Bencher) {
+    bench_patched_readings(bencher, false);
 }
 
-fn bench_patched_readings(bencher: Bencher, fusion: bool, wrapper: bool) {
+fn bench_patched_readings(bencher: Bencher, wrapper: bool) {
     let mut ctx = SESSION.create_execution_ctx();
     let rows = 65_536u32;
     let reading = |row: u32| {
@@ -296,26 +266,7 @@ fn bench_patched_readings(bencher: Bencher, fusion: bool, wrapper: bool) {
     let array = ALP::try_new(patched, Exponents { e: 2, f: 0 }, None)
         .unwrap()
         .into_array();
-    #[cfg(not(codspeed))]
-    {
-        let trace = fusion_trace(array.clone(), &SESSION).unwrap();
-        assert_eq!(
-            trace.contains("fuse absorb parent=vortex.patched"),
-            wrapper,
-            "{trace}"
-        );
-        assert!(
-            trace.contains("fuse start array=fastlanes.bitpacked"),
-            "{trace}"
-        );
-        assert!(trace.contains("fuse extend parent=vortex.alp"), "{trace}");
-    }
     bencher
-        .with_inputs(|| {
-            (
-                array.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fusion),
-            )
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }

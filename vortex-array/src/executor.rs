@@ -525,7 +525,6 @@ fn try_fuse(
     };
     if !op.fuse_standalone(child.len())
         && !(op.prefers_output() && source.output_source().is_some())
-        && !ctx.force_standalone
         && !stack.iter().rev().nth(1).is_some_and(|frame| frame.fuse)
     {
         stack.last_mut().vortex_expect("the op's frame").fuse = false;
@@ -536,7 +535,7 @@ fn try_fuse(
     drop(child);
     loop {
         let parent = stack.pop().vortex_expect("the op's frame").parent_array;
-        chain.push(&parent, op, ctx.block_source_absorption)?;
+        chain.push(&parent, op)?;
         let Some(next) = take_op(stack, chain.dtype(), ctx)? else {
             return chain.drive(ctx).map(Ok);
         };
@@ -658,8 +657,6 @@ pub struct ExecutionCtx {
     aggregate_kernels: OnceLock<AggregateKernels>,
     // Whether `execute_until` fuses primitive encoding chains block by block.
     block_fusion: bool,
-    force_standalone: bool,
-    block_source_absorption: bool,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -685,8 +682,6 @@ impl ExecutionCtx {
             kernels,
             aggregate_kernels: OnceLock::new(),
             block_fusion: true,
-            force_standalone: false,
-            block_source_absorption: true,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -732,26 +727,11 @@ impl ExecutionCtx {
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
-    /// Select a fusion mode for differential tests and benchmarks.
+    /// Enable or disable block fusion, which is on by default, for differential tests. See
+    /// [`crate::block`].
     #[cfg(any(test, feature = "_test-harness"))]
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
-        self
-    }
-
-    /// Enable source-specific implementations of the first block op for differential benchmarks.
-    #[cfg(any(test, feature = "_test-harness"))]
-    pub fn with_block_source_absorption(mut self, enabled: bool) -> Self {
-        self.block_source_absorption = enabled;
-        self
-    }
-
-    /// Force eligible standalone ops for differential benchmarks, including sizes where the
-    /// executor ordinarily prefers whole-array decoding.
-    #[cfg(any(test, feature = "_test-harness"))]
-    pub fn with_forced_block_fusion(mut self) -> Self {
-        self.block_fusion = true;
-        self.force_standalone = true;
         self
     }
 

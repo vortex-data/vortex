@@ -202,8 +202,8 @@ fn main() {
 }
 
 /// A posting list with varying gaps, represented as unary bucket counts and packed low bits.
-#[divan::bench(args = [false, true])]
-fn packed_postings(bencher: Bencher, fusion: bool) {
+#[divan::bench]
+fn packed_postings(bencher: Bencher) {
     let mut ctx = SESSION.create_execution_ctx();
     let mut rng = StdRng::seed_from_u64(42);
     let mut id = 0u32;
@@ -233,11 +233,6 @@ fn packed_postings(bencher: Bencher, fusion: bool) {
         plain.as_slice::<u32>()
     );
     bencher
-        .with_inputs(|| {
-            (
-                encoded.clone(),
-                SESSION.create_execution_ctx().with_block_fusion(fusion),
-            )
-        })
+        .with_inputs(|| (encoded.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
