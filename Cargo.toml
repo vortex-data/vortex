@@ -25,6 +25,7 @@ members = [
     "vortex-scan",
     "vortex-file",
     "vortex-index/core",
+    "vortex-index/examples",
     "vortex-index/inverted",
     "vortex-index/ivf",
     "vortex-index/trigram",
