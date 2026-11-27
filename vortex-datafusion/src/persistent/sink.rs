@@ -169,7 +169,7 @@ impl FileSink for VortexSink {
                 let bytes_written = object_writer.counter();
 
                 let write_options = session.write_options();
-                let buffered_bytes = write_options.buffered_bytes_tracker();
+                let buffered_bytes = write_options.backpressure();
 
                 let file_size = Arc::clone(&file.size);
                 let stream = ReceiverStream::new(rx).map(move |rb| {

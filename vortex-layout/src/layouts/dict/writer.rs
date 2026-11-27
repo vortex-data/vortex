@@ -193,8 +193,8 @@ impl LayoutStrategy for DictStrategy {
                 let sample_size =
                     u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
                         .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
-                ctx.size_scope()
-                    .record_probe(sample_size, compressed.nbytes());
+                ctx.backpressure()
+                    .record_ratio(sample_size, compressed.nbytes());
 
                 probe_dict_codes(&compressed).map(|codes| {
                     let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
@@ -239,9 +239,9 @@ impl LayoutStrategy for DictStrategy {
                 };
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone().with_child_size_scope();
+                let ctx2 = ctx.clone().with_child_scope();
                 if let Some((uncompressed, compressed)) = codes_probe {
-                    ctx2.size_scope().record_probe(uncompressed, compressed);
+                    ctx2.backpressure().record_ratio(uncompressed, compressed);
                 }
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
@@ -257,7 +257,7 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = ctx.clone().with_child_size_scope();
+                let ctx2 = ctx.clone().with_child_scope();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();

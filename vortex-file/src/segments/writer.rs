@@ -12,8 +12,8 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_layout::BufferedBytesReservation;
-use vortex_layout::BufferedBytesTracker;
+use vortex_io::Backpressure;
+use vortex_io::BackpressureReservation;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSink;
 use vortex_layout::sequence::SequenceId;
@@ -27,12 +27,12 @@ use crate::footer::SegmentSpec;
 /// buffered bytes or in the bytes written.
 pub struct SegmentBuffer {
     buffer: ByteBuffer,
-    reservation: Option<BufferedBytesReservation>,
+    reservation: Option<BackpressureReservation>,
 }
 
 impl SegmentBuffer {
     /// Returns the buffer and the reservation to drop after the buffer is written.
-    pub fn into_parts(self) -> (ByteBuffer, Option<BufferedBytesReservation>) {
+    pub fn into_parts(self) -> (ByteBuffer, Option<BackpressureReservation>) {
         (self.buffer, self.reservation)
     }
 }
@@ -43,20 +43,16 @@ pub struct BufferedSegmentSink {
     segment_specs: Mutex<Vec<SegmentSpec>>,
     /// Counts the segments that the sink has not written yet, so that the writer's buffered bytes
     /// include them.
-    buffered_bytes: BufferedBytesTracker,
+    backpressure: Backpressure,
 }
 
 impl BufferedSegmentSink {
-    pub fn new(
-        send: Sender<SegmentBuffer>,
-        byte_offset: u64,
-        buffered_bytes: BufferedBytesTracker,
-    ) -> Self {
+    pub fn new(send: Sender<SegmentBuffer>, byte_offset: u64, backpressure: Backpressure) -> Self {
         Self {
             buffers: send,
             byte_offset: AtomicU64::new(byte_offset),
             segment_specs: Default::default(),
-            buffered_bytes,
+            backpressure,
         }
     }
 
@@ -78,7 +74,7 @@ impl SegmentSink for BufferedSegmentSink {
         // such as a dictionary that writes its values last, can hold back every later segment
         // until the end of the file. Count the segment as buffered until the writer writes it.
         let segment_bytes: usize = buffers.iter().map(|buffer| buffer.len()).sum();
-        let reservation = self.buffered_bytes.reserve(segment_bytes as u64);
+        let reservation = self.backpressure.reserve_buffered(segment_bytes as u64);
 
         // We wait for all segment IDs before this one to be dropped. Then while we hold a strong
         // reference to this one, we essentially have an exclusive lock on the segment writer.
@@ -157,7 +153,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
-    use vortex_layout::BufferedBytesTracker;
+    use vortex_io::Backpressure;
     use vortex_layout::segments::SegmentSink;
     use vortex_layout::sequence::SequenceId;
 
@@ -165,7 +161,7 @@ mod tests {
 
     #[tokio::test]
     async fn segments_count_as_buffered_until_written() -> VortexResult<()> {
-        let tracker = BufferedBytesTracker::new();
+        let tracker = Backpressure::new();
         let (send, recv) = bounded(4);
         let sink = BufferedSegmentSink::new(send, 0, tracker.clone());
 

@@ -8,8 +8,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use arrow_array::RecordBatch;
 use arrow_array::StructArray;
@@ -51,21 +49,20 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::file::CountingVortexWrite;
 use vortex::file::DeferredMetadata;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteSizeEstimator;
 use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
+use vortex::io::Backpressure;
+use vortex::io::BackpressureReservation;
 use vortex::io::VortexWrite;
 use vortex::io::compat::Compat;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::BufferedBytesReservation;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
@@ -110,7 +107,7 @@ fn resolve_store(
 }
 
 /// A batch in the in-flight write queue, with the reservation that counts it as uncompressed.
-type QueuedBatch = (VortexResult<ArrayRef>, BufferedBytesReservation);
+type QueuedBatch = (VortexResult<ArrayRef>, BackpressureReservation);
 
 /// Creates the in-flight write queue and the array stream that the write task reads from it.
 ///
@@ -152,8 +149,7 @@ pub struct NativeWriter {
     session: VortexSession,
     arrow_schema: SchemaRef,
     write_schema: DType,
-    bytes_written: Arc<AtomicU64>,
-    size: WriteSizeEstimator,
+    backpressure: Backpressure,
     deferred_metadata: DeferredMetadata,
     sender: mpsc::Sender<QueuedBatch>,
 }
@@ -170,11 +166,10 @@ impl NativeWriter {
         let (sender, stream) = write_queue(write_schema.clone());
         let (abort_tx, abort_rx) = oneshot::channel::<()>();
 
-        let size = write_options.size_estimator();
+        let backpressure = write_options.backpressure();
         let deferred_metadata = write_options.deferred_metadata();
 
-        let mut write = CountingVortexWrite::new(write);
-        let bytes_written = write.counter();
+        let mut write = write;
         let handle = session.handle().spawn(async move {
             let write_fut = async move {
                 let summary = write_options.write(&mut write, stream).await?;
@@ -196,8 +191,7 @@ impl NativeWriter {
             session: session.clone(),
             arrow_schema,
             write_schema,
-            bytes_written,
-            size,
+            backpressure,
             deferred_metadata,
             sender,
         }
@@ -230,7 +224,7 @@ impl NativeWriter {
                 vortex_batch.dtype()
             ));
         }
-        let reservation = self.size.reserve_uncompressed(vortex_batch.nbytes());
+        let reservation = self.backpressure.reserve_pending(vortex_batch.nbytes());
         let mut sender = self.sender.clone();
         RUNTIME
             .block_on(async move { sender.send((Ok(vortex_batch), reservation)).await })
@@ -238,19 +232,19 @@ impl NativeWriter {
     }
 
     fn bytes_written(&self) -> u64 {
-        self.bytes_written.load(Ordering::Relaxed)
+        self.backpressure.written_bytes()
     }
 
     fn buffered_bytes(&self) -> u64 {
-        self.size.buffered_bytes()
+        self.backpressure.buffered_bytes()
     }
 
     fn estimated_size(&self) -> u64 {
-        self.size.estimated_size(self.bytes_written())
+        self.backpressure.estimated_size()
     }
 
     fn compression_ratio(&self) -> f64 {
-        self.size.compression_ratio()
+        self.backpressure.compression_ratio()
     }
 
     /// Close the input and wait for the write task. The task adds `metadata` to the footer.

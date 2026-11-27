@@ -116,7 +116,7 @@ impl LayoutStrategy for ConstantStrategy {
 
             match run.as_mut() {
                 None => {
-                    ctx.size_scope().record_constant(chunk.nbytes());
+                    ctx.backpressure().record_constant(chunk.nbytes());
                     run = Some(ConstantRun {
                         sequence_id,
                         scalar,
@@ -124,7 +124,7 @@ impl LayoutStrategy for ConstantStrategy {
                     });
                 }
                 Some(current) if current.scalar == scalar => {
-                    ctx.size_scope().record_constant(chunk.nbytes());
+                    ctx.backpressure().record_constant(chunk.nbytes());
                     // Replacing the sequence ID drops the earlier one.
                     current.sequence_id = sequence_id;
                     current.len += chunk.len();
