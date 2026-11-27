@@ -12,11 +12,13 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::i256;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::DecimalByteParts;
@@ -39,11 +41,30 @@ fn ctx() -> ExecutionCtx {
     session.create_execution_ctx()
 }
 
-/// A validity mask of exactly `len` entries, so null rows exercise lower parts holding bits
-/// that must never be read.
+/// A validity of exactly `len` entries, covering non-nullable, all-valid, all-invalid, and
+/// per-row masks so null rows exercise lower parts holding bits that must never be read.
 fn draw_validity(tc: &TestCase, len: usize) -> Validity {
-    let valid: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(len).max_size(len));
-    Validity::from_iter(valid)
+    match tc.draw(gs::integers::<u8>().min_value(0).max_value(3)) {
+        0 => Validity::NonNullable,
+        1 => Validity::AllValid,
+        2 => Validity::AllInvalid,
+        _ => {
+            let valid: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(len).max_size(len));
+            Validity::from_iter(valid)
+        }
+    }
+}
+
+/// A boolean mask array of `len` entries covering all-true, all-false, and arbitrary masks.
+fn draw_mask(tc: &TestCase, len: usize) -> ArrayRef {
+    match tc.draw(gs::integers::<u8>().min_value(0).max_value(2)) {
+        0 => Mask::AllTrue(len).into_array(),
+        1 => Mask::AllFalse(len).into_array(),
+        _ => {
+            let keep: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(len).max_size(len));
+            Mask::from_iter(keep).into_array()
+        }
+    }
 }
 
 /// An `i128`-backed decimal. The bounds keep values inside `Decimal(38, 2)` while still
@@ -113,12 +134,52 @@ fn canonicalize(array: ArrayRef, ctx: &mut ExecutionCtx) -> DecimalArray {
 /// sign extension that sits above a most significant part below the top word.
 fn draw_encoded(tc: &TestCase) -> (DecimalBytePartsArray, usize) {
     let lower_part_count = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
-    let msp: Vec<i64> = tc.draw(
-        gs::vecs(gs::integers::<i64>())
-            .min_size(1)
-            .max_size(MAX_LEN),
-    );
-    let len = msp.len();
+    let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(MAX_LEN));
+    let validity = draw_validity(tc, len);
+
+    let (msp, precision) = if lower_part_count == 0 {
+        match tc.draw(gs::integers::<u8>().min_value(0).max_value(3)) {
+            0 => {
+                let vals: Vec<i8> =
+                    tc.draw(gs::vecs(gs::integers::<i8>()).min_size(len).max_size(len));
+                (
+                    PrimitiveArray::new(Buffer::from(vals), validity).into_array(),
+                    2,
+                )
+            }
+            1 => {
+                let vals: Vec<i16> =
+                    tc.draw(gs::vecs(gs::integers::<i16>()).min_size(len).max_size(len));
+                (
+                    PrimitiveArray::new(Buffer::from(vals), validity).into_array(),
+                    4,
+                )
+            }
+            2 => {
+                let vals: Vec<i32> =
+                    tc.draw(gs::vecs(gs::integers::<i32>()).min_size(len).max_size(len));
+                (
+                    PrimitiveArray::new(Buffer::from(vals), validity).into_array(),
+                    9,
+                )
+            }
+            _ => {
+                let vals: Vec<i64> =
+                    tc.draw(gs::vecs(gs::integers::<i64>()).min_size(len).max_size(len));
+                (
+                    PrimitiveArray::new(Buffer::from(vals), validity).into_array(),
+                    18,
+                )
+            }
+        }
+    } else {
+        let vals: Vec<i64> = tc.draw(gs::vecs(gs::integers::<i64>()).min_size(len).max_size(len));
+        let precision = if lower_part_count == 1 { 38 } else { 76 };
+        (
+            PrimitiveArray::new(Buffer::from(vals), validity).into_array(),
+            precision,
+        )
+    };
 
     let lower: Vec<ArrayRef> = (0..lower_part_count)
         .map(|_| {
@@ -128,13 +189,6 @@ fn draw_encoded(tc: &TestCase) -> (DecimalBytePartsArray, usize) {
         })
         .collect();
 
-    // The declared precision must be wide enough for what the parts assemble into.
-    let precision = match lower_part_count {
-        0 => 18,
-        1 => 38,
-        _ => 76,
-    };
-    let msp = PrimitiveArray::new(Buffer::from(msp), draw_validity(tc, len)).into_array();
     let array =
         DecimalByteParts::try_new_with_lower_parts(msp, lower, DecimalDType::new(precision, 2))
             .vortex_expect("valid byte parts");
@@ -171,6 +225,26 @@ fn encoded_survives_decode_then_encode(tc: TestCase) {
     let re_encoded = DecimalByteParts::encode(&decoded, &mut ctx).vortex_expect("encode");
 
     assert_arrays_eq!(re_encoded, decoded, &mut ctx);
+}
+
+/// Masking an encoded array (once or twice) must match masking its canonical decimal,
+/// including non-nullable inputs, all MSP widths, and multi-part lower words.
+#[hegel::test]
+fn mask_matches_canonical(tc: TestCase) {
+    let (array, len) = draw_encoded(&tc);
+    let mut ctx = ctx();
+
+    let mut actual = array.into_array();
+    let mut expected = canonicalize(actual.clone(), &mut ctx).into_array();
+
+    let mask_count = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    for _ in 0..mask_count {
+        let mask = draw_mask(&tc, len);
+        actual = actual.mask(mask.clone()).vortex_expect("mask encoded");
+        expected = expected.mask(mask).vortex_expect("mask canonical");
+    }
+
+    assert_arrays_eq!(actual, expected, &mut ctx);
 }
 
 // TODO(joe): restore the coverage removed alongside these two round trips. Each of the
