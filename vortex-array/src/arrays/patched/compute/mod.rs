@@ -24,7 +24,8 @@ pub(super) fn select_rows(
 ) -> VortexResult<Option<ArrayRef>> {
     Ok(Some(match patches {
         Some(patches) => {
-            Patched::with_strategy(base, &patches, array.strategy(), ctx)?.into_array()
+            let indexed = patches.with_chunk_offsets(ctx)?;
+            Patched::from_indexed_patches(base, &indexed, array.strategy())?.into_array()
         }
         None => base,
     }))

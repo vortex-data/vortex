@@ -87,6 +87,23 @@ fn sliced_replacements_roundtrip(#[case] indexed: bool) -> VortexResult<()> {
 }
 
 #[test]
+fn rejects_inconsistent_supplied_chunk_index() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let patches = Patches::new(
+        1025,
+        0,
+        buffer![1u16, 1024].into_array(),
+        buffer![5i32, 7].into_array(),
+        Some(buffer![0u8, 2].into_array()),
+        &mut ctx,
+    )?;
+    let base = ConstantArray::new(0i32, 1025).into_array();
+    assert!(Patched::from_array_and_patches(base, &patches, &mut ctx).is_err());
+    Ok(())
+}
+
+#[test]
 fn strategy_matches_dtype_family() -> VortexResult<()> {
     let session = VortexSession::empty();
     let mut ctx = session.create_execution_ctx();

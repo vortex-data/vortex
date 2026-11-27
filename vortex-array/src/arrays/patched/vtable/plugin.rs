@@ -13,7 +13,6 @@ use crate::ArrayId;
 use crate::ArrayPlugin;
 use crate::ArrayRef;
 use crate::ArraySerialization;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VTable;
 use crate::VortexSessionExecute;
@@ -23,10 +22,10 @@ use crate::arrays::patched::PatchStrategy;
 use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedSlots;
+use crate::arrays::patched::validate_chunk_index;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::patches::PatchesMetadata;
-use crate::search_sorted::decode_sorted_positions;
 
 /// The first four children are base, indices, patch values and chunk offsets. Replacement
 /// reads patch values using the full outer dtype, including any dtype parameters. A future
@@ -50,46 +49,6 @@ enum Strategy {
     Integer(i32),
     #[prost(enumeration = "FloatPatchStrategy", tag = "3")]
     Float(i32),
-}
-
-/// Check every chunk boundary, including the skipped patches in the first physical chunk.
-/// Scalar lookups, slices and takes use this index while block execution streams the rows.
-fn validate_chunk_index(
-    indices: &ArrayRef,
-    offsets: &ArrayRef,
-    metadata: &PatchesMetadata,
-    end: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let rows = decode_sorted_positions(indices, ctx)?;
-    let offsets = decode_sorted_positions(offsets, ctx)?;
-    let start = metadata.offset()?;
-    vortex_ensure!(rows.is_sorted_by(|a, b| a < b));
-    vortex_ensure!(rows[0] >= start as u64 && rows[rows.len() - 1] < end as u64);
-    let skipped = metadata.offset_within_chunk();
-    let mut rows = rows.iter().copied().peekable();
-    let mut consumed = 0u64;
-    for (chunk, &offset) in offsets.iter().enumerate() {
-        if chunk != 0 {
-            let expected = offsets[0]
-                .checked_add(skipped)
-                .and_then(|base| base.checked_add(consumed))
-                .ok_or_else(|| vortex_err!("Patch chunk offset overflow"))?;
-            vortex_ensure_eq!(
-                offset,
-                expected,
-                "Chunk offset disagrees with patch indices"
-            );
-        }
-        let physical_chunk = start / PATCH_CHUNK_SIZE + chunk;
-        while rows
-            .next_if(|row| *row / PATCH_CHUNK_SIZE as u64 == physical_chunk as u64)
-            .is_some()
-        {
-            consumed += 1;
-        }
-    }
-    Ok(())
 }
 
 impl ArrayPlugin for Patched {
@@ -168,7 +127,14 @@ impl ArrayPlugin for Patched {
         let values = children.get(PatchedSlots::PATCH_VALUES, parts.dtype, count)?;
         let offsets = children.get(PatchedSlots::PATCH_CHUNK_OFFSETS, &offsets_dtype, chunks)?;
         let mut ctx = session.create_execution_ctx();
-        validate_chunk_index(&indices, &offsets, &metadata, end, &mut ctx)?;
+        validate_chunk_index(
+            &indices,
+            &offsets,
+            offset,
+            metadata.offset_within_chunk(),
+            end,
+            &mut ctx,
+        )?;
         let patches = Patches::from_metadata(
             parts.len,
             &metadata,
@@ -177,7 +143,7 @@ impl ArrayPlugin for Patched {
             Some(offsets),
             &mut ctx,
         )?;
-        Ok(Self::with_strategy(inner, &patches, strategy, &mut ctx)?.into_array())
+        Ok(Self::from_indexed_patches(inner, &patches, strategy)?.into_array())
     }
 }
 
@@ -269,6 +235,11 @@ mod tests {
         .encode_to_vec();
         future_family.extend_from_slice(&[0x20, 0]); // field 4: a future family's Replace
         reject(future_family);
+        for indices in [[1024u16, 1], [1, 1], [1, 2050]] {
+            let mut malformed = children.clone();
+            malformed[1] = buffer![indices[0], indices[1]].into_array();
+            assert!(decode(integer(Some(valid)), &malformed).is_err());
+        }
         let mut inconsistent = children;
         inconsistent[3] = buffer![0u8, 1, 1].into_array();
         assert!(decode(integer(Some(valid)), &inconsistent).is_err());
