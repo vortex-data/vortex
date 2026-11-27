@@ -1738,65 +1738,6 @@ async fn open_with_unknown_field_dtype_tag_fails() -> VortexResult<()> {
     Ok(())
 }
 
-fn dtype_segment(file: &[u8]) -> std::ops::Range<usize> {
-    let eof = file.len() - crate::EOF_SIZE;
-    let len_at = eof + crate::VERSION_BYTES;
-    let postscript_len = usize::from(u16::from_le_bytes([file[len_at], file[len_at + 1]]));
-    let postscript = flatbuffers::root::<fb::Postscript>(&file[eof - postscript_len..eof])
-        .expect("valid postscript");
-    let segment = postscript.dtype().expect("dtype segment is present");
-    let start = usize::try_from(segment.offset()).expect("offset fits in usize");
-    start..start + segment.length() as usize
-}
-
-fn parse_all_fields(dtype: &DType) {
-    match dtype {
-        DType::Struct(fields, _) => fields.fields().for_each(|field| parse_all_fields(&field)),
-        DType::List(element, _) | DType::FixedSizeList(element, ..) => parse_all_fields(element),
-        _ => {}
-    }
-}
-
-/// Every file that still opens after a bit flip in its dtype must have a fully parseable dtype.
-#[tokio::test]
-async fn corrupt_dtypes_that_open_are_fully_readable() -> VortexResult<()> {
-    let array = StructArray::from_fields(&[
-        ("a", PrimitiveArray::from_iter(0i64..3000).into_array()),
-        (
-            "b",
-            VarBinViewArray::from_iter_nullable_str((0..3000).map(|i| Some(format!("s{}", i % 7))))
-                .into_array(),
-        ),
-        (
-            "c",
-            BoolArray::from_iter((0..3000).map(|i| i % 3 == 0)).into_array(),
-        ),
-    ])?
-    .into_array();
-    let mut file = vec![];
-    SESSION
-        .write_options()
-        .write(&mut file, array.to_array_stream())
-        .await?;
-
-    let mut opened = 0;
-    for pos in dtype_segment(&file) {
-        for mask in [0x01u8, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0xff] {
-            let mut corrupted = file.clone();
-            corrupted[pos] ^= mask;
-            let Ok(vxf) = SESSION.open_options().open_buffer(corrupted) else {
-                continue;
-            };
-            opened += 1;
-
-            parse_all_fields(vxf.dtype());
-        }
-    }
-    assert!(opened > 0);
-
-    Ok(())
-}
-
 #[tokio::test]
 async fn file_take() -> VortexResult<()> {
     let vxf = chunked_file().await?;

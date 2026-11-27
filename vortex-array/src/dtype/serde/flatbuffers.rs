@@ -736,8 +736,11 @@ mod test {
     use flatbuffers::FlatBufferBuilder;
     use flatbuffers::WIPOffset;
     use flatbuffers::root;
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_utils::aliases::hash_set::HashSet;
@@ -1286,82 +1289,91 @@ mod test {
         }
     }
 
-    /// Every buffer `from_flatbuffer` accepts must parse completely.
-    #[test]
-    fn accepted_corruptions_parse_completely() -> VortexResult<()> {
-        let point = DType::struct_(
-            [
-                ("x", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                (
-                    "y",
-                    DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable),
-                ),
-            ],
-            Nullability::Nullable,
-        );
-        let union = DType::Union(
-            UnionVariants::new(
-                ["int", "text"].into(),
-                vec![
-                    DType::Primitive(PType::I64, Nullability::Nullable),
-                    DType::Utf8(Nullability::Nullable),
-                ],
-            )?,
-            Nullability::Nullable,
-        );
-        let dtype = DType::struct_(
-            [
-                (
-                    "points",
-                    DType::List(Arc::new(point), Nullability::Nullable),
-                ),
-                (
-                    "triple",
-                    DType::FixedSizeList(
-                        Arc::new(DType::Binary(Nullability::NonNullable)),
-                        3,
-                        Nullability::NonNullable,
-                    ),
-                ),
-                (
-                    "map",
-                    DType::map(
-                        DType::Primitive(PType::U16, Nullability::NonNullable),
-                        union,
-                        false,
-                        Nullability::Nullable,
-                    )?,
-                ),
-                (
-                    "misc",
-                    DType::struct_(
-                        [
-                            ("null", DType::Null),
-                            ("flag", DType::Bool(Nullability::Nullable)),
-                            ("variant", DType::Variant(Nullability::Nullable)),
-                        ],
-                        Nullability::NonNullable,
-                    ),
-                ),
-            ],
-            Nullability::NonNullable,
-        );
-        let bytes = dtype.write_flatbuffer_bytes()?.as_ref().to_vec();
-
-        let mut accepted = 0;
-        for pos in 0..bytes.len() {
-            for mask in [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0xff] {
-                let mut corrupted = bytes.clone();
-                corrupted[pos] ^= mask;
-                let buffer = FlatBuffer::align_from(ByteBuffer::from(corrupted));
-                if let Ok(parsed) = DType::from_flatbuffer(buffer, &SESSION) {
-                    accepted += 1;
-                    parse_all(&parsed);
-                }
+    fn draw_dtype(tc: &TestCase, depth: u8) -> DType {
+        const PTYPES: [PType; 11] = [
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+            PType::F16,
+            PType::F32,
+            PType::F64,
+        ];
+        let kinds = if depth == 0 { 7 } else { 12 };
+        let nullability = Nullability::from(tc.draw(gs::booleans()));
+        let child = || draw_dtype(tc, depth - 1);
+        let width = || tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+        let ptype = || PTYPES[tc.draw(gs::integers::<usize>().max_value(PTYPES.len() - 1))];
+        match tc.draw(gs::integers::<u8>().max_value(kinds - 1)) {
+            0 => DType::Null,
+            1 => DType::Bool(nullability),
+            2 => DType::Primitive(ptype(), nullability),
+            3 => {
+                let precision = tc.draw(gs::integers::<u8>().min_value(1).max_value(76));
+                let scale = tc.draw(gs::integers::<i8>().max_value(precision.cast_signed()));
+                DType::Decimal(DecimalDType::new(precision, scale), nullability)
+            }
+            4 => DType::Utf8(nullability),
+            5 => DType::Binary(nullability),
+            6 => DType::Variant(nullability),
+            7 => DType::List(Arc::new(child()), nullability),
+            8 => DType::FixedSizeList(
+                Arc::new(child()),
+                tc.draw(gs::integers::<u32>()),
+                nullability,
+            ),
+            9 => DType::struct_(
+                (0..width()).map(|i| (format!("f{i}"), child())),
+                nullability,
+            ),
+            10 => DType::map(
+                DType::Primitive(ptype(), Nullability::NonNullable),
+                child(),
+                tc.draw(gs::booleans()),
+                nullability,
+            )
+            .vortex_expect("map keys are non-nullable"),
+            _ => {
+                let n = width();
+                DType::Union(
+                    UnionVariants::new(
+                        (0..n).map(|i| format!("v{i}")).collect(),
+                        (0..n).map(|_| child()).collect(),
+                    )
+                    .vortex_expect("union variants are distinct"),
+                    nullability,
+                )
             }
         }
-        assert!(accepted > 0);
-        Ok(())
+    }
+
+    /// Every bit flip of a serialized struct dtype that `from_flatbuffer` accepts must parse
+    /// completely, including its lazily parsed fields.
+    #[hegel::test(test_cases = 1000)]
+    fn accepted_corruptions_parse_completely(tc: TestCase) {
+        let nfields = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+        let dtype = DType::struct_(
+            (0..nfields).map(|i| (format!("f{i}"), draw_dtype(&tc, 2))),
+            Nullability::NonNullable,
+        );
+        let mut bytes = dtype
+            .write_flatbuffer_bytes()
+            .vortex_expect("serialize dtype")
+            .as_ref()
+            .to_vec();
+        for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+            let pos = tc.draw(gs::integers::<usize>().max_value(bytes.len() - 1));
+            bytes[pos] ^= 1 << tc.draw(gs::integers::<u8>().max_value(7));
+        }
+
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(bytes));
+        if let Ok(parsed) = DType::from_flatbuffer(buffer, &SESSION) {
+            parse_all(&parsed);
+        }
     }
 
     #[test]
