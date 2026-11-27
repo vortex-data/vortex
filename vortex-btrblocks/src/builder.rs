@@ -74,7 +74,8 @@ impl CompressionMode {
                 // Keep ALP-RD, which has a CUDA decoder; FSST, which has a CUDA decoder and direct
                 // Arrow offset-based export; and string dictionaries, which the CUDA dictionary
                 // gather decodes into views over the decoded values. Other string fragmentation
-                // schemes and binary dictionaries still require unsupported decode paths.
+                // schemes, binary dictionaries, and standalone VarBin still require unsupported
+                // decode paths.
                 excluded.extend([
                     boolean::BoolRunEndScheme.id(),
                     boolean::BoolSparseScheme.id(),
@@ -85,6 +86,7 @@ impl CompressionMode {
                     string::NullDominatedSparseScheme.id(),
                     fixed_size_list::FixedSizeListSparseScheme.id(),
                     binary::BinaryDictScheme.id(),
+                    binary::VarBinScheme.id(),
                 ]);
                 // Both binary Zstd schemes are kept. Buffer-level compression preserves binary
                 // arrays' buffer layout for zero-conversion GPU decompression, but belongs to the
@@ -334,6 +336,9 @@ impl BtrBlocksCompressorBuilder {
 mod tests {
     use std::sync::LazyLock;
 
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::IntoArray;
@@ -346,6 +351,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBin;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
@@ -636,6 +642,41 @@ mod tests {
         let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
         assert!(has(string::StringDictScheme.id()));
         assert!(!has(binary::BinaryDictScheme.id()));
+    }
+
+    #[test]
+    fn cuda_excludes_binary_varbin_scheme() -> VortexResult<()> {
+        let cuda = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .only_cuda_compatible();
+        let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
+        assert!(!has(binary::VarBinScheme.id()));
+        assert!(has(string::FSSTScheme.id()));
+
+        // Fixed-width random binary values: `binary::VarBinScheme` would halve size by dropping
+        // views and sequence-encoding offsets, while Zstd cannot compress random bytes.
+        let mut rng = StdRng::seed_from_u64(42);
+        let values: Vec<[u8; 16]> = (0..4_096)
+            .map(|_| {
+                let mut buf = [0u8; 16];
+                rng.fill_bytes(&mut buf);
+                buf
+            })
+            .collect();
+        let input = VarBinViewArray::from_iter_bin(&values).into_array();
+        let compressor = cuda.build();
+        let mut ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+
+        for node in compressed.depth_first_traversal() {
+            assert!(
+                !node.is::<VarBin>(),
+                "CUDA compressor must not emit VarBin, got {}",
+                compressed.display_tree()
+            );
+        }
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
     }
 
     #[rstest]
