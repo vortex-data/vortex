@@ -48,7 +48,7 @@ fn main() {
     divan::main();
 }
 
-const ROW_COUNTS: [usize; 3] = [1_000, 10_000, 100_000];
+const ROW_COUNT: usize = 100_000;
 
 struct ListFixture {
     reader: LayoutReaderRef,
@@ -153,23 +153,23 @@ async fn write_flat(
         .unwrap()
 }
 
-#[divan::bench(args = ROW_COUNTS)]
-fn full_projection_primitive_offsets(bencher: Bencher, rows: usize) {
-    let fixture = ListFixture::new(rows, false);
+#[divan::bench]
+fn full_projection_primitive_offsets(bencher: Bencher) {
+    let fixture = ListFixture::new(ROW_COUNT, false);
     let range = 0..fixture.row_count;
     bencher.bench_local(|| fixture.run_projection(range.clone()));
 }
 
-#[divan::bench(args = ROW_COUNTS)]
-fn full_projection_compressed_offsets(bencher: Bencher, rows: usize) {
-    let fixture = ListFixture::new(rows, true);
+#[divan::bench]
+fn full_projection_compressed_offsets(bencher: Bencher) {
+    let fixture = ListFixture::new(ROW_COUNT, true);
     let range = 0..fixture.row_count;
     bencher.bench_local(|| fixture.run_projection(range.clone()));
 }
 
-#[divan::bench(args = ROW_COUNTS)]
-fn bounded_projection_compressed_offsets(bencher: Bencher, rows: usize) {
-    let fixture = ListFixture::new(rows, true);
+#[divan::bench]
+fn bounded_projection_compressed_offsets(bencher: Bencher) {
+    let fixture = ListFixture::new(ROW_COUNT, true);
     let quarter = fixture.row_count / 4;
     let range = quarter..(fixture.row_count - quarter);
     bencher.bench_local(|| fixture.run_projection(range.clone()));
