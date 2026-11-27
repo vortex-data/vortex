@@ -23,13 +23,11 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitWidths;
-use vortex_fastlanes::FL_CHUNK_SIZE;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_fastlanes::bitpack_compress::find_best_bit_widths;
-use vortex_fastlanes::bitpack_decompress::count_exceptions;
 use vortex_fastlanes::bitpacked_v1_id;
 use vortex_fastlanes::bitpacked_v2_id;
 
@@ -215,70 +213,46 @@ impl Scheme for BitPackingScheme {
     }
 }
 
-/// The smallest ratio of an array's native size to its estimated packed size at which BitPacking
-/// is worth applying.
+/// The fewest bits per value that packing has to save for BitPacking to be applied.
 ///
-/// Packing that saves only a bit or two per value, such as `u8` values at width 7, barely shrinks
-/// the data but still makes every read unpack it, so such arrays stay uncompressed.
-const MIN_PACKING_RATIO: f64 = 1.2;
+/// Packing that saves a single bit per value, such as `u8` values at width 7, barely shrinks the
+/// data but still makes every read unpack it, so such arrays stay uncompressed.
+const MIN_BITS_SAVED: usize = 2;
 
-/// Returns `true` if packing `len` values of `ptype` into `packed_bits` bits, plus
-/// `num_exceptions` patches, is estimated to compress by at least [`MIN_PACKING_RATIO`].
-///
-/// Each patch is costed as one native value plus a `u32` index, as in the width selection.
-fn packing_is_worthwhile(
-    ptype: PType,
-    len: usize,
-    packed_bits: usize,
-    num_exceptions: usize,
-) -> bool {
-    let native_bytes = len * ptype.byte_width();
-    let packed_bytes =
-        packed_bits.div_ceil(8) + num_exceptions * (ptype.byte_width() + size_of::<u32>());
-    native_bytes as f64 >= MIN_PACKING_RATIO * packed_bytes as f64
+/// Returns `true` if packing values of `ptype` at `bit_width` saves at least [`MIN_BITS_SAVED`]
+/// bits per value.
+fn saves_enough_bits(ptype: PType, bit_width: u8) -> bool {
+    ptype.bit_width() - usize::from(bit_width) >= MIN_BITS_SAVED
 }
 
-/// Returns `None` when packing at the best width would not save enough space.
+/// Returns `None` when packing at the best width would save too few bits.
 fn compress_global(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<BitPackedArray>> {
-    let ptype = primitive_array.ptype();
     let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
-    let bw = find_best_bit_width(ptype, &histogram)?;
-    let len = primitive_array.len();
-    // Values are packed in whole 1024-value chunks.
-    let packed_bits = len.next_multiple_of(FL_CHUNK_SIZE) * usize::from(bw);
-    if usize::from(bw) == ptype.bit_width()
-        || !packing_is_worthwhile(ptype, len, packed_bits, count_exceptions(bw, &histogram))
-    {
+    let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+    if !saves_enough_bits(primitive_array.ptype(), bw) {
         return Ok(None);
     }
     bitpack_encode(primitive_array, bw, Some(&histogram), exec_ctx).map(Some)
 }
 
-/// Uses global packing for uniform widths. Returns `None` for empty input, all-native widths, or
-/// when packing would not save enough space.
+/// Uses global packing for uniform widths. Returns `None` for empty input, or when no block's width
+/// saves enough bits.
 fn compress_blocked(
     primitive_array: &PrimitiveArray,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<BitPackedArray>> {
     let (bit_widths, num_exceptions) = find_best_bit_widths(primitive_array, exec_ctx)?;
-    if bit_widths.is_empty() {
-        return Ok(None);
-    }
-
-    let ptype = primitive_array.ptype();
-    let packed_bits = bit_widths
+    if !bit_widths
         .iter()
-        .map(|&bw| usize::from(bw) * FL_CHUNK_SIZE)
-        .sum();
-    if !packing_is_worthwhile(ptype, primitive_array.len(), packed_bits, num_exceptions) {
+        .any(|&bw| saves_enough_bits(primitive_array.ptype(), bw))
+    {
         return Ok(None);
     }
 
     match bit_widths.iter().copied().all_equal_value() {
-        Ok(bw) if usize::from(bw) == ptype.bit_width() => Ok(None),
         Ok(bw) => bitpack_encode(primitive_array, bw, None, exec_ctx).map(Some),
         Err(_) => {
             bitpack_encode_blocked(primitive_array, &bit_widths, Some(num_exceptions), exec_ctx)
