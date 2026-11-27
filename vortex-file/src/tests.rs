@@ -63,6 +63,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::flatbuffers as dtype_fb;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
@@ -1751,6 +1752,54 @@ async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResu
         .with_dtype(dtype)
         .open_buffer(buffer)?;
     assert!(vxf.file_stats().is_none());
+
+    Ok(())
+}
+
+/// Struct field dtypes are decoded lazily, so a file whose field dtype has an unknown type tag
+/// still opens, but scanning it must return an error rather than panic.
+#[tokio::test]
+async fn scan_with_unknown_field_dtype_tag_returns_error() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
+    let mut bytes = vec![];
+    SESSION
+        .write_options()
+        .write(&mut bytes, array.to_array_stream())
+        .await?;
+
+    // Overwrite the type tag of field `a` in the file's dtype segment.
+    let tag_position = {
+        let eof_offset = bytes.len() - crate::EOF_SIZE;
+        let postscript_len = usize::from(u16::from_le_bytes([
+            bytes[eof_offset + 2],
+            bytes[eof_offset + 3],
+        ]));
+        let postscript =
+            flatbuffers::root::<fb::Postscript>(&bytes[eof_offset - postscript_len..eof_offset])?;
+        let segment = postscript
+            .dtype()
+            .ok_or_else(|| vortex_err!("file has no dtype segment"))?;
+        let start = usize::try_from(segment.offset())?;
+        let end = start + usize::try_from(segment.length())?;
+        let field = flatbuffers::root::<dtype_fb::DType>(&bytes[start..end])?
+            .type__as_struct_()
+            .and_then(|fields| fields.dtypes())
+            .ok_or_else(|| vortex_err!("file dtype is not a struct"))?
+            .get(0);
+        start
+            + field._tab.loc()
+            + usize::from(field._tab.vtable().get(dtype_fb::DType::VT_TYPE_TYPE))
+    };
+    bytes[tag_position] = 200;
+
+    let vxf = SESSION.open_options().open_buffer(bytes)?;
+    let Err(error) = vxf.scan() else {
+        panic!("scanning a field with an unknown dtype must fail");
+    };
+    assert!(
+        error.to_string().contains("Unknown DType variant"),
+        "unexpected error: {error}"
+    );
 
     Ok(())
 }

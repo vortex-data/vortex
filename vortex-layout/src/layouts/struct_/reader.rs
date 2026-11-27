@@ -122,7 +122,8 @@ impl StructReader {
             dtypes.push(DType::Bool(Nullability::NonNullable));
             names.push(Arc::from("validity"));
         }
-        dtypes.extend(struct_dt.fields());
+        // Field dtypes are decoded lazily from the file, so this is where a corrupt one surfaces.
+        dtypes.extend(struct_dt.try_fields()?);
         names.extend(struct_dt.names().iter().map(|x| Arc::clone(x.inner())));
 
         let lazy_children = LazyReaderChildren::new(
