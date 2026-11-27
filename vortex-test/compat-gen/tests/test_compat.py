@@ -470,3 +470,25 @@ def test_incomplete_read_retried_and_collected(compat, monkeypatch, tmp_path, ca
     stderr = capsys.readouterr().err
     assert "v0.61.0/(manifest):" in stderr
     assert "v0.62.0/trunc.vortex: download failed:" in stderr
+
+
+def test_evaluate_edition_results_skips_stale_on_whole_reader_failure(compat):
+    accepted = {
+        ("core2025.05.0", "0.36.0", "fsst.vortex"): {
+            "expected_causes": ["Expected 2 buffers, got 3"],
+            "reason": "known fsst issue",
+        }
+    }
+    report = {
+        "passed": [],
+        "failed": [{"name": "(all)", "error": "uv wheel install failed"}],
+    }
+    res = compat._evaluate_edition_results(
+        "core2025.05.0",
+        "0.36.0",
+        ["primitives.vortex", "fsst.vortex"],
+        report,
+        accepted,
+    )
+    assert res["stale"] == []
+    assert [f["name"] for f in res["unexpected"]] == ["(all)"]

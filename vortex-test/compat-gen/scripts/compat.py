@@ -1022,13 +1022,21 @@ def _evaluate_edition_results(
                 }
             )
 
+    passed_set = set(passed)
     for (ed, rv, fixture_name), entry in sorted(accepted_failures.items()):
         if ed != edition or rv != reader_version:
             continue
         if fixture_name not in failed_by_name:
-            if fixture_name not in written_set and exclude and any(pat in fixture_name for pat in exclude):
+            if fixture_name not in written_set:
+                if exclude and any(pat in fixture_name for pat in exclude):
+                    continue
+                status = "not written"
+            elif fixture_name in passed_set:
+                status = "passed"
+            else:
+                # Written fixture was neither passed nor failed (e.g. whole-reader `(all)` failure);
+                # do not misreport accepted entries as stale.
                 continue
-            status = "passed" if fixture_name in written_set else "not written"
             stale_accepted.append(
                 {
                     "name": fixture_name,
