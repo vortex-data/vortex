@@ -389,19 +389,17 @@ fn eval_pattern(
             },
             allocator.clone(),
         ),
-        LikePattern::Contains(finder, needle_len) if searches_buffers(haystack) => {
-            contains_in_buffers(haystack, finder, *needle_len, negated, allocator)
-        }
-        LikePattern::Contains(finder, needle_len) => BitBuffer::collect_bool_in(
-            len,
-            |i| {
-                let view = &haystack.views()[i];
-                let matched =
-                    view.len() as usize >= *needle_len && finder.find(haystack.bytes(i)).is_some();
-                matched != negated
-            },
-            allocator.clone(),
-        ),
+        LikePattern::Contains(finder, needle_len) => match buffer_value_ends(haystack) {
+            Some(value_ends) => contains_in_buffers(
+                haystack,
+                finder,
+                *needle_len,
+                &value_ends,
+                negated,
+                allocator,
+            ),
+            None => contains_per_value(haystack, finder, *needle_len, negated, allocator),
+        },
         _ => BitBuffer::collect_bool_in(
             len,
             |i| pattern.matches(haystack.bytes(i)) != negated,
@@ -410,10 +408,31 @@ fn eval_pattern(
     }
 }
 
-/// Whether to search for a substring through the data buffers of `haystack` rather than value
-/// by value: the values outside the views must follow each other in their buffers in row order,
-/// and fill at least half of the bytes between the first and the last of them.
-fn searches_buffers(haystack: &ResolvedViews<'_>) -> bool {
+/// Evaluate a `%needle%` pattern by searching each value of `haystack` on its own.
+fn contains_per_value(
+    haystack: &ResolvedViews<'_>,
+    finder: &Finder<'static>,
+    needle_len: usize,
+    negated: bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    BitBuffer::collect_bool_in(
+        haystack.len(),
+        |i| {
+            let view = &haystack.views()[i];
+            let matched =
+                view.len() as usize >= needle_len && finder.find(haystack.bytes(i)).is_some();
+            matched != negated
+        },
+        allocator.clone(),
+    )
+}
+
+/// The end of the last value in each data buffer of `haystack`, when a substring is better
+/// searched for through the buffers than value by value: the values outside the views must
+/// follow each other in their buffers in row order, and fill at least half of the bytes between
+/// the first and the last of them.
+fn buffer_value_ends(haystack: &ResolvedViews<'_>) -> Option<Vec<usize>> {
     let mut value_bytes = 0usize;
     // The start of the first value and the end of the last value in each buffer.
     let mut spans = vec![(usize::MAX, 0usize); haystack.buffers().len()];
@@ -427,7 +446,7 @@ fn searches_buffers(haystack: &ResolvedViews<'_>) -> bool {
         if *start == usize::MAX {
             *start = range.start;
         } else if range.start < *end {
-            return false;
+            return None;
         }
         *end = range.end;
         value_bytes += range.len();
@@ -437,7 +456,8 @@ fn searches_buffers(haystack: &ResolvedViews<'_>) -> bool {
         .filter(|(start, _)| *start != usize::MAX)
         .map(|(start, end)| end - start)
         .sum();
-    value_bytes > 0 && 2 * value_bytes >= span_bytes
+    (value_bytes > 0 && 2 * value_bytes >= span_bytes)
+        .then(|| spans.into_iter().map(|(_, end)| end).collect())
 }
 
 /// Evaluate a `%needle%` pattern by searching the data buffers of `haystack` once.
@@ -446,11 +466,15 @@ fn searches_buffers(haystack: &ResolvedViews<'_>) -> bool {
 /// on its own spends most of its time starting searches. Values that follow each other in a
 /// buffer, as decoding lays them out, share one search instead: the first match at or after a
 /// value's start tells whether the value holds the needle, and serves every later value that
-/// starts before it. See [`searches_buffers`] for when the values are laid out that way.
+/// starts before it. See [`buffer_value_ends`] for when the values are laid out that way.
+///
+/// A search stops at `value_ends`, the end of the last value in each buffer, as a slice of an
+/// array keeps the whole buffers of the array and no match past its values counts.
 fn contains_in_buffers(
     haystack: &ResolvedViews<'_>,
     finder: &Finder<'static>,
     needle_len: usize,
+    value_ends: &[usize],
     negated: bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
@@ -475,8 +499,9 @@ fn contains_in_buffers(
                 // `start` lies between the two.
                 if start < *search_start || start > *next_match {
                     *search_start = start;
+                    let end = value_ends[view.buffer_index as usize];
                     *next_match = finder
-                        .find(&buffer[start..])
+                        .find(&buffer[start..end])
                         .map_or(usize::MAX, |position| start + position);
                 }
                 *next_match != usize::MAX && *next_match + needle_len <= start + len
@@ -548,6 +573,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_expr::get_item;
     use vortex_expr::lit;
@@ -558,8 +584,8 @@ mod tests {
     use crate::expr::not_ilike;
     use crate::like::Like;
     use crate::like::LikeOptions;
+    use crate::like::buffer_value_ends;
     use crate::like::is_ascii;
-    use crate::like::searches_buffers;
     use crate::like::suffix_bytes_unchecked;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -603,13 +629,37 @@ mod tests {
     fn contains_searches_buffers(#[values(false, true)] negated: bool) {
         let mut ctx = SESSION.create_execution_ctx();
         let values = VarBinViewArray::from_iter_str(SEARCHED);
-        assert!(searches_buffers(&values.resolved_views()));
+        assert!(buffer_value_ends(&values.resolved_views()).is_some());
         let expected = SEARCHED.map(|value| value.contains("google") != negated);
         assert_arrays_eq!(
             search(values.into_array(), negated),
             BoolArray::from_iter(expected),
             &mut ctx
         );
+    }
+
+    #[rstest]
+    fn contains_searches_buffers_of_a_slice_only_up_to_its_values(
+        #[values(false, true)] negated: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The slice keeps the buffer of the whole array, whose later values hold the needle.
+        let sliced = VarBinViewArray::from_iter_str(SEARCHED)
+            .into_array()
+            .slice(1..3)?
+            .execute::<VarBinViewArray>(&mut ctx)?;
+        let views = sliced.resolved_views();
+        let value_ends = buffer_value_ends(&views).vortex_expect("the slice's values are in order");
+        assert!(value_ends[0] < views.buffers()[0].len());
+        let expected = SEARCHED[1..3]
+            .iter()
+            .map(|value| value.contains("google") != negated);
+        assert_arrays_eq!(
+            search(sliced.into_array(), negated),
+            BoolArray::from_iter(expected),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[rstest]
@@ -621,7 +671,7 @@ mod tests {
             .into_array()
             .take(buffer![6u32, 5, 4, 3, 2, 1, 0].into_array())?
             .execute::<VarBinViewArray>(&mut ctx)?;
-        assert!(!searches_buffers(&reversed.resolved_views()));
+        assert!(buffer_value_ends(&reversed.resolved_views()).is_none());
         let mut expected = SEARCHED.map(|value| value.contains("google") != negated);
         expected.reverse();
         assert_arrays_eq!(
