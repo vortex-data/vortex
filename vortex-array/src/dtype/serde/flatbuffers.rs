@@ -231,6 +231,15 @@ impl TryFrom<ViewedDType> for DType {
                     .nullable()
                     .into(),
             )),
+            fb::Type::FixedSizeBinary => {
+                let fb_fsb = fb.type__as_fixed_size_binary().ok_or_else(|| {
+                    vortex_err!("failed to parse fixed-size binary from flatbuffer")
+                })?;
+                Ok(Self::FixedSizeBinary(
+                    fb_fsb.size(),
+                    fb_fsb.nullable().into(),
+                ))
+            }
             fb::Type::List => {
                 let fb_list = fb
                     .type__as_list()
@@ -361,6 +370,7 @@ enum DTypeKey {
     Decimal(DecimalDType, Nullability),
     Utf8(Nullability),
     Binary(Nullability),
+    FixedSizeBinary(u32, Nullability),
     List(UOffsetT, Nullability),
     FixedSizeList(UOffsetT, u32, Nullability),
     Map(UOffsetT, UOffsetT, bool, Nullability),
@@ -401,6 +411,7 @@ impl Interner {
             DType::Decimal(dt, n) => DTypeKey::Decimal(*dt, *n),
             DType::Utf8(n) => DTypeKey::Utf8(*n),
             DType::Binary(n) => DTypeKey::Binary(*n),
+            DType::FixedSizeBinary(size, n) => DTypeKey::FixedSizeBinary(*size, *n),
             DType::Variant(n) => DTypeKey::Variant(*n),
             DType::List(edt, n) => DTypeKey::List(self.write_dtype(fbb, edt)?.value(), *n),
             DType::FixedSizeList(edt, size, n) => {
@@ -600,6 +611,17 @@ fn write_dtype_table<'fb>(
             fb::Type::Binary,
             fb::Binary::create(fbb, &fb::BinaryArgs { nullable: n.into() }).as_union_value(),
         ),
+        DTypeKey::FixedSizeBinary(size, n) => (
+            fb::Type::FixedSizeBinary,
+            fb::FixedSizeBinary::create(
+                fbb,
+                &fb::FixedSizeBinaryArgs {
+                    size,
+                    nullable: n.into(),
+                },
+            )
+            .as_union_value(),
+        ),
         DTypeKey::Variant(n) => (
             fb::Type::Variant,
             fb::Variant::create(fbb, &fb::VariantArgs { nullable: n.into() }).as_union_value(),
@@ -786,6 +808,8 @@ mod test {
         roundtrip_dtype(DType::Primitive(PType::F32, Nullability::NonNullable));
         roundtrip_dtype(DType::Primitive(PType::F64, Nullability::NonNullable));
         roundtrip_dtype(DType::Binary(Nullability::NonNullable));
+        roundtrip_dtype(DType::FixedSizeBinary(16, Nullability::NonNullable));
+        roundtrip_dtype(DType::FixedSizeBinary(0, Nullability::Nullable));
         roundtrip_dtype(DType::Utf8(Nullability::NonNullable));
         roundtrip_dtype(DType::List(
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
