@@ -36,6 +36,7 @@ use super::BITPACKING_V1;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 
 /// Elias-Fano encoding for sorted, non-nullable unsigned integers.
@@ -105,18 +106,20 @@ impl Scheme for EliasFanoScheme {
         )))
     }
 
-    fn compress(
+    /// Children: none of its own. The low bits are bit-packed, as `BITPACKING_V1` encodes
+    /// them, and the bucket counts are forced into [`Unary`], which has no children.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let for_array = FoR::encode(primitive, exec_ctx)?;
         let FoRReferences::Global(reference) = for_array.references() else {
             vortex_bail!("FoR::encode produced per-chunk references");
         };
+        let reference = reference.clone();
 
         let biased = for_array
             .encoded()
@@ -124,16 +127,35 @@ impl Scheme for EliasFanoScheme {
             .execute::<PrimitiveArray>(exec_ctx)?;
         let ef = elias_fano_encode(biased.as_view())?
             .ok_or_else(|| vortex_err!("cannot Elias-Fano encode an unsorted array"))?;
+        let lower_bits = ef.lower_bits();
 
         let counts = ef.upper().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let upper = unary_encode(counts.as_view(), exec_ctx)?
-            .ok_or_else(|| vortex_err!("Elias-Fano bucket counts do not fit Unary"))?;
+            .ok_or_else(|| vortex_err!("Elias-Fano bucket counts do not fit Unary"))?
+            .into_array();
 
         let lows = ArrayAndStats::new(ef.lower().clone(), compress_ctx.merged_stats_options());
-        let lower = BITPACKING_V1.compress(compressor, &lows, compress_ctx, exec_ctx)?;
+        let Some(lower) = BITPACKING_V1.try_encode(&lows, exec_ctx)? else {
+            // Low bits that do not bit-pack leave Elias-Fano no smaller than the input, so hand
+            // it back for the size check to reject.
+            return Ok(Encoded::leaf(data.array().clone()));
+        };
 
-        let ef = EliasFano::try_new(upper.into_array(), lower, ef.lower_bits())?;
-        Ok(FoR::try_new(ef.into_array(), reference.clone())?.into_array())
+        Ok(lower.wrap(Vec::new(), Vec::new(), move |lower, _, _| {
+            let ef = EliasFano::try_new(upper, lower, lower_bits)?;
+            Ok(FoR::try_new(ef.into_array(), reference)?.into_array())
+        }))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
