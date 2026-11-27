@@ -671,10 +671,11 @@ pub(crate) fn record_fuse_start(array: &ArrayRef) {
     });
 }
 
-pub(crate) fn record_fuse_extend(parent: &ArrayRef, ops: usize) {
+pub(crate) fn record_fuse_extend(parent: &ArrayRef, ops: usize, absorbed: bool) {
     record(TraceEvent::FuseExtend {
         parent: ArraySummary::new(parent),
         ops,
+        absorbed,
     });
 }
 
@@ -957,6 +958,7 @@ enum TraceEvent {
         array: ArraySummary,
     },
     FuseExtend {
+        absorbed: bool,
         parent: ArraySummary,
         ops: usize,
     },
@@ -1213,8 +1215,13 @@ impl TraceEvent {
                 write!(f, "Done array={array}")
             }
             TraceEvent::FuseStart { array } => write!(f, "fuse start array={array}"),
-            TraceEvent::FuseExtend { parent, ops } => {
-                write!(f, "fuse extend parent={parent} ops={ops}")
+            TraceEvent::FuseExtend {
+                parent,
+                ops,
+                absorbed,
+            } => {
+                let action = if *absorbed { "absorb" } else { "extend" };
+                write!(f, "fuse {action} parent={parent} ops={ops}")
             }
             TraceEvent::BuilderEvent {
                 action,

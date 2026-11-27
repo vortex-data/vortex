@@ -38,6 +38,8 @@ use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::RULES;
 use crate::arrays::dict::execute::take_canonical;
+use crate::block::BlockProgram;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
@@ -132,12 +134,30 @@ impl VTable for Dict {
         DictSlots::NAMES[idx].to_string()
     }
 
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        Ok(super::block::source(array))
+    }
+
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.is_empty() {
             let result_dtype = array
                 .dtype()
                 .union_nullability(array.codes().dtype().nullability());
             return Ok(ExecutionResult::done(Canonical::empty(&result_dtype)));
+        }
+
+        if ctx.block_fusion_enabled()
+            && !array.codes().is::<Primitive>()
+            && let Some(source) = super::block::source(array.as_view())
+        {
+            let result = BlockProgram::new(source, array.dtype().as_ptype(), array.len())
+                .run(array.dtype().nullability(), ctx)?
+                .into_array();
+            super::take::propagate_take_stats(array.values(), &result, array.codes())?;
+            return Ok(ExecutionResult::done(result));
         }
 
         let array = require_child!(array, array.codes(), DictSlots::CODES => Primitive);
@@ -153,11 +173,12 @@ impl VTable for Dict {
 
         let DictParts { values, codes, .. } = array.into_parts();
 
-        Ok(ExecutionResult::done(take_canonical(
-            values.as_::<AnyCanonical>(),
-            codes.as_::<Primitive>(),
-            ctx,
-        )?))
+        let result = take_canonical(values.as_::<AnyCanonical>(), codes.as_::<Primitive>(), ctx)?
+            .into_array();
+        if ctx.block_fusion_enabled() && super::block::can_source(&codes, &values) {
+            super::take::propagate_take_stats(&values, &result, &codes)?;
+        }
+        Ok(ExecutionResult::done(result))
     }
 
     fn append_to_builder(

@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::marker::PhantomData;
 
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -20,11 +21,16 @@ use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
+use vortex_array::block::Block;
+use vortex_array::block::BlockOp;
+use vortex_array::block::Written;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::require_child;
+use vortex_array::require_spine;
 use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
@@ -98,13 +104,39 @@ impl VTable for ZigZag {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.encoded(), ZigZagSlots::ENCODED => Primitive);
+        let array = require_spine!(array, array.encoded(), ZigZagSlots::ENCODED => Primitive);
 
         let ZigZagSlots { encoded } = array.into_parts();
 
         Ok(ExecutionResult::done(
             zigzag_decode(encoded.downcast::<Primitive>()).into_array(),
         ))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        if slot_idx != ZigZagSlots::ENCODED {
+            return Ok(None);
+        }
+        Ok(Some(match_each_signed_integer_ptype!(
+            array.dtype().as_ptype(),
+            |T| { Box::new(Decode::<T>(PhantomData)) as Box<dyn BlockOp> }
+        )))
+    }
+}
+
+struct Decode<T>(PhantomData<T>);
+
+impl<T: ExternalZigZag + NativePType> BlockOp for Decode<T>
+where
+    T::UInt: NativePType,
+{
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        Ok(block.map(T::decode))
     }
 }
 
@@ -312,6 +344,69 @@ mod test {
         assert_eq!(
             sliced.statistics().compute_is_constant(&mut ctx),
             array.statistics().compute_is_constant(&mut ctx)
+        );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(codspeed))]
+mod fusion_tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::test_harness::fusion::fusion_trace;
+    use vortex_error::VortexResult;
+    use vortex_fastlanes::bitpack_compress::bitpack_encode;
+    use vortex_pco::Pco;
+    use vortex_session::VortexSession;
+
+    use super::ZigZag;
+
+    #[test]
+    fn sliced_nullable_bitpacked_residuals() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        vortex_fastlanes::initialize(&session);
+        let values = PrimitiveArray::from_option_iter(
+            (0..3000u32)
+                .map(|i| (i % 7 != 0).then_some(if i == 1023 { u32::MAX } else { i % 512 })),
+        );
+        let packed = bitpack_encode(&values, 9, None, &mut session.create_execution_ctx())?;
+        let array = ZigZag::try_new(packed.into_array())?.into_array();
+        let trace = fusion_trace(array.slice(17..2801)?, &session)?;
+        assert!(
+            trace.contains("fuse extend parent=vortex.zigzag"),
+            "{trace}"
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::all_valid(false)]
+    #[case::nullable(true)]
+    fn sliced_pco_pages_fuse(#[case] nullable: bool) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        vortex_pco::initialize(&session);
+        let values = if nullable {
+            PrimitiveArray::from_option_iter((0..5127u32).map(|i| (i % 11 != 0).then_some(i / 13)))
+        } else {
+            PrimitiveArray::from_iter((0..5127u32).map(|i| i / 13))
+        };
+        let encoded = Pco::from_primitive(
+            values.as_view(),
+            8,
+            521,
+            &mut session.create_execution_ctx(),
+        )?;
+        let array = ZigZag::try_new(encoded.into_array())?.into_array();
+        let trace = fusion_trace(array.slice(1027..5011)?, &session)?;
+        assert_eq!(
+            trace.contains("fuse start array=vortex.pco"),
+            nullable,
+            "{trace}"
         );
         Ok(())
     }

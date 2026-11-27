@@ -33,6 +33,7 @@ use crate::scalar::PValue;
 use crate::validity::Validity;
 
 pub mod array;
+pub(crate) mod block;
 mod probe;
 mod vtable;
 

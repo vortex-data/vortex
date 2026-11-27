@@ -37,13 +37,7 @@ impl FilterKernel for Delta {
         // Deltas are decoded as unsigned; `wrapping_add` is the same for either signedness.
         let bases = bases.reinterpret_cast(ptype.to_unsigned());
         let filtered = match_each_unsigned_integer_ptype!(bases.ptype(), |T| {
-            let mut deltas = None;
-            let chunks = DeltaChunks::<T, { T::LANES }>::for_array(
-                array,
-                bases.as_slice(),
-                &mut deltas,
-                ctx,
-            )?;
+            let chunks = DeltaChunks::<T, { T::LANES }>::for_array(array, bases.to_buffer(), ctx)?;
             filter_chunked(&chunks, array.offset(), values.selection(), ctx.allocator())
                 .into_byte_buffer()
         });

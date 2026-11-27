@@ -40,6 +40,7 @@ use vortex_session::registry::CachedId;
 
 use crate::TemporalParts;
 use crate::block::days_block_op;
+use crate::block::time_block_op;
 use crate::canonical::decode_to_temporal;
 use crate::split_temporal;
 
@@ -135,6 +136,20 @@ impl VTable for DateTimeParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // With a single day and one constant time component, only one column needs decoding.
+        // Its validity is also the result's, since both constants are non-null.
+        let array = if array.days().as_constant().is_some_and(|day| !day.is_null()) {
+            if array.seconds().as_constant().is_some() {
+                require_spine!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyColumnar)
+            } else if array.subseconds().as_constant().is_some() {
+                require_spine!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyColumnar)
+            } else {
+                array
+            }
+        } else {
+            array
+        };
+
         // Seconds and subseconds are often constant, so they stay constant to keep the decode
         // fast path.
         let array =
@@ -162,15 +177,29 @@ impl VTable for DateTimeParts {
         child_dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Box<dyn BlockOp>>> {
-        if slot_idx != DateTimePartsSlots::DAYS {
-            return Ok(None);
-        }
-        Ok(days_block_op(
-            array.dtype(),
-            child_dtype,
-            array.seconds(),
-            array.subseconds(),
-        ))
+        Ok(match slot_idx {
+            DateTimePartsSlots::DAYS => days_block_op(
+                array.dtype(),
+                child_dtype,
+                array.seconds(),
+                array.subseconds(),
+            ),
+            DateTimePartsSlots::SECONDS => time_block_op(
+                array.dtype(),
+                child_dtype,
+                array.days(),
+                array.subseconds(),
+                true,
+            ),
+            DateTimePartsSlots::SUBSECONDS => time_block_op(
+                array.dtype(),
+                child_dtype,
+                array.days(),
+                array.seconds(),
+                false,
+            ),
+            _ => None,
+        })
     }
 }
 

@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
+
 use num_traits::AsPrimitive;
+use vortex_array::ArrayView;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::block::Block;
+use vortex_array::block::BlockOp;
+use vortex_array::block::Written;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
@@ -11,7 +17,9 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 
+use super::EliasFano;
 use super::EliasFanoArray;
 use super::EliasFanoArraySlotsExt;
 use crate::Unary;
@@ -108,4 +116,65 @@ where
     );
 
     Ok(PrimitiveArray::new(values, Validity::NonNullable))
+}
+
+pub(super) fn lower_block_op(
+    array: ArrayView<'_, EliasFano>,
+) -> VortexResult<Option<Box<dyn BlockOp>>> {
+    let Some(unary) = array.upper().as_opt::<Unary>() else {
+        return Ok(None);
+    };
+    let bits = unary.to_bit_buffer();
+    vortex_ensure_eq!(bits.true_count(), array.len());
+    Ok(Some(match_each_unsigned_integer_ptype!(
+        array.dtype().as_ptype(),
+        |T| {
+            Box::new(MergeLower::<T> {
+                bits,
+                next_bit: 0,
+                lower_bits: usize::from(array.lower_bits),
+                _type: PhantomData,
+            })
+        }
+    )))
+}
+
+struct MergeLower<T> {
+    bits: BitBuffer,
+    next_bit: usize,
+    lower_bits: usize,
+    _type: PhantomData<T>,
+}
+
+impl<T: UnsignedPType> BlockOp for MergeLower<T>
+where
+    usize: AsPrimitive<T>,
+{
+    fn process<'a>(&mut self, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let start = block.start();
+        let mut written = block.map(|low: T| low);
+        let lows = written.as_mut_slice::<T>();
+        let tail = self.bits.slice(self.next_bit..);
+        // The upper has one set bit per row. Restrict the word scan to this block's rows.
+        let end = tail
+            .select(lows.len() - 1)
+            .ok_or_else(|| vortex_err!("missing Elias-Fano upper bit"))?
+            + 1;
+        let mut row = 0;
+        let mut stray = T::zero();
+        tail.slice(..end).for_each_set_index(|bit| {
+            let bucket = self.next_bit + bit - (start + row);
+            let low = lows[row];
+            stray = stray | low;
+            lows[row] = (AsPrimitive::<T>::as_(bucket) << self.lower_bits) | low;
+            row += 1;
+        });
+        vortex_ensure_eq!(
+            stray >> self.lower_bits,
+            T::zero(),
+            "EliasFanoArray low bits must fit in lower_bits"
+        );
+        self.next_bit += end;
+        Ok(written)
+    }
 }

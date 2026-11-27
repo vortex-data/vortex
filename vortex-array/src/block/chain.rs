@@ -53,7 +53,12 @@ impl FusedChain {
 
     /// Extend the chain with `parent`'s `op`, which transforms the chain's values into the
     /// parent's: the chain then stands for `parent`.
-    pub(crate) fn push(&mut self, parent: &ArrayRef, op: Box<dyn BlockOp>) -> VortexResult<()> {
+    pub(crate) fn push(
+        &mut self,
+        parent: &ArrayRef,
+        op: Box<dyn BlockOp>,
+        absorb: bool,
+    ) -> VortexResult<()> {
         let ptype = fusable_ptype(parent)
             .ok_or_else(|| vortex_err!("a spine parent is primitive, not {}", parent.dtype()))?;
         vortex_ensure_eq!(
@@ -61,8 +66,11 @@ impl FusedChain {
             parent.len(),
             "a spine child has its parent's length"
         );
-        self.program.push(op, ptype);
-        trace_op!(record_fuse_extend(parent, self.program.ops()));
+        let absorbed = absorb && self.program.try_absorb(op.as_ref(), ptype.into());
+        if !absorbed {
+            self.program.push(op, ptype);
+        }
+        trace_op!(record_fuse_extend(parent, self.program.ops(), absorbed));
         self.dtype = parent.dtype().clone();
         self.stats = parent.statistics().to_owned();
         Ok(())
