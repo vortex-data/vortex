@@ -745,11 +745,11 @@ mod test {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::dtype::DType;
-    use crate::dtype::DecimalDType;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::dtype::UnionVariants;
     use crate::dtype::flatbuffers as fb;
+    use crate::dtype::generate::draw_dtype;
     use crate::dtype::nullability::Nullability;
     use crate::dtype::serde::flatbuffers::ViewedDType;
     use crate::dtype::test::SESSION;
@@ -1380,68 +1380,6 @@ mod test {
             DType::List(element, _) | DType::FixedSizeList(element, ..) => parse_all(element),
             DType::Extension(ext) => parse_all(ext.storage_dtype()),
             _ => {}
-        }
-    }
-
-    fn draw_dtype(tc: &TestCase, depth: u8) -> DType {
-        const PTYPES: [PType; 11] = [
-            PType::U8,
-            PType::U16,
-            PType::U32,
-            PType::U64,
-            PType::I8,
-            PType::I16,
-            PType::I32,
-            PType::I64,
-            PType::F16,
-            PType::F32,
-            PType::F64,
-        ];
-        let kinds = if depth == 0 { 7 } else { 12 };
-        let nullability = Nullability::from(tc.draw(gs::booleans()));
-        let child = || draw_dtype(tc, depth - 1);
-        let width = || tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
-        let ptype = || PTYPES[tc.draw(gs::integers::<usize>().max_value(PTYPES.len() - 1))];
-        match tc.draw(gs::integers::<u8>().max_value(kinds - 1)) {
-            0 => DType::Null,
-            1 => DType::Bool(nullability),
-            2 => DType::Primitive(ptype(), nullability),
-            3 => {
-                let precision = tc.draw(gs::integers::<u8>().min_value(1).max_value(76));
-                let scale = tc.draw(gs::integers::<i8>().max_value(precision.cast_signed()));
-                DType::Decimal(DecimalDType::new(precision, scale), nullability)
-            }
-            4 => DType::Utf8(nullability),
-            5 => DType::Binary(nullability),
-            6 => DType::Variant(nullability),
-            7 => DType::List(Arc::new(child()), nullability),
-            8 => DType::FixedSizeList(
-                Arc::new(child()),
-                tc.draw(gs::integers::<u32>()),
-                nullability,
-            ),
-            9 => DType::struct_(
-                (0..width()).map(|i| (format!("f{i}"), child())),
-                nullability,
-            ),
-            10 => DType::map(
-                DType::Primitive(ptype(), Nullability::NonNullable),
-                child(),
-                tc.draw(gs::booleans()),
-                nullability,
-            )
-            .vortex_expect("map keys are non-nullable"),
-            _ => {
-                let n = width();
-                DType::Union(
-                    UnionVariants::new(
-                        (0..n).map(|i| format!("v{i}")).collect(),
-                        (0..n).map(|_| child()).collect(),
-                    )
-                    .vortex_expect("union variants are distinct"),
-                    nullability,
-                )
-            }
         }
     }
 
