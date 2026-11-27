@@ -180,8 +180,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// Returns `None` when the array cannot emit blocks without executing a child first, so the
     /// executor executes it as usual, until it is canonical, and a canonical primitive array is a
-    /// leaf. Only called on arrays of a primitive dtype, whose blocks
-    /// hold values of that type.
+    /// leaf. Only called on arrays whose dtype is primitive, or an extension type stored as one;
+    /// their blocks hold values of that primitive type.
     fn block_source(
         array: ArrayView<'_, Self>,
         ctx: &mut ExecutionCtx,

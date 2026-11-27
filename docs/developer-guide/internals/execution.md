@@ -281,8 +281,10 @@ The executor fuses in three steps:
 
 1. **Check, going down.** When a parent asks for its spine with `ExecuteSpine`, the executor
    checks what does not need the slot executed: fusion is on, no builder is active, both arrays
-   are primitive, non-empty and of one length, the parent has no `execute_parent` kernels of its
-   own, and the parent above has none for it. A slot that fails runs as a plain `ExecuteSlot`.
+   are primitive and of one length, longer than two blocks, the parent has no `execute_parent`
+   kernels of its own, and the parent above has none for it. A slot that fails runs as a plain
+   `ExecuteSlot`. Chains of at most two blocks are not fused because their intermediates stay in
+   L1, so a program would cost more than it saves.
 2. **Build, going up.** When the child is ready, after its own `execute_parent` probes, the
    executor asks the parent for its op, once per frame, then the child for its block source. A
    leaf starts a block program, and the op of each fusable parent above is pushed onto it as its
