@@ -25,6 +25,8 @@ pub use execution_paths::ExpectedOutcome;
 pub use execution_paths::assert_execution_paths;
 
 #[cfg(not(codspeed))]
+pub mod fusion;
+#[cfg(not(codspeed))]
 pub mod trace;
 
 /// Check that a named metadata matches its previous versioning.
