@@ -223,7 +223,8 @@ where
     };
 
     let mut runs: u64 = 1;
-    let slice = array.as_slice::<T>();
+    let buffer = array.to_buffer::<T>();
+    let slice = buffer.as_slice();
     // Compare bit patterns via `NativePType::is_eq` (matching `distinct_values` and FastLanes RLE)
     // so identical NaNs do not trigger spurious transitions and `-0.0` vs `+0.0` stay distinct.
     if !count_distinct_values && matches!(validity.bit_buffer(), AllOr::All) {
