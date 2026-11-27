@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Verification of a whole `DType` flatbuffer, so its lazily parsed children never fail to parse.
-//!
-//! Every check in `TryFrom<ViewedDType> for DType` must have a counterpart here.
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
