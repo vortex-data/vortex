@@ -13,7 +13,6 @@ use fastlanes::BitPacking;
 use fastlanes::FoR as FastLanesFoR;
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
-use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -173,7 +172,7 @@ impl<'a, T: PhysicalPType> FoRPacked<'a, T> {
 unsafe impl<T> ChunkDecoder<T::Physical> for FoRPacked<'_, T>
 where
     T: PhysicalPType + AsPrimitive<T::Physical>,
-    T::Physical: BitPacking + FastLanesFoR + WrappingAdd + Zero,
+    T::Physical: BitPacking + FastLanesFoR + WrappingAdd,
 {
     #[inline]
     fn decode_chunk(
@@ -186,19 +185,15 @@ where
             dst.fill(MaybeUninit::new(ref_p));
             return;
         }
-        let mut scratch = [T::Physical::zero(); FILTER_CHUNK_LEN];
-        // SAFETY: `chunk` holds `FL_CHUNK_SIZE` packed values at `bit_width` and `scratch` holds
-        // one chunk.
+        // SAFETY: `unchecked_unfor_pack` only writes to `dst`, and the packed chunk holds
+        // `FL_CHUNK_SIZE` values of `bit_width` bits.
         unsafe {
             FastLanesFoR::unchecked_unfor_pack(
                 self.bit_width,
                 self.chunk(chunk_idx),
                 ref_p,
-                &mut scratch,
+                dst.assume_init_mut(),
             );
-        }
-        for (out, &val) in dst.iter_mut().zip(&scratch) {
-            out.write(val);
         }
     }
 
