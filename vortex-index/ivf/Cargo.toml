@@ -33,3 +33,4 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 vortex = { workspace = true, features = ["files", "tokio"] }
 vortex-file = { workspace = true }
+vortex-scan = { workspace = true }

@@ -29,9 +29,11 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::VortexFile;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
+use vortex_index::FileSelection;
 use vortex_index::Hit;
 use vortex_index::IndexFile;
 use vortex_index::IndexFileBuilder;
+use vortex_index::IndexFileInfo;
 use vortex_index::open_in_file_index;
 use vortex_index_ivf::IvfIndex;
 use vortex_index_ivf::IvfOptions;
@@ -43,6 +45,7 @@ use vortex_layout::layouts::indexed::IndexConfig;
 use vortex_layout::layouts::indexed::IndexedStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 const ROWS: usize = 3000;
@@ -246,5 +249,71 @@ async fn standalone_ivf_reads_probed_lists_by_position() -> VortexResult<()> {
         let hits = ivf.rows().search_vectors(&vectors[row], 1, lists).await?;
         assert_eq!(hits[0].row, row as u64);
     }
+    Ok(())
+}
+
+/// Hits in an index over several files map to a selection of local rows in each file they fall
+/// in, and an index opened from a separately decoded description searches the same.
+#[tokio::test]
+async fn standalone_hits_select_local_rows_per_file() -> VortexResult<()> {
+    let session = session()?;
+    let parts = [vectors(5), vectors(6)];
+    let mut builder = IndexFileBuilder::new(
+        IvfIndex,
+        IvfOptions { lists: 16, dim: 0 },
+        "vec",
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
+            DIM as u32,
+            Nullability::NonNullable,
+        ),
+        &session,
+    )?;
+    for (i, part) in parts.iter().enumerate() {
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut bytes, array(part)?.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes.freeze())?;
+        builder.add_file(format!("part{i}.vortex"), &file).await?;
+    }
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let file = session
+        .open_options()
+        .include_metadata()
+        .open_buffer(bytes.freeze())?;
+    let ivf = IndexFile::open(IvfIndex, &file)?;
+    let metadata = file
+        .metadata_segment(vortex_index::standalone::INDEX_FILE_METADATA_KEY)
+        .expect("index description");
+    let info = IndexFileInfo::decode(metadata.as_slice(), &session)?;
+    let decoded = IndexFile::open_with_info(IvfIndex, &file, info)?;
+
+    let lists = ivf.rows().options().lists as usize;
+    let query = parts[1][42];
+    let hits = ivf.rows().search_vectors(&query, 20, lists).await?;
+    assert_eq!(
+        hits,
+        decoded.rows().search_vectors(&query, 20, lists).await?
+    );
+
+    let selections = ivf.hit_selections(&hits)?;
+    let mut expected: Vec<(usize, u64)> = ivf
+        .hits_by_file(&hits)?
+        .into_iter()
+        .map(|hit| (hit.file, hit.row))
+        .collect();
+    expected.sort_unstable();
+    let mut selected = Vec::new();
+    for FileSelection { file, selection } in selections {
+        let Selection::IncludeRoaring(rows) = selection else {
+            panic!("hit selections are roaring row sets");
+        };
+        selected.extend(rows.iter().map(|row| (file, row)));
+    }
+    assert_eq!(selected, expected);
+    assert!(selected.contains(&(1, 42)));
     Ok(())
 }

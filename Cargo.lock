@@ -11962,6 +11962,7 @@ dependencies = [
  "vortex-file",
  "vortex-index",
  "vortex-layout",
+ "vortex-scan",
  "vortex-session",
  "vortex-utils",
 ]
