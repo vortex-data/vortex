@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import polars as pl
 import pyarrow as pa
 import pytest
@@ -52,8 +53,12 @@ def vxf(tmpdir_factory) -> vx.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "polars_test.vortex"
 
     if not os.path.exists(fname):
-        a = pa.array([{"index": x, "value": math.sqrt(x)} for x in range(1_000_000)])
-        vx.io.write(vx.compress(vx.array(a)), str(fname))
+        indices = np.arange(1_000_000, dtype=np.int64)
+        a = pa.StructArray.from_arrays(
+            [pa.array(indices), pa.array(np.sqrt(indices))],
+            names=["index", "value"],
+        )
+        vx.io.write(vx.array(a), str(fname))
     return vx.open(str(fname), without_segment_cache=True)
 
 
