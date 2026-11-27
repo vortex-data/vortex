@@ -12,6 +12,47 @@ pub(crate) mod sum;
 pub(crate) mod take;
 pub(crate) mod take_from;
 
+use std::ops::Range;
+
+use vortex_error::VortexResult;
+
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::arrays::runend::RunEnd;
+use crate::arrays::runend::array::RunEndArrayExt;
+use crate::arrays::runend::array::RunEndArraySlotsExt;
+
+/// Returns the active physical run range covering `[offset..offset + len)` for a non-empty
+/// [`RunEnd`] array.
+///
+/// Fast-paths single-run arrays without touching `ends`, and unsliced arrays (`offset == 0` with
+/// `ends[0] > 0` and `ends[num_runs - 1] == len`) with at most two scalar reads instead of binary
+/// searching `ends`.
+pub(super) fn active_physical_range(
+    run_end: ArrayView<'_, RunEnd>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Range<usize>> {
+    debug_assert!(!run_end.is_empty());
+
+    let ends = run_end.ends();
+    let num_runs = ends.len();
+    if num_runs == 1 {
+        return Ok(0..1);
+    }
+
+    if run_end.offset() == 0 {
+        let last_end = usize::try_from(&ends.execute_scalar(num_runs - 1, ctx)?)?;
+        if last_end == run_end.len() {
+            let first_end = usize::try_from(&ends.execute_scalar(0, ctx)?)?;
+            if first_end > 0 {
+                return Ok(0..num_runs);
+            }
+        }
+    }
+
+    run_end.find_physical_range(0..run_end.len(), ctx)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
