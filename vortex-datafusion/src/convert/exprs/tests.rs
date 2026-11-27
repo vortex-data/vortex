@@ -3752,7 +3752,8 @@ fn test_projection_keeps_distinct_arrow_types_separate() -> anyhow::Result<()> {
 }
 
 /// A stand-in for `try_variant_get` / `variant_get` of datafusion-variant, which returns the
-/// type its third argument names. Only its name and return type matter to the conversion.
+/// type its third argument names, or the target of the cast it was rewritten from. Only its name
+/// and return type matter to the conversion.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct TestVariantGet {
     name: &'static str,
@@ -3791,29 +3792,43 @@ fn variant_get_expr_named(
     path: &str,
     return_type: DataType,
 ) -> anyhow::Result<(Schema, Arc<dyn PhysicalExpr>)> {
+    variant_get_call(fn_name, path, Some("VARCHAR"), return_type)
+}
+
+/// A schema with one Variant column, `data`, and `fn_name(data, path[, type_hint])` over it,
+/// which returns `return_type`.
+fn variant_get_call(
+    fn_name: &'static str,
+    path: &str,
+    type_hint: Option<&str>,
+    return_type: DataType,
+) -> anyhow::Result<(Schema, Arc<dyn PhysicalExpr>)> {
     let session = VortexSession::default();
     let schema =
         Schema::new(vec![session.arrow().to_arrow_field(
             "data",
             &DType::Variant(Nullability::NonNullable),
         )?]);
-    let function = TestVariantGet {
-        name: fn_name,
-        signature: datafusion_expr::Signature::any(3, datafusion_expr::Volatility::Immutable),
-        return_type,
-    };
     let literal = |value: &str| -> Arc<dyn PhysicalExpr> {
         Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
             value.to_string(),
         ))))
     };
+    let mut args: Vec<Arc<dyn PhysicalExpr>> =
+        vec![Arc::new(df_expr::Column::new("data", 0)), literal(path)];
+    args.extend(type_hint.map(literal));
+
+    let function = TestVariantGet {
+        name: fn_name,
+        signature: datafusion_expr::Signature::any(
+            args.len(),
+            datafusion_expr::Volatility::Immutable,
+        ),
+        return_type,
+    };
     let expr = Arc::new(ScalarFunctionExpr::try_new(
         Arc::new(ScalarUDF::from(function)),
-        vec![
-            Arc::new(df_expr::Column::new("data", 0)),
-            literal(path),
-            literal("VARCHAR"),
-        ],
+        args,
         &schema,
         Arc::new(ConfigOptions::new()),
     )?);
@@ -3910,6 +3925,23 @@ fn test_variant_get_keeps_other_targets_in_datafusion(
     assert_eq!(
         DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
         None,
+    );
+    Ok(())
+}
+
+/// datafusion-variant rewrites `TRY_CAST(v:a AS BIGINT)` to `try_variant_get(v, '$.a')` that
+/// returns the cast target, so the form without a type hint converts as the typed form does.
+#[test]
+fn test_variant_get_converts_the_rewritten_cast() -> anyhow::Result<()> {
+    let (schema, expr) = variant_get_call("try_variant_get", "$.a", None, DataType::Int64)?;
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&expr, &schema)?,
+        Some(variant_get(
+            get_item("data", root()),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I64, Nullability::Nullable)),
+        )),
     );
     Ok(())
 }

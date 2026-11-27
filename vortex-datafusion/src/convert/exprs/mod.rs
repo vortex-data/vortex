@@ -997,8 +997,10 @@ impl DefaultExpressionConverter {
     /// `variant_get` extraction. `variant_get` raises an error on failed casts (`safe: false`) and
     /// is left in DataFusion.
     ///
-    /// Only the typed form over a `$`-rooted path of plain object fields (`$.field(.field)*`)
-    /// converts, and only to a type that [`converts_as_arrow`] accepts.
+    /// Only a path of plain object fields (`$.field(.field)*`) converts, and only to a type that
+    /// [`converts_as_arrow`] accepts. The type is the return type of the call: the type its third
+    /// argument names, or the target of a `TRY_CAST` that datafusion-variant rewrote to the form
+    /// with two arguments.
     ///
     /// [datafusion-variant]: https://github.com/datafusion-contrib/datafusion-variant
     fn convert_variant_get(
@@ -1007,7 +1009,7 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        let [input, path, _type] = scalar_fn.args() else {
+        let ([input, path] | [input, path, _]) = scalar_fn.args() else {
             return Err(Unconverted::Unsupported);
         };
         let Some(Some(path)) = path
