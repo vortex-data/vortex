@@ -328,12 +328,8 @@ fn first_unset(bits: BitBufferView<'_>) -> Option<usize> {
 #[path = "take_avx2.rs"]
 mod avx2;
 
-#[cfg(target_arch = "x86_64")]
-#[path = "take_lut_x86.rs"]
-mod lut;
-
-#[cfg(target_arch = "aarch64")]
-#[path = "take_lut_neon.rs"]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[path = "take_lut.rs"]
 mod lut;
 
 #[cfg(test)]
