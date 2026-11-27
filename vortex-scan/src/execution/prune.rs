@@ -106,6 +106,41 @@ impl IoConsumer for PrunePlanner {
     }
 }
 
+impl PrunePlanner {
+    /// Applies the finished scan of a pruning plan or a proof to the scan's rows.
+    fn finish_active(&mut self) -> VortexResult<()> {
+        let input = self.mask.true_count();
+        let result = Mask::concat(self.pieces.iter())?;
+        vortex_ensure_eq!(result.len(), input);
+        self.active = None;
+        self.pieces.clear();
+        if let Some((conjunct, version)) = self.proving.take() {
+            if result.all_false() {
+                tracing::debug!(
+                    row_start = self.rows.start,
+                    row_end = self.rows.end,
+                    conjunct,
+                    "v2 filter conjunct not proved over the scan"
+                );
+                if let Some(filter) = &self.scan.filter {
+                    filter.report_unproved_scan(conjunct, version);
+                }
+            }
+        } else {
+            self.mask = self.mask.intersect_by_rank(&!result);
+            tracing::debug!(
+                row_start = self.rows.start,
+                row_end = self.rows.end,
+                input_rows = input,
+                output_rows = self.mask.true_count(),
+                "v2 pruning plan evaluated"
+            );
+            self.pruned = true;
+        }
+        Ok(())
+    }
+}
+
 impl Planner for PrunePlanner {
     fn state(&self) -> State {
         if self.done {
@@ -159,34 +194,7 @@ impl Planner for PrunePlanner {
                     }
                 });
             }
-            let input = self.mask.true_count();
-            let result = Mask::concat(self.pieces.iter())?;
-            vortex_ensure_eq!(result.len(), input);
-            self.active = None;
-            self.pieces.clear();
-            if let Some((conjunct, version)) = self.proving.take() {
-                if result.all_false() {
-                    tracing::debug!(
-                        row_start = self.rows.start,
-                        row_end = self.rows.end,
-                        conjunct,
-                        "v2 filter conjunct not proved over the scan"
-                    );
-                    if let Some(filter) = &self.scan.filter {
-                        filter.report_unproved_scan(conjunct, version);
-                    }
-                }
-            } else {
-                self.mask = self.mask.intersect_by_rank(&!result);
-                tracing::debug!(
-                    row_start = self.rows.start,
-                    row_end = self.rows.end,
-                    input_rows = input,
-                    output_rows = self.mask.true_count(),
-                    "v2 pruning plan evaluated"
-                );
-                self.pruned = true;
-            }
+            self.finish_active()?;
         }
         if self.mask.all_false() {
             self.done = true;
