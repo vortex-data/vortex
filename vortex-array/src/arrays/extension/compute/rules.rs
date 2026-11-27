@@ -124,6 +124,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::builtin::compare::Compare;
+    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -244,9 +245,14 @@ mod tests {
         let storage = buffer![15i64, 25, 35].into_array();
         let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
 
-        let scalar_fn_array = Compare::try_new(constant_ext, ext_array, CompareOperator::Lt)
-            .unwrap()
-            .into_array();
+        let scalar_fn_array = Compare::try_new(
+            constant_ext,
+            ext_array,
+            CompareOperator::Lt,
+            CompareMode::TOTAL_ORDER,
+        )
+        .unwrap()
+        .into_array();
 
         let optimized = scalar_fn_array.optimize_recursive(&SESSION).unwrap();
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
@@ -273,9 +279,14 @@ mod tests {
         let ext_array2 = ExtensionArray::new(ext_dtype, storage2).into_array();
 
         // Both children are extension arrays (not constants)
-        let scalar_fn_array = Compare::try_new(ext_array1, ext_array2, CompareOperator::Lt)
-            .unwrap()
-            .into_array();
+        let scalar_fn_array = Compare::try_new(
+            ext_array1,
+            ext_array2,
+            CompareOperator::Lt,
+            CompareMode::TOTAL_ORDER,
+        )
+        .unwrap()
+        .into_array();
 
         let optimized = scalar_fn_array.optimize_ctx(&SESSION).unwrap();
 

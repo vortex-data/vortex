@@ -15,6 +15,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
@@ -112,6 +113,7 @@ fn compare_unsigned_encoded<T: IntegerPType + Into<PValue>>(
     lhs.encoded().compare(
         ConstantArray::new(Scalar::primitive(distance, nullability), lhs.len()).into_array(),
         operator,
+        CompareMode::TOTAL_ORDER,
     )
 }
 
@@ -465,7 +467,11 @@ mod tests {
             for operator in ALL_OPERATORS {
                 let actual = <FoR as CompareKernel>::compare(array.as_view(), &rhs, operator, ctx)?
                     .unwrap_or_else(|| panic!("FoR compare must engage for {operator:?}"));
-                let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
+                let expected = values.clone().into_array().compare(
+                    rhs.clone(),
+                    operator,
+                    CompareMode::TOTAL_ORDER,
+                )?;
                 assert_arrays_eq!(actual, expected, ctx);
             }
         }

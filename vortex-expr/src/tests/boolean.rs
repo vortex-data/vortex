@@ -24,6 +24,7 @@ use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -274,6 +275,7 @@ fn deciding_constant_skips_other_operand() -> VortexResult<()> {
         .compare(
             ConstantArray::new(1i32, 3).into_array(),
             CompareOperator::Gt,
+            CompareMode::TOTAL_ORDER,
         )?;
     assert!(failing.clone().execute::<Canonical>(&mut ctx).is_err());
 

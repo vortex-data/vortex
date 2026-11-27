@@ -44,6 +44,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Tests that filter and take operations produce consistent results.
@@ -693,13 +694,13 @@ fn test_comparison_inverse_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx)
         (CompareOperator::Lt, CompareOperator::Gte),
     ] {
         let left = array
-            .compare(const_array.clone(), operator)
+            .compare(const_array.clone(), operator, CompareMode::TOTAL_ORDER)
             .vortex_expect("comparison should succeed in conformance test");
         let left = left
             .not()
             .vortex_expect("not should succeed in conformance test");
         let right = array
-            .compare(const_array.clone(), counterpart)
+            .compare(const_array.clone(), counterpart, CompareMode::TOTAL_ORDER)
             .vortex_expect("comparison should succeed in conformance test");
         assert_arrays_eq!(left, right, ctx);
     }
@@ -746,10 +747,10 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx
         (CompareOperator::Eq, CompareOperator::Eq),
     ] {
         let left = array
-            .compare(const_array.clone(), operator)
+            .compare(const_array.clone(), operator, CompareMode::TOTAL_ORDER)
             .vortex_expect("comparison should succeed in conformance test");
         let right = const_array
-            .compare(array.clone(), counterpart)
+            .compare(array.clone(), counterpart, CompareMode::TOTAL_ORDER)
             .vortex_expect("comparison should succeed in conformance test");
         assert_arrays_eq!(left, right, ctx);
     }

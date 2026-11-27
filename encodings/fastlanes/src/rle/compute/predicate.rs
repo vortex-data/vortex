@@ -20,6 +20,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
@@ -48,6 +49,7 @@ impl CompareKernel for RLE {
         let run_answers = values.compare(
             ConstantArray::new(constant.clone(), values.len()).into_array(),
             operator,
+            CompareMode::TOTAL_ORDER,
         )?;
 
         expand_run_answers(lhs, run_answers, rhs.dtype().nullability(), ctx).map(Some)
@@ -153,6 +155,7 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_functions::between::BetweenKernel;
@@ -212,7 +215,11 @@ mod tests {
                 let actual =
                     <RLE as CompareKernel>::compare(array.as_::<RLE>(), &rhs, operator, &mut ctx)?
                         .unwrap_or_else(|| panic!("RLE compare must engage for {operator:?}"));
-                let expected = expected_input.clone().compare(rhs.clone(), operator)?;
+                let expected = expected_input.clone().compare(
+                    rhs.clone(),
+                    operator,
+                    CompareMode::TOTAL_ORDER,
+                )?;
                 assert_arrays_eq!(actual, expected, &mut ctx);
             }
         }
@@ -276,7 +283,9 @@ mod tests {
             assert!(actual.is::<Constant>());
         }
 
-        let expected = input.into_array().compare(rhs, operator)?;
+        let expected = input
+            .into_array()
+            .compare(rhs, operator, CompareMode::TOTAL_ORDER)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
@@ -292,7 +301,11 @@ mod tests {
             let actual =
                 <RLE as CompareKernel>::compare(array.as_::<RLE>(), &rhs, operator, &mut ctx)?
                     .unwrap_or_else(|| panic!("RLE compare must engage for {operator:?}"));
-            let expected = input.clone().into_array().compare(rhs.clone(), operator)?;
+            let expected = input.clone().into_array().compare(
+                rhs.clone(),
+                operator,
+                CompareMode::TOTAL_ORDER,
+            )?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
 
@@ -338,7 +351,10 @@ mod tests {
             let actual =
                 <RLE as CompareKernel>::compare(array.as_::<RLE>(), &rhs, operator, &mut ctx)?
                     .unwrap_or_else(|| panic!("RLE compare must engage for {operator:?}"));
-            let expected = expected_input.clone().compare(rhs.clone(), operator)?;
+            let expected =
+                expected_input
+                    .clone()
+                    .compare(rhs.clone(), operator, CompareMode::TOTAL_ORDER)?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
 

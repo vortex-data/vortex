@@ -226,6 +226,7 @@ mod tests {
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -245,7 +246,11 @@ mod tests {
         let rhs = ConstantArray::new(4i64, lhs.len());
         let result = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -257,7 +262,11 @@ mod tests {
         let rhs = ConstantArray::new(8i64, lhs.len());
         let result = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -269,7 +278,11 @@ mod tests {
         let rhs = ConstantArray::new(1i64, lhs.len());
         let result = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -285,9 +298,11 @@ mod tests {
             5,
         )?;
         let rhs = ConstantArray::new(80u8, lhs.len());
-        let result = lhs
-            .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)?;
+        let result = lhs.into_array().compare(
+            rhs.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
         let expected = BoolArray::from_iter([false, false, true, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
@@ -309,12 +324,14 @@ mod tests {
         let hit = lhs.clone().into_array().compare(
             ConstantArray::new((1u64 << 62) + step, lhs.len()).into_array(),
             CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
         )?;
         assert_arrays_eq!(hit, BoolArray::from_iter([false, true]), &mut ctx);
 
         let miss = lhs.into_array().compare(
             ConstantArray::new(u64::MAX, 2).into_array(),
             CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
         )?;
         assert_arrays_eq!(miss, BoolArray::from_iter([false, false]), &mut ctx);
 
@@ -329,12 +346,14 @@ mod tests {
         let matches = lhs.clone().into_array().compare(
             ConstantArray::new(100i32, lhs.len()).into_array(),
             CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
         )?;
         assert_arrays_eq!(matches, BoolArray::from_iter([true; 5]), &mut ctx);
 
         let misses = lhs.into_array().compare(
             ConstantArray::new(7i32, 5).into_array(),
             CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
         )?;
         assert_arrays_eq!(misses, BoolArray::from_iter([false; 5]), &mut ctx);
 
@@ -371,7 +390,11 @@ mod tests {
                     &mut ctx,
                 )?
                 .unwrap_or_else(|| panic!("sequence compare must engage for {operator:?}"));
-                let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
+                let expected = values.clone().into_array().compare(
+                    rhs.clone(),
+                    operator,
+                    CompareMode::TOTAL_ORDER,
+                )?;
                 assert_arrays_eq!(actual, expected, &mut ctx);
             }
         }

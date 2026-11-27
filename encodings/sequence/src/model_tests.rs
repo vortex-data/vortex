@@ -26,6 +26,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -204,7 +205,11 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
                         };
                         let compared = array
                             .clone()
-                            .compare(constant(value, ptype, length)?, CompareOperator::Eq)?
+                            .compare(
+                                constant(value, ptype, length)?,
+                                CompareOperator::Eq,
+                                CompareMode::TOTAL_ORDER,
+                            )?
                             .execute::<BoolArray>(&mut ctx)?;
                         let bits = compared.to_bit_buffer();
                         let matches = (0..length).map(|idx| bits.value(idx)).collect::<Vec<_>>();

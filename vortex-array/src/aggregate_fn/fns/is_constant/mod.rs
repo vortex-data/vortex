@@ -46,6 +46,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::stats::Precision;
 use crate::stats::Stat;
@@ -77,7 +78,7 @@ fn arrays_value_equal(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vor
 
     // Compare values element-wise. Result is null where both inputs are null,
     // true/false where both are valid.
-    let eq_result = a.compare(b.clone(), CompareOperator::Eq)?;
+    let eq_result = a.compare(b.clone(), CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
     let eq_result = eq_result.fill_null(false)?.execute::<Mask>(ctx)?;
 
     Ok(eq_result.true_count() == valid_count)

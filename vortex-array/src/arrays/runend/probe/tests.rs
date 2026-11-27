@@ -22,6 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
@@ -91,7 +92,7 @@ fn lazy_value_validity_only_evaluates_requested_runs() -> VortexResult<()> {
     let numerators = buffer![1u32, 1].into_array();
     let validity = numerators
         .numeric(buffer![1u32, 0].into_array(), NumericOperator::Div)?
-        .compare(numerators, CompareOperator::Eq)?;
+        .compare(numerators, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
     let values = PrimitiveArray::new(buffer![42u32, 99], Validity::Array(validity));
     let array =
         RunEnd::try_new(buffer![4u32, 8].into_array(), values.into_array(), &mut ctx)?.into_array();

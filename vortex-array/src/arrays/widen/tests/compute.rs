@@ -45,6 +45,7 @@ use crate::dtype::PType;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
@@ -289,7 +290,7 @@ fn test_compare_runs_at_narrowest_width(
 
     let step = signed()
         .into_array()
-        .compare(rhs, CompareOperator::Lt)?
+        .compare(rhs, CompareOperator::Lt, CompareMode::TOTAL_ORDER)?
         .execute::<ArrayRef>(&mut ctx)?;
 
     let compared = step

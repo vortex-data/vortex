@@ -29,6 +29,7 @@ use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::numeric::Numeric;
 use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
@@ -63,8 +64,13 @@ pub trait ArrayBuiltins: Sized {
         row_indices: ArrayRef,
     ) -> VortexResult<ArrayRef>;
 
-    /// Compare this array with another.
-    fn compare(&self, rhs: ArrayRef, op: CompareOperator) -> VortexResult<ArrayRef>;
+    /// Compare this array with another, ordering the values of each type in `compare_mode`.
+    fn compare(
+        &self,
+        rhs: ArrayRef,
+        op: CompareOperator,
+        compare_mode: CompareMode,
+    ) -> VortexResult<ArrayRef>;
 
     /// Apply a Kleene boolean operator to this array and another.
     fn boolean(&self, rhs: ArrayRef, op: BooleanOperator) -> VortexResult<ArrayRef>;
@@ -120,8 +126,13 @@ impl ArrayBuiltins for ArrayRef {
         )
     }
 
-    fn compare(&self, rhs: ArrayRef, op: CompareOperator) -> VortexResult<ArrayRef> {
-        Ok(Compare::try_new(self.clone(), rhs, op)?.into_array())
+    fn compare(
+        &self,
+        rhs: ArrayRef,
+        op: CompareOperator,
+        compare_mode: CompareMode,
+    ) -> VortexResult<ArrayRef> {
+        Ok(Compare::try_new(self.clone(), rhs, op, compare_mode)?.into_array())
     }
 
     fn boolean(&self, rhs: ArrayRef, op: BooleanOperator) -> VortexResult<ArrayRef> {

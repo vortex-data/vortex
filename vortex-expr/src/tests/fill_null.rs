@@ -36,6 +36,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::fill_null::*;
 use vortex_array::scalar_fn::builtin::numeric::Numeric;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -342,6 +343,7 @@ fn executes_non_columnar_input_iteratively() -> VortexResult<()> {
         .compare(
             ConstantArray::new(2i32, 3).into_array(),
             CompareOperator::Gt,
+            CompareMode::TOTAL_ORDER,
         )?;
 
     let result = input.fill_null(Scalar::from(false))?;

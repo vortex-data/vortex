@@ -226,6 +226,7 @@ mod tests {
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -338,7 +339,13 @@ mod tests {
 
         // Midnight on 9999-12-31 UTC, beyond the narrowed days child's range.
         let constant = midnight_constant(2_932_896, TimeUnit::Microseconds, 2);
-        let comparison = Compare::try_new(narrowed.into_array(), constant, op)?.into_array();
+        let comparison = Compare::try_new(
+            narrowed.into_array(),
+            constant,
+            op,
+            CompareMode::TOTAL_ORDER,
+        )?
+        .into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
@@ -358,9 +365,14 @@ mod tests {
 
         // Compare: dtp <= day 1 (midnight)
         let constant = midnight_constant(1, TimeUnit::Seconds, len);
-        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
-            .unwrap()
-            .into_array();
+        let comparison = Compare::try_new(
+            dtp.into_array(),
+            constant,
+            CompareOperator::Lte,
+            CompareMode::TOTAL_ORDER,
+        )
+        .unwrap()
+        .into_array();
 
         // Optimize should push down to days
         let optimized = comparison.optimize_ctx(&SESSION).unwrap();
@@ -433,7 +445,13 @@ mod tests {
             .clone()
             .into_nullable();
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
-        let comparison = Compare::try_new(dtp, constant, CompareOperator::Lte)?.into_array();
+        let comparison = Compare::try_new(
+            dtp,
+            constant,
+            CompareOperator::Lte,
+            CompareMode::TOTAL_ORDER,
+        )?
+        .into_array();
 
         let optimized = comparison.optimize_ctx(&SESSION)?;
         assert_eq!(optimized.dtype(), comparison.dtype());
@@ -455,9 +473,14 @@ mod tests {
 
         // Compare against non-midnight constant (day 1 at noon)
         let constant = non_midnight_constant(1, 43200, TimeUnit::Seconds, len);
-        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
-            .unwrap()
-            .into_array();
+        let comparison = Compare::try_new(
+            dtp.into_array(),
+            constant,
+            CompareOperator::Lte,
+            CompareMode::TOTAL_ORDER,
+        )
+        .unwrap()
+        .into_array();
 
         // Optimize should NOT push down (constant has non-zero seconds)
         let optimized = comparison.optimize_ctx(&SESSION).unwrap();
@@ -491,9 +514,14 @@ mod tests {
 
         // Compare against midnight constant
         let constant = midnight_constant(1, TimeUnit::Seconds, len);
-        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
-            .unwrap()
-            .into_array();
+        let comparison = Compare::try_new(
+            dtp.into_array(),
+            constant,
+            CompareOperator::Lte,
+            CompareMode::TOTAL_ORDER,
+        )
+        .unwrap()
+        .into_array();
 
         // Should still compute correctly (just not optimized via pushdown)
         let optimized = comparison.optimize_ctx(&SESSION).unwrap();

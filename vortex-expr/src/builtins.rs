@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::compare::CompareOptions;
 use vortex_array::scalar_fn::builtin::fill_null::FillNull;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
@@ -17,6 +18,7 @@ use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::builtin::not::Not;
 use vortex_array::scalar_fn::builtin::numeric::Numeric;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 
@@ -47,8 +49,13 @@ pub trait ExprBuiltins: Sized {
 
     // TODO(joe): add an `interleave` expression builtin mirroring `ArrayBuiltins::interleave`.
 
-    /// Compare this expression with another.
-    fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression>;
+    /// Compare this expression with another, ordering the values of each type in `compare_mode`.
+    fn compare(
+        &self,
+        rhs: Expression,
+        op: CompareOperator,
+        compare_mode: CompareMode,
+    ) -> VortexResult<Expression>;
 
     /// Apply a Kleene boolean operator to this expression and another.
     fn boolean(&self, rhs: Expression, op: BooleanOperator) -> VortexResult<Expression>;
@@ -82,8 +89,13 @@ impl ExprBuiltins for Expression {
         Not.try_new_expr(EmptyOptions, [self.clone()])
     }
 
-    fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression> {
-        Compare.try_new_expr(op.into(), [self.clone(), rhs])
+    fn compare(
+        &self,
+        rhs: Expression,
+        op: CompareOperator,
+        compare_mode: CompareMode,
+    ) -> VortexResult<Expression> {
+        Compare.try_new_expr(CompareOptions::new(op, compare_mode), [self.clone(), rhs])
     }
 
     fn boolean(&self, rhs: Expression, op: BooleanOperator) -> VortexResult<Expression> {

@@ -41,6 +41,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -182,8 +183,16 @@ pub(crate) fn as_two_compares(
     upper: &ArrayRef,
     options: &BetweenOptions,
 ) -> VortexResult<ArrayRef> {
-    let lower_cmp = lower.compare(arr.clone(), options.lower_strict.to_operator())?;
-    let upper_cmp = arr.compare(upper.clone(), options.upper_strict.to_operator())?;
+    let lower_cmp = lower.compare(
+        arr.clone(),
+        options.lower_strict.to_operator(),
+        CompareMode::TOTAL_ORDER,
+    )?;
+    let upper_cmp = arr.compare(
+        upper.clone(),
+        options.upper_strict.to_operator(),
+        CompareMode::TOTAL_ORDER,
+    )?;
     lower_cmp.boolean(upper_cmp, BooleanOperator::And)
 }
 

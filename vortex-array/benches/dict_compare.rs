@@ -22,6 +22,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
@@ -72,6 +73,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
                 .compare(
                     ConstantArray::new(value, len).into_array(),
                     CompareOperator::Eq,
+                    CompareMode::TOTAL_ORDER,
                 )
                 .unwrap()
                 .execute::<Canonical>(ctx)
@@ -96,6 +98,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
                 .compare(
                     ConstantArray::new(value, len).into_array(),
                     CompareOperator::Eq,
+                    CompareMode::TOTAL_ORDER,
                 )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -120,6 +123,7 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
                 .compare(
                     ConstantArray::new(value, len).into_array(),
                     CompareOperator::Eq,
+                    CompareMode::TOTAL_ORDER,
                 )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -173,6 +177,7 @@ fn bench_compare_sliced_dict_primitive(
                 .compare(
                     ConstantArray::new(value, codes_len).into_array(),
                     CompareOperator::Eq,
+                    CompareMode::TOTAL_ORDER,
                 )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -205,6 +210,7 @@ fn bench_compare_sliced_dict_varbinview(
                 .compare(
                     ConstantArray::new(value, codes_len).into_array(),
                     CompareOperator::Eq,
+                    CompareMode::TOTAL_ORDER,
                 )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)

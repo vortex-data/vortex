@@ -15,6 +15,7 @@ use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Dict {
@@ -34,6 +35,7 @@ impl CompareKernel for Dict {
             let compare_result = lhs.values().clone().compare(
                 ConstantArray::new(rhs.clone(), lhs.values().len()).into_array(),
                 operator,
+                CompareMode::TOTAL_ORDER,
             )?;
 
             // SAFETY: values len preserved, codes all still point to valid values

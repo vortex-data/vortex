@@ -42,6 +42,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -78,7 +79,7 @@ fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: CompareOper
             input
                 .0
                 .clone()
-                .compare(input.1.clone(), op)
+                .compare(input.1.clone(), op, CompareMode::TOTAL_ORDER)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
         });

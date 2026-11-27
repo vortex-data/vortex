@@ -147,7 +147,11 @@ fn test_struct_comparison() {
 
     // Test using binary method directly
     let result_equal = lhs_struct
-        .compare(rhs_struct_equal, CompareOperator::Eq)
+        .compare(
+            rhs_struct_equal,
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_eq!(
         result_equal
@@ -158,7 +162,11 @@ fn test_struct_comparison() {
     );
 
     let result_different = lhs_struct
-        .compare(rhs_struct_different, CompareOperator::Eq)
+        .compare(
+            rhs_struct_different,
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_eq!(
         result_different

@@ -24,6 +24,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Patched {
@@ -50,6 +51,7 @@ impl CompareKernel for Patched {
             .compare(
                 ConstantArray::new(constant.clone(), lhs.len()).into_array(),
                 operator,
+                CompareMode::TOTAL_ORDER,
             )?
             .execute::<Canonical>(ctx)?
             .into_bool();

@@ -11,6 +11,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -69,6 +70,7 @@ fn compare_fsst_constant(
                     )
                     .into_array(),
                     operator,
+                    CompareMode::TOTAL_ORDER,
                 )?
                 .execute(ctx)?,
         };
@@ -116,7 +118,7 @@ fn compare_fsst_constant(
     let rhs = ConstantArray::new(encoded_scalar, left.len());
     left.codes()
         .into_array()
-        .compare(rhs.into_array(), operator)
+        .compare(rhs.into_array(), operator, CompareMode::TOTAL_ORDER)
         .map(Some)
 }
 
@@ -134,6 +136,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -168,10 +171,11 @@ mod tests {
         let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let equals = lhs
-            .clone()
-            .into_array()
-            .compare(rhs.clone().into_array(), CompareOperator::Eq)?;
+        let equals = lhs.clone().into_array().compare(
+            rhs.clone().into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
@@ -182,10 +186,11 @@ mod tests {
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let not_equals = lhs
-            .clone()
-            .into_array()
-            .compare(rhs.into_array(), CompareOperator::NotEq)?;
+        let not_equals = lhs.clone().into_array().compare(
+            rhs.into_array(),
+            CompareOperator::NotEq,
+            CompareMode::TOTAL_ORDER,
+        )?;
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_arrays_eq!(
@@ -197,19 +202,22 @@ mod tests {
         // Ensure null constants are handled correctly.
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
-        let equals_null = lhs
-            .clone()
-            .into_array()
-            .compare(null_rhs.clone().into_array(), CompareOperator::Eq)?;
+        let equals_null = lhs.clone().into_array().compare(
+            null_rhs.clone().into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
         assert_arrays_eq!(
             &equals_null,
             &BoolArray::from_iter([None::<bool>, None, None, None, None]),
             &mut ctx
         );
 
-        let noteq_null = lhs
-            .into_array()
-            .compare(null_rhs.into_array(), CompareOperator::NotEq)?;
+        let noteq_null = lhs.into_array().compare(
+            null_rhs.into_array(),
+            CompareOperator::NotEq,
+            CompareMode::TOTAL_ORDER,
+        )?;
         assert_arrays_eq!(
             &noteq_null,
             &BoolArray::from_iter([None::<bool>, None, None, None, None]),

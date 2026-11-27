@@ -21,6 +21,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl FillNullKernel for Dict {
@@ -37,6 +38,7 @@ impl FillNullKernel for Dict {
             .compare(
                 ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
                 CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
             )?
             .execute::<BoolArray>(ctx)?;
 

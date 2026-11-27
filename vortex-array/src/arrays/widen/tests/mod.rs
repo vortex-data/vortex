@@ -39,6 +39,7 @@ use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
@@ -76,11 +77,20 @@ fn assert_compare_matches_canonical(
     let canonical_lhs = canonical(lhs, ctx)?;
     let canonical_rhs = canonical(rhs, ctx)?;
 
-    let expected = canonical_lhs.compare(canonical_rhs.clone(), operator)?;
-    assert_arrays_eq!(lhs.compare(rhs.clone(), operator)?, expected, ctx);
+    let expected =
+        canonical_lhs.compare(canonical_rhs.clone(), operator, CompareMode::TOTAL_ORDER)?;
+    assert_arrays_eq!(
+        lhs.compare(rhs.clone(), operator, CompareMode::TOTAL_ORDER)?,
+        expected,
+        ctx
+    );
 
-    let expected = canonical_rhs.compare(canonical_lhs, operator)?;
-    assert_arrays_eq!(rhs.compare(lhs.clone(), operator)?, expected, ctx);
+    let expected = canonical_rhs.compare(canonical_lhs, operator, CompareMode::TOTAL_ORDER)?;
+    assert_arrays_eq!(
+        rhs.compare(lhs.clone(), operator, CompareMode::TOTAL_ORDER)?,
+        expected,
+        ctx
+    );
 
     Ok(())
 }

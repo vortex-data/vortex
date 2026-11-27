@@ -162,7 +162,7 @@ mod tests {
             let actual =
                 <ALP as CompareKernel>::compare(encoded.as_view(), &rhs, operator, &mut ctx)?
                     .unwrap_or_else(|| panic!("ALP compare kernel must engage for {operator:?}"));
-            let expected = Compare::try_new_with_mode(
+            let expected = Compare::try_new(
                 values.clone().into_array(),
                 rhs.clone(),
                 operator,
@@ -188,20 +188,12 @@ mod tests {
         let mode = CompareMode::new(FloatOrder::ZerosEqual);
 
         for operator in ALL_OPERATORS {
-            let actual = Compare::try_new_with_mode(
-                encoded.clone().into_array(),
-                rhs.clone(),
-                operator,
-                mode,
-            )?
-            .into_array();
-            let expected = Compare::try_new_with_mode(
-                array.clone().into_array(),
-                rhs.clone(),
-                operator,
-                mode,
-            )?
-            .into_array();
+            let actual =
+                Compare::try_new(encoded.clone().into_array(), rhs.clone(), operator, mode)?
+                    .into_array();
+            let expected =
+                Compare::try_new(array.clone().into_array(), rhs.clone(), operator, mode)?
+                    .into_array();
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
@@ -410,8 +402,13 @@ mod tests {
         let expected_values = array.into_array().slice(1_000..2_500)?;
         let rhs = ConstantArray::new(PI * 1_164.0, sliced.len()).into_array();
         for operator in ALL_OPERATORS {
-            let actual = sliced.clone().compare(rhs.clone(), operator)?;
-            let expected = expected_values.clone().compare(rhs.clone(), operator)?;
+            let actual = sliced
+                .clone()
+                .compare(rhs.clone(), operator, CompareMode::TOTAL_ORDER)?;
+            let expected =
+                expected_values
+                    .clone()
+                    .compare(rhs.clone(), operator, CompareMode::TOTAL_ORDER)?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
@@ -474,7 +471,11 @@ mod tests {
 
         let r = encoded
             .into_array()
-            .compare(other.into_array(), CompareOperator::Eq)
+            .compare(
+                other.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         // Comparing to null yields null results
         let expected = BoolArray::from_iter([None::<bool>; 10]);

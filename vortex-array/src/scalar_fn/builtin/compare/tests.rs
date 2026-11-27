@@ -74,7 +74,11 @@ fn test_bool_basic_comparisons() {
     let matches = arr
         .clone()
         .into_array()
-        .compare(arr.clone().into_array(), CompareOperator::Eq)
+        .compare(
+            arr.clone().into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_arrays_eq!(
         matches,
@@ -85,7 +89,11 @@ fn test_bool_basic_comparisons() {
     let matches = arr
         .clone()
         .into_array()
-        .compare(arr.clone().into_array(), CompareOperator::NotEq)
+        .compare(
+            arr.clone().into_array(),
+            CompareOperator::NotEq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_arrays_eq!(
         matches,
@@ -101,7 +109,11 @@ fn test_bool_basic_comparisons() {
     let matches = arr
         .clone()
         .into_array()
-        .compare(other.clone().into_array(), CompareOperator::Lte)
+        .compare(
+            other.clone().into_array(),
+            CompareOperator::Lte,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_arrays_eq!(
         matches,
@@ -112,7 +124,11 @@ fn test_bool_basic_comparisons() {
     let matches = arr
         .clone()
         .into_array()
-        .compare(other.clone().into_array(), CompareOperator::Lt)
+        .compare(
+            other.clone().into_array(),
+            CompareOperator::Lt,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_arrays_eq!(
         matches,
@@ -123,7 +139,11 @@ fn test_bool_basic_comparisons() {
     let matches = other
         .clone()
         .into_array()
-        .compare(arr.clone().into_array(), CompareOperator::Gte)
+        .compare(
+            arr.clone().into_array(),
+            CompareOperator::Gte,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_arrays_eq!(
         matches,
@@ -133,7 +153,11 @@ fn test_bool_basic_comparisons() {
 
     let matches = other
         .into_array()
-        .compare(arr.into_array(), CompareOperator::Gt)
+        .compare(
+            arr.into_array(),
+            CompareOperator::Gt,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_arrays_eq!(
         matches,
@@ -149,7 +173,11 @@ fn constant_compare() {
 
     let result = left
         .into_array()
-        .compare(right.into_array(), CompareOperator::Gt)
+        .compare(
+            right.into_array(),
+            CompareOperator::Gt,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert_eq!(result.len(), 10);
     let scalar = result
@@ -170,7 +198,9 @@ fn constant_compare() {
 #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
 fn compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
     let mut ctx = SESSION.create_execution_ctx();
-    let res = left.compare(right, CompareOperator::Eq).unwrap();
+    let res = left
+        .compare(right, CompareOperator::Eq, CompareMode::TOTAL_ORDER)
+        .unwrap();
     let expected = BoolArray::from_iter([true, true]);
     assert_arrays_eq!(res, expected, &mut ctx);
 }
@@ -201,7 +231,11 @@ fn test_list_array_comparison() {
     let result = list1
         .clone()
         .into_array()
-        .compare(list2.clone().into_array(), CompareOperator::Eq)
+        .compare(
+            list2.clone().into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([true, true, false]);
     assert_arrays_eq!(result, expected, &mut ctx);
@@ -209,14 +243,22 @@ fn test_list_array_comparison() {
     let result = list1
         .clone()
         .into_array()
-        .compare(list2.clone().into_array(), CompareOperator::NotEq)
+        .compare(
+            list2.clone().into_array(),
+            CompareOperator::NotEq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([false, false, true]);
     assert_arrays_eq!(result, expected, &mut ctx);
 
     let result = list1
         .into_array()
-        .compare(list2.into_array(), CompareOperator::Lt)
+        .compare(
+            list2.into_array(),
+            CompareOperator::Lt,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([false, false, true]);
     assert_arrays_eq!(result, expected, &mut ctx);
@@ -244,7 +286,11 @@ fn test_list_array_constant_comparison() {
 
     let result = list
         .into_array()
-        .compare(constant.into_array(), CompareOperator::Eq)
+        .compare(
+            constant.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([false, true, false]);
     assert_arrays_eq!(result, expected, &mut ctx);
@@ -274,14 +320,22 @@ fn test_struct_array_comparison() {
     let result = struct1
         .clone()
         .into_array()
-        .compare(struct2.clone().into_array(), CompareOperator::Eq)
+        .compare(
+            struct2.clone().into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([true, true, false]);
     assert_arrays_eq!(result, expected, &mut ctx);
 
     let result = struct1
         .into_array()
-        .compare(struct2.into_array(), CompareOperator::Gt)
+        .compare(
+            struct2.into_array(),
+            CompareOperator::Gt,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([false, false, true]);
     assert_arrays_eq!(result, expected, &mut ctx);
@@ -308,7 +362,11 @@ fn test_empty_struct_compare() {
 
     let result = empty1
         .into_array()
-        .compare(empty2.into_array(), CompareOperator::Eq)
+        .compare(
+            empty2.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([true, true, true, true, true]);
     assert_arrays_eq!(result, expected, &mut ctx);
@@ -337,7 +395,11 @@ fn struct_compare_mixed_binary_encodings() {
 
     let result = struct1
         .into_array()
-        .compare(struct2.into_array(), CompareOperator::Eq)
+        .compare(
+            struct2.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     let expected = BoolArray::from_iter([true, true, false]);
     assert_arrays_eq!(result, expected, &mut ctx);
@@ -386,7 +448,11 @@ fn test_empty_list() {
     let result = list
         .clone()
         .into_array()
-        .compare(list.into_array(), CompareOperator::Eq)
+        .compare(
+            list.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )
         .unwrap();
     assert!(result.execute_scalar(0, ctx).unwrap().is_valid());
     assert!(result.execute_scalar(1, ctx).unwrap().is_valid());
@@ -395,7 +461,7 @@ fn test_empty_list() {
 }
 
 fn execute_compare_test(lhs: ArrayRef, rhs: ArrayRef, op: CompareOperator) -> ArrayRef {
-    lhs.compare(rhs, op).unwrap()
+    lhs.compare(rhs, op, CompareMode::TOTAL_ORDER).unwrap()
 }
 
 #[test]
@@ -406,7 +472,11 @@ fn comparison_uses_execution_allocator() -> VortexResult<()> {
         .create_execution_ctx();
     let result = buffer![1i32, 2, 3]
         .into_array()
-        .compare(buffer![1i32, 0, 3].into_array(), CompareOperator::Eq)?
+        .compare(
+            buffer![1i32, 0, 3].into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?
         .execute::<BoolArray>(&mut ctx)?;
     drop(result);
     assert_ne!(allocations.load(Ordering::Relaxed), 0);
@@ -626,9 +696,11 @@ fn nested_decimal_compare() -> VortexResult<()> {
     let lhs = StructArray::from_fields(&[("value", widened.into_array())])?;
     let rhs = StructArray::from_fields(&[("value", canonical.into_array())])?;
 
-    let result = lhs
-        .into_array()
-        .compare(rhs.into_array(), CompareOperator::Lte)?;
+    let result = lhs.into_array().compare(
+        rhs.into_array(),
+        CompareOperator::Lte,
+        CompareMode::TOTAL_ORDER,
+    )?;
     assert_arrays_eq!(
         result,
         BoolArray::from_iter([true, true, false, false]),
@@ -647,14 +719,18 @@ fn decimal_compare_wide_scalar() -> VortexResult<()> {
     let scalar = Scalar::decimal(DecimalValue::I128(0), dtype, Nullability::NonNullable);
     let constant = ConstantArray::new(scalar, array.len()).into_array();
 
-    let result = array.compare(constant.clone(), CompareOperator::Lt)?;
+    let result = array.compare(
+        constant.clone(),
+        CompareOperator::Lt,
+        CompareMode::TOTAL_ORDER,
+    )?;
     assert_arrays_eq!(
         result,
         BoolArray::from_iter([Some(true), None, Some(false), Some(false)]),
         ctx
     );
 
-    let result = constant.compare(array, CompareOperator::Lt)?;
+    let result = constant.compare(array, CompareOperator::Lt, CompareMode::TOTAL_ORDER)?;
     assert_arrays_eq!(
         result,
         BoolArray::from_iter([Some(false), None, Some(false), Some(true)]),
@@ -710,7 +786,11 @@ fn test_extension_comparison_rejects_mismatched_dtypes_at_binding(
         &inputs,
         |inputs| {
             let error = inputs[0]
-                .compare(inputs[1].clone(), CompareOperator::Lt)
+                .compare(
+                    inputs[1].clone(),
+                    CompareOperator::Lt,
+                    CompareMode::TOTAL_ORDER,
+                )
                 .expect_err("mismatched comparison dtypes must be rejected while binding");
 
             Err(error)
@@ -755,7 +835,7 @@ fn test_extension_comparison_preserves_paths_and_nulls(
 
     assert_execution_paths(
         &[lhs, rhs],
-        |inputs| inputs[0].compare(inputs[1].clone(), operator),
+        |inputs| inputs[0].compare(inputs[1].clone(), operator, CompareMode::TOTAL_ORDER),
         ExpectedOutcome::Array(BoolArray::from_iter(expected).into_array()),
         &mut ctx,
     );
@@ -1135,7 +1215,11 @@ fn primitive_comparisons_across_bitmap_words(
             .zip(&right)
             .map(|(a, b)| a.zip(*b).map(|(a, b)| predicate(a, b))),
     );
-    assert_arrays_eq!(lhs.compare(rhs, op)?, expected, &mut ctx);
+    assert_arrays_eq!(
+        lhs.compare(rhs, op, CompareMode::TOTAL_ORDER)?,
+        expected,
+        &mut ctx
+    );
 
     let constant = ConstantArray::new(
         Scalar::primitive(42u8, Nullability::Nullable).cast(&dtype)?,
@@ -1144,9 +1228,9 @@ fn primitive_comparisons_across_bitmap_words(
     .into_array();
     for swapped in [false, true] {
         let actual = if swapped {
-            constant.compare(lhs.clone(), op)?
+            constant.compare(lhs.clone(), op, CompareMode::TOTAL_ORDER)?
         } else {
-            lhs.compare(constant.clone(), op)?
+            lhs.compare(constant.clone(), op, CompareMode::TOTAL_ORDER)?
         };
         let expected = BoolArray::from_iter(left.iter().map(|value| {
             value.map(|value| {

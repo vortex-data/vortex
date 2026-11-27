@@ -32,6 +32,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
@@ -179,7 +180,8 @@ fn check_exported_values(
     ];
 
     for (operator, in_arrow) in comparisons {
-        let in_vortex = storage_left.compare(storage_right.clone(), operator)?;
+        let in_vortex =
+            storage_left.compare(storage_right.clone(), operator, CompareMode::TOTAL_ORDER)?;
         let in_arrow = session
             .arrow()
             .from_arrow_array(Arc::new(in_arrow), in_vortex.dtype().is_nullable())?;

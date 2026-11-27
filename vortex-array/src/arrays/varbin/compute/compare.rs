@@ -189,6 +189,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -209,6 +210,7 @@ mod test {
                 )
                 .into_array(),
                 CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
             )
             .unwrap();
 
@@ -232,7 +234,11 @@ mod test {
         );
         let result = array
             .into_array()
-            .compare(vbv.into_array(), CompareOperator::Eq)
+            .compare(
+                vbv.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
 
         assert_arrays_eq!(
@@ -261,6 +267,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -273,7 +280,11 @@ mod tests {
 
         let result = arr
             .into_array()
-            .compare(const_.into_array(), CompareOperator::Eq)
+            .compare(
+                const_.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_arrays_eq!(
             result,
@@ -305,6 +316,7 @@ mod tests {
             .compare(
                 ConstantArray::new(Scalar::utf8("abc", Nullability::NonNullable), 3).into_array(),
                 CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
             )
             .unwrap();
 
@@ -334,6 +346,7 @@ mod tests {
                 )
                 .into_array(),
                 CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
             )
             .unwrap();
 

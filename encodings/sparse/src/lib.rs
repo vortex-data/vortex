@@ -42,6 +42,7 @@ use vortex_array::require_opt_child;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -553,7 +554,11 @@ impl SparseData {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_fill_bool = array
-            .compare(fill_array.clone(), CompareOperator::NotEq)?
+            .compare(
+                fill_array.clone(),
+                CompareOperator::NotEq,
+                CompareMode::TOTAL_ORDER,
+            )?
             .fill_null(Scalar::bool(true, Nullability::NonNullable))?
             .execute::<BoolArray>(ctx)?;
         let non_fill_mask = Mask::from_buffer(non_fill_bool.to_bit_buffer());

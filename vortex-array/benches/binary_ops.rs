@@ -38,6 +38,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexResult;
@@ -334,7 +335,7 @@ fn lt_i64_nullable(bencher: Bencher) {
     let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
 
     bench_binary::<BoolArray>(bencher, lhs, rhs, |lhs, rhs| {
-        lhs.compare(rhs, CompareOperator::Lt)
+        lhs.compare(rhs, CompareOperator::Lt, CompareMode::TOTAL_ORDER)
     });
 }
 
