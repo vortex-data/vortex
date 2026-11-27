@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
@@ -49,7 +50,21 @@ impl StatsRewriteRule for SpatialDistancePrune {
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
         // which an AABB can't prove.
-        let op = *expr.as_::<Compare>();
+        let options = expr.as_::<Compare>();
+
+        // The proof holds in each order for a radius that is not `NaN` or a zero. These orders
+        // differ only for a `NaN` distance. Such a row has a `NaN` coordinate, which makes the zone
+        // box the whole plane (see `GeometryAabb`), so no order prunes its chunk. With a zero
+        // radius, the proof needs an order in which `-0.0 = +0.0`.
+        let zeros_equal = matches!(
+            options.compare_mode().float_order(),
+            FloatOrder::ZerosEqual | FloatOrder::Canonical | FloatOrder::Ieee754
+        );
+        if !zeros_equal && !options.compare_mode().is_total_order() {
+            return Ok(None);
+        }
+
+        let op = options.operator();
         if !matches!(
             op,
             CompareOperator::Lte | CompareOperator::Lt | CompareOperator::Gte | CompareOperator::Gt
@@ -73,7 +88,7 @@ impl StatsRewriteRule for SpatialDistancePrune {
         };
         // A NaN radius has no sound proof: `distance <op> NaN` is not a total order, so the chunk
         // must be scanned, not pruned.
-        if radius.is_nan() {
+        if radius.is_nan() || (!zeros_equal && radius == 0.0) {
             return Ok(None);
         }
 
@@ -133,7 +148,10 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::compare::CompareOptions;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_error::VortexResult;
     use vortex_expr::BoundExpression;
     use vortex_expr::ScalarFnExprExt;
@@ -159,6 +177,15 @@ mod tests {
         geom_first: bool,
         radius: impl Into<Scalar>,
     ) -> VortexResult<Option<BoundExpression>> {
+        falsify_distance_in(operator.into(), geom_first, radius)
+    }
+
+    /// As [`falsify_distance`], with the full options of the comparison.
+    fn falsify_distance_in(
+        options: CompareOptions,
+        geom_first: bool,
+        radius: impl Into<Scalar>,
+    ) -> VortexResult<Option<BoundExpression>> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
 
@@ -171,10 +198,85 @@ mod tests {
         };
         let distance = SpatialDistance.new_expr(EmptyOptions, operands);
         let predicate = Compare
-            .new_expr(operator, [distance, lit(radius.into())])
+            .new_expr(options, [distance, lit(radius.into())])
             .bind(&scope)?;
 
         SpatialDistancePrune.falsify(&predicate, &session)
+    }
+
+    /// Each order prunes for a radius that is not a zero. With a zero radius, only the orders in
+    /// which the zeros are equal prune.
+    #[rstest]
+    #[case::zeros_equal(FloatOrder::ZerosEqual, 0.5, true)]
+    #[case::canonical(FloatOrder::Canonical, 0.5, true)]
+    #[case::ieee754(FloatOrder::Ieee754, 0.5, true)]
+    #[case::total_order(FloatOrder::TotalOrder, 0.5, true)]
+    #[case::zeros_equal_zero_radius(FloatOrder::ZerosEqual, 0.0, true)]
+    #[case::total_order_zero_radius(FloatOrder::TotalOrder, 0.0, false)]
+    fn prunes_in_each_order(
+        #[case] float_order: FloatOrder,
+        #[case] radius: f64,
+        #[case] prunes: bool,
+    ) -> VortexResult<()> {
+        let mode = CompareMode::new(float_order);
+        let options = CompareOptions::new(CompareOperator::Lte, mode);
+
+        let Some(proof) = falsify_distance_in(options, true, radius)? else {
+            assert!(!prunes);
+            return Ok(());
+        };
+        assert!(prunes);
+
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0]])?;
+        let mask = zones.prune(&proof, &spatial_session())?;
+
+        assert_eq!(mask.iter().collect::<Vec<_>>(), [false, true]);
+        Ok(())
+    }
+
+    /// A row with a `NaN` coordinate has a `NaN` distance, which satisfies `>= r` in `Canonical`
+    /// and can satisfy `<= r` as a negative `NaN` in `ZerosEqual`. Its zone box is the whole
+    /// plane, which no comparison prunes, while a zone of finite points next to it still prunes.
+    #[rstest]
+    #[case::gte(CompareOperator::Gte, [true, false])]
+    #[case::gt(CompareOperator::Gt, [true, false])]
+    #[case::lte(CompareOperator::Lte, [true, false])]
+    #[case::lt(CompareOperator::Lt, [true, false])]
+    fn whole_plane_zone_is_kept(
+        #[case] operator: CompareOperator,
+        #[case] kept: [bool; 2],
+    ) -> VortexResult<()> {
+        let (radius, finite_zone) = match operator {
+            CompareOperator::Gte | CompareOperator::Gt => (1.0, [0.0, 0.0, 0.0, 0.0]),
+            _ => (0.5, [1.0, 0.0, 1.0, 0.0]),
+        };
+
+        for float_order in [
+            FloatOrder::ZerosEqual,
+            FloatOrder::Canonical,
+            FloatOrder::Ieee754,
+            FloatOrder::TotalOrder,
+        ] {
+            let mode = CompareMode::new(float_order);
+            let proof = falsify_distance_in(CompareOptions::new(operator, mode), true, radius)?
+                .expect("each order prunes for a radius that is not a zero");
+
+            let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+            let whole_plane = [
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+            ];
+            let zones = aabb_zone_map(&dtype, &[whole_plane, finite_zone])?;
+            let mask = zones.prune(&proof, &spatial_session())?;
+
+            // The mask is true for a pruned zone.
+            let pruned = mask.iter().collect::<Vec<_>>();
+            assert_eq!(pruned, kept.map(|k| !k), "{operator} in {float_order}");
+        }
+        Ok(())
     }
 
     /// A null geometry literal (`ST_Distance(geom, NULL) <= r`) declines cleanly instead of
@@ -187,7 +289,7 @@ mod tests {
         let null_query = Scalar::null(scope.as_nullable());
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
         let predicate = Compare
-            .new_expr(CompareOperator::Lte, [distance, lit(0.5f64)])
+            .new_expr(CompareOperator::Lte.into(), [distance, lit(0.5f64)])
             .bind(&scope)?;
 
         assert!(
@@ -296,7 +398,7 @@ mod tests {
         let geometry = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let scope = geometry.dtype().clone();
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(geometry.clone())]);
-        let predicate = Compare.new_expr(CompareOperator::Lte, [distance, lit(geometry)]);
+        let predicate = Compare.new_expr(CompareOperator::Lte.into(), [distance, lit(geometry)]);
         let error = predicate
             .bind(&scope)
             .expect_err("a geometry scalar cannot be compared with a numeric distance");

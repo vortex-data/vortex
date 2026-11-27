@@ -6,12 +6,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ProbeState;
 use vortex_array::RepeatedArrayProbe;
-use vortex_array::arrays::varbin::varbin_scalar;
+use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
@@ -45,7 +46,11 @@ impl OperationsVTable<FSST> for FSST {
         let binary_datum = compressed.as_binary().value().vortex_expect("non-null");
 
         let decoded_buffer = ByteBuffer::from(array.decompressor().decompress(binary_datum));
-        Ok(varbin_scalar(decoded_buffer, array.dtype()))
+        match array.dtype() {
+            DType::Utf8(nullability) => Scalar::try_utf8(decoded_buffer, *nullability),
+            DType::Binary(nullability) => Ok(Scalar::binary(decoded_buffer, *nullability)),
+            dtype => vortex_bail!("FSST arrays must be Binary or Utf8, found {dtype}"),
+        }
     }
 
     fn scalar_at(

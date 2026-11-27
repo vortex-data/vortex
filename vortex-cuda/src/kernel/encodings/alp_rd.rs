@@ -30,6 +30,7 @@ use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::dynamic_dispatch::pack_alprd_dictionary;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
@@ -63,9 +64,6 @@ impl CudaExecute for ALPRDExecutor {
 
 /// Threads per block. 32 threads × 32 elements cover one 1024-element chunk.
 const ALP_RD_THREADS_PER_BLOCK: u32 = 32;
-
-/// Entries in the kernel's `AlpRdDictionary`, the `alp` crate's `MAX_DICT_SIZE`.
-const ALP_RD_DICTIONARY_CAPACITY: usize = 8;
 
 /// Decodes `array` into floats of `float_ptype`, whose bits have the unsigned type `U`.
 #[instrument(skip_all)]
@@ -133,14 +131,7 @@ where
     let right_view = device_right.cuda_view::<U>()?;
 
     let dictionary = array.left_parts_dictionary();
-    vortex_ensure!(
-        dictionary.len() <= ALP_RD_DICTIONARY_CAPACITY,
-        "ALP-RD dictionary holds {} entries, more than {ALP_RD_DICTIONARY_CAPACITY}",
-        dictionary.len()
-    );
-    // Entries past `dictionary_len` are never read, because the kernel checks codes against it.
-    let mut dictionary_entries = [0u16; ALP_RD_DICTIONARY_CAPACITY];
-    dictionary_entries[..dictionary.len()].copy_from_slice(dictionary.as_slice());
+    let dictionary_entries = pack_alprd_dictionary(dictionary.as_slice())?;
     let dictionary_len = u32::try_from(dictionary.len())?;
 
     let device_patches = match left_parts_patches {

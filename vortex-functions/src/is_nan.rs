@@ -51,13 +51,16 @@ mod tests {
 
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_expr::ArrayExprExt;
     use vortex_expr::get_item;
     use vortex_expr::lit;
@@ -104,7 +107,8 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_floats() {
+    fn evaluate_floats() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = PrimitiveArray::from_option_iter([
             Some(1.0f32),
             Some(f32::NAN),
@@ -113,96 +117,68 @@ mod tests {
             Some(-f32::NAN),
         ])
         .into_array();
-        let expected = [Some(false), Some(true), None, Some(false), Some(true)];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.apply(&is_nan(root()))?;
 
-        assert_eq!(result.len(), test_array.len());
-        assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
-        for (i, expected_value) in expected.iter().enumerate() {
-            let expected_scalar = match expected_value {
-                Some(value) => Scalar::bool(*value, Nullability::Nullable),
-                None => Scalar::null(DType::Bool(Nullability::Nullable)),
-            };
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                expected_scalar
-            );
-        }
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false), Some(true), None, Some(false), Some(true)]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]
-    fn evaluate_all_valid_floats() {
+    fn evaluate_all_valid_floats() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = PrimitiveArray::new(
             buffer![1.0f64, f64::NAN, f64::INFINITY, -f64::NAN],
             Validity::NonNullable,
         )
         .into_array();
-        let expected = [false, true, false, true];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.apply(&is_nan(root()))?;
 
-        assert_eq!(result.len(), test_array.len());
-        assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
-        for (i, expected_value) in expected.iter().enumerate() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::bool(*expected_value, Nullability::NonNullable)
-            );
-        }
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, false, true]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]
-    fn evaluate_all_null_floats() {
+    fn evaluate_all_null_floats() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = PrimitiveArray::from_option_iter([None::<f32>, None, None]).into_array();
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.apply(&is_nan(root()))?;
 
-        assert_eq!(result.len(), test_array.len());
-        for i in 0..result.len() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::null(DType::Bool(Nullability::Nullable))
-            );
-        }
+        assert_arrays_eq!(result, BoolArray::from_iter([None, None, None]), &mut ctx);
+        Ok(())
     }
 
     #[test]
-    fn evaluate_constant() {
+    fn evaluate_constant() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = buffer![1.0f32, 2.0, 3.0].into_array();
         let cases = [
-            (lit(f32::NAN), Some(true)),
-            (lit(1.0f32), Some(false)),
+            (lit(f32::NAN), BoolArray::from_iter([true, true, true])),
+            (lit(1.0f32), BoolArray::from_iter([false, false, false])),
             (
                 lit(Scalar::null(DType::Primitive(
                     PType::F32,
                     Nullability::Nullable,
                 ))),
-                None,
+                BoolArray::from_iter([None, None, None]),
             ),
         ];
 
-        for (expr_child, expected_value) in cases {
-            let result = test_array.clone().apply(&is_nan(expr_child)).unwrap();
-            for i in 0..result.len() {
-                let expected_scalar = match expected_value {
-                    Some(value) => Scalar::bool(value, Nullability::Nullable),
-                    None => Scalar::null(DType::Bool(Nullability::Nullable)),
-                };
-                assert_eq!(
-                    result
-                        .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                        .unwrap(),
-                    expected_scalar
-                );
-            }
+        for (expr_child, expected) in cases {
+            let result = test_array.clone().apply(&is_nan(expr_child))?;
+            assert_arrays_eq!(result, expected, &mut ctx);
         }
+        Ok(())
     }
 
     #[test]
@@ -212,24 +188,16 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_sliced() {
+    fn evaluate_sliced() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = buffer![1.0f32, f32::NAN, 2.0, f32::NAN, 3.0]
             .into_array()
-            .slice(1..4)
-            .unwrap();
-        let expected = [true, false, true];
+            .slice(1..4)?;
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.apply(&is_nan(root()))?;
 
-        assert_eq!(result.len(), test_array.len());
-        for (i, expected_value) in expected.iter().enumerate() {
-            assert_eq!(
-                result
-                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                    .unwrap(),
-                Scalar::bool(*expected_value, Nullability::NonNullable)
-            );
-        }
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, true]), &mut ctx);
+        Ok(())
     }
 
     #[test]

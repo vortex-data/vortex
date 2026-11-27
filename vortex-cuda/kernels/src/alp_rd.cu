@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "alp_rd.h"
 #include "patches.cuh"
 
 // ALP-RD dictionaries hold at most 8 left parts (`MAX_DICT_SIZE` in the `alp` crate), so the
 // dictionary is a kernel parameter, not a device buffer.
 struct AlpRdDictionary {
-    uint16_t entries[8];
+    uint16_t entries[ALPRD_DICTIONARY_CAPACITY];
 };
 static_assert(sizeof(AlpRdDictionary) == 16, "AlpRdDictionary must match [u16; 8] on the host");
 

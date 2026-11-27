@@ -247,7 +247,7 @@ mod tests {
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 
-        let scalar_fn = TypedScalarFnInstance::new(Compare, CompareOperator::Eq).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Compare, CompareOperator::Eq.into()).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
 
         let expected = BoolArray::from_iter([false, true, false]).into_array();

@@ -51,6 +51,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeSession_free(
     _class: JClass,
     pointer: jlong,
 ) {
+    if pointer == 0 {
+        return;
+    }
     // SAFETY: pointer must have been created by `newSession` and not yet freed.
     drop(unsafe { Box::from_raw(pointer as *mut VortexSession) });
 }
@@ -68,6 +71,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeSession_enableEdition(
     edition: JString,
 ) {
     try_or_throw(&mut env, |env| {
+        if pointer == 0 {
+            throw_runtime!("null session pointer");
+        }
         let name: String = edition.try_to_string(env)?;
 
         // SAFETY: pointer must have been created by `newSession` and not yet freed.
