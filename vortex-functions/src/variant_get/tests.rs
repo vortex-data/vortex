@@ -1311,14 +1311,27 @@ fn pack_over_core(complete: bool) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)
 /// Each rule of [`VariantGet::reduce`] over a [`VariantPack`] extracts what the Variant that
 /// the pack builds gives, and reads only the child that the rule says it reads.
 #[rstest]
-#[case::shredded_field_of_complete_pack(&["a"], PType::I32, true, Reduced::ToShredded)]
-#[case::shredded_field_of_partial_pack(&["a"], PType::I32, false, Reduced::No)]
-#[case::field_not_shredded(&["b"], PType::I32, true, Reduced::ToCore)]
-#[case::path_into_shredded_variant(&["n", "c"], PType::I64, true, Reduced::ToShredded)]
-#[case::leaf_of_other_type(&["a"], PType::I64, true, Reduced::No)]
+#[case::shredded_field_of_complete_pack(&["a"], nullable(PType::I32), true, Reduced::ToShredded)]
+#[case::shredded_field_of_partial_pack(&["a"], nullable(PType::I32), false, Reduced::No)]
+#[case::field_not_shredded(&["b"], nullable(PType::I32), true, Reduced::ToCore)]
+#[case::path_into_shredded_variant(&["n", "c"], nullable(PType::I64), true, Reduced::ToShredded)]
+#[case::leaf_of_other_type(&["a"], nullable(PType::I64), true, Reduced::No)]
+#[case::struct_of_shredded_dtype(
+    &[],
+    shredded_struct(Nullability::Nullable),
+    true,
+    Reduced::ToShredded
+)]
+// The shredded `a` is null in the last row, which `variant_get` reads as a null row.
+#[case::struct_with_non_nullable_field(
+    &[],
+    shredded_struct(Nullability::NonNullable),
+    true,
+    Reduced::No
+)]
 fn variant_get_over_variant_pack_reduces(
     #[case] path: &[&str],
-    #[case] ptype: PType,
+    #[case] dtype: DType,
     #[case] complete: bool,
     #[case] reduced: Reduced,
 ) -> VortexResult<()> {
@@ -1327,7 +1340,7 @@ fn variant_get_over_variant_pack_reduces(
     let expr = variant_get(
         root(),
         VariantPath::new(path.iter().map(|field| VariantPathElement::field(*field))),
-        Some(DType::Primitive(ptype, Nullability::Nullable)),
+        Some(dtype),
     );
 
     let actual = packed.apply(&expr)?.optimize_ctx(&ctx)?;
@@ -1357,4 +1370,19 @@ fn variant_get_over_variant_pack_reduces(
         .execute::<ArrayRef>(&mut ctx)?;
     assert_arrays_eq!(actual.execute::<ArrayRef>(&mut ctx)?, expected, &mut ctx);
     Ok(())
+}
+
+fn nullable(ptype: PType) -> DType {
+    DType::Primitive(ptype, Nullability::Nullable)
+}
+
+/// The struct that [`pack_over_core`] shreds, with field `a` of the given nullability.
+fn shredded_struct(a: Nullability) -> DType {
+    DType::struct_(
+        [
+            ("a", DType::Primitive(PType::I32, a)),
+            ("n", DType::Variant(Nullability::Nullable)),
+        ],
+        Nullability::Nullable,
+    )
 }
