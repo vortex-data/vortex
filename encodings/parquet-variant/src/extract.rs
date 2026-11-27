@@ -733,13 +733,16 @@ impl<'a> Elements<'a> {
         }))
     }
 
-    /// The value of element `idx`.
+    /// The value of element `idx`, which ends where the next element starts, as Arrow reads it.
+    /// Returns `None` if the offsets decrease or point past the values.
     fn element(&self, idx: usize) -> Option<&'a [u8]> {
-        let offset = read_uint(
-            self.offsets.get(idx * self.offset_size..)?,
-            self.offset_size,
-        )?;
-        self.values.get(offset..)
+        let offset = |idx: usize| {
+            read_uint(
+                self.offsets.get(idx * self.offset_size..)?,
+                self.offset_size,
+            )
+        };
+        self.values.get(offset(idx)?..offset(idx + 1)?)
     }
 }
 
@@ -1001,6 +1004,31 @@ mod tests {
             &Mask::new_true(1),
             &["a"],
             &utf8(),
+        );
+
+        assert!(extracted.is_none());
+    }
+
+    /// An element ends where the next one starts, as Arrow reads it. Elements whose offsets
+    /// overlap or decrease do not decode there, so the general kernel extracts them, and one long
+    /// string is not copied once for each element that points at it.
+    #[rstest]
+    #[case::overlapping([0, 0, 8])]
+    #[case::decreasing([4, 0, 8])]
+    fn leaves_elements_whose_offsets_do_not_follow_one_another_to_the_general_kernel(
+        #[case] offsets: [u8; 3],
+    ) {
+        // A list of two elements with one-byte offsets, over the short strings "abc" and "def".
+        let mut value = vec![0x03, 2];
+        value.extend(offsets);
+        value.extend([0x0D, b'a', b'b', b'c', 0x0D, b'd', b'e', b'f']);
+
+        let extracted = extract(
+            &VarBinViewArray::from_iter_bin([EMPTY_METADATA]),
+            &VarBinViewArray::from_iter_bin([value]),
+            &Mask::new_true(1),
+            &[],
+            &DType::List(Arc::new(utf8()), Nullability::Nullable),
         );
 
         assert!(extracted.is_none());
