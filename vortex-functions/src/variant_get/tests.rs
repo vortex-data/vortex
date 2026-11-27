@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -17,9 +18,12 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar_is_null;
@@ -35,7 +39,13 @@ use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -48,6 +58,7 @@ use vortex_expr::proto::ExprSerializeProtoExt;
 use vortex_expr::root;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::expr::variant_get;
 use crate::variant_get::VariantGet;
@@ -55,6 +66,7 @@ use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
 use crate::variant_get::convert_to_decimal;
+use crate::variant_pack::VariantPack;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -1212,4 +1224,243 @@ fn variant_get_extracts_from_masked_variants(#[case] as_core_storage: bool) -> V
         &mut ctx
     );
     Ok(())
+}
+
+#[test]
+fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let core = variant_rows([
+        Scalar::variant(variant_object([])),
+        Scalar::null(DType::Variant(Nullability::Nullable)),
+    ])?;
+    let shredded = StructArray::try_new(
+        FieldNames::from_iter(["a"]),
+        vec![PrimitiveArray::from_option_iter([Some(10i32), None]).into_array()],
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let validity = BoolArray::from_iter([true, false]).into_array();
+    let packed = VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
+
+    let target = DType::struct_(
+        [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
+        Nullability::Nullable,
+    );
+    let expr = variant_get(root(), VariantPath::root(), Some(target));
+    let result = packed
+        .apply(&expr)?
+        .optimize_ctx(&ctx)?
+        .execute::<ArrayRef>(&mut ctx)?;
+    assert!(result.is_valid(0, &mut ctx)?);
+    assert_eq!(
+        result
+            .execute_scalar(0, &mut ctx)?
+            .as_struct()
+            .field("a")
+            .and_then(|s| s.as_primitive().typed_value::<i32>()),
+        Some(10),
+    );
+    assert!(result.is_invalid(1, &mut ctx)?);
+    Ok(())
+}
+
+/// How [`VariantGet`] over a [`VariantPack`] reduces.
+#[derive(Debug, Clone, Copy)]
+enum Reduced {
+    /// To a read of the shredded child alone.
+    ToShredded,
+    /// To an extraction from the core storage alone.
+    ToCore,
+    /// Not at all: the pack stays and executes to a whole Variant.
+    No,
+}
+
+/// Variant objects whose field `a` is shredded as `i32` and field `n` as a shredded Variant,
+/// over core storage that holds field `b`, and a last row that is a string, not an object. When
+/// the pack is not complete, the core storage also holds `a` for the third row, where the
+/// shredded `a` is null.
+///
+/// Returns the core storage, the shredded struct, and the struct's validity, which is false for
+/// the string row.
+fn pack_over_core(complete: bool) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)> {
+    let b = |value: i32| Scalar::primitive(value, Nullability::NonNullable);
+    let third_row = if complete {
+        variant_object([("b", b(3))])
+    } else {
+        variant_object([
+            ("a", Scalar::primitive(7i32, Nullability::NonNullable)),
+            ("b", b(3)),
+        ])
+    };
+    let core = variant_rows([
+        Scalar::variant(variant_object([("b", b(1))])),
+        Scalar::variant(variant_object([("b", b(2))])),
+        Scalar::variant(third_row),
+        Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
+    ])?;
+
+    let c = |value: i64| {
+        Scalar::variant(variant_object([(
+            "c",
+            Scalar::primitive(value, Nullability::NonNullable),
+        )]))
+    };
+    let fields = StructArray::try_new(
+        FieldNames::from_iter(["a", "n"]),
+        vec![
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None, None]).into_array(),
+            variant_rows([
+                c(1),
+                c(2),
+                c(3),
+                Scalar::null(DType::Variant(Nullability::Nullable)),
+            ])?,
+        ],
+        4,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let validity = BoolArray::from_iter([true, true, true, false]).into_array();
+    Ok((core, fields, validity))
+}
+
+/// A test function over Variant data that fails when it is executed, which shows that a rule
+/// does not read its input.
+#[derive(Clone)]
+struct Unreadable;
+
+impl ScalarFnVTable for Unreadable {
+    type Options = EmptyOptions;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.unreadable");
+        *ID
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(1)
+    }
+
+    fn child_name(&self, _options: &Self::Options, _child_idx: usize) -> ChildName {
+        ChildName::from("input")
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(arg_dtypes[0].clone())
+    }
+
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_bail!("the core storage must not be read")
+    }
+}
+
+/// Each rule of [`VariantGet::reduce`] over a [`VariantPack`] extracts what the Variant that
+/// the pack builds gives, and reads only the child that the rule says it reads. A pack whose
+/// shredded struct has its validity as a third child reduces as the pack over a nullable struct
+/// does, except at the root, where it keeps the pack.
+#[rstest]
+#[case::shredded_field_of_complete_pack(&["a"], nullable(PType::I32), true, Reduced::ToShredded)]
+#[case::shredded_field_of_partial_pack(&["a"], nullable(PType::I32), false, Reduced::No)]
+#[case::field_not_shredded(&["b"], nullable(PType::I32), true, Reduced::ToCore)]
+#[case::path_into_shredded_variant(&["n", "c"], nullable(PType::I64), true, Reduced::ToShredded)]
+#[case::leaf_of_other_type(&["a"], nullable(PType::I64), true, Reduced::No)]
+#[case::struct_of_shredded_dtype(
+    &[],
+    shredded_struct(Nullability::Nullable),
+    true,
+    Reduced::ToShredded
+)]
+// The shredded `a` is null in the third row, which `variant_get` reads as a null row.
+#[case::struct_with_non_nullable_field(
+    &[],
+    shredded_struct(Nullability::NonNullable),
+    true,
+    Reduced::No
+)]
+fn variant_get_over_variant_pack_reduces(
+    #[case] path: &[&str],
+    #[case] dtype: DType,
+    #[case] complete: bool,
+    #[case] reduced: Reduced,
+    #[values(false, true)] with_validity: bool,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (core, fields, validity) = pack_over_core(complete)?;
+    let reduced = match reduced {
+        Reduced::ToShredded if with_validity && path.is_empty() => Reduced::No,
+        reduced => reduced,
+    };
+
+    let packed_core = match reduced {
+        Reduced::ToShredded => {
+            ScalarFnArray::try_new(Unreadable.bind(EmptyOptions), [core.clone()])?.into_array()
+        }
+        Reduced::ToCore | Reduced::No => core.clone(),
+    };
+    let packed = if with_validity {
+        VariantPack::try_new_with_validity(
+            packed_core.clone(),
+            fields.clone(),
+            validity.clone(),
+            complete,
+        )?
+    } else {
+        let nullable = fields.clone().mask(validity.clone())?;
+        VariantPack::try_new(packed_core.clone(), nullable, complete)?
+    }
+    .into_array();
+
+    let expr = variant_get(
+        root(),
+        VariantPath::new(path.iter().map(|field| VariantPathElement::field(*field))),
+        Some(dtype),
+    );
+    let actual = packed.apply(&expr)?.optimize_ctx(&ctx)?;
+
+    let nodes = actual.depth_first_traversal().collect::<Vec<_>>();
+    let has_pack = nodes.iter().any(|node| {
+        node.as_opt::<ScalarFn>()
+            .is_some_and(|scalar_fn| scalar_fn.scalar_fn().id() == VariantPack.id())
+    });
+    // The optimizer can push the extraction into the chunks of `core`, so any of its arrays
+    // counts as reading it.
+    let core_nodes = packed_core.depth_first_traversal().collect::<Vec<_>>();
+    let reads_core = nodes.iter().any(|node| {
+        core_nodes
+            .iter()
+            .any(|core_node| ArrayRef::ptr_eq(node, core_node))
+    });
+    match reduced {
+        Reduced::ToShredded => assert!(!has_pack && !reads_core, "{actual}"),
+        Reduced::ToCore => assert!(!has_pack && reads_core, "{actual}"),
+        Reduced::No => assert!(has_pack, "{actual}"),
+    }
+
+    let expected = VariantArray::try_new(core, Some(fields.mask(validity)?))?
+        .into_array()
+        .apply(&expr)?
+        .execute::<ArrayRef>(&mut ctx)?;
+    assert_arrays_eq!(actual.execute::<ArrayRef>(&mut ctx)?, expected, &mut ctx);
+    Ok(())
+}
+
+fn nullable(ptype: PType) -> DType {
+    DType::Primitive(ptype, Nullability::Nullable)
+}
+
+/// The struct that [`pack_over_core`] shreds, nullable, with field `a` of the given nullability.
+fn shredded_struct(a: Nullability) -> DType {
+    DType::struct_(
+        [
+            ("a", DType::Primitive(PType::I32, a)),
+            ("n", DType::Variant(Nullability::Nullable)),
+        ],
+        Nullability::Nullable,
+    )
 }
