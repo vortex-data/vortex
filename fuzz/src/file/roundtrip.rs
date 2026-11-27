@@ -63,7 +63,8 @@ impl FileRoundTrip {
                 (array, split_at, None, None, SESSION.write_options())
             }
         };
-        if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype()) {
+        if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype())
+        {
             return false;
         }
 
