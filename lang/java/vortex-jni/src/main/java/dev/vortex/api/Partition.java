@@ -3,9 +3,9 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativePartition;
+import java.lang.ref.Cleaner;
 import java.lang.ref.Reference;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,19 +19,24 @@ import org.apache.arrow.vector.ipc.ArrowReader;
  * {@link #scanArrow(BufferAllocator)} consumes the partition and transfers ownership of its native memory to the
  * returned {@link ArrowReader}. If the partition is never consumed, its native memory is released automatically via
  * {@link VortexCleaner}.
+ *
+ * <p>Native calls are synchronized so metadata access cannot race with consuming ownership transfer.
  */
 public final class Partition {
     private final Session session;
     private final long pointer;
     private final AtomicBoolean consumed = new AtomicBoolean(false);
+    private final Cleaner.Cleanable cleanable;
 
     private Partition(Session session, long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid partition pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid partition pointer");
+        }
         this.session = session;
         this.pointer = pointer;
         AtomicBoolean consumedRef = this.consumed;
-        VortexCleaner.register(this, () -> {
-            if (!consumedRef.get()) {
+        this.cleanable = VortexCleaner.register(this, () -> {
+            if (consumedRef.compareAndSet(false, true)) {
                 NativePartition.free(pointer);
             }
         });
@@ -42,8 +47,10 @@ public final class Partition {
     }
 
     /** Estimated row count of the partition. Empty when unknown. */
-    public OptionalLong rowCount() {
-        Preconditions.checkState(!consumed.get(), "partition already consumed");
+    public synchronized OptionalLong rowCount() {
+        if (consumed.get()) {
+            throw new IllegalStateException("partition already consumed");
+        }
         try {
             long[] out = new long[2];
             NativePartition.rowCount(pointer, out);
@@ -60,7 +67,7 @@ public final class Partition {
      * Consume the partition and return an {@link ArrowReader} that yields record batches. The caller must close the
      * reader when finished; doing so releases the native partition resources as well.
      */
-    public ArrowReader scanArrow(BufferAllocator allocator) {
+    public synchronized ArrowReader scanArrow(BufferAllocator allocator) {
         if (!consumed.compareAndSet(false, true)) {
             throw new IllegalStateException("partition already consumed");
         }
@@ -87,6 +94,7 @@ public final class Partition {
                 throw failure;
             }
         } finally {
+            cleanable.clean();
             Reference.reachabilityFence(this);
         }
     }

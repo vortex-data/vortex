@@ -96,9 +96,9 @@ impl BoolBuilder {
         array: ArrayView<'_, Bool>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        let mask = BoolArrayExt::validity(&array).execute_mask(array.len(), ctx)?;
         self.inner.append_buffer(&array.to_bit_buffer());
-        self.nulls
-            .append_validity_mask(&BoolArrayExt::validity(&array).execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity_mask(&mask);
         Ok(())
     }
 }
@@ -165,6 +165,7 @@ mod tests {
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -179,9 +180,11 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity_in;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -271,5 +274,35 @@ mod tests {
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[test]
+    fn test_append_bool_array_error_does_not_mutate_builder() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut builder = BoolBuilder::with_capacity_in(
+            Nullability::Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_value(true);
+
+        let failing_validity = BoolArray::from_iter([Some(true), None])
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable))?;
+        let failing = BoolArray::new(
+            BitBuffer::from_iter([false, true]),
+            Validity::Array(failing_validity),
+        );
+
+        assert!(
+            failing
+                .into_array()
+                .append_to_builder(&mut builder, &mut ctx)
+                .is_err()
+        );
+        assert_eq!(builder.len(), 1);
+        let result = builder.finish_into_bool();
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]), &mut ctx);
+        Ok(())
     }
 }

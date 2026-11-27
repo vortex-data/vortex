@@ -1,243 +1,288 @@
-"""Reminder cadence, Slack mention resolution, and Claude progress verdicts."""
+"""Choose the items that Claude judges, build its input, and read its verdicts.
+
+Claude answers two questions per item: does Vortex or the contributor owe the next move, and how
+urgent is the item? Whether an item is tracked at all always comes from the deterministic rules.
+
+Claude looks at an item when something changed that it has not seen: the item is new to the bot,
+it has new activity, or its snooze ended. An item that nobody is reminded about also gets a fresh
+look every few working days, because no person looks at it either. Claude looks at an item at most
+once in `COOLDOWN`, so a busy thread costs one request per hour, not one per run.
+"""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from zoneinfo import ZoneInfo
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any, NamedTuple
 
-from .github import FUZZER, Item
+from .github import Item
+from .hours import working_days_between
+from .rules import Assessment, Owes, Tier, Verdict, assess, verdict_applies, verdict_context
+from .state import ItemState
+from .sync import Channel, Judgment, new_root_numbers
 
-if TYPE_CHECKING:
-    from .publish import Thread
-
-WAITING_ON_VORTEX = "waiting_on_vortex"
-WAITING_ON_CONTRIBUTOR = "waiting_on_contributor"
-_VALID_STATES = frozenset({WAITING_ON_VORTEX, WAITING_ON_CONTRIBUTOR})
+MAX_CANDIDATES = 30
+COOLDOWN = timedelta(hours=1)
+RECHECK_WORKING_DAYS = 5
+FAILED = "⚠️ Claude failed, rules only"
+_RECENT_EVENTS = 10
 _REASON_LIMIT = 200
+_TIERS = {t.value for t in Tier}
+
+# The JSON schema that Claude's structured output must follow.
+SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "verdicts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "number": {"type": "integer"},
+                    "owes": {"type": "string", "enum": [o.value for o in Owes]},
+                    "reason": {"type": "string"},
+                    "priority": {"type": "string", "enum": [t.value for t in Tier]},
+                    "priority_reason": {"type": "string"},
+                },
+                "required": ["number", "owes", "reason", "priority", "priority_reason"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["verdicts"],
+    "additionalProperties": False,
+}
 
 
-@dataclass(frozen=True)
-class Cadence:
-    """When reminders are allowed and how often each kind of item is pinged."""
-
-    issue_days: int = 7
-    pr_weekdays: int = 1
-    tz: str = "America/New_York"
-    start_hour: int = 9
-    end_hour: int = 18
-    ignore_hours: bool = False
-
-
-@dataclass(frozen=True)
-class Verdict:
-    """Whether Vortex currently owes a response or action on an item."""
-
-    state: str
-    reason: str
-    source: str = "fallback"
-
-
-def in_business_hours(now_ts: float, cadence: Cadence) -> bool:
-    if cadence.ignore_hours:
+def _wants_look(state: ItemState | None, assessment: Assessment, now: datetime) -> bool:
+    """Return whether Claude should look at an item, apart from the cool-down."""
+    if state is None or not verdict_applies(state.verdict, assessment.last_activity_at):
         return True
-    local = datetime.fromtimestamp(now_ts, tz=ZoneInfo(cadence.tz))
-    return local.weekday() < 5 and cadence.start_hour <= local.hour < cadence.end_hour
-
-
-def weekdays_between(start_ts: float, end_ts: float, tz_name: str) -> int:
-    """Count calendar weekdays strictly after `start_ts` up to and including `end_ts`."""
-    tz = ZoneInfo(tz_name)
-    start_date = datetime.fromtimestamp(start_ts, tz=tz).date()
-    end_date = datetime.fromtimestamp(end_ts, tz=tz).date()
-    if end_date <= start_date:
-        return 0
-    count = 0
-    day = start_date + timedelta(days=1)
-    while day <= end_date:
-        if day.weekday() < 5:
-            count += 1
-        day += timedelta(days=1)
-    return count
-
-
-def is_ping_due(
-    item: Item,
-    thread: Thread | None,
-    now_ts: float,
-    cadence: Cadence,
-    *,
-    new_external: bool = False,
-) -> bool:
-    """Return True when `item` is eligible for a progress check and reminder right now."""
-    if not in_business_hours(now_ts, cadence):
-        return False
-    if not item.reasons and (thread is None or not thread.open):
-        return False
-    if thread is None:
+    if state.asked_at < state.snooze_until <= now.timestamp():
         return True
-    if new_external or (item.external_at and item.external_at > thread.external_at):
-        return True
-    last_at = max(thread.last_ping_at, thread.last_checked_at)
-    if last_at <= 0:
-        return True
-    if item.kind == "pr":
-        return weekdays_between(last_at, now_ts, cadence.tz) >= cadence.pr_weekdays
-    return (now_ts - last_at) >= cadence.issue_days * 86400
+    unreminded = assessment.tier is Tier.LOW or assessment.owes is Owes.CONTRIBUTOR
+    asked = datetime.fromtimestamp(state.asked_at, UTC)
+    return unreminded and working_days_between(asked, now) >= RECHECK_WORKING_DAYS
 
 
-def due_items(
-    items: list[Item],
-    threads: dict[int, Thread],
-    now_ts: float,
-    cadence: Cadence,
-    max_new: int | None = None,
-) -> list[Item]:
-    """Return the open items that are due for a progress check on this run."""
-    if not in_business_hours(now_ts, cadence):
-        return []
-    result: list[Item] = []
-    started = 0
+def candidates(
+    items: list[Item], channel: Channel, now: datetime, max_new: int = 0
+) -> list[tuple[Item, Assessment]]:
+    """Return the items that Claude looks at in this run, the most urgent first.
+
+    Each item comes with the rules' assessment alone, which Claude sees and may correct.
+    """
+    chosen = []
+    allowed_new = frozenset(new_root_numbers(items, channel, now, max_new))
     for item in items:
-        thread = threads.get(item.number)
-        if thread is None or (thread.root_ts is None and not thread.pending):
-            if not item.reasons or (max_new is not None and started >= max_new):
+        rules = assess(item, now)
+        if rules is None:
+            continue
+        root = channel.roots.get(item.number)
+        if root is None and item.number not in allowed_new:
+            continue
+        state = root.state if root else None
+        context_matches = state is not None and state.verdict_context == verdict_context(item)
+        if state is not None:
+            if (
+                state.snoozed(now)
+                or (context_matches and state.pending_claude_note)
+                or (context_matches and now.timestamp() - state.asked_at < COOLDOWN.total_seconds())
+            ):
                 continue
-            started += 1
-        if is_ping_due(item, thread, now_ts, cadence):
-            result.append(item)
-    return result
+            current = (
+                assess(
+                    item,
+                    now,
+                    state.verdict if context_matches else None,
+                    state.priority,
+                    state.verdict_context,
+                )
+                or rules
+            )
+        else:
+            current = rules
+        if not context_matches or _wants_look(state, current, now):
+            chosen.append((item, rules, current))
+    tiers = list(Tier)
+    chosen.sort(key=lambda entry: (tiers.index(entry[2].tier), -entry[2].score, entry[0].number))
+    return [(item, rules) for item, rules, _ in chosen[:MAX_CANDIDATES]]
 
 
-def fallback_verdict(item: Item) -> Verdict:
-    """Deterministic verdict used when Claude is disabled or omitted an item."""
-    if FUZZER in item.reasons:
-        return Verdict(WAITING_ON_VORTEX, "Open fuzzer issue.")
-    if not item.assignees:
-        return Verdict(WAITING_ON_VORTEX, "No GitHub assignee yet.")
-    if item.external_at and (not item.team_at or item.external_at > item.team_at):
-        who = item.external_by or item.author
-        return Verdict(
-            WAITING_ON_VORTEX, f"Latest activity is from `{who}` with no team reply after it."
-        )
-    return Verdict(WAITING_ON_CONTRIBUTOR, "A teammate replied after the latest external activity.")
+def held(
+    items: list[Item], channel: Channel, now: datetime, asked: frozenset[int]
+) -> frozenset[int]:
+    """Return the items whose reminders wait until Claude sees their newest activity.
+
+    Claude answered its last look at each of these items, so its next answer comes within the
+    cool-down. Until then, the rules alone might remind someone about an item that Claude would
+    not, such as one where a contributor only said thanks. An item whose last look failed is not
+    held, so a broken Claude never stops reminders.
+    """
+    waiting = set()
+    for item in items:
+        root = channel.roots.get(item.number)
+        rules = assess(item, now)
+        if item.number in asked or root is None or rules is None:
+            continue
+        verdict = root.state.verdict
+        if (
+            verdict is not None
+            and root.state.verdict_context == verdict_context(item)
+            and verdict.checked_at.timestamp() >= root.state.asked_at
+            and not verdict_applies(verdict, rules.last_activity_at)
+        ):
+            waiting.add(item.number)
+    return frozenset(waiting)
 
 
-def build_due_payload(items: list[Item], now_ts: float) -> dict[str, Any]:
-    """Serialize due items into a compact, read-only JSON payload for Claude."""
+def payload(chosen: list[tuple[Item, Assessment]], now: datetime) -> dict[str, Any]:
+    """Serialize the chosen items into Claude's input. Every text field is untrusted."""
     return {
-        "evaluated_at": datetime.fromtimestamp(now_ts, tz=ZoneInfo("UTC")).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        ),
+        "evaluated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "items": [
             {
                 "number": item.number,
                 "kind": item.kind,
+                "category": assessment.category.value,
                 "title": item.title,
                 "url": item.url,
                 "author": item.author,
-                "created_at": item.created_at,
+                "labels": sorted(item.labels),
                 "assignees": list(item.assignees),
-                "reasons": list(item.reasons),
-                "external_at": item.external_at,
-                "external_by": item.external_by,
-                "team_at": item.team_at,
+                "draft": item.draft,
+                "created_at": item.created_at,
                 "body": item.body,
-                "recent": [
+                "rule_says": {
+                    "owes": assessment.owes.value,
+                    "reason": assessment.owes_reason,
+                    "priority": assessment.tier.value,
+                    "priority_reason": assessment.tier_reason,
+                },
+                "activity": [
                     {
-                        "at": comment.at,
-                        "author": comment.author,
-                        "role": "team" if comment.team else "external",
-                        "kind": comment.kind,
-                        "state": comment.state,
-                        "body": comment.body,
+                        "at": event.at,
+                        "actor": event.actor,
+                        "role": "team" if event.team else "contributor",
+                        "kind": event.kind,
+                        "state": event.state,
+                        "text": event.text,
                     }
-                    for comment in item.recent
+                    for event in item.events[-_RECENT_EVENTS:]
                 ],
             }
-            for item in items
+            for item, assessment in chosen
         ],
     }
 
 
-def _clean_reason(raw: object) -> str:
-    text = " ".join(str(raw or "").split())
-    if len(text) <= _REASON_LIMIT:
-        return text
-    return text[: _REASON_LIMIT - 3].rstrip() + "..."
+class Sent(NamedTuple):
+    """What Claude saw of an item: its latest activity and the rules' tier."""
+
+    activity_at: str
+    tier: Tier
 
 
-def _add_verdict(verdicts: dict[int, Verdict], number: object, value: object) -> None:
-    if isinstance(number, bool) or not isinstance(value, dict):
-        return
-    if isinstance(number, int):
-        item_id = number
-    elif isinstance(number, str) and number.isdigit():
-        item_id = int(number)
-    else:
-        return
-    if item_id <= 0:
-        return
-    state = value.get("state")
-    reason = _clean_reason(value.get("reason"))
-    if state not in _VALID_STATES or not reason:
-        return
-    verdicts[item_id] = Verdict(state=state, reason=reason, source="claude")
+def sent(chosen: list[tuple[Item, Assessment]]) -> dict[str, Sent]:
+    """Map each chosen item to what Claude sees of it.
+
+    A verdict is cached with the activity time, so new activity makes it stale.
+    """
+    return {
+        str(item.number): Sent(assessment.last_activity_at, assessment.tier)
+        for item, assessment in chosen
+    }
 
 
-def load_verdicts(path: Path) -> dict[int, Verdict]:
-    """Load and validate Claude's JSON verdicts file. Invalid entries are ignored."""
-    if not path.exists():
-        return {}
+def _clean(text: object) -> str:
+    return " ".join(str(text or "").split())[:_REASON_LIMIT]
+
+
+def load_verdicts(raw: str, seen: dict[str, Sent], now: datetime) -> dict[int, Verdict]:
+    """Read Claude's structured output.
+
+    Entries for items that were not sent, and malformed entries, are dropped, because a missing
+    verdict falls back to the rules. A malformed priority keeps the rules' tier.
+    """
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data = json.loads(raw) if raw.strip() else {}
+    except ValueError:
         return {}
-    if not isinstance(raw, dict):
-        return {}
+    entries = data.get("verdicts") if isinstance(data, dict) else None
     verdicts: dict[int, Verdict] = {}
-    entries = raw.get("verdicts")
-    if isinstance(entries, list):
-        for entry in entries:
-            if isinstance(entry, dict):
-                _add_verdict(verdicts, entry.get("number"), entry)
-        return verdicts
-    for key, value in raw.items():
-        _add_verdict(verdicts, key, value)
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        number, owes, reason = entry.get("number"), entry.get("owes"), _clean(entry.get("reason"))
+        if isinstance(number, bool) or not isinstance(number, int) or str(number) not in seen:
+            continue
+        if owes not in {o.value for o in Owes} or not reason:
+            continue
+        item = seen[str(number)]
+        priority, tier_reason = entry.get("priority"), _clean(entry.get("priority_reason"))
+        # Claude's tier is kept only when it differs from the rules' tier, so that the rules still
+        # decide when they change their answer later.
+        tier = Tier(priority) if priority in _TIERS and tier_reason else None
+        verdicts[number] = Verdict(
+            Owes(owes),
+            reason,
+            item.activity_at,
+            now.astimezone(UTC),
+            tier=tier if tier is not item.tier else None,
+            tier_reason=tier_reason,
+        )
     return verdicts
 
 
+class ClaudeError(Exception):
+    """Claude gave no usable answer. The message is safe to print in a public log."""
+
+
+Ask = Callable[[dict[str, Any]], str]
+
+
+def judge(
+    items: list[Item], channel: Channel, now: datetime, ask: Ask | None, max_new: int = 0
+) -> Judgment:
+    """Ask Claude about this run's candidates.
+
+    The result includes the status that the overview shows, so a broken setup is visible in Slack.
+    `ask` sends the payload to Claude and returns its JSON answer, and None turns Claude off. A
+    failure falls back to the rules.
+    """
+    if ask is None:
+        return Judgment(on=False)
+    chosen = candidates(items, channel, now, max_new)
+    asked = frozenset(item.number for item, _ in chosen)
+    waiting = held(items, channel, now, asked)
+    if waiting:
+        print(f"Reminders for {len(waiting)} items wait for Claude's next look.")
+    if not chosen:
+        return Judgment(held=waiting)
+    try:
+        raw = ask(payload(chosen, now))
+    except Exception as error:
+        # Claude is optional, so any failure falls back to the rules instead of stopping the run.
+        # Only a `ClaudeError` message is safe to print, because another message can hold item text.
+        reason = str(error) if isinstance(error, ClaudeError) else type(error).__name__
+        print(f"Claude failed: {reason}")
+        return Judgment(status=FAILED, asked=asked, held=waiting)
+    verdicts = load_verdicts(raw, sent(chosen), now)
+    print(f"Claude judged {len(verdicts)} of {len(chosen)} items.")
+    status = f"Claude checked {len(verdicts)}" if verdicts else FAILED
+    return Judgment(status=status, verdicts=verdicts, asked=asked, held=waiting)
+
+
 def parse_slack_users(raw: str) -> dict[str, str]:
-    """Parse a JSON mapping of GitHub logins to Slack user IDs."""
+    """Parse a JSON object that maps GitHub logins to Slack user IDs."""
     if not raw.strip():
         return {}
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("SLACK_USERS_JSON must be a JSON object")
     return {
-        str(login).strip().lower(): str(slack_id).strip()
-        for login, slack_id in data.items()
-        if str(login).strip() and str(slack_id).strip()
+        str(login).strip().lower(): str(user).strip()
+        for login, user in data.items()
+        if str(login).strip() and str(user).strip()
     }
-
-
-def mention_for(item: Item, slack_users: dict[str, str], oncall_slack_id: str | None) -> str:
-    """Format who should be pinged in Slack for `item`."""
-    mapped = [
-        f"<@{slack_users[login.lower()]}>"
-        for login in item.assignees
-        if login.lower() in slack_users
-    ]
-    if mapped:
-        return " ".join(mapped)
-    if oncall_slack_id:
-        if item.assignees:
-            gh = ", ".join(f"`{login}`" for login in item.assignees)
-            return f"<@{oncall_slack_id}> (GitHub assignee: {gh})"
-        return f"<@{oncall_slack_id}> (unassigned)"
-    if item.assignees:
-        return ", ".join(f"`{login}`" for login in item.assignees)
-    return "on-call (unassigned)"

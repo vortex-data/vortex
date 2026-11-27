@@ -26,8 +26,10 @@ use vortex_array::dtype::FieldName;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -137,6 +139,29 @@ impl ScalarFnVTable for ListTransform {
         }
     }
 
+    /// `transform(transform(l, f), g) -> transform(l, x -> g(f(x)))`
+    fn reduce<T: ReduceNode>(
+        &self,
+        options: &ListTransformOptions,
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let ListTransformOptions::Bound(outer) = options else {
+            return Ok(None);
+        };
+        let inner_node = node.child(0);
+        let Some(ListTransformOptions::Bound(inner)) = inner_node
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<ListTransform>())
+        else {
+            return Ok(None);
+        };
+        let Some(composed) = compose(outer, inner)? else {
+            return Ok(None);
+        };
+        let composed = ListTransform.bind(ListTransformOptions::Bound(composed));
+        Ok(Some(node.new_node(composed, &[inner_node.child(0)])?))
+    }
+
     fn is_strict(&self, _options: &ListTransformOptions) -> bool {
         true
     }
@@ -147,6 +172,16 @@ impl ScalarFnVTable for ListTransform {
             ListTransformOptions::Bound(lambda) => lambda.is_infallible(),
         }
     }
+}
+
+/// `(x) -> outer(inner(x))`, unless that would compute `inner` more than once or drop its failures.
+fn compose(outer: &BoundLambda, inner: &BoundLambda) -> VortexResult<Option<BoundLambda>> {
+    match outer.param_reads() {
+        0 if inner.is_infallible() => {}
+        1 => {}
+        _ => return Ok(None),
+    }
+    outer.compose(inner)
 }
 
 /// Check that a bound lambda's parameter has the element dtype of a list of this dtype.

@@ -274,8 +274,10 @@ pub struct IntegerStats {
     null_count: u32,
     /// Cache for `validity.true_count()`.
     value_count: u32,
-    /// The average run length.
+    /// The average run length, truncated: `value_count / run_count`.
     average_run_length: u32,
+    /// The number of runs of equal consecutive valid values.
+    run_count: u32,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -329,9 +331,16 @@ impl IntegerStats {
         self.value_count
     }
 
-    /// Returns the average run length.
+    /// Returns the average run length, truncated to an integer.
     pub fn average_run_length(&self) -> u32 {
         self.average_run_length
+    }
+
+    /// Returns the number of runs of equal consecutive valid values.
+    ///
+    /// Zero only when there are no valid values.
+    pub fn run_count(&self) -> u32 {
+        self.run_count
     }
 
     /// Returns the type-erased typed statistics.
@@ -358,6 +367,7 @@ where
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
+            run_count: 0,
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
@@ -372,6 +382,7 @@ where
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
+            run_count: 0,
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
@@ -442,6 +453,7 @@ where
         null_count,
         value_count,
         average_run_length: value_count / runs,
+        run_count: runs,
         erased: TypedStats { min, max, distinct }.into(),
     })
 }
@@ -1096,6 +1108,7 @@ mod tests {
         assert_eq!(stats.value_count, 2);
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
+        assert_eq!(stats.run_count(), 2);
         assert_eq!(stats.distinct_count().unwrap(), 2);
     }
 
@@ -1153,6 +1166,7 @@ mod tests {
         let value_count: u32 = expected.values().sum();
         assert_eq!(stats.value_count, value_count);
         if value_count > 0 {
+            assert_eq!(stats.run_count(), runs);
             assert_eq!(stats.average_run_length, value_count / runs);
         }
         Ok(())
@@ -1237,6 +1251,7 @@ mod tests {
                         valid_values.len() as u32 / runs,
                         "{case:?}"
                     );
+                    assert_eq!(stats.run_count(), runs, "{case:?}");
                     let actual: Option<HashMap<$T, u32>> = typed
                         .distinct()
                         .map(|d| d.distinct_values().iter().map(|(k, &c)| (k.0, c)).collect());

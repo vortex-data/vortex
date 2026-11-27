@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use clap::Parser;
 use clap::value_parser;
-use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::runtime::set_join_set_tracer;
@@ -18,6 +17,7 @@ use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
+use datafusion_bench::tracer::Label;
 use datafusion_bench::tracer::get_labelset_from_global;
 use datafusion_bench::tracer::get_static_tracer;
 use datafusion_bench::tracer::set_labels;

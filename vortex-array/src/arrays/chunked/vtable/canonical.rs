@@ -59,8 +59,10 @@ pub(super) fn swizzle<V: Matcher + 'static>(
         .find(|(_, chunk)| !V::matches(chunk))
         .map(|(idx, _)| idx + ChunkedSlots::CHUNKS_OFFSET);
     if let Some(slot) = needs_execution {
+        // Resume at this slot, not after it: single-step execution may hand the chunk back
+        // before it matches `V`.
         return Ok(ExecutionResult::execute_slot::<V>(
-            array.with_next_child_slot(slot + 1),
+            array.with_next_child_slot(slot),
             slot,
         ));
     }

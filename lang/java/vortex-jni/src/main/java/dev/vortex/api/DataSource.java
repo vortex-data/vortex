@@ -3,7 +3,6 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeReadable;
 import dev.vortex.jni.NativeDataSource;
@@ -38,7 +37,9 @@ public final class DataSource implements AutoCloseable {
     private boolean closed;
 
     private DataSource(Session session, long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid data source pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid data source pointer");
+        }
         this.session = Objects.requireNonNull(session, "session");
         this.pointer = pointer;
         cleanable = VortexCleaner.register(this, () -> NativeDataSource.free(pointer));
@@ -72,10 +73,13 @@ public final class DataSource implements AutoCloseable {
     public static DataSource open(Session session, List<String> uris, Map<String, String> properties) {
         Objects.requireNonNull(session, "session");
         Objects.requireNonNull(uris, "uris");
-        Preconditions.checkArgument(!uris.isEmpty(), "at least one uri is required");
+        if (uris.isEmpty()) {
+            throw new IllegalArgumentException("at least one uri is required");
+        }
         String[] uriArray = uris.toArray(String[]::new);
-        Preconditions.checkArgument(
-                Arrays.stream(uriArray).allMatch(Objects::nonNull), "uris must not contain null values");
+        if (!Arrays.stream(uriArray).allMatch(Objects::nonNull)) {
+            throw new IllegalArgumentException("uris must not contain null values");
+        }
         long sessionPointer = session.nativePointer();
         long pointer = NativeDataSource.open(sessionPointer, uriArray, properties);
         return new DataSource(session, pointer);
@@ -108,18 +112,28 @@ public final class DataSource implements AutoCloseable {
     public static DataSource open(Session session, List<NativeReadable> readables, int readConcurrency) {
         Objects.requireNonNull(session, "session");
         Objects.requireNonNull(readables, "readables");
-        Preconditions.checkArgument(!readables.isEmpty(), "at least one readable is required");
-        Preconditions.checkArgument(readConcurrency >= 0, "readConcurrency must not be negative");
+        if (readables.isEmpty()) {
+            throw new IllegalArgumentException("at least one readable is required");
+        }
+        if (readConcurrency < 0) {
+            throw new IllegalArgumentException("readConcurrency must not be negative");
+        }
         Object[] readableArray = readables.toArray();
         String[] names = new String[readableArray.length];
         long[] lengths = new long[readableArray.length];
         for (int i = 0; i < readableArray.length; i++) {
-            Preconditions.checkArgument(readableArray[i] != null, "readables must not contain null values");
+            if (readableArray[i] == null) {
+                throw new IllegalArgumentException("readables must not contain null values");
+            }
             NativeReadable readable = readables.get(i);
             names[i] = readable.name();
-            Preconditions.checkArgument(names[i] != null, "readable at index %s returned a null name", i);
+            if (names[i] == null) {
+                throw new IllegalArgumentException(String.format("readable at index %s returned a null name", i));
+            }
             lengths[i] = readable.length();
-            Preconditions.checkArgument(lengths[i] >= 0, "readable for %s reported negative length", names[i]);
+            if (lengths[i] < 0) {
+                throw new IllegalArgumentException(String.format("readable for %s reported negative length", names[i]));
+            }
         }
         long pointer =
                 NativeDataSource.openFiles(session.nativePointer(), readableArray, names, lengths, readConcurrency);
@@ -128,10 +142,14 @@ public final class DataSource implements AutoCloseable {
 
     /** Arrow schema of the data source (and of scans produced from it). */
     public synchronized Schema arrowSchema(BufferAllocator allocator) {
-        Preconditions.checkState(!closed, "data source is closed");
+        if (closed) {
+            throw new IllegalStateException("data source is closed");
+        }
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
+        } finally {
+            Reference.reachabilityFence(this);
         }
     }
 
@@ -141,7 +159,9 @@ public final class DataSource implements AutoCloseable {
      * for an inexact hint, {@link RowCount.Exact} when the count is authoritative.
      */
     public synchronized RowCount rowCount() {
-        Preconditions.checkState(!closed, "data source is closed");
+        if (closed) {
+            throw new IllegalStateException("data source is closed");
+        }
         long[] out = new long[2];
         NativeDataSource.rowCount(pointer, out);
         return switch ((int) out[1]) {
@@ -193,7 +213,9 @@ public final class DataSource implements AutoCloseable {
      * {@link ByteSize.Exact} when every file has a known size.
      */
     public synchronized ByteSize byteSize() {
-        Preconditions.checkState(!closed, "data source is closed");
+        if (closed) {
+            throw new IllegalStateException("data source is closed");
+        }
         long[] out = new long[2];
         NativeDataSource.byteSize(pointer, out);
         return switch ((int) out[1]) {
@@ -239,7 +261,9 @@ public final class DataSource implements AutoCloseable {
 
     /** Submit a scan. */
     public synchronized Scan scan(ScanOptions options) {
-        Preconditions.checkState(!closed, "data source is closed");
+        if (closed) {
+            throw new IllegalStateException("data source is closed");
+        }
         try {
             Objects.requireNonNull(options, "options");
 

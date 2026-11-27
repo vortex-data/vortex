@@ -53,6 +53,9 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::BinaryExpr as DFBinaryExpr;
+use datafusion_physical_plan::expressions::Column as DFColumn;
+use datafusion_physical_plan::expressions::Literal as DFLiteral;
 use insta::assert_snapshot;
 use rstest::rstest;
 use vortex::array::ArrayRef;
@@ -71,6 +74,7 @@ use vortex::error::vortex_bail;
 use vortex::expr::ArrayExprExt;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::extension::datetime::TimeUnit;
 use vortex::functions::between::BetweenOptions;
 use vortex::functions::between::StrictComparison;
 use vortex::functions::list_contains::ListContains;
@@ -634,8 +638,9 @@ fn test_in_list_unsupported_input(
 
 #[test]
 fn test_in_list_unsupported_type() -> DFResult<()> {
-    let value: Arc<dyn PhysicalExpr> =
-        Arc::new(df_expr::Literal::new(ScalarValue::DurationSecond(Some(1))));
+    let value: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Literal::new(
+        ScalarValue::IntervalYearMonth(Some(1)),
+    ));
     let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
         Arc::clone(&value),
         vec![value],
@@ -1307,7 +1312,6 @@ fn test_can_be_pushed_down_column_supported(test_schema: Schema) -> DFResult<()>
 }
 
 #[rstest]
-#[case::duration(DataType::Duration(ArrowTimeUnit::Second))]
 #[case::interval(DataType::Interval(IntervalUnit::YearMonth))]
 #[case::fixed_size_binary(DataType::FixedSizeBinary(16))]
 #[case::decimal32(DataType::Decimal32(1, 2))]
@@ -1359,7 +1363,7 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         Field::new("a", DataType::Int32, false),
         Field::new(
             "unsupported",
-            DataType::Duration(ArrowTimeUnit::Second),
+            DataType::Interval(IntervalUnit::YearMonth),
             true,
         ),
         Field::new("b", DataType::Int32, false),
@@ -1458,8 +1462,6 @@ fn test_can_be_pushed_down_literal_supported(test_schema: Schema) -> DFResult<()
 }
 
 #[rstest]
-#[case::duration(ScalarValue::DurationSecond(Some(42)))]
-#[case::null_duration(ScalarValue::DurationSecond(None))]
 #[case::interval(ScalarValue::IntervalYearMonth(Some(1)))]
 #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1, 2, 3, 4, 5])))]
 #[case::null_fixed_size_binary(ScalarValue::FixedSizeBinary(5, None))]
@@ -3383,5 +3385,210 @@ fn test_fallible_boolean_rhs_is_residual(
     // DataFusion selects the one row that needs RHS evaluation at this selectivity.
     expr.evaluate(&batch)?;
     assert!(!converts(&expr, &batch.schema())?);
+    Ok(())
+}
+
+fn timestamp_ms(zone: Option<&str>) -> DataType {
+    DataType::Timestamp(ArrowTimeUnit::Millisecond, zone.map(Into::into))
+}
+
+fn ts_to_ms() -> Expression {
+    change_time_unit(
+        get_item("ts", root()),
+        TimeUnit::Milliseconds,
+        TemporalRounding::TowardZero,
+    )
+}
+
+#[rstest]
+#[case::raw_count(DataType::Int64, Some(ext_storage(get_item("ts", root()))))]
+#[case::coarser_unit(timestamp_ms(Some("UTC")), Some(ts_to_ms()))]
+#[case::coarser_unit_other_zone(timestamp_ms(Some("+01:00")), None)]
+#[case::coarser_unit_no_zone(timestamp_ms(None), None)]
+#[case::finer_unit(DataType::Timestamp(ArrowTimeUnit::Nanosecond, Some("UTC".into())), None)]
+#[case::same_type(
+    DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("UTC".into())),
+    Some(get_item("ts", root())),
+)]
+#[case::other_integer(DataType::Int32, None)]
+fn test_timestamp_cast_pushdown(
+    #[case] target: DataType,
+    #[case] expected: Option<Expression>,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("UTC".into())),
+        true,
+    )]);
+    // SQL plans a `CAST` as `CastExpr::new`, which keeps the nullability of the column.
+    let cast: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        target,
+        None,
+    ));
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&cast, &schema)?,
+        expected
+    );
+    Ok(())
+}
+
+/// DataFusion's schema adapter casts a file column to the table's field, which can be nullable
+/// over a non-nullable file column. The conversion keeps the nullability of the column.
+#[test]
+fn test_timestamp_cast_from_schema_adapter() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Microsecond, Some("UTC".into())),
+        false,
+    )]);
+    let cast: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new_with_target_field(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        Arc::new(Field::new("ts", timestamp_ms(Some("UTC")), true)),
+        None,
+    ));
+
+    assert_eq!(
+        DefaultExpressionConverter::default().try_convert(&cast, &schema)?,
+        Some(ts_to_ms())
+    );
+    Ok(())
+}
+
+struct ExactConverter(DefaultExpressionConverter);
+
+impl ExpressionConverter for ExactConverter {
+    fn try_convert(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.0.try_convert(expr, schema)
+    }
+}
+
+#[test]
+fn advisory_conversion_default_requires_infallible_evaluation() -> DFResult<()> {
+    let converter = ExactConverter(DefaultExpressionConverter::default());
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+    let column: Arc<dyn PhysicalExpr> = Arc::new(DFColumn::new("a", 0));
+    let comparison: Arc<dyn PhysicalExpr> = Arc::new(DFBinaryExpr::new(
+        Arc::clone(&column),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert_dynamic(&comparison, &schema)?
+            .is_some()
+    );
+
+    let arithmetic_comparison: Arc<dyn PhysicalExpr> = Arc::new(DFBinaryExpr::new(
+        Arc::new(DFBinaryExpr::new(
+            column,
+            DFOperator::Plus,
+            Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+        )),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert(&arithmetic_comparison, &schema)?
+            .is_some()
+    );
+    assert!(
+        converter
+            .try_convert_dynamic(&arithmetic_comparison, &schema)?
+            .is_none()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projection_evaluates_duplicate_expressions_once() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, false),
+        Field::new("b", DataType::Int32, false),
+    ]);
+    let column = |name: &str, index| Arc::new(df_expr::Column::new(name, index));
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column("b", 1), "first"),
+        ProjectionExpr::new(column("a", 0), "other"),
+        ProjectionExpr::new(column("b", 1), "second"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("first", get_item("b", root())),
+                ("other", get_item("a", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(
+        processed.scan_reference_schema,
+        output_schema.project(&[0, 1])?
+    );
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(column("first", 0), "first"),
+            ProjectionExpr::new(column("other", 1), "other"),
+            ProjectionExpr::new(column("first", 0), "second"),
+        ]),
+    );
+    Ok(())
+}
+
+#[test]
+fn test_projection_keeps_distinct_arrow_types_separate() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("s", DataType::Utf8, true)]);
+    let column = Arc::new(df_expr::Column::new("s", 0)) as Arc<dyn PhysicalExpr>;
+    let view = Arc::new(df_expr::CastExpr::new(
+        Arc::clone(&column),
+        DataType::Utf8View,
+        None,
+    )) as Arc<dyn PhysicalExpr>;
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column, "plain"),
+        ProjectionExpr::new(view, "view"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("plain", get_item("s", root())),
+                ("view", get_item("s", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(processed.scan_reference_schema, output_schema);
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("plain", 0)), "plain"),
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("view", 1)), "view"),
+        ]),
+    );
     Ok(())
 }

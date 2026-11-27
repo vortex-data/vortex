@@ -30,6 +30,7 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
@@ -124,6 +125,9 @@ pub(crate) fn from_arrow_data_type(
             Timestamp::try_new_with_tz(from_arrow_time_unit(*unit), tz.clone(), nullability)?
                 .erased(),
         ),
+        DataType::Duration(unit) => {
+            DType::Extension(Duration::new(from_arrow_time_unit(*unit), nullability).erased())
+        }
         DataType::List(e)
         | DataType::LargeList(e)
         | DataType::ListView(e)
@@ -306,6 +310,9 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
                             vortex_panic!("Invalid TimeUnit {} for {}", unit, ext_dtype.id())
                         }
                     },
+                    TemporalMetadata::Duration(unit) => {
+                        DataType::Duration(to_arrow_time_unit(*unit)?)
+                    }
                 });
             };
 
@@ -620,7 +627,6 @@ mod test {
     // Regression test for https://github.com/vortex-data/vortex/issues/8346: unsupported Arrow
     // types must return an error instead of panicking with `unimplemented!`.
     #[rstest]
-    #[case::duration(DataType::Duration(ArrowTimeUnit::Microsecond))]
     #[case::interval(DataType::Interval(arrow_schema::IntervalUnit::DayTime))]
     #[case::fixed_size_binary(DataType::FixedSizeBinary(3))]
     fn test_try_from_arrow_unsupported_type_errors(#[case] data_type: DataType) {

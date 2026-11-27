@@ -1,14 +1,27 @@
-# Runs benchmarks on `develop`, dispatched every 10 minutes by `develop-bench-trigger.yml`
+# Runs benchmarks on `develop`, dispatched every three hours by `develop-bench-trigger.yml`
 # whenever new commits have landed on `develop` (or manually via `workflow_dispatch` on `develop`).
+# `develop-bench-on-merge.yml` also dispatches it with `sha` set for each merged PR labelled
+# `action/bench-on-merge`, so that PR's merge commit gets results of its own.
 
 name: Develop Benchmarks
+# The trigger workflows find runs of a given commit by this title as well as by `head_sha`, which
+# is develop HEAD at dispatch time rather than `inputs.sha`.
+run-name: Develop Benchmarks${{ inputs.sha && format(' for {0}', inputs.sha) || '' }}
 
+# Runs for a given commit get a group of their own, so a labelled PR's run is never replaced by
+# a scheduled run waiting in the shared develop group.
 concurrency:
-  group: develop-bench-${{ github.ref }}
+  group: develop-bench-${{ inputs.sha || github.ref }}
   cancel-in-progress: false
 
 on:
-  workflow_dispatch: { }
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit on develop to benchmark; empty benchmarks develop HEAD"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   id-token: write  # enables AWS-GitHub OIDC
@@ -16,7 +29,42 @@ permissions:
   contents: write
 
 jobs:
+  # Resolves the commit to benchmark, refusing any that is not on develop so that results are
+  # never ingested for a commit outside develop's history.
+  resolve:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${INPUT_SHA}" ]; then
+            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! [[ "${INPUT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::sha must be a full 40-character commit SHA, got '${INPUT_SHA}'"
+            exit 1
+          fi
+          status="$(gh api "repos/${GH_REPO}/compare/${INPUT_SHA}...${GITHUB_SHA}" --jq '.status')"
+          if [ "${status}" != "ahead" ] && [ "${status}" != "identical" ]; then
+            echo "::error::${INPUT_SHA} is not on develop (compare status: ${status})"
+            exit 1
+          fi
+          echo "sha=${INPUT_SHA}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: resolve
     if: github.ref == 'refs/heads/develop'
     timeout-minutes: 60
     runs-on: >-
@@ -40,6 +88,8 @@ jobs:
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ needs.resolve.outputs.sha }}
       - parallel:
           - uses: ./.github/actions/assert-cpu
             if: github.repository == 'vortex-data/vortex'
@@ -62,7 +112,7 @@ jobs:
   # The debuginfo upload takes minutes. Running it in its own job keeps it off the path to the
   # bench job; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
   upload-debuginfo:
-    needs: build
+    needs: [resolve, build]
     if: github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
     strategy:
@@ -78,6 +128,8 @@ jobs:
           # Wires up the RunsOn artifact proxy that download-artifact uses.
           - uses: runs-on/action@v2
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ needs.resolve.outputs.sha }}
       - name: Download benchmark binary
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
@@ -93,7 +145,7 @@ jobs:
           project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
   bench:
-    needs: build
+    needs: [resolve, build]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     timeout-minutes: 120
     runs-on: >-
@@ -102,6 +154,9 @@ jobs:
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
+      # With the SQL hosts below, a run holds at most six metal hosts at once by default. See
+      # `max-parallel` in sql-bench-matrix.yml.
+      max-parallel: 2
       matrix:
         benchmark:
           - id: random-access-bench
@@ -114,8 +169,7 @@ jobs:
             name: Random Access (S3)
             build_args: "--features lance"
             v4_ingest: true
-            remote_data_dir: >-
-              s3://vortex-ci-benchmark-datasets/develop/random-access/
+            remote_data_dir: s3://vortex-public-benchmark-fixtures/random-access/v1/
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
@@ -130,6 +184,8 @@ jobs:
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ needs.resolve.outputs.sha }}
 
       # Every install and download below is independent of the others.
       - parallel:
@@ -147,13 +203,14 @@ jobs:
             continue-on-error: true
             with:
               polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ github.sha }};benchmark=${{ matrix.benchmark.id }}"
+              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ needs.resolve.outputs.sha }};benchmark=${{ matrix.benchmark.id }}"
               project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
               job_name: "${{ matrix.benchmark.id }}"
               profiling_frequency: 199
               extra_args: "--debuginfo-strip=false"
               parca_agent_version: "0.49.0"
           - name: Setup AWS CLI
+            if: matrix.benchmark.remote_data_dir == null
             uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
             with:
               role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
@@ -169,7 +226,7 @@ jobs:
           # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
           - name: Compute benchmark data cache key
             id: data-cache-key
-            if: matrix.benchmark.id == 'random-access-bench'
+            if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
             shell: bash
             run: |
               set -Eeu -o pipefail
@@ -200,7 +257,7 @@ jobs:
               echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
           - name: Restore benchmark data
             id: data-cache
-            if: matrix.benchmark.id == 'random-access-bench'
+            if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
             uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -208,7 +265,7 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: >-
-                random-access-data-v1-${{ matrix.benchmark.remote_data_dir && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+                random-access-data-v1-local-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
@@ -232,6 +289,7 @@ jobs:
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ matrix.benchmark.name }} data
+        if: matrix.benchmark.remote_data_dir == null
         shell: bash
         env:
           RUST_BACKTRACE: full
@@ -239,14 +297,14 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ matrix.benchmark.id }}"
-          python3 "scripts/${bench%-bench}-split.py" --prepare-data \
-            ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
+          python3 "scripts/${bench%-bench}-split.py" --prepare-data
 
-      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
-      # the cache save and upload rather than throttling them.
+      # Save the data cache before setup-benchmark.sh pins processes to the housekeeping CPUs.
       - parallel:
           - name: Save benchmark data
-            if: matrix.benchmark.id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+            if: >-
+              matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
+              && steps.data-cache.outputs.cache-hit != 'true'
             uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -260,16 +318,6 @@ jobs:
             with:
               path: vortex-bench/data/string-bench/*.parquet
               key: ${{ steps.string-data-cache.outputs.cache-primary-key }}
-          - name: Upload benchmark data to S3
-            if: matrix.benchmark.remote_data_dir != null
-            shell: bash
-            env:
-              AWS_REGION: "us-east-1"
-            run: |
-              set -Eeu -o pipefail -x
-
-              aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
-              aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -281,6 +329,7 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
+          AWS_SKIP_SIGNATURE: ${{ matrix.benchmark.remote_data_dir != null }}
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
@@ -339,7 +388,7 @@ jobs:
           uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
             scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
-            --commit-sha "${{ github.sha }}" \
+            --commit-sha "${{ needs.resolve.outputs.sha }}" \
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
@@ -352,12 +401,15 @@ jobs:
           deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
 
   sql:
+    needs: resolve
     if: github.ref == 'refs/heads/develop'
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "develop"
+      commit_sha: ${{ needs.resolve.outputs.sha }}
       matrix_preset: "develop"
+      max_parallel: ${{ fromJSON(vars.BENCH_MAX_PARALLEL || '4') }}
 
   # Tell the benchmarks website that new results exist, once per run, after every benchmark job
   # of the run has ingested its results. `always()` runs it even when a benchmark job failed, so

@@ -121,6 +121,9 @@ def _build_template_variables(
             file=sys.stderr,
         )
 
+    crash_file = variables.get("CRASH_FILE", "")
+    rss_limit_mb = "2048" if Path(crash_file).name.startswith("oom-") else "0"
+
     # Auto-populate from crash info (don't override explicit -v args)
     auto_vars = {
         "PANIC_MESSAGE": panic_msg,
@@ -130,6 +133,7 @@ def _build_template_variables(
         "SEED_HASH": crash_info.seed_hash,
         "STACK_TRACE_HASH": crash_info.stack_trace_hash,
         "MESSAGE_HASH": crash_info.message_hash,
+        "RSS_LIMIT_MB": rss_limit_mb,
     }
     for k, v in auto_vars.items():
         if k not in variables:

@@ -315,6 +315,23 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
                 vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
             }
         },
+        TemporalMetadata::Duration(unit) => match unit {
+            TimeUnit::Nanoseconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationNanosecondArray)
+            }
+            TimeUnit::Microseconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationMicrosecondArray)
+            }
+            TimeUnit::Milliseconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationMillisecondArray)
+            }
+            TimeUnit::Seconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationSecondArray)
+            }
+            TimeUnit::Days => {
+                vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
+            }
+        },
     }
 }
 

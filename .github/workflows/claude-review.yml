@@ -5,8 +5,6 @@ name: Claude Code (Review)
 # - Do not attach the `claude-automation` environment here.
 # - Anthropic auth is workload identity federation, so there is no Anthropic secret.
 # - Create repository or organization Actions variables:
-#   - CLAUDE_APP_LOGIN
-#     Set this to the bot login for the GitHub App, usually `<app-slug>[bot]`.
 #   - ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_FEDERATION_RULE_CI
 #     Identifiers, not credentials.
 # - It may use the default GITHUB_TOKEN to read repository data and post review
@@ -16,10 +14,7 @@ name: Claude Code (Review)
 # - PR review traffic is a different trust boundary from issue automation.
 # - This workflow is intentionally read-only with respect to repository contents.
 # - Fork PRs are refused outright. We do not "promote" or manually bless fork
-#   content into Claude. If a contributor wants Claude to implement something,
-#   a maintainer should restate the task on an issue and use claude-write.yml.
-# - PR conversation comments on PRs already opened by the Claude App are handled by
-#   claude-write.yml so maintainers can ask Claude to make follow-up changes there.
+#   content into Claude.
 
 on:
   issue_comment:
@@ -52,7 +47,6 @@ jobs:
           script: |
             const sender = context.payload.sender?.login ?? '';
             const senderType = context.payload.sender?.type ?? '';
-            const trustedClaudeLogin = process.env.CLAUDE_APP_LOGIN ?? '';
 
             async function getPermission(username) {
               try {
@@ -110,10 +104,6 @@ jobs:
               }
             }
 
-            if (!reason && context.eventName === 'issue_comment' && !trustedClaudeLogin) {
-              reason = 'missing_claude_app_login';
-            }
-
             if (!reason) {
               let pr = null;
               const response = await github.rest.pulls.get({
@@ -129,12 +119,6 @@ jobs:
 
               if (isFork) {
                 reason = 'fork_pr_refused';
-              } else if (
-                context.eventName === 'issue_comment' &&
-                trustedClaudeLogin &&
-                (pr.user?.login ?? '') === trustedClaudeLogin
-              ) {
-                reason = 'claude_pr_uses_write_workflow';
               }
 
               if (!reason) {
@@ -155,8 +139,6 @@ jobs:
             core.setOutput('actor_has_write', actorHasWrite);
             core.setOutput('should_run', !reason ? 'true' : 'false');
             core.setOutput('reason', reason || 'allowed');
-        env:
-          CLAUDE_APP_LOGIN: ${{ vars.CLAUDE_APP_LOGIN }}
 
   explain-refusal:
     name: Explain Refusal
@@ -165,8 +147,7 @@ jobs:
       needs.gate.outputs.actor_has_write == 'true' &&
       (
         needs.gate.outputs.reason == 'fork_pr_refused' ||
-        needs.gate.outputs.reason == 'modifies_github_dir' ||
-        needs.gate.outputs.reason == 'missing_claude_app_login'
+        needs.gate.outputs.reason == 'modifies_github_dir'
       )
     runs-on: ubuntu-latest
     permissions:
@@ -185,9 +166,7 @@ jobs:
                 "Why:",
                 "- fork content is untrusted input",
                 "- this repository does not allow Claude to run against fork content",
-                "- there is no promotion path for forks",
-                "",
-                "If maintainers want Claude to implement a change, restate the task on an issue and use the issue-driven Claude workflow instead."
+                "- there is no promotion path for forks"
               ].join("\n"),
               modifies_github_dir: [
                 "Claude review automation is disabled for pull requests that modify `.github/` files.",
@@ -197,15 +176,6 @@ jobs:
                 "- this review workflow refuses to evaluate automation changes from the same PR",
                 "",
                 "Ask a human reviewer to inspect workflow changes directly."
-              ].join("\n"),
-              missing_claude_app_login: [
-                "Claude review automation is misconfigured for issue-comment triggers.",
-                "",
-                "Why:",
-                "- `CLAUDE_APP_LOGIN` is not set",
-                "- without that bot login, the review workflow cannot safely route comments on Claude-owned PRs to the write workflow",
-                "",
-                "Set the `CLAUDE_APP_LOGIN` Actions variable, then retry the command."
               ].join("\n"),
             };
 
@@ -265,4 +235,4 @@ jobs:
             --model claude-opus-5-5
             --permission-mode acceptEdits
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(head:*),Bash(jq:*),Bash(rg:*)"
-            --append-system-prompt "You review same-repository pull requests for this repository and reply in GitHub. This workflow is read-only: you can read the code and post comments, but you cannot change files, commits, branches or pull requests. If a request needs code changes, tell the maintainer to restate the task on an issue for the write workflow."
+            --append-system-prompt "You review same-repository pull requests for this repository and reply in GitHub. This workflow is read-only: you can read the code and post comments, but you cannot change files, commits, branches or pull requests."

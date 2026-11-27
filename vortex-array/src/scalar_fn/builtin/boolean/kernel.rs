@@ -8,7 +8,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::read_u64_le;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -19,7 +18,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -128,16 +126,34 @@ pub(super) fn execute_boolean(
     }
 
     let lhs = lhs.execute::<BoolArray>(ctx)?;
-    if let Some(result) = <Bool as BooleanKernel>::boolean(lhs.as_view(), &rhs, op, ctx)? {
-        return Ok(result);
+    let lhs_validity = lhs.validity()?;
+
+    if let Some(rhs) = rhs.as_opt::<Constant>() {
+        let rhs = rhs
+            .scalar()
+            .as_bool_opt()
+            .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
+        return kleene_boolean_buffer_scalar(
+            lhs.into_bit_buffer(),
+            lhs_validity,
+            &rhs,
+            op,
+            nullable,
+            ctx,
+        );
     }
 
     let rhs = rhs.execute::<BoolArray>(ctx)?;
-    let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
-    else {
-        vortex_bail!("No boolean kernel for two BoolArrays");
-    };
-    Ok(result)
+    let rhs_validity = rhs.validity()?;
+    kleene_boolean_buffers(
+        lhs.into_bit_buffer(),
+        lhs_validity,
+        rhs.into_bit_buffer(),
+        rhs_validity,
+        op,
+        nullable,
+        ctx,
+    )
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
@@ -228,8 +244,8 @@ pub fn kleene_boolean_buffers(
 
     if lhs_validity.definitely_no_nulls() && rhs_validity.definitely_no_nulls() {
         let values = match operator {
-            BooleanOperator::And => lhs_values & &rhs_values,
-            BooleanOperator::Or => lhs_values | &rhs_values,
+            BooleanOperator::And => lhs_values & rhs_values,
+            BooleanOperator::Or => lhs_values | rhs_values,
         };
         return Ok(BoolArray::try_new(values, Validity::from(nullability))?.into_array());
     }
@@ -737,20 +753,26 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::execute_boolean;
+    use super::kleene_boolean_buffer_scalar;
+    use super::kleene_boolean_buffers;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::scalar_fn::builtin::operators::BooleanOperator;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -838,45 +860,41 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case(
-        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
-        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
-    )]
-    #[case(
-        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
-        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
-    )]
-    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+    #[test]
+    fn test_buffer_reused() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let r = lhs.boolean(rhs, BooleanOperator::Or).unwrap();
-        let r = r.execute::<BoolArray>(&mut ctx).unwrap().into_array();
 
-        let v0 = r
-            .execute_scalar(0, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
-        let v1 = r
-            .execute_scalar(1, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
-        let v2 = r
-            .execute_scalar(2, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
-        let v3 = r
-            .execute_scalar(3, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
+        let lhs = BoolArray::from_iter([true, true, false, false]);
+        let lhs_ptr = lhs.to_bit_buffer().inner().as_ptr();
+        let rhs = BoolArray::from_iter([true, false, true, false]).into_array();
+        let and = execute_boolean(lhs.into_array(), rhs, BooleanOperator::And, &mut ctx)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_eq!(and.to_bit_buffer().inner().as_ptr(), lhs_ptr);
+        assert_arrays_eq!(
+            and,
+            BoolArray::from_iter([true, false, false, false]),
+            &mut ctx
+        );
 
-        assert!(v0.unwrap());
-        assert!(v1.unwrap());
-        assert!(v2.unwrap());
-        assert!(!v3.unwrap());
+        let lhs = BoolArray::from_iter([true, true, false, false]);
+        let _lhs_bits = lhs.to_bit_buffer();
+        let rhs = BoolArray::from_iter([true, false, true, false]);
+        let rhs_ptr = rhs.to_bit_buffer().inner().as_ptr();
+        let or = execute_boolean(
+            lhs.into_array(),
+            rhs.into_array(),
+            BooleanOperator::Or,
+            &mut ctx,
+        )?
+        .execute::<BoolArray>(&mut ctx)?;
+        assert_eq!(or.to_bit_buffer().inner().as_ptr(), rhs_ptr);
+        assert_arrays_eq!(
+            or,
+            BoolArray::from_iter([true, true, true, false]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[rstest]
@@ -888,39 +906,161 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
-    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let r = lhs
-            .boolean(rhs, BooleanOperator::And)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-            .into_array();
+        let result = lhs.boolean(rhs, BooleanOperator::Or)?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true), Some(true), Some(true), Some(false)]),
+            &mut ctx
+        );
+        Ok(())
+    }
 
-        let v0 = r
-            .execute_scalar(0, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
-        let v1 = r
-            .execute_scalar(1, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
-        let v2 = r
-            .execute_scalar(2, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
-        let v3 = r
-            .execute_scalar(3, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .as_bool()
-            .value();
+    #[rstest]
+    #[case(
+        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
+        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
+    )]
+    #[case(
+        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
+        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
+    )]
+    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = lhs.boolean(rhs, BooleanOperator::And)?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true), Some(false), Some(false), Some(false)]),
+            &mut ctx
+        );
+        Ok(())
+    }
 
-        assert!(v0.unwrap());
-        assert!(!v1.unwrap());
-        assert!(!v2.unwrap());
-        assert!(!v3.unwrap());
+    #[derive(Clone, Copy, Debug)]
+    enum MaskKind {
+        /// Validity::Array whose bits are all true -> Mask::AllTrue at runtime without
+        /// hitting the `definitely_no_nulls` fast path.
+        AllTrue,
+        AllFalse,
+        Unaligned,
+    }
+
+    fn sliced_bit_buffer(offset: usize, bits: &[bool]) -> BitBuffer {
+        let mut raw = vec![true; offset];
+        raw.extend_from_slice(bits);
+        raw.extend_from_slice(&[true, false, true]);
+        BitBuffer::from_iter(raw).slice(offset..offset + bits.len())
+    }
+
+    fn build_validity(kind: MaskKind, bits: &[bool], offset: usize) -> (Validity, Vec<bool>) {
+        match kind {
+            MaskKind::AllTrue => {
+                let all_true = vec![true; bits.len()];
+                let arr =
+                    BoolArray::new(sliced_bit_buffer(offset, &all_true), Validity::NonNullable);
+                (Validity::Array(arr.into_array()), all_true)
+            }
+            MaskKind::AllFalse => (Validity::AllInvalid, vec![false; bits.len()]),
+            MaskKind::Unaligned => {
+                let arr = BoolArray::new(sliced_bit_buffer(offset, bits), Validity::NonNullable);
+                (Validity::Array(arr.into_array()), bits.to_vec())
+            }
+        }
+    }
+
+    fn kleene_reference(
+        lhs_vals: &[bool],
+        lhs_valid: &[bool],
+        rhs_vals: &[bool],
+        rhs_valid: &[bool],
+        operator: BooleanOperator,
+    ) -> BoolArray {
+        let out = (0..lhs_vals.len()).map(|i| {
+            let l = lhs_valid[i].then_some(lhs_vals[i]);
+            let r = rhs_valid[i].then_some(rhs_vals[i]);
+            match operator {
+                BooleanOperator::And => match (l, r) {
+                    (Some(false), _) | (_, Some(false)) => Some(false),
+                    (Some(true), Some(true)) => Some(true),
+                    _ => None,
+                },
+                BooleanOperator::Or => match (l, r) {
+                    (Some(true), _) | (_, Some(true)) => Some(true),
+                    (Some(false), Some(false)) => Some(false),
+                    _ => None,
+                },
+            }
+        });
+        BoolArray::from_iter(out)
+    }
+
+    #[rstest]
+    fn test_fused_boolean_words_unaligned_all_validity_combinations(
+        #[values(BooleanOperator::And, BooleanOperator::Or)] operator: BooleanOperator,
+        #[values(MaskKind::AllTrue, MaskKind::AllFalse, MaskKind::Unaligned)] lhs_kind: MaskKind,
+        #[values(MaskKind::AllTrue, MaskKind::AllFalse, MaskKind::Unaligned)] rhs_kind: MaskKind,
+        #[values(9, 135)] len: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lhs_bits: Vec<bool> = (0..len).map(|i| i % 2 == 0 || i % 7 == 0).collect();
+        let rhs_bits: Vec<bool> = (0..len).map(|i| i % 3 == 0 || i % 5 == 1).collect();
+        let lhs_val_bits: Vec<bool> = (0..len).map(|i| i % 4 != 1).collect();
+        let rhs_val_bits: Vec<bool> = (0..len).map(|i| i % 6 != 2).collect();
+
+        // Use distinct non-byte-aligned bit offsets so `fused_boolean_buffers_aligned`
+        // returns `None` and falls through to `fused_boolean_words`.
+        let lhs_values = sliced_bit_buffer(1, &lhs_bits);
+        let rhs_values = sliced_bit_buffer(5, &rhs_bits);
+        let (lhs_validity, lhs_valid) = build_validity(lhs_kind, &lhs_val_bits, 3);
+        let (rhs_validity, rhs_valid) = build_validity(rhs_kind, &rhs_val_bits, 7);
+
+        assert_ne!(lhs_values.offset() % 8, 0);
+        assert_ne!(rhs_values.offset() % 8, 0);
+
+        let actual = kleene_boolean_buffers(
+            lhs_values,
+            lhs_validity,
+            rhs_values,
+            rhs_validity,
+            operator,
+            Nullability::Nullable,
+            &mut ctx,
+        )?;
+        let expected = kleene_reference(&lhs_bits, &lhs_valid, &rhs_bits, &rhs_valid, operator);
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(BooleanOperator::And)]
+    #[case(BooleanOperator::Or)]
+    fn test_kleene_boolean_buffer_null_scalar_unaligned(
+        #[case] operator: BooleanOperator,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 73;
+        let lhs_bits: Vec<bool> = (0..len).map(|i| i % 3 != 0).collect();
+        let lhs_valid: Vec<bool> = (0..len).map(|i| i % 5 != 0).collect();
+
+        let values = sliced_bit_buffer(3, &lhs_bits);
+        let validity = Validity::Array(
+            BoolArray::new(sliced_bit_buffer(5, &lhs_valid), Validity::NonNullable).into_array(),
+        );
+        let scalar = Scalar::null(DType::Bool(Nullability::Nullable));
+
+        let actual = kleene_boolean_buffer_scalar(
+            values,
+            validity,
+            &scalar.as_bool(),
+            operator,
+            Nullability::Nullable,
+            &mut ctx,
+        )?;
+        let rhs_bits = vec![false; len];
+        let rhs_valid = vec![false; len];
+        let expected = kleene_reference(&lhs_bits, &lhs_valid, &rhs_bits, &rhs_valid, operator);
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
     }
 }

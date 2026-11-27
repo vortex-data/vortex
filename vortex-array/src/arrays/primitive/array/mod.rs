@@ -32,8 +32,8 @@ use crate::validity::Validity;
 
 mod cast;
 mod conversion;
+mod majority_candidate;
 mod patch;
-mod top_value;
 
 pub use patch::chunk_range;
 pub use patch::patch_chunk;

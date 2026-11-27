@@ -91,8 +91,8 @@ LITDATA_PYTHON=.venv-litdata/bin/python \
 ## Running against S3
 
 The same benchmark can read its data from an object store instead of local disk. The remote
-directory must mirror the layout of the local data directory (`vortex-bench/data/`), so the
-files are materialized locally first and then uploaded verbatim:
+directory uses the same relative paths as the local data directory (`vortex-bench/data/`).
+To create your own snapshot, prepare the files locally and upload them before running the benchmark.
 
 ```bash
 cargo run -p random-access-bench --profile release_debug --features lance -- \
@@ -106,11 +106,15 @@ cargo run -p random-access-bench --profile release_debug --features lance -- \
 Credentials and region come from the environment (`AWS_REGION`, `AWS_PROFILE`, ...).
 
 Remote measurements are named `...-tokio-s3` instead of `...-tokio-local-disk` and are
-reported with `s3` storage, so they form a series separate from the local-disk numbers. Their
-ingest records use an `-s3` dataset suffix, such as `taxi-s3/uniform`, for the same reason. Arrow
-IPC has no object store reader and LitData is only wired up for local disk, so both are skipped
-for remote runs. In CI
-the variant runs from
+reported with `s3` storage, so they form a series separate from the local-disk numbers. Each
+S3 ingest record includes the fixture location and timing revision in its dataset ID so
+reports compare runs on the same files with the same timed work. Revision 2 reads the fixture
+directly, so reopening a file no longer includes local file preparation or footer reads.
+Publish changes to the fixture files under a new prefix to preserve existing comparisons.
+
+Arrow IPC has no object store reader and LitData is only wired up for local disk, so both are
+skipped for remote runs. In CI, PRs and `develop` read the same versioned public fixtures.
+The variant runs from
 [`pr-bench-random-access-s3.yml`](../../.github/workflows/pr-bench-random-access-s3.yml)
 (label `action/bench-random-access-s3`) and from the `Random Access (S3)` matrix entry in
 `develop-bench.yml`.

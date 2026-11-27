@@ -3,7 +3,6 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
 import java.math.BigInteger;
@@ -27,7 +26,9 @@ public final class Expression {
     private final long pointer;
 
     private Expression(long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid expression pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid expression pointer");
+        }
         this.pointer = pointer;
         VortexCleaner.register(this, () -> NativeExpression.free(pointer));
     }
@@ -66,7 +67,9 @@ public final class Expression {
      * is equivalent to {@link #column(String)}.
      */
     public static Expression column(String[] fieldNames) {
-        Preconditions.checkArgument(fieldNames.length > 0, "column requires at least one field name");
+        if (fieldNames.length <= 0) {
+            throw new IllegalArgumentException("column requires at least one field name");
+        }
         Expression expr = root();
         for (String name : fieldNames) {
             expr = getItem(name, expr);
@@ -105,13 +108,17 @@ public final class Expression {
 
     /** Logical AND. Requires at least one operand. */
     public static Expression and(Expression... operands) {
-        Preconditions.checkArgument(operands.length > 0, "and requires at least one operand");
+        if (operands.length <= 0) {
+            throw new IllegalArgumentException("and requires at least one operand");
+        }
         return new Expression(NativeExpression.and(nativePointers(operands)));
     }
 
     /** Logical OR. Requires at least one operand. */
     public static Expression or(Expression... operands) {
-        Preconditions.checkArgument(operands.length > 0, "or requires at least one operand");
+        if (operands.length <= 0) {
+            throw new IllegalArgumentException("or requires at least one operand");
+        }
         return new Expression(NativeExpression.or(nativePointers(operands)));
     }
 
@@ -124,12 +131,10 @@ public final class Expression {
      * {@link #literalGeometry(byte[])}). The number of operands must match the function's arity.
      */
     public static Expression spatial(SpatialFunction function, Expression... operands) {
-        Preconditions.checkArgument(
-                operands.length == function.arity(),
-                "%s takes %s operands, got %s",
-                function,
-                function.arity(),
-                operands.length);
+        if (operands.length != function.arity()) {
+            throw new IllegalArgumentException(
+                    String.format("%s takes %s operands, got %s", function, function.arity(), operands.length));
+        }
         return new Expression(NativeExpression.spatial(function.code(), nativePointers(operands)));
     }
 
@@ -250,19 +255,25 @@ public final class Expression {
 
     /** Create an unsigned 8-bit integer literal. {@code value} must be in {@code [0, 255]}. */
     public static Expression literalU8(int value) {
-        Preconditions.checkArgument(value >= 0 && value <= 0xFF, "u8 literal out of range: %s", value);
+        if (value < 0 || value > 0xFF) {
+            throw new IllegalArgumentException(String.format("u8 literal out of range: %s", value));
+        }
         return new Expression(NativeExpression.literalU8((byte) value, false));
     }
 
     /** Create an unsigned 16-bit integer literal. {@code value} must be in {@code [0, 65535]}. */
     public static Expression literalU16(int value) {
-        Preconditions.checkArgument(value >= 0 && value <= 0xFFFF, "u16 literal out of range: %s", value);
+        if (value < 0 || value > 0xFFFF) {
+            throw new IllegalArgumentException(String.format("u16 literal out of range: %s", value));
+        }
         return new Expression(NativeExpression.literalU16((short) value, false));
     }
 
     /** Create an unsigned 32-bit integer literal. {@code value} must be in {@code [0, 2^32 - 1]}. */
     public static Expression literalU32(long value) {
-        Preconditions.checkArgument(value >= 0 && value <= 0xFFFF_FFFFL, "u32 literal out of range: %s", value);
+        if (value < 0 || value > 0xFFFF_FFFFL) {
+            throw new IllegalArgumentException(String.format("u32 literal out of range: %s", value));
+        }
         return new Expression(NativeExpression.literalU32((int) value, false));
     }
 
@@ -276,9 +287,12 @@ public final class Expression {
 
     /** Create an unsigned 64-bit integer literal. {@code value} must be in {@code [0, 2^64 - 1]}. */
     public static Expression literalU64(BigInteger value) {
-        Preconditions.checkArgument(value != null, "use nullLiteral(DType.U64) for a null u64 literal");
-        Preconditions.checkArgument(
-                value.signum() >= 0 && value.bitLength() <= Long.SIZE, "u64 literal out of range: %s", value);
+        if (value == null) {
+            throw new IllegalArgumentException("use nullLiteral(DType.U64) for a null u64 literal");
+        }
+        if (value.signum() < 0 || value.bitLength() > Long.SIZE) {
+            throw new IllegalArgumentException(String.format("u64 literal out of range: %s", value));
+        }
         return literalU64(value.longValue());
     }
 
@@ -300,7 +314,9 @@ public final class Expression {
     }
 
     public static Expression literal(byte[] value) {
-        Preconditions.checkArgument(value != null, "use nullLiteral(DType.BINARY) for a null binary literal");
+        if (value == null) {
+            throw new IllegalArgumentException("use nullLiteral(DType.BINARY) for a null binary literal");
+        }
         return new Expression(NativeExpression.literalBinary(value));
     }
 
@@ -309,7 +325,9 @@ public final class Expression {
      * returned by {@link BigInteger#toByteArray()}).
      */
     public static Expression literalDecimal(BigInteger unscaledValue, int precision, int scale) {
-        Preconditions.checkArgument(unscaledValue != null, "unscaledValue must not be null");
+        if (unscaledValue == null) {
+            throw new IllegalArgumentException("unscaledValue must not be null");
+        }
         return new Expression(NativeExpression.literalDecimal(unscaledValue.toByteArray(), precision, scale, false));
     }
 
@@ -371,7 +389,9 @@ public final class Expression {
      * malformed WKB are rejected.
      */
     public static Expression literalGeometry(byte[] wkb) {
-        Preconditions.checkArgument(wkb != null, "geometry literal WKB must not be null");
+        if (wkb == null) {
+            throw new IllegalArgumentException("geometry literal WKB must not be null");
+        }
         return new Expression(NativeExpression.literalGeometry(wkb));
     }
 
@@ -380,7 +400,9 @@ public final class Expression {
      * big-endian (network order) representation, matching Vortex's UUID extension type and Arrow's canonical UUID type.
      */
     public static Expression literal(UUID value) {
-        Preconditions.checkArgument(value != null, "use nullLiteralUuid() for a null UUID literal");
+        if (value == null) {
+            throw new IllegalArgumentException("use nullLiteralUuid() for a null UUID literal");
+        }
         return literalUuid(uuidToBigEndianBytes(value));
     }
 
@@ -391,12 +413,13 @@ public final class Expression {
      * @param bigEndianBytes exactly 16 bytes; use {@link #nullLiteralUuid()} for a null literal
      */
     public static Expression literalUuid(byte[] bigEndianBytes) {
-        Preconditions.checkArgument(bigEndianBytes != null, "use nullLiteralUuid() for a null UUID literal");
-        Preconditions.checkArgument(
-                bigEndianBytes.length == UUID_BYTE_LEN,
-                "UUID literal must be exactly %s bytes, got %s",
-                UUID_BYTE_LEN,
-                bigEndianBytes.length);
+        if (bigEndianBytes == null) {
+            throw new IllegalArgumentException("use nullLiteralUuid() for a null UUID literal");
+        }
+        if (bigEndianBytes.length != UUID_BYTE_LEN) {
+            throw new IllegalArgumentException(String.format(
+                    "UUID literal must be exactly %s bytes, got %s", UUID_BYTE_LEN, bigEndianBytes.length));
+        }
         return new Expression(NativeExpression.literalUuid(bigEndianBytes, false));
     }
 
@@ -497,18 +520,19 @@ public final class Expression {
 
     /** Null fixed-size list literal of {@code size} elements. */
     public static Expression nullLiteralFixedSizeList(Expression elementType, boolean elementsNullable, int size) {
-        Preconditions.checkArgument(size >= 0, "fixed-size list size must not be negative: %s", size);
+        if (size < 0) {
+            throw new IllegalArgumentException(String.format("fixed-size list size must not be negative: %s", size));
+        }
         return new Expression(NativeExpression.literalFixedSizeList(
                 new long[0], elementType.nativePointer(), elementsNullable, size, true));
     }
 
     /** Create a struct literal. Each field must be a literal expression; its dtype becomes the field's dtype. */
     public static Expression literalStruct(String[] fieldNames, Expression[] fields) {
-        Preconditions.checkArgument(
-                fieldNames.length == fields.length,
-                "struct literal has %s field names but %s fields",
-                fieldNames.length,
-                fields.length);
+        if (fieldNames.length != fields.length) {
+            throw new IllegalArgumentException(
+                    String.format("struct literal has %s field names but %s fields", fieldNames.length, fields.length));
+        }
         return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fields), false));
     }
 
@@ -517,11 +541,10 @@ public final class Expression {
      * struct's field dtypes.
      */
     public static Expression nullLiteralStruct(String[] fieldNames, Expression[] fieldTypes) {
-        Preconditions.checkArgument(
-                fieldNames.length == fieldTypes.length,
-                "struct literal has %s field names but %s field types",
-                fieldNames.length,
-                fieldTypes.length);
+        if (fieldNames.length != fieldTypes.length) {
+            throw new IllegalArgumentException(String.format(
+                    "struct literal has %s field names but %s field types", fieldNames.length, fieldTypes.length));
+        }
         return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fieldTypes), true));
     }
 
@@ -533,8 +556,10 @@ public final class Expression {
      */
     public static Expression literalMap(
             Expression keyType, Expression valueType, boolean valuesNullable, Expression[] keys, Expression[] values) {
-        Preconditions.checkArgument(
-                keys.length == values.length, "map literal has %s keys but %s values", keys.length, values.length);
+        if (keys.length != values.length) {
+            throw new IllegalArgumentException(
+                    String.format("map literal has %s keys but %s values", keys.length, values.length));
+        }
         return new Expression(NativeExpression.literalMap(
                 nativePointers(keys),
                 nativePointers(values),
