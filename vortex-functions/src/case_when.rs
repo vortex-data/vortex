@@ -795,8 +795,6 @@ mod tests {
         Ok(())
     }
 
-    /// A dictionary with all values referenced can push a fallible branch into its values. The
-    /// branch must still run only on the rows that select it.
     #[rstest]
     #[case::with_else(true)]
     #[case::without_else(false)]

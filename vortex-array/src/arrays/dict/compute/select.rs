@@ -18,27 +18,22 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::builtin::cast::Cast;
 
-/// Returns the rows of `array` that `codes` select from its values.
+/// Returns the rows of `array` that `codes` select.
 ///
-/// A selection can remove the last reference to a value. A fallible scalar function that a
-/// dictionary with all values referenced pushed into its values would then also run on values
-/// that no selected row references, and it can fail where row-wise evaluation does not. For
-/// such values, this applies the scalar functions to the selected rows of their inputs, so that
-/// selection precedes evaluation.
+/// Fallible scalar functions in the values run only on the selected rows, so that unreferenced
+/// values cannot fail.
 pub(super) fn select_codes(array: ArrayView<'_, Dict>, codes: ArrayRef) -> VortexResult<ArrayRef> {
     let values = array.values();
 
     if !has_fallible_scalar_fn(values) {
-        // SAFETY: Selection preserves the integer code type and non-null code bounds, so every
-        // code indexes the unchanged values. `new_unchecked` resets `all_values_referenced`
-        // because selection can remove the last reference to a value.
+        // SAFETY: Selection preserves the code type and bounds. `new_unchecked` resets
+        // `all_values_referenced`.
         let selected = unsafe { DictArray::new_unchecked(codes, values.clone()) };
         return Ok(selected.into_array());
     }
 
     let selected = take_through_scalar_fns(values, &codes)?;
 
-    // A null code gives a null row, whatever the scalar function returns for null inputs.
     if codes.dtype().is_nullable() {
         let valid_codes = codes.is_not_null()?;
         return selected.mask(valid_codes);
@@ -47,7 +42,7 @@ pub(super) fn select_codes(array: ArrayView<'_, Dict>, codes: ArrayRef) -> Vorte
     Ok(selected)
 }
 
-/// Returns whether `array` is a scalar function tree that contains a fallible function.
+/// Returns whether the scalar function tree of `array` contains a fallible function.
 fn has_fallible_scalar_fn(array: &ArrayRef) -> bool {
     let Some(scalar_fn) = array.as_opt::<ScalarFn>() else {
         return false;
@@ -56,10 +51,7 @@ fn has_fallible_scalar_fn(array: &ArrayRef) -> bool {
     !is_infallible(&scalar_fn) || scalar_fn.iter_children().any(has_fallible_scalar_fn)
 }
 
-/// Returns whether the function of `array` cannot fail on its inputs.
-///
-/// The signature of `Cast` does not know the source dtype, so it reports every cast as fallible.
-/// A lossless cast, such as one that `CastReduce` pushes into the values, cannot fail.
+/// Like the signature's `is_infallible`, but also accepts lossless casts.
 fn is_infallible(array: &ArrayView<'_, ScalarFn>) -> bool {
     let scalar_fn = array.scalar_fn();
     if scalar_fn.signature().is_infallible() {
@@ -77,8 +69,7 @@ fn is_infallible(array: &ArrayView<'_, ScalarFn>) -> bool {
     null_safe && casts_non_null_values_losslessly(from, to)
 }
 
-/// Takes `codes` from the inputs of the scalar functions of `array`, and applies the functions
-/// to the result.
+/// Applies the scalar functions of `array` to the rows of their inputs that `codes` select.
 fn take_through_scalar_fns(array: &ArrayRef, codes: &ArrayRef) -> VortexResult<ArrayRef> {
     let Some(scalar_fn) = array.as_opt::<ScalarFn>() else {
         return array.take(codes.clone());
@@ -149,7 +140,6 @@ mod tests {
         Ok(division)
     }
 
-    /// A selection of rows that do not reference the value zero must not divide by it.
     #[rstest]
     #[case::filter(
         |array: &ArrayRef| array.filter(Mask::from_iter([false, false, true, true, false, true])),
@@ -180,7 +170,6 @@ mod tests {
         Ok(())
     }
 
-    /// A lossless cast in the values cannot fail, so a selection keeps the dictionary.
     #[test]
     fn selection_keeps_dictionary_with_lossless_cast_values() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -195,8 +184,7 @@ mod tests {
             .optimize_ctx(&SESSION)?;
         assert!(cast.as_::<Dict>().values().is::<ScalarFn>());
 
-        // Call the kernel directly: the optimizer would build a dictionary again from a cast
-        // over taken values, which hides the result of the kernel.
+        // The optimizer would rebuild the dictionary, so check the kernel output.
         let mask = Mask::from_iter([true, true, false, true]);
         let selected = <Dict as FilterReduce>::filter(cast.as_::<Dict>(), &mask)?
             .vortex_expect("Dict FilterReduce always returns Some");
@@ -210,7 +198,6 @@ mod tests {
         Ok(())
     }
 
-    /// A null code selects a null row, even though the selected value would not be null.
     #[test]
     fn null_codes_select_null_rows() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();

@@ -50,8 +50,7 @@ impl CastReduce for Dict {
     }
 }
 
-/// Returns whether a cast from `from` to `to` keeps every non-null value, so it cannot fail on
-/// a non-null value. A null value can still fail a cast to a non-nullable dtype.
+/// Returns whether a cast from `from` to `to` cannot fail on a non-null value.
 pub(super) fn casts_non_null_values_losslessly(from: &DType, to: &DType) -> bool {
     match (from, to) {
         (DType::Primitive(from, _), DType::Primitive(to, _)) => from.casts_losslessly_to(*to),
