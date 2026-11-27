@@ -456,9 +456,11 @@ impl DataSourceScan for LayoutReaderScan {
             splits,
             exhausted.clone(),
         ));
-        Ok(ScanExec::new(self.dtype, exhausted, move || {
-            Arc::clone(&queue).worker()
-        }))
+        let progress = Arc::clone(&queue);
+        Ok(
+            ScanExec::new(self.dtype, exhausted, move || Arc::clone(&queue).worker())
+                .with_progress(move || progress.claims()),
+        )
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -1231,6 +1233,7 @@ mod split_open_tests {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_scan::DataSource;
     use vortex_scan::ScanRequest;
+    use vortex_scan::stream::Claims;
 
     use super::LayoutReaderDataSource;
     use super::group_contiguous;
@@ -1254,12 +1257,26 @@ mod split_open_tests {
             .block_on(source(&runtime).scan(ScanRequest::default()))?
             .open()?;
         assert!(!exec.is_exhausted());
+        assert_eq!(
+            exec.progress(),
+            Some(Claims {
+                claimed: 0,
+                total: 16
+            })
+        );
         let workers = (0..3).map(|_| exec.stream().try_collect::<Vec<_>>());
         let arrays = runtime.block_on(try_join_all(workers))?;
         let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
         values.sort_unstable();
         assert_eq!(values, (0..64).collect::<Vec<_>>());
         assert!(exec.is_exhausted());
+        assert_eq!(
+            exec.progress(),
+            Some(Claims {
+                claimed: 16,
+                total: 16
+            })
+        );
         Ok(())
     }
 

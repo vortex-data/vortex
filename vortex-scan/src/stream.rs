@@ -29,6 +29,21 @@ use crate::DataSourceScanRef;
 /// Starts a new worker over the shared work of an opened scan.
 type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send + Sync;
 
+/// Reads how many units of an opened scan's work its streams have claimed.
+type ReadProgress = dyn Fn() -> Claims + Send + Sync;
+
+/// How many units of an opened scan's work its streams have claimed, out of how many in all.
+///
+/// A unit is what one stream claims at a time, such as a split of a layout scan. Claims only grow,
+/// and `claimed` never exceeds `total`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Claims {
+    /// The units that streams have claimed so far.
+    pub claimed: usize,
+    /// The units of the scan in all.
+    pub total: usize,
+}
+
 /// A flag that an opened scan sets once no stream created afterwards would find work.
 ///
 /// It is set at most once and never cleared, so hosts read it from a cache line that is almost
@@ -73,6 +88,7 @@ pub struct ScanExec {
     dtype: DType,
     exhausted: ExhaustedFlag,
     new_worker: Arc<NewWorker>,
+    progress: Option<Arc<ReadProgress>>,
 }
 
 impl ScanExec {
@@ -91,7 +107,15 @@ impl ScanExec {
             dtype,
             exhausted,
             new_worker: Arc::new(new_worker),
+            progress: None,
         }
+    }
+
+    /// This scan, reporting through `progress` how many units of its work its streams have
+    /// claimed, out of how many in all. `progress` must never block.
+    pub fn with_progress(mut self, progress: impl Fn() -> Claims + Send + Sync + 'static) -> Self {
+        self.progress = Some(Arc::new(progress));
+        self
     }
 
     /// An opened scan whose streams take the partitions of `scan` one at a time, each stream
@@ -139,6 +163,16 @@ impl ScanExec {
     /// streams take their work only when first polled.
     pub fn is_exhausted(&self) -> bool {
         self.exhausted.is_set()
+    }
+
+    /// How many units of the scan's work its streams have claimed, out of how many in all, or
+    /// `None` when the source does not know its total up front, as for
+    /// [`Self::from_partitions`]. Never blocks.
+    ///
+    /// This is for reporting progress. A host decides whether to join the scan with
+    /// [`is_exhausted`](Self::is_exhausted).
+    pub fn progress(&self) -> Option<Claims> {
+        self.progress.as_ref().map(|progress| progress())
     }
 
     /// A new stream over the scan's remaining work, which one host thread or partition reads.
