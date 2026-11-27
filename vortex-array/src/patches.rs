@@ -370,6 +370,11 @@ impl Patches {
             .offset
             .checked_add(self.array_len)
             .ok_or_else(|| vortex_err!("Patch range overflows usize"))?;
+        vortex_ensure!(rows.is_sorted_by(|a, b| a < b));
+        vortex_ensure!(
+            rows.first().is_some_and(|&row| row >= self.offset as u64)
+                && rows.last().is_some_and(|&row| row < end as u64)
+        );
         let mut rows = rows.iter().copied().peekable();
         let mut position = 0u64;
         let offsets = (first_chunk..end.div_ceil(PATCH_CHUNK_SIZE))

@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayEq;
@@ -22,9 +23,11 @@ use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::PatchSlotIndices;
 use crate::patches::Patches;
 use crate::patches::PatchesData;
+use crate::search_sorted::decode_sorted_positions;
 
 /// Sorted patches over a base array of the same logical type.
 #[derive(Clone, Debug)]
@@ -154,6 +157,52 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
 
 impl<T: TypedArrayRef<Patched>> PatchedArrayExt for T {}
 
+/// Check every chunk boundary, including the skipped patches in the first physical chunk.
+/// Scalar lookups, slices and takes use this index while block execution streams the rows.
+pub(super) fn validate_chunk_index(
+    indices: &ArrayRef,
+    offsets: &ArrayRef,
+    start: usize,
+    skipped: u64,
+    end: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    vortex_ensure!(!indices.is_empty());
+    vortex_ensure_eq!(
+        offsets.len(),
+        end.div_ceil(PATCH_CHUNK_SIZE) - start / PATCH_CHUNK_SIZE
+    );
+    let rows = decode_sorted_positions(indices, ctx)?;
+    let offsets = decode_sorted_positions(offsets, ctx)?;
+
+    vortex_ensure!(rows.is_sorted_by(|a, b| a < b));
+    vortex_ensure!(rows[0] >= start as u64 && rows[rows.len() - 1] < end as u64);
+
+    let mut rows = rows.iter().copied().peekable();
+    let mut consumed = 0u64;
+    for (chunk, &offset) in offsets.iter().enumerate() {
+        if chunk != 0 {
+            let expected = offsets[0]
+                .checked_add(skipped)
+                .and_then(|base| base.checked_add(consumed))
+                .ok_or_else(|| vortex_err!("Patch chunk offset overflow"))?;
+            vortex_ensure_eq!(
+                offset,
+                expected,
+                "Chunk offset disagrees with patch indices"
+            );
+        }
+        let physical_chunk = start / PATCH_CHUNK_SIZE + chunk;
+        while rows
+            .next_if(|row| *row / PATCH_CHUNK_SIZE as u64 == physical_chunk as u64)
+            .is_some()
+        {
+            consumed += 1;
+        }
+    }
+    Ok(())
+}
+
 impl Patched {
     /// Replace the selected base rows, including their validity.
     pub fn from_array_and_patches(
@@ -176,9 +225,34 @@ impl Patched {
         strategy.validate(&dtype)?;
         vortex_ensure_eq!(inner.len(), patches.array_len());
         vortex_ensure!(dtype.eq_with_nullability_superset(patches.dtype()));
-        let patches = patches.clone().with_chunk_offsets(ctx)?;
+        if let Some(offsets) = patches.chunk_offsets() {
+            vortex_ensure!(offsets.dtype().is_unsigned_int() && !offsets.dtype().is_nullable());
+            let start = patches.offset();
+            let end = start
+                .checked_add(inner.len())
+                .ok_or_else(|| vortex_err!("Patch range overflow"))?;
+            validate_chunk_index(
+                patches.indices(),
+                offsets,
+                start,
+                patches.offset_within_chunk().unwrap_or(0) as u64,
+                end,
+                ctx,
+            )?;
+            return Self::from_indexed_patches(inner, patches, strategy);
+        }
+        let indexed = patches.clone().with_chunk_offsets(ctx)?;
+        Self::from_indexed_patches(inner, &indexed, strategy)
+    }
+
+    pub(super) fn from_indexed_patches(
+        inner: ArrayRef,
+        patches: &Patches,
+        strategy: PatchStrategy,
+    ) -> VortexResult<PatchedArray> {
+        let dtype = inner.dtype().clone();
         let data = PatchedData {
-            patches: PatchesData::from_patches(&patches),
+            patches: PatchesData::from_patches(patches),
             strategy,
         };
         let slots = PatchedSlots {
