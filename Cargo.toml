@@ -25,6 +25,7 @@ members = [
     "vortex-scan",
     "vortex-file",
     "vortex-index/core",
+    "vortex-index/inverted",
     "vortex-table",
     "vortex-ipc",
     "vortex",
@@ -324,6 +325,7 @@ vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = fa
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-functions = { version = "0.1.0", path = "./vortex-functions", default-features = false }
 vortex-index = { version = "0.1.0", path = "./vortex-index/core", default-features = false }
+vortex-index-inverted = { version = "0.1.0", path = "./vortex-index/inverted", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = false }
