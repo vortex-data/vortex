@@ -1,23 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::channel::mpsc;
-use parking_lot::Condvar;
+use futures::channel::oneshot;
+use futures::executor::LocalPool;
+use futures::future::BoxFuture;
+use futures::stream;
+use futures::task::LocalSpawnExt;
 use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -25,17 +32,27 @@ use vortex_expr::checked_add;
 use vortex_expr::gt;
 use vortex_expr::lit;
 use vortex_expr::root;
+use vortex_io::runtime::AbortHandle;
+use vortex_io::runtime::AbortHandleRef;
+use vortex_io::runtime::Executor;
+use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use super::ChunkBudget;
 use super::ScanDriver;
+use super::order_batches;
+use crate::execution::SegmentLocation;
 use crate::execution::cache::ScanCache;
 use crate::execution::chunk::MAX_ROWS_PER_CHUNK;
 use crate::execution::pipeline::synthetic::RowSource;
+use crate::plan::ConcatPlan;
 use crate::plan::LazyPlanRef;
 use crate::prepare::ScanBuilder;
 use crate::source::ScanInput;
+use crate::source::SegmentFuture;
+use crate::source::SegmentId;
+use crate::source::SegmentSource;
 use crate::test::NoSegments;
 
 fn builder() -> ScanBuilder {
@@ -107,157 +124,197 @@ async fn prepared_batches_are_mapped_off_the_polling_thread(
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-struct GateState {
-    active: usize,
-    peak: usize,
-    entered: usize,
-    released: usize,
-    release_all: bool,
+struct NoopAbort;
+
+impl AbortHandle for NoopAbort {
+    fn abort(self: Box<Self>) {}
 }
 
-/// Deterministic latch for chunk worker tasks: each worker signals entry, tracks active/peak
-/// concurrency, and blocks until the test explicitly releases its ticket.
-struct ConcurrencyGate {
-    state: Mutex<GateState>,
-    condvar: Condvar,
-    entered_tx: mpsc::UnboundedSender<()>,
+/// Single-threaded executor driven explicitly via [`LocalPool`], so tests can advance all ready
+/// tasks to a quiescent point before asserting how many chunks were admitted.
+#[derive(Default)]
+struct ControlledRuntime {
+    spawned: Mutex<VecDeque<BoxFuture<'static, ()>>>,
 }
 
-impl ConcurrencyGate {
-    fn new() -> (Arc<Self>, mpsc::UnboundedReceiver<()>) {
-        let (entered_tx, entered_rx) = mpsc::unbounded();
-        let gate = Arc::new(Self {
-            state: Mutex::new(GateState {
-                active: 0,
-                peak: 0,
-                entered: 0,
-                released: 0,
-                release_all: false,
-            }),
-            condvar: Condvar::new(),
-            entered_tx,
-        });
-        (gate, entered_rx)
+impl ControlledRuntime {
+    fn handle(self: &Arc<Self>) -> Handle {
+        let executor: Arc<dyn Executor> = Arc::<Self>::clone(self);
+        Handle::new(Arc::downgrade(&executor))
     }
 
-    fn wait_turn(&self) {
-        let mut state = self.state.lock();
-        state.active += 1;
-        state.peak = state.peak.max(state.active);
-        let ticket = state.entered;
-        state.entered += 1;
-        let _ = self.entered_tx.unbounded_send(());
-        while !state.release_all && ticket >= state.released {
-            self.condvar.wait(&mut state);
+    fn run_until_stalled(&self, pool: &mut LocalPool) {
+        loop {
+            while let Some(fut) = self.spawned.lock().pop_front() {
+                pool.spawner()
+                    .spawn_local(fut)
+                    .expect("local pool accepts spawned task");
+            }
+            pool.run_until_stalled();
+            if self.spawned.lock().is_empty() {
+                break;
+            }
         }
-        state.active -= 1;
+    }
+}
+
+impl Executor for ControlledRuntime {
+    fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+        self.spawned.lock().push_back(fut);
+        Box::new(NoopAbort)
     }
 
-    fn release(&self, count: usize) {
-        let mut state = self.state.lock();
-        state.released += count;
-        self.condvar.notify_all();
+    fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        self.spawn(async move { task() }.boxed())
     }
 
-    fn release_all(&self) {
-        let mut state = self.state.lock();
-        state.release_all = true;
-        self.condvar.notify_all();
+    fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+        self.spawn(async move { task() }.boxed())
     }
+}
 
-    fn active(&self) -> usize {
-        self.state.lock().active
+#[derive(Default)]
+struct GatedSegmentsState {
+    pending: VecDeque<(SegmentId, oneshot::Sender<()>)>,
+    peak: usize,
+}
+
+/// Segment source whose reads stay pending until the test explicitly completes them.
+#[derive(Default)]
+struct GatedSegments {
+    state: Mutex<GatedSegmentsState>,
+}
+
+impl GatedSegments {
+    fn pending_count(&self) -> usize {
+        self.state.lock().pending.len()
     }
 
     fn peak(&self) -> usize {
         self.state.lock().peak
     }
-}
 
-/// Unblocks any waiting workers if a test exits early on failure.
-struct ReleaseOnDrop(Arc<ConcurrencyGate>);
-
-impl Drop for ReleaseOnDrop {
-    fn drop(&mut self) {
-        self.0.release_all();
-    }
-}
-
-async fn wait_entries(
-    entered_rx: &mut mpsc::UnboundedReceiver<()>,
-    count: usize,
-) -> VortexResult<()> {
-    tokio::time::timeout(TEST_TIMEOUT, async {
-        for _ in 0..count {
+    fn complete(&self, count: usize) {
+        let senders: Vec<_> = {
+            let mut state = self.state.lock();
             assert!(
-                entered_rx.next().await.is_some(),
-                "gate channel closed before expected entries arrived"
+                state.pending.len() >= count,
+                "requested to complete {count} reads, but only {} pending",
+                state.pending.len()
             );
+            (0..count)
+                .map(|_| state.pending.pop_front().expect("checked length").1)
+                .collect()
+        };
+        for tx in senders {
+            let _ = tx.send(());
         }
-    })
-    .await
-    .map_err(|_| vortex_err!("timed out waiting for {count} chunks to enter"))
-}
-
-async fn assert_no_extra_entry(entered_rx: &mut mpsc::UnboundedReceiver<()>) {
-    for _ in 0..16 {
-        tokio::task::yield_now().await;
     }
-    assert!(
-        entered_rx.try_recv().is_err(),
-        "an extra chunk entered beyond the concurrency bound"
-    );
+
+    fn complete_segment(&self, target: SegmentId) {
+        let tx = {
+            let mut state = self.state.lock();
+            let pos = state
+                .pending
+                .iter()
+                .position(|(id, _)| *id == target)
+                .unwrap_or_else(|| panic!("segment {target} is not pending"));
+            state.pending.remove(pos).expect("valid index").1
+        };
+        let _ = tx.send(());
+    }
 }
 
-fn first_u64(batch: &ArrayRef) -> VortexResult<u64> {
-    let mut ctx = VortexSession::empty().create_execution_ctx();
-    let prim = batch.clone().execute::<PrimitiveArray>(&mut ctx)?;
-    Ok(prim.as_slice::<u64>()[0])
+impl SegmentSource for GatedSegments {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut state = self.state.lock();
+            state.pending.push_back((id, tx));
+            let in_flight = state.pending.len();
+            state.peak = state.peak.max(in_flight);
+        }
+        async move {
+            rx.await
+                .map_err(|_| vortex_err!("gated segment {id} sender dropped"))?;
+            Ok(BufferHandle::new_host(ByteBuffer::empty()))
+        }
+        .boxed()
+    }
+}
+
+fn gated_chunked_builder(
+    handle: Handle,
+    segments: Arc<GatedSegments>,
+    chunk_lens: &[usize],
+) -> VortexResult<ScanBuilder> {
+    let children: Vec<_> = chunk_lens
+        .iter()
+        .enumerate()
+        .map(|(i, &len)| {
+            RowSource::plan(
+                len as u64,
+                Vec::new(),
+                Some(SegmentId::from(u32::try_from(i).expect("chunk fits u32"))),
+                false,
+            )
+        })
+        .collect();
+    let dtype = children[0].dtype().clone();
+    let plan = ConcatPlan::try_new(dtype.clone(), children)?.into_plan();
+    let locations: Arc<[SegmentLocation]> = (0..chunk_lens.len())
+        .map(|i| SegmentLocation {
+            offset: (i as u64) * 16,
+            length: 16,
+            alignment: Alignment::new(8),
+        })
+        .collect();
+    Ok(ScanBuilder::new(
+        VortexSession::empty().with_handle(handle),
+        ScanInput {
+            dtype,
+            root: LazyPlanRef::ready(plan),
+            locations,
+            segments,
+            cache: None,
+        },
+    ))
 }
 
 /// The concurrency bounds the chunks in flight in total, not per worker thread.
 #[rstest]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrency_bounds_chunks_in_flight_in_total(
+fn concurrency_bounds_chunks_in_flight_in_total(
     #[values(1, 2)] concurrency: usize,
 ) -> VortexResult<()> {
-    let (gate, mut entered_rx) = ConcurrencyGate::new();
-    let _guard = ReleaseOnDrop(Arc::clone(&gate));
-    let map_fn = {
-        let gate = Arc::clone(&gate);
-        move |batch: ArrayRef| {
-            gate.wait_turn();
-            Ok(batch)
-        }
-    };
+    let runtime = Arc::new(ControlledRuntime::default());
+    let mut pool = LocalPool::new();
+    let segments = Arc::new(GatedSegments::default());
 
     let chunks = 4;
-    let builder = chunked_builder(chunks);
-    let driver = ScanDriver::new(builder.session().handle(), concurrency, true);
+    let builder = gated_chunked_builder(
+        runtime.handle(),
+        Arc::clone(&segments),
+        &vec![MAX_ROWS_PER_CHUNK; chunks],
+    )?;
+    let driver = ScanDriver::new(runtime.handle(), concurrency, true);
     let prepared = builder.prepare()?;
-    let scan = tokio::spawn(async move {
-        driver
-            .run_prepared(prepared, map_fn)
-            .try_collect::<Vec<_>>()
-            .await
-    });
+    let scan = pool
+        .spawner()
+        .spawn_local_with_handle(driver.run_prepared(prepared, Ok).try_collect::<Vec<_>>())
+        .map_err(|err| vortex_err!("spawn scan: {err}"))?;
 
     for _ in 0..(chunks / concurrency) {
-        wait_entries(&mut entered_rx, concurrency).await?;
-        assert_no_extra_entry(&mut entered_rx).await;
-        assert_eq!(gate.active(), concurrency);
-        assert_eq!(gate.peak(), concurrency);
-        gate.release(concurrency);
+        runtime.run_until_stalled(&mut pool);
+        assert_eq!(segments.pending_count(), concurrency);
+        assert_eq!(segments.peak(), concurrency);
+        segments.complete(concurrency);
     }
 
-    let batches = tokio::time::timeout(TEST_TIMEOUT, scan)
-        .await
-        .map_err(|_| vortex_err!("timed out waiting for scan completion"))?
-        .map_err(|err| vortex_err!("scan task panicked: {err}"))??;
-
+    runtime.run_until_stalled(&mut pool);
+    let batches = pool.run_until(scan)?;
     assert_eq!(batches.len(), chunks);
-    assert_eq!(gate.peak(), concurrency);
-    assert_eq!(gate.active(), 0);
+    assert_eq!(segments.peak(), concurrency);
+    assert_eq!(segments.pending_count(), 0);
     Ok(())
 }
 
@@ -281,54 +338,48 @@ fn chunked_builder(chunks: usize) -> ScanBuilder {
 }
 
 /// Drivers sharing a budget run at most its chunks plus one of their own each, all together.
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn shared_budget_bounds_chunks_in_flight_across_drivers() -> VortexResult<()> {
-    let (gate, mut entered_rx) = ConcurrencyGate::new();
-    let _guard = ReleaseOnDrop(Arc::clone(&gate));
-    let map_fn = {
-        let gate = Arc::clone(&gate);
-        move |batch: ArrayRef| {
-            gate.wait_turn();
-            Ok(batch)
-        }
-    };
+#[test]
+fn shared_budget_bounds_chunks_in_flight_across_drivers() -> VortexResult<()> {
+    let runtime = Arc::new(ControlledRuntime::default());
+    let mut pool = LocalPool::new();
+    let segments = Arc::new(GatedSegments::default());
 
     let (budget, drivers, chunks) = (ChunkBudget::new(1), 2, 4);
     let limit = 1 + drivers;
-    let scans = tokio::spawn(async move {
-        let futures = (0..drivers).map(|_| {
-            let builder = chunked_builder(chunks);
-            let driver = ScanDriver::with_budget(builder.session().handle(), budget.clone(), true);
-            let map_fn = map_fn.clone();
-            async move {
-                driver
-                    .run_prepared(builder.prepare()?, map_fn)
-                    .try_collect::<Vec<_>>()
-                    .await
-            }
-        });
-        futures::future::try_join_all(futures).await
-    });
-
-    // Two full waves of 3 saturate both drivers' own slots plus the shared slot; the remaining
-    // 2 chunks finish once released.
-    for _ in 0..2 {
-        wait_entries(&mut entered_rx, limit).await?;
-        assert_no_extra_entry(&mut entered_rx).await;
-        assert_eq!(gate.active(), limit);
-        assert_eq!(gate.peak(), limit);
-        gate.release(limit);
+    let mut prepared_scans = Vec::with_capacity(drivers);
+    for _ in 0..drivers {
+        let builder = gated_chunked_builder(
+            runtime.handle(),
+            Arc::clone(&segments),
+            &vec![MAX_ROWS_PER_CHUNK; chunks],
+        )?;
+        let driver = ScanDriver::with_budget(runtime.handle(), budget.clone(), true);
+        prepared_scans.push((driver, builder.prepare()?));
     }
-    gate.release_all();
 
-    let batches = tokio::time::timeout(TEST_TIMEOUT, scans)
-        .await
-        .map_err(|_| vortex_err!("timed out waiting for shared-budget scans"))?
-        .map_err(|err| vortex_err!("scans task panicked: {err}"))??;
+    let scans = pool
+        .spawner()
+        .spawn_local_with_handle(futures::future::try_join_all(
+            prepared_scans.into_iter().map(|(driver, prepared)| {
+                driver.run_prepared(prepared, Ok).try_collect::<Vec<_>>()
+            }),
+        ))
+        .map_err(|err| vortex_err!("spawn scans: {err}"))?;
 
+    // Two full waves of 3 saturate both drivers' own slots plus the shared slot, followed by
+    // the remaining 2 chunks.
+    for wave in [limit, limit, drivers * chunks - 2 * limit] {
+        runtime.run_until_stalled(&mut pool);
+        assert_eq!(segments.pending_count(), wave);
+        assert_eq!(segments.peak(), limit);
+        segments.complete(wave);
+    }
+
+    runtime.run_until_stalled(&mut pool);
+    let batches = pool.run_until(scans)?;
     assert!(batches.iter().all(|batches| batches.len() == chunks));
-    assert_eq!(gate.peak(), limit);
-    assert_eq!(gate.active(), 0);
+    assert_eq!(segments.peak(), limit);
+    assert_eq!(segments.pending_count(), 0);
     Ok(())
 }
 
@@ -359,90 +410,76 @@ async fn shared_budget_lets_scans_finish_while_another_stalls() -> VortexResult<
     Ok(())
 }
 
-/// Ordered scans still yield chunk 0 first when chunk 0 is held until chunk 1 has mapped;
-/// unordered scans yield chunk 1 to the caller while chunk 0 is still blocked.
-#[rstest]
-#[case::ordered(true)]
-#[case::unordered(false)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn chunk_ordering_with_out_of_order_completion(#[case] ordered: bool) -> VortexResult<()> {
-    struct BlockZero {
-        released: Mutex<bool>,
-        condvar: Condvar,
-    }
+/// Ordered collection sorts batches by starting row even when later chunks finish first.
+#[tokio::test]
+async fn ordered_batches_are_sorted_by_start_row() -> VortexResult<()> {
+    let out_of_order = stream::iter([
+        Ok((MAX_ROWS_PER_CHUNK as u64, "second")),
+        Ok((0_u64, "first")),
+    ])
+    .boxed();
+    let ordered: Vec<_> = order_batches(out_of_order).try_collect().await?;
+    assert_eq!(ordered, vec!["first", "second"]);
+    Ok(())
+}
 
-    impl BlockZero {
-        fn wait(&self) {
-            let mut released = self.released.lock();
-            while !*released {
-                self.condvar.wait(&mut released);
-            }
-        }
+/// Unordered scans yield chunk 1 to the caller while chunk 0 is still blocked on I/O.
+#[test]
+fn unordered_scan_yields_ready_chunk_while_earlier_chunk_blocks_on_io() -> VortexResult<()> {
+    let runtime = Arc::new(ControlledRuntime::default());
+    let mut pool = LocalPool::new();
+    let segments = Arc::new(GatedSegments::default());
 
-        fn release(&self) {
-            *self.released.lock() = true;
-            self.condvar.notify_all();
-        }
-    }
+    let second_chunk_len = 42;
+    let builder = gated_chunked_builder(
+        runtime.handle(),
+        Arc::clone(&segments),
+        &[MAX_ROWS_PER_CHUNK, second_chunk_len],
+    )?;
+    let mut stream =
+        ScanDriver::new(runtime.handle(), 2, false).run_prepared(builder.prepare()?, Ok);
 
-    struct ReleaseZeroOnDrop(Arc<BlockZero>);
-    impl Drop for ReleaseZeroOnDrop {
-        fn drop(&mut self) {
-            self.0.release();
-        }
-    }
+    let first_fut = pool
+        .spawner()
+        .spawn_local_with_handle(async move {
+            let first = stream
+                .next()
+                .await
+                .transpose()?
+                .ok_or_else(|| vortex_err!("expected first batch"))?;
+            Ok::<_, vortex_error::VortexError>((first, stream))
+        })
+        .map_err(|err| vortex_err!("spawn first: {err}"))?;
 
-    let block_zero = Arc::new(BlockZero {
-        released: Mutex::new(false),
-        condvar: Condvar::new(),
-    });
-    let _guard = ReleaseZeroOnDrop(Arc::clone(&block_zero));
+    runtime.run_until_stalled(&mut pool);
+    assert_eq!(segments.pending_count(), 2);
 
-    let map_fn = {
-        let block_zero = Arc::clone(&block_zero);
-        move |batch: ArrayRef| {
-            let start = first_u64(&batch)?;
-            if start == 0 {
-                block_zero.wait();
-            } else if ordered {
-                // Chunk 1 has finished mapping; unblock chunk 0 so the ordered scan can collect both.
-                block_zero.release();
-            }
-            Ok(batch)
-        }
-    };
+    // Complete chunk 1's I/O while chunk 0 stays pending; unordered mode yields chunk 1 now.
+    segments.complete_segment(SegmentId::from(1));
+    runtime.run_until_stalled(&mut pool);
+    let (first, mut stream) = pool.run_until(first_fut)?;
+    assert_eq!(first.len(), second_chunk_len);
+    assert_eq!(segments.pending_count(), 1);
 
-    let builder = chunked_builder(2);
-    let mut stream = ScanDriver::new(builder.session().handle(), 2, ordered)
-        .run_prepared(builder.prepare()?, map_fn);
+    // Completing chunk 0's I/O yields chunk 0 and ends the stream.
+    let rest_fut = pool
+        .spawner()
+        .spawn_local_with_handle(async move {
+            let second = stream
+                .next()
+                .await
+                .transpose()?
+                .ok_or_else(|| vortex_err!("expected second batch"))?;
+            let end = stream.next().await;
+            Ok::<_, vortex_error::VortexError>((second, end))
+        })
+        .map_err(|err| vortex_err!("spawn rest: {err}"))?;
 
-    let first = tokio::time::timeout(TEST_TIMEOUT, stream.next())
-        .await
-        .map_err(|_| vortex_err!("timed out waiting for first batch"))?
-        .transpose()?
-        .ok_or_else(|| vortex_err!("expected first batch"))?;
-    if !ordered {
-        // Unordered mode yielded chunk 1 while chunk 0 is still held; release chunk 0 now.
-        assert_eq!(first_u64(&first)?, MAX_ROWS_PER_CHUNK as u64);
-        block_zero.release();
-    } else {
-        assert_eq!(first_u64(&first)?, 0);
-    }
-
-    let second = tokio::time::timeout(TEST_TIMEOUT, stream.next())
-        .await
-        .map_err(|_| vortex_err!("timed out waiting for second batch"))?
-        .transpose()?
-        .ok_or_else(|| vortex_err!("expected second batch"))?;
-    assert_eq!(
-        first_u64(&second)?,
-        if ordered {
-            MAX_ROWS_PER_CHUNK as u64
-        } else {
-            0
-        }
-    );
-    assert!(stream.next().await.is_none());
+    segments.complete_segment(SegmentId::from(0));
+    runtime.run_until_stalled(&mut pool);
+    let (second, end) = pool.run_until(rest_fut)?;
+    assert_eq!(second.len(), MAX_ROWS_PER_CHUNK);
+    assert!(end.is_none());
     Ok(())
 }
 

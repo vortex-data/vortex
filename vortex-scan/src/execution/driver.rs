@@ -182,15 +182,22 @@ impl ScanDriver {
         if !self.ordered {
             return batches.map_ok(|(_, batch)| batch).boxed();
         }
-        stream::once(async move {
-            let mut held: Vec<(u64, A)> = batches.try_collect().await?;
-            // Morsels finish in whatever order their reads arrive.
-            held.sort_by_key(|(start, _)| *start);
-            VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
-        })
-        .try_flatten()
-        .boxed()
+        order_batches(batches)
     }
+}
+
+/// Collects batches that may arrive out of row order and yields them sorted by starting row.
+fn order_batches<A: Send + 'static>(
+    batches: impl futures::Stream<Item = VortexResult<(u64, A)>> + Send + 'static,
+) -> BoxStream<'static, VortexResult<A>> {
+    stream::once(async move {
+        let mut held: Vec<(u64, A)> = batches.try_collect().await?;
+        // Morsels finish in whatever order their reads arrive.
+        held.sort_by_key(|(start, _)| *start);
+        VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
+    })
+    .try_flatten()
+    .boxed()
 }
 
 /// Waits for a slot to run a chunk in: the driver's own slot or one from the shared budget,
