@@ -58,15 +58,17 @@ use vortex::session::VortexSession;
 use super::AlpRdDictionary;
 use super::CudaDispatchPlan;
 use super::MAX_PLAN_BYTES;
-use super::MaterializedStage;
 use super::PTypeTag;
 use super::PTypeTag_PTYPE_F32;
 use super::PTypeTag_PTYPE_F64;
+use super::PackedStage;
+use super::PlanHeader;
+use super::PlanWriter;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
 use super::pack_alprd_dictionary;
-use super::packed_plan_size;
+use super::packed_stage_size;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
@@ -289,9 +291,8 @@ impl PlanPatches {
 
 /// Side inputs for a scalar op.
 ///
-/// The planner keeps these inputs with their op because their device addresses are not known
-/// until materialization. The serializer stores the ALP-RD dictionary in the plan tail so the
-/// packed `ScalarOp` stays 32 bytes.
+/// Device pointers are resolved at materialization. The ALP-RD dictionary stays with its
+/// op until its relative offset in the packed plan is known.
 enum ScalarInput {
     /// ALP exceptions replace the entire decoded value.
     AlpPatches(PlanPatches),
@@ -301,35 +302,6 @@ enum ScalarInput {
         dictionary: AlpRdDictionary,
         patches: Option<PlanPatches>,
     },
-}
-
-impl ScalarInput {
-    /// Resolves the op's device pointers and returns any dictionary for the packed plan tail.
-    async fn materialize(
-        self,
-        mut op: ScalarOp,
-        source_ptrs: &[u64],
-        device_buffers: &mut Vec<BufferHandle>,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<(ScalarOp, Option<AlpRdDictionary>)> {
-        match self {
-            Self::AlpPatches(patches) => {
-                op.params.alp.patches_ptr = patches.upload(device_buffers, ctx).await?;
-                Ok((op, None))
-            }
-            Self::AlpRd {
-                codes_buffer_index,
-                dictionary,
-                patches,
-            } => {
-                op.params.alprd.codes_ptr = source_ptrs[codes_buffer_index];
-                if let Some(patches) = patches {
-                    op.params.alprd.patches_ptr = patches.upload(device_buffers, ctx).await?;
-                }
-                Ok((op, Some(dictionary)))
-            }
-        }
-    }
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
@@ -367,40 +339,51 @@ impl Stage {
         self
     }
 
-    /// Resolves the stage's source and scalar ops for serialization, preserving execution order.
+    /// Resolves the stage's device pointers and writes its records in execution order.
     async fn materialize(
         self,
         smem_byte_offset: SmemByteOffset,
         len: OutputLen,
         source_ptrs: &[u64],
         device_buffers: &mut Vec<BufferHandle>,
+        writer: &mut PlanWriter,
         ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<MaterializedStage> {
+    ) -> VortexResult<()> {
         let mut source = self.source;
         if let Some(patches) = self.source_patches {
             source.params.bitunpack.patches_ptr = patches.upload(device_buffers, ctx).await?;
         }
 
-        let mut scalar_ops = Vec::with_capacity(self.scalar_ops.len());
-        for (op, input) in self.scalar_ops {
-            scalar_ops.push(match input {
-                Some(input) => {
-                    input
-                        .materialize(op, source_ptrs, device_buffers, ctx)
-                        .await?
-                }
-                None => (op, None),
-            });
-        }
-
-        Ok(MaterializedStage {
+        writer.push(&PackedStage {
             input_ptr: self.source_buffer_index.map_or(0, |idx| source_ptrs[idx]),
             smem_byte_offset,
             len,
             source_ptype: self.source_ptype,
             source,
-            scalar_ops,
-        })
+            num_scalar_ops: self.scalar_ops.len() as u8,
+        });
+        for (mut op, input) in self.scalar_ops {
+            match input {
+                None => {}
+                Some(ScalarInput::AlpPatches(patches)) => {
+                    op.params.alp.patches_ptr = patches.upload(device_buffers, ctx).await?;
+                }
+                Some(ScalarInput::AlpRd {
+                    codes_buffer_index,
+                    dictionary,
+                    patches,
+                }) => {
+                    op.params.alprd.codes_ptr = source_ptrs[codes_buffer_index];
+                    if let Some(patches) = patches {
+                        op.params.alprd.patches_ptr = patches.upload(device_buffers, ctx).await?;
+                    }
+                    op.params.alprd.dictionary_byte_offset =
+                        writer.push_tail(dictionary.map(u16::to_le_bytes).as_flattened());
+                }
+            }
+            writer.push(&op);
+        }
+        Ok(())
     }
 }
 
@@ -598,14 +581,21 @@ impl FusedPlan {
         false
     }
 
+    /// Row count and packed size of each stage in execution order.
+    fn stage_layout(&self) -> impl ExactSizeIterator<Item = (u32, usize)> + '_ {
+        self.stages.iter().map(|(stage, _, len)| {
+            (
+                *len,
+                packed_stage_size(stage.scalar_ops.iter().map(|(op, _)| op)),
+            )
+        })
+    }
+
     /// Returns `true` if the packed plan does not fit the `DispatchPlanParam` kernel parameter,
     /// logging a trace message when it does not.
     fn exceeds_plan_size_limit(&self) -> bool {
-        let required = packed_plan_size(
-            self.stages
-                .iter()
-                .map(|(stage, ..)| stage.scalar_ops.as_slice()),
-        );
+        let required =
+            size_of::<PlanHeader>() + self.stage_layout().map(|(_, bytes)| bytes).sum::<usize>();
         if required > MAX_PLAN_BYTES as usize {
             trace!(
                 required,
@@ -620,6 +610,7 @@ impl FusedPlan {
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
     pub async fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
+        let mut writer = PlanWriter::new(self.output_ptype, self.stage_layout());
 
         let mut device_buffers = Vec::with_capacity(self.source_buffers.len());
         let mut source_ptrs = Vec::with_capacity(self.source_buffers.len());
@@ -634,23 +625,21 @@ impl FusedPlan {
             device_buffers.push(device_buf);
         }
 
-        let mut stages = Vec::with_capacity(self.stages.len());
         for (stage, smem_byte_offset, len) in self.stages {
-            stages.push(
-                stage
-                    .materialize(
-                        smem_byte_offset,
-                        len,
-                        &source_ptrs,
-                        &mut device_buffers,
-                        ctx,
-                    )
-                    .await?,
-            );
+            stage
+                .materialize(
+                    smem_byte_offset,
+                    len,
+                    &source_ptrs,
+                    &mut device_buffers,
+                    &mut writer,
+                    ctx,
+                )
+                .await?;
         }
 
         Ok(MaterializedPlan {
-            dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
+            dispatch_plan: writer.finish(),
             device_buffers,
             shared_mem_bytes,
             validity: self.validity,

@@ -19,6 +19,7 @@
 
 use std::borrow::Borrow;
 use std::mem::size_of;
+use std::ops::Range;
 
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -139,8 +140,8 @@ pub struct MaterializedStage {
     pub source_ptype: PTypeTag,
     /// The source operation that produces the initial values (e.g. load, bitunpack, sequence).
     pub source: SourceOp,
-    /// Scalar ops in execution order. Only ALP-RD ops carry a dictionary for the plan tail.
-    pub scalar_ops: Vec<(ScalarOp, Option<AlpRdDictionary>)>,
+    /// Self-contained scalar ops in execution order.
+    pub scalar_ops: Vec<ScalarOp>,
 }
 
 impl MaterializedStage {
@@ -158,7 +159,7 @@ impl MaterializedStage {
             len,
             source_ptype,
             source,
-            scalar_ops: scalar_ops.iter().map(|&op| (op, None)).collect(),
+            scalar_ops: scalar_ops.to_vec(),
         }
     }
 }
@@ -201,21 +202,13 @@ pub fn dispatch_kernel(
 // SAFETY: `DispatchPlanParam` is a bindgen `#[repr(C)]` byte array matching the kernel parameter.
 unsafe impl DeviceRepr for DispatchPlanParam {}
 
-/// Returns the serialized size in bytes, including one dictionary per ALP-RD op.
-fn packed_plan_size<'a, T: 'a>(stages: impl IntoIterator<Item = &'a [(ScalarOp, T)]>) -> usize {
-    size_of::<PlanHeader>()
-        + stages
-            .into_iter()
-            .map(|ops| {
-                let dictionaries = ops
-                    .iter()
-                    .filter(|(op, _)| op.op_code == ScalarOp_ScalarOpCode_ALPRD)
-                    .count();
-                size_of::<PackedStage>()
-                    + ops.len() * size_of::<ScalarOp>()
-                    + dictionaries * size_of::<AlpRdDictionary>()
-            })
-            .sum::<usize>()
+/// Size of a stage's records and any dictionaries it contributes to the plan tail.
+fn packed_stage_size<'a>(ops: impl ExactSizeIterator<Item = &'a ScalarOp>) -> usize {
+    let records = size_of::<PackedStage>() + ops.len() * size_of::<ScalarOp>();
+    let dictionaries = ops
+        .filter(|op| op.op_code == ScalarOp_ScalarOpCode_ALPRD)
+        .count();
+    records + dictionaries * size_of::<AlpRdDictionary>()
 }
 
 /// A dispatch plan serialized as packed bytes in a [`DispatchPlanParam`], which the kernel takes
@@ -237,85 +230,107 @@ pub struct CudaDispatchPlan {
     input_stage_len: u64,
 }
 
+/// Packs stage and op records from the front and their payloads from the back.
+struct PlanWriter {
+    plan: CudaDispatchPlan,
+    free: Range<usize>,
+}
+
+impl PlanWriter {
+    /// Reserves a kernel parameter for stages given in execution order as (row count, packed bytes).
+    fn new(output_ptype: PTypeTag, stages: impl ExactSizeIterator<Item = (u32, usize)>) -> Self {
+        let num_stages = stages.len();
+        assert!(num_stages > 0);
+        let mut total_size = size_of::<PlanHeader>();
+        let mut input_stage_len = 0;
+        for (i, (len, bytes)) in stages.enumerate() {
+            total_size += bytes;
+            if i + 1 < num_stages {
+                input_stage_len += u64::from(len);
+            }
+        }
+        assert!(
+            total_size <= MAX_PLAN_BYTES as usize,
+            "packed plan size {total_size} exceeds MAX_PLAN_BYTES"
+        );
+        let mut writer = Self {
+            plan: CudaDispatchPlan {
+                param: DispatchPlanParam {
+                    bytes: [0; MAX_PLAN_BYTES as usize],
+                },
+                input_stage_len,
+            },
+            free: 0..total_size,
+        };
+        writer.push(&PlanHeader {
+            num_stages: num_stages as u8,
+            output_ptype,
+            plan_size_bytes: total_size as u16,
+        });
+        writer
+    }
+
+    /// Appends a record at the current position.
+    fn push(&mut self, record: &impl AsPackedBytes) {
+        let bytes = record.as_packed_bytes();
+        self.plan.param.bytes[self.free.clone()][..bytes.len()].copy_from_slice(bytes);
+        self.free.start += bytes.len();
+    }
+
+    /// Writes a payload and returns its byte offset relative to the next record.
+    fn push_tail(&mut self, bytes: &[u8]) -> u32 {
+        let offset = self.free.len() - bytes.len();
+        self.plan.param.bytes[self.free.clone()][offset..].copy_from_slice(bytes);
+        self.free.end -= bytes.len();
+        offset as u32
+    }
+
+    /// Returns the plan once all reserved bytes have been written.
+    fn finish(self) -> CudaDispatchPlan {
+        assert!(self.free.is_empty());
+        self.plan
+    }
+}
+
 impl CudaDispatchPlan {
-    /// Build a packed plan from a sequence of stages.
+    /// Build a packed plan from stages with self-contained scalar ops.
     ///
     /// The last stage is the output pipeline; earlier stages are input stages.
     ///
     /// # Panics
     ///
-    /// Panics if `stages` is empty, a dictionary is missing or attached to a non-ALP-RD op,
-    /// or the serialized plan exceeds `MAX_PLAN_BYTES`.
+    /// Panics for an empty or oversized plan, or an ALP-RD op. Use [`DispatchPlan`] to plan ALP-RD arrays.
     pub fn new<I>(stages: I, output_ptype: PTypeTag) -> Self
     where
         I: IntoIterator,
         I::Item: Borrow<MaterializedStage>,
     {
-        /// Writes bytes at the front of the remaining plan space and returns the unused suffix.
-        fn push<'a>(space: &'a mut [u8], bytes: &[u8]) -> &'a mut [u8] {
-            let (dst, rest) = space.split_at_mut(bytes.len());
-            dst.copy_from_slice(bytes);
-            rest
-        }
-
-        let stages: Vec<MaterializedStage> =
-            stages.into_iter().map(|s| s.borrow().clone()).collect();
-        assert!(!stages.is_empty());
-
-        let total_size = packed_plan_size(stages.iter().map(|stage| stage.scalar_ops.as_slice()));
-        assert!(
-            total_size <= MAX_PLAN_BYTES as usize,
-            "packed plan size {total_size} exceeds MAX_PLAN_BYTES"
-        );
-
-        let mut param = DispatchPlanParam {
-            bytes: [0; MAX_PLAN_BYTES as usize],
-        };
-        let header = PlanHeader {
-            num_stages: stages.len() as u8,
+        let stages: Vec<_> = stages.into_iter().collect();
+        let stages = stages.iter().map(Borrow::<MaterializedStage>::borrow);
+        let mut writer = PlanWriter::new(
             output_ptype,
-            plan_size_bytes: total_size as u16,
-        };
-        let mut space = push(&mut param.bytes[..total_size], header.as_packed_bytes());
-
-        for stage in &stages {
-            let packed_stage = PackedStage {
+            stages
+                .clone()
+                .map(|stage| (stage.len, packed_stage_size(stage.scalar_ops.iter()))),
+        );
+        for stage in stages {
+            writer.push(&PackedStage {
                 input_ptr: stage.input_ptr,
                 smem_byte_offset: stage.smem_byte_offset,
                 len: stage.len,
                 source: stage.source,
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
-            };
-            space = push(space, packed_stage.as_packed_bytes());
-            for &(mut op, dictionary) in &stage.scalar_ops {
-                assert_eq!(
-                    op.op_code == ScalarOp_ScalarOpCode_ALPRD,
-                    dictionary.is_some()
+            });
+            for op in &stage.scalar_ops {
+                assert_ne!(
+                    op.op_code, ScalarOp_ScalarOpCode_ALPRD,
+                    "missing ALP-RD dictionary"
                 );
-                if let Some(dictionary) = dictionary {
-                    // Records grow from the front and dictionaries from the back. `space` starts at this op.
-                    let offset = space.len() - size_of::<AlpRdDictionary>();
-                    let (records, dst) = space.split_at_mut(offset);
-                    dst.copy_from_slice(dictionary.map(u16::to_le_bytes).as_flattened());
-                    space = records;
-                    op.params.alprd.dictionary_byte_offset = offset as u32;
-                }
-                space = push(space, op.as_packed_bytes());
+                writer.push(op);
             }
         }
-
-        assert!(space.is_empty());
-        Self {
-            param,
-            // Every stage but the last, the output stage, is an input stage.
-            input_stage_len: stages
-                .iter()
-                .rev()
-                .skip(1)
-                .map(|stage| u64::from(stage.len))
-                .sum(),
-        }
+        writer.finish()
     }
 
     /// The plan as the kernel parameter it is launched with.
@@ -2064,6 +2079,20 @@ mod tests {
         let actual = decode_fused(&array).await?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "missing ALP-RD dictionary")]
+    fn test_hand_built_plan_rejects_alp_rd_without_dictionary() {
+        let stage = MaterializedStage::new(
+            0,
+            0,
+            1,
+            PTypeTag_PTYPE_U32,
+            SourceOp::load(),
+            &[ScalarOp::alprd(0, 1, 16, PTypeTag_PTYPE_F32)],
+        );
+        CudaDispatchPlan::new([stage], PTypeTag_PTYPE_F32);
     }
 
     #[test]
