@@ -58,12 +58,12 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer_mut;
+use vortex_compute::lane_kernels::collect_sparse_bits;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -714,71 +714,40 @@ fn execute_sparse_primitives<T: NativePType>(
             0
         };
     let allocator = ctx.allocator().clone();
-    let mut output = match fill {
-        Some(value) => BufferMut::full_in(value, len, allocator),
-        None => BufferMut::zeroed_in(len, allocator),
-    };
-    let mut validity =
-        (valid_count != 0 && valid_count != len).then(|| BitBufferMut::full(fill.is_some(), len));
+    let mut output = BufferMut::full_in(fill.unwrap_or_default(), len, allocator);
     let source = values.as_slice::<T>();
     let offset = patches.offset();
-    match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        scatter_patches(
-            output.as_mut_slice(),
-            validity.as_mut(),
-            indices.as_slice::<I>(),
-            offset,
-            source,
-            &mask,
-        );
-    });
-    let validity = match validity {
-        Some(bits) => Validity::Array(BoolArray::from(bits.freeze()).into_array()),
-        None if valid_count == len => Validity::from(fill_value.dtype().nullability()),
-        None => Validity::AllInvalid,
-    };
-    Ok(PrimitiveArray::new(output.freeze(), validity).into_array())
-}
-
-/// Write each patch value into `output` at its row, and its validity into `validity` if the
-/// output has a bitmap.
-fn scatter_patches<T: Copy, I: AsPrimitive<usize>>(
-    output: &mut [T],
-    validity: Option<&mut BitBufferMut>,
-    indices: &[I],
-    offset: usize,
-    source: &[T],
-    mask: &Mask,
-) {
-    let rows = indices.iter().map(|&index| {
-        let index: usize = index.as_();
-        index - offset
-    });
-    let Some(bits) = validity else {
-        for (row, &value) in rows.zip(source) {
-            output[row] = value;
-        }
-        return;
-    };
-    // The output bitmap was allocated with bit offset zero.
-    let bytes = bits.as_mut_slice();
-    if mask.all_true() {
-        for (row, &value) in rows.zip(source) {
-            output[row] = value;
-            bytes[row / 8] |= 1 << (row % 8);
-        }
-    } else {
-        for ((row, &value), valid) in rows.zip(source).zip(mask.iter()) {
-            output[row] = value;
-            let bit = 1 << (row % 8);
-            let byte = &mut bytes[row / 8];
-            if valid {
-                *byte |= bit;
+    let validity = match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        let indices = indices.as_slice::<I>();
+        let dst = &mut output.as_mut_slice()[..len];
+        let rows = indices.iter().zip(source).map(|(&index, &value)| {
+            let index: usize = index.as_();
+            let row = index - offset;
+            dst[row] = value;
+            row
+        });
+        if valid_count == len || valid_count == 0 {
+            rows.for_each(|_| ());
+            if valid_count == len {
+                Validity::from(fill_value.dtype().nullability())
             } else {
-                *byte &= !bit;
+                Validity::AllInvalid
             }
+        } else {
+            let fill_valid = fill.is_some();
+            let bits = if mask.all_true() || mask.all_false() {
+                // A uniform patch mask can produce mixed output only if every patch differs from the fill.
+                collect_sparse_bits(len, fill_valid, rows, ctx.allocator())
+            } else {
+                let exceptions = rows
+                    .zip(mask.iter())
+                    .filter_map(|(row, valid)| (valid != fill_valid).then_some(row));
+                collect_sparse_bits(len, fill_valid, exceptions, ctx.allocator())
+            };
+            Validity::Array(BoolArray::from(bits).into_array())
         }
-    }
+    });
+    Ok(PrimitiveArray::new(output.freeze(), validity).into_array())
 }
 
 fn execute_sparse_struct(

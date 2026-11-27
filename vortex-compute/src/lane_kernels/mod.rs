@@ -34,6 +34,7 @@ pub mod source;
 
 pub use collect_bits::bit_buffer_from_words;
 pub use collect_bits::collect_bits;
+pub use collect_bits::collect_sparse_bits;
 pub use collect_bits::collect_zip_bits;
 pub use map_in_place::IndexedSinkExt;
 pub use map_into::IndexedSourceExt;

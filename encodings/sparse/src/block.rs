@@ -107,3 +107,97 @@ impl<I: IntegerPType, T: NativePType> BlockSource for SparseSource<I, T> {
         })
     }
 }
+
+#[cfg(all(test, not(codspeed)))]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::session::ArraySession;
+    use vortex_array::test_harness::fusion::fuse_parent;
+    use vortex_array::test_harness::fusion::fusion_trace;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::Sparse;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty().with::<ArraySession>();
+        crate::initialize(&session);
+        session
+    });
+
+    #[derive(Clone, Copy, Debug)]
+    enum PatchValidity {
+        NonNullable,
+        AllValid,
+        AllNull,
+        Mixed,
+    }
+
+    #[rstest]
+    #[case::non_nullable(Some(42i64), PatchValidity::NonNullable)]
+    #[case::valid_fill_valid_patches(Some(42i64), PatchValidity::AllValid)]
+    #[case::valid_fill_null_patches(Some(42i64), PatchValidity::AllNull)]
+    #[case::valid_fill_mixed_patches(Some(42i64), PatchValidity::Mixed)]
+    #[case::null_fill_valid_patches(None, PatchValidity::AllValid)]
+    #[case::null_fill_null_patches(None, PatchValidity::AllNull)]
+    #[case::null_fill_mixed_patches(None, PatchValidity::Mixed)]
+    fn sparse_source_fuses_across_blocks_and_slices(
+        #[case] fill: Option<i64>,
+        #[case] patch_validity: PatchValidity,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 3500u32;
+        // Include block-boundary rows alongside strided positions across all four blocks.
+        let mut positions: Vec<u32> = (0..len).step_by(37).collect();
+        positions.extend([0, 17, 1023, 1024, 1025, 2047, 2048, 3204, 3499]);
+        positions.sort_unstable();
+        positions.dedup();
+
+        let patch_count = i64::try_from(positions.len())?;
+        let (values, fill_scalar) = match patch_validity {
+            PatchValidity::NonNullable => (
+                PrimitiveArray::from_iter((0..patch_count).map(|i| i * 13 - 500)).into_array(),
+                Scalar::primitive(fill.unwrap_or(0), Nullability::NonNullable),
+            ),
+            PatchValidity::AllValid => (
+                PrimitiveArray::from_option_iter((0..patch_count).map(|i| Some(i * 13 - 500)))
+                    .into_array(),
+                Scalar::from(fill),
+            ),
+            PatchValidity::AllNull => (
+                PrimitiveArray::from_option_iter((0..patch_count).map(|_| None::<i64>))
+                    .into_array(),
+                Scalar::from(fill),
+            ),
+            PatchValidity::Mixed => (
+                PrimitiveArray::from_option_iter(
+                    (0..patch_count).map(|i| (i % 3 != 0).then_some(i * 13 - 500)),
+                )
+                .into_array(),
+                Scalar::from(fill),
+            ),
+        };
+
+        let sparse = Sparse::try_new(
+            PrimitiveArray::from_iter(positions).into_array(),
+            values,
+            len as usize,
+            fill_scalar,
+            &mut ctx,
+        )?
+        .into_array();
+
+        for candidate in [sparse.clone(), sparse.slice(17..3205)?] {
+            let trace = fusion_trace(fuse_parent(candidate), &SESSION)?;
+            assert!(trace.contains("fuse start array=vortex.sparse"), "{trace}");
+        }
+        Ok(())
+    }
+}
