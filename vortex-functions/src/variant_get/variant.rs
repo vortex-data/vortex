@@ -163,6 +163,10 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             typed.dtype(),
             DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..)
         ) {
+            if !may_read_as(typed.dtype(), parent.dtype()) {
+                return Ok(None);
+            }
+
             let Some((typed, complete)) = complete_rows(&typed, ctx)? else {
                 return Ok(None);
             };
@@ -294,53 +298,88 @@ fn complete_rows(
             complete_rows(&shredded, ctx)
         }
         DType::Struct(..) => {
-            let typed = typed.clone().execute::<Array<Struct>>(ctx)?;
-            let validity = typed.struct_validity();
+            let executed = typed.clone().execute::<Array<Struct>>(ctx)?;
+            let validity = executed.struct_validity();
             let mut complete = validity.execute_mask(len, ctx)?;
-            let mut fields = Vec::with_capacity(typed.names().len());
-            for field in typed.iter_unmasked_fields() {
-                let Some((field, field_complete)) = complete_rows(field, ctx)? else {
+            let mut fields = Vec::with_capacity(executed.names().len());
+            let mut changed = false;
+            for field in executed.iter_unmasked_fields() {
+                let Some((read, field_complete)) = complete_rows(field, ctx)? else {
                     return Ok(None);
                 };
                 complete = &complete & &field_complete;
-                fields.push(field);
+                changed |= !ArrayRef::ptr_eq(&read, field);
+                fields.push(read);
             }
 
-            let typed = StructArray::try_new(typed.names().clone(), fields, len, validity)?;
-            Ok(Some((typed.into_array(), complete)))
+            // Keep the struct as it is, unless a field was a nested Variant.
+            if !changed {
+                return Ok(Some((typed.clone(), complete)));
+            }
+
+            let read = StructArray::try_new(executed.names().clone(), fields, len, validity)?;
+            Ok(Some((read.into_array(), complete)))
         }
         DType::List(..) => {
-            let typed = typed.clone().execute::<Array<ListView>>(ctx)?;
-            let Some(elements) = complete_elements(typed.elements(), ctx)? else {
+            let executed = typed.clone().execute::<Array<ListView>>(ctx)?;
+            let Some(elements) = complete_elements(executed.elements(), ctx)? else {
                 return Ok(None);
             };
 
-            let validity = typed.listview_validity();
+            let validity = executed.listview_validity();
             let complete = validity.execute_mask(len, ctx)?;
-            let typed = ListViewArray::try_new(
+            if ArrayRef::ptr_eq(&elements, executed.elements()) {
+                return Ok(Some((typed.clone(), complete)));
+            }
+
+            let read = ListViewArray::try_new(
                 elements,
-                typed.offsets().clone(),
-                typed.sizes().clone(),
+                executed.offsets().clone(),
+                executed.sizes().clone(),
                 validity,
                 ctx,
             )?;
-            Ok(Some((typed.into_array(), complete)))
+            Ok(Some((read.into_array(), complete)))
         }
         DType::FixedSizeList(..) => {
-            let typed = typed.clone().execute::<Array<FixedSizeList>>(ctx)?;
-            let Some(elements) = complete_elements(typed.elements(), ctx)? else {
+            let executed = typed.clone().execute::<Array<FixedSizeList>>(ctx)?;
+            let Some(elements) = complete_elements(executed.elements(), ctx)? else {
                 return Ok(None);
             };
 
-            let validity = typed.fixed_size_list_validity();
+            let validity = executed.fixed_size_list_validity();
             let complete = validity.execute_mask(len, ctx)?;
-            let typed = FixedSizeListArray::try_new(elements, typed.list_size(), validity, len)?;
-            Ok(Some((typed.into_array(), complete)))
+            if ArrayRef::ptr_eq(&elements, executed.elements()) {
+                return Ok(Some((typed.clone(), complete)));
+            }
+
+            let read = FixedSizeListArray::try_new(elements, executed.list_size(), validity, len)?;
+            Ok(Some((read.into_array(), complete)))
         }
         _ => {
             let complete = typed.validity()?.execute_mask(len, ctx)?;
             Ok(Some((typed.clone(), complete)))
         }
+    }
+}
+
+/// Returns whether the shredded dtype `typed` can read as `target`, where a nested Variant can
+/// read as any dtype. This rejects a mismatched dtype before [`complete_rows`] reads the arrays.
+fn may_read_as(typed: &DType, target: &DType) -> bool {
+    match (typed, target) {
+        (DType::Variant(_), _) => true,
+        (DType::Struct(typed, _), DType::Struct(target, _)) => {
+            typed.names() == target.names()
+                && typed
+                    .fields()
+                    .zip(target.fields())
+                    .all(|(typed, target)| may_read_as(&typed, &target))
+        }
+        (DType::List(typed, _), DType::List(target, _)) => may_read_as(typed, target),
+        (DType::FixedSizeList(typed, typed_size, _), DType::FixedSizeList(target, size, _)) => {
+            typed_size == size && may_read_as(typed, target)
+        }
+        _ => typed.eq_ignore_nullability(target),
     }
 }
 
