@@ -88,6 +88,14 @@ impl CompressorContext {
         self.allowed_cascading == 0
     }
 
+    /// The number of cascade levels still allowed below this site.
+    ///
+    /// At 1, the children of a scheme applied here are compressed as leaves, which cannot
+    /// cascade into frame-of-reference or other transforms.
+    pub fn remaining_cascade(&self) -> usize {
+        self.allowed_cascading
+    }
+
     /// Returns a context that disallows further cascading.
     pub fn as_leaf(mut self) -> Self {
         self.allowed_cascading = 0;

@@ -56,6 +56,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
+use vortex_fastlanes::RLE;
 use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
@@ -70,6 +71,8 @@ use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::integer::BitPackingScheme;
 use crate::schemes::integer::RunEndScheme;
+use crate::schemes::integer::RunModel;
+use crate::schemes::integer::modeled_schemes;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -591,4 +594,182 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
         .all(ArrayRef::is_canonical);
     assert_eq!(children_canonical, keep);
     Ok(())
+}
+
+/// Wide values with runs of 2: the default skips RunEnd below an average run of 4, while the
+/// size-only model sees that one end per two 31-bit values halves the size.
+fn wide_runs_of_two() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(11);
+    let values: Buffer<i64> = (0..32_768)
+        .flat_map(|_| {
+            let v = rng.random_range(0..1i64 << 31);
+            [v, v]
+        })
+        .collect();
+    PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+#[test]
+fn run_model_size_only_picks_runend_for_wide_short_runs() -> VortexResult<()> {
+    let input = wide_runs_of_two();
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    assert!(!default.is::<RunEnd>(), "{}", default.display_tree());
+
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<RunEnd>(), "{}", compressed.display_tree());
+    assert!(compressed.nbytes() < default.nbytes() * 2 / 3);
+    Ok(())
+}
+
+#[test]
+fn run_model_decode_cost_avoids_runend_at_memory_bandwidth() -> VortexResult<()> {
+    let input = wide_runs_of_two();
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::for_bandwidth(20e9))
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(!compressed.is::<RunEnd>(), "{}", compressed.display_tree());
+    assert!(
+        compressed.nbytes() < input.nbytes() * 3 / 4,
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+fn wide_runs_of_three() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(13);
+    let values: Buffer<i64> = (0..21_846)
+        .flat_map(|_| iter::repeat_n(rng.random_range(0..1i64 << 31), 3))
+        .collect();
+    PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+#[test]
+fn run_model_decode_cost_picks_rle_for_wide_short_runs() -> VortexResult<()> {
+    let input = wide_runs_of_three();
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    assert!(!default.is::<RLE>(), "{}", default.display_tree());
+
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::for_bandwidth(2e9))
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<RLE>(), "{}", compressed.display_tree());
+    Ok(())
+}
+
+#[test]
+fn run_model_size_only_picks_sparse_for_dominant_value() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(17);
+    let values: Buffer<i64> = (0..65_536)
+        .map(|_| {
+            if rng.random_bool(0.7) {
+                7
+            } else {
+                rng.random_range(0..1i64 << 31)
+            }
+        })
+        .collect();
+    let input = PrimitiveArray::new(values, Validity::NonNullable).into_array();
+
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    Ok(())
+}
+
+fn dominant_value_with_nulls(null_fraction: f64) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(19);
+    PrimitiveArray::from_option_iter((0..65_536).map(|_| {
+        if rng.random_bool(null_fraction) {
+            None
+        } else if rng.random_bool(0.75) {
+            Some(7i64)
+        } else {
+            Some(rng.random_range(0..1i64 << 31))
+        }
+    }))
+    .into_array()
+}
+
+#[test]
+fn run_model_size_only_picks_sparse_for_nullable_dominant_value() -> VortexResult<()> {
+    let input = dominant_value_with_nulls(0.2);
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    Ok(())
+}
+
+#[test]
+fn run_model_keeps_default_estimate_for_mostly_null_values() -> VortexResult<()> {
+    let input = dominant_value_with_nulls(0.95);
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    // The root keeps the default null-filled Sparse; its non-null patch values can still use the
+    // model.
+    assert!(default.is::<Sparse>(), "{}", default.display_tree());
+    assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    assert!(
+        compressed.nbytes() <= default.nbytes(),
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case(RunModel::for_bandwidth(f64::NAN))]
+#[case(RunModel::for_bandwidth(0.0))]
+#[case(RunModel { runend_ns_per_run: -1.0, ..RunModel::size_only() })]
+fn run_model_invalid_keeps_default_estimates(#[case] model: RunModel) -> VortexResult<()> {
+    assert!(!model.is_valid());
+    let input = wide_runs_of_two();
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(model)
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert_eq!(
+        compressed.display_tree().to_string(),
+        default.display_tree().to_string()
+    );
+    Ok(())
+}
+
+#[test]
+fn run_model_reuses_schemes_for_equal_models() {
+    let a = modeled_schemes(RunModel::for_bandwidth(2e9));
+    let b = modeled_schemes(RunModel::for_bandwidth(2e9));
+    assert!(a.iter().zip(&b).all(|(x, y)| std::ptr::addr_eq(*x, *y)));
 }
