@@ -243,7 +243,10 @@ mod tests {
         let list = Scalar::list(elem_dtype, scalars, Nullability::NonNullable);
 
         for sql_null_semantics in [false, true] {
-            let opts = ListContainsOptions { sql_null_semantics };
+            let opts = ListContainsOptions {
+                sql_null_semantics,
+                ..Default::default()
+            };
             let actual = eval_list_contains(&for_bp, list.clone(), opts)?;
             let expected = eval_list_contains(&expected_arr, list.clone(), opts)?;
             // FoR reduce rule should have eliminated the FoR wrapper.
@@ -279,6 +282,7 @@ mod tests {
             list,
             ListContainsOptions {
                 sql_null_semantics: true,
+                ..Default::default()
             },
         )?;
         assert!(reduced.is::<Constant>());
@@ -321,7 +325,10 @@ mod tests {
                 .collect();
             let list = Scalar::list(Arc::clone(&elem_dtype), scalars, Nullability::NonNullable);
             for sql_null_semantics in [false, true] {
-                let opts = ListContainsOptions { sql_null_semantics };
+                let opts = ListContainsOptions {
+                    sql_null_semantics,
+                    ..Default::default()
+                };
                 let actual = eval_list_contains(&for_arr, list.clone(), opts)?;
                 let expected = eval_list_contains(&expected_arr, list.clone(), opts)?;
                 let mut ctx = SESSION.create_execution_ctx();

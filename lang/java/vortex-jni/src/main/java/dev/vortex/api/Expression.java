@@ -9,6 +9,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -127,6 +128,22 @@ public final class Expression {
     }
 
     /**
+     * Compare {@code lhs} with {@code rhs}, ordering floats in {@code order}.
+     *
+     * <p>{@link #binary(BinaryOp, Expression, Expression)} orders floats in {@link FloatOrder#TOTAL_ORDER}. A query
+     * engine that pushes a float comparison down must use its own semantics, for example {@link FloatOrder#CANONICAL}
+     * for Spark; otherwise the scan can drop rows.
+     */
+    public static Expression compare(BinaryOp op, FloatOrder order, Expression lhs, Expression rhs) {
+        if (!op.isComparison()) {
+            throw new IllegalArgumentException(String.format("%s is not a comparison operator", op));
+        }
+        Objects.requireNonNull(order, "order");
+        return new Expression(
+                NativeExpression.compare(op.code(), order.code(), lhs.nativePointer(), rhs.nativePointer()));
+    }
+
+    /**
      * Apply a spatial function to native geometry operands, each a column or a geometry literal (see
      * {@link #literalGeometry(byte[])}). The number of operands must match the function's arity.
      */
@@ -207,8 +224,18 @@ public final class Expression {
      *     against an empty list with Vortex's default rules, where the result is {@code false}.
      */
     public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
-        return new Expression(
-                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics));
+        return listContains(list, needle, sqlNullSemantics, FloatOrder.TOTAL_ORDER);
+    }
+
+    /**
+     * {@link #listContains(Expression, Expression, boolean)} where the needle and the elements compare floats in
+     * {@code order}. The lookup stays one pass over the needles, however large the list.
+     */
+    public static Expression listContains(
+            Expression list, Expression needle, boolean sqlNullSemantics, FloatOrder order) {
+        Objects.requireNonNull(order, "order");
+        return new Expression(NativeExpression.listContains(
+                list.nativePointer(), needle.nativePointer(), sqlNullSemantics, order.code()));
     }
 
     /**
@@ -217,7 +244,15 @@ public final class Expression {
      * both filter the row out of a scan.
      */
     public static Expression in(Expression value, Expression list) {
-        return listContains(list, value, /* sqlNullSemantics= */ true);
+        return in(value, list, FloatOrder.TOTAL_ORDER);
+    }
+
+    /**
+     * {@link #in(Expression, Expression)} where {@code value} and the elements compare floats in {@code order}, for
+     * example {@link FloatOrder#CANONICAL}.
+     */
+    public static Expression in(Expression value, Expression list, FloatOrder order) {
+        return listContains(list, value, /* sqlNullSemantics= */ true, order);
     }
 
     /**
@@ -597,6 +632,48 @@ public final class Expression {
         private final byte code;
 
         BinaryOp(byte code) {
+            this.code = code;
+        }
+
+        public byte code() {
+            return code;
+        }
+
+        /** Whether this operator compares its operands. */
+        public boolean isComparison() {
+            return code <= LTE.code;
+        }
+    }
+
+    /**
+     * How a comparison orders floats; codes must match the Rust JNI table. Integer, decimal, boolean, and string
+     * comparisons give the same result in each order.
+     */
+    public enum FloatOrder {
+        /**
+         * {@code -0.0 = +0.0}, and {@code NaN} values are ordered by sign and payload, as in Rust's
+         * {@code f64::total_cmp}.
+         */
+        ZEROS_EQUAL((byte) 0),
+        /**
+         * {@code -0.0 = +0.0}, and all {@code NaN} values are equal and greater than all other values. Spark SQL uses
+         * this order.
+         */
+        CANONICAL((byte) 1),
+        /**
+         * {@code -0.0 = +0.0}, and {@code NaN} is unordered, as in IEEE 754: each comparison is false, except
+         * {@code !=}.
+         */
+        IEEE754((byte) 2),
+        /**
+         * The Vortex default: the total order over the bit patterns, as in Rust's {@code f64::total_cmp}, so
+         * {@code -0.0 < +0.0}.
+         */
+        TOTAL_ORDER((byte) 3);
+
+        private final byte code;
+
+        FloatOrder(byte code) {
             this.code = code;
         }
 

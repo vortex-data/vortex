@@ -671,8 +671,8 @@ mod tests {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(operator) = node.as_opt::<Compare>()
-                && *operator == CompareOperator::Eq
+            if let Some(options) = node.as_opt::<Compare>()
+                && options.operator() == CompareOperator::Eq
             {
                 return Ok(TraversalOrder::Skip);
             }
@@ -699,8 +699,8 @@ mod tests {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(operator) = node.as_opt::<Compare>()
-                && *operator == CompareOperator::Eq
+            if let Some(options) = node.as_opt::<Compare>()
+                && options.operator() == CompareOperator::Eq
             {
                 return Ok(TraversalOrder::Stop);
             }

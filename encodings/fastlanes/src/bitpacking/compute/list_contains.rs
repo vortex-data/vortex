@@ -344,7 +344,10 @@ mod tests {
         let expected_arr = prim.into_array();
 
         for sql_null_semantics in [false, true] {
-            let opts = ListContainsOptions { sql_null_semantics };
+            let opts = ListContainsOptions {
+                sql_null_semantics,
+                ..Default::default()
+            };
             let list = make_list_scalar(PType::U32, members, Nullability::NonNullable);
             let actual = eval_list_contains(&packed, list.clone(), opts)?;
             let expected = eval_list_contains(&expected_arr, list, opts)?;
@@ -391,6 +394,7 @@ mod tests {
         let list = make_list_scalar(ptype, &members, Nullability::NonNullable);
         let opts = ListContainsOptions {
             sql_null_semantics: true,
+            ..Default::default()
         };
         let actual = eval_list_contains(&packed, list.clone(), opts)?;
         let expected = eval_list_contains(&expected_arr, list, opts)?;
@@ -445,6 +449,7 @@ mod tests {
             let list = make_list_scalar(PType::I32, &members, Nullability::NonNullable);
             let opts = ListContainsOptions {
                 sql_null_semantics: true,
+                ..Default::default()
             };
             let actual = eval_list_contains(&sliced_packed, list.clone(), opts)?;
             let expected = eval_list_contains(&sliced_expected, list, opts)?;
@@ -473,6 +478,7 @@ mod tests {
             let list = make_list_scalar(PType::U32, &members, Nullability::NonNullable);
             let opts = ListContainsOptions {
                 sql_null_semantics: false,
+                ..Default::default()
             };
             let actual = eval_list_contains(&packed, list.clone(), opts)?;
             let expected = eval_list_contains(&expected_arr, list, opts)?;
@@ -486,6 +492,7 @@ mod tests {
         let list = make_list_scalar(PType::U32, &[Some(0), Some(42)], Nullability::NonNullable);
         let opts = ListContainsOptions {
             sql_null_semantics: true,
+            ..Default::default()
         };
         let actual = eval_list_contains(&empty_packed, list.clone(), opts)?;
         let expected = eval_list_contains(&empty_expected, list, opts)?;
@@ -498,7 +505,10 @@ mod tests {
     #[case::sql_false(false)]
     #[case::sql_true(true)]
     fn test_bitpacked_null_semantics(#[case] sql_null_semantics: bool) -> VortexResult<()> {
-        let opts = ListContainsOptions { sql_null_semantics };
+        let opts = ListContainsOptions {
+            sql_null_semantics,
+            ..Default::default()
+        };
         let values: Vec<Option<u32>> = (0..1100u32)
             .map(|i| if i % 7 == 0 { None } else { Some(i % 16) })
             .collect();
@@ -555,6 +565,7 @@ mod tests {
         let packed = bitpack_encode(&prim, 5, None, &mut ctx)?.into_array();
         let opts = ListContainsOptions {
             sql_null_semantics: false,
+            ..Default::default()
         };
 
         // 0 in-domain (out-of-domain, no patches) -> kernel returns ConstantArray(false).
@@ -632,7 +643,10 @@ mod tests {
         #[case] sql_null_semantics: bool,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let opts = ListContainsOptions { sql_null_semantics };
+        let opts = ListContainsOptions {
+            sql_null_semantics,
+            ..Default::default()
+        };
 
         // Boundary members: 2^W - 1 (= 15) and 2^W (= 16), plus T::MIN / T::MAX.
         let values: Vec<Option<i32>> = (0..2200)
@@ -873,7 +887,10 @@ mod tests {
                 );
 
                 for sql_null_semantics in [false, true] {
-                    let opts = ListContainsOptions { sql_null_semantics };
+                    let opts = ListContainsOptions {
+                        sql_null_semantics,
+                        ..Default::default()
+                    };
                     let actual = eval_list_contains(&bp_sliced, list_scalar.clone(), opts)?;
                     let expected = eval_list_contains(&prim_sliced, list_scalar.clone(), opts)?;
                     assert_eq!(actual.dtype(), expected.dtype());
