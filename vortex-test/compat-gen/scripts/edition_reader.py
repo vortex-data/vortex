@@ -39,6 +39,25 @@ def _values_equal(a: object, b: object) -> bool:
     return a == b
 
 
+def _normalize_type(dtype: pa.DataType) -> pa.DataType:
+    """Normalize Arrow representation variants across Vortex/PyArrow versions without erasing logical types."""
+    if pa.types.is_string_view(dtype) or pa.types.is_large_string(dtype):
+        return pa.string()
+    if pa.types.is_binary_view(dtype) or pa.types.is_large_binary(dtype):
+        return pa.binary()
+    if pa.types.is_list_view(dtype) or pa.types.is_large_list(dtype) or pa.types.is_list(dtype):
+        return pa.list_(_normalize_type(dtype.value_type))
+    if pa.types.is_fixed_size_list(dtype):
+        return pa.list_(_normalize_type(dtype.value_type), dtype.list_size)
+    if pa.types.is_struct(dtype):
+        return pa.struct([pa.field(f.name, _normalize_type(f.type)) for f in dtype])
+    if pa.types.is_map(dtype):
+        return pa.map_(_normalize_type(dtype.key_type), _normalize_type(dtype.item_type))
+    if pa.types.is_dictionary(dtype):
+        return _normalize_type(dtype.value_type)
+    return dtype
+
+
 def _tables_equal(actual: pa.Table, expected: pa.Table) -> tuple[bool, str | None]:
     if actual.num_rows != expected.num_rows:
         return False, f"row count mismatch: actual={actual.num_rows}, expected={expected.num_rows}"
@@ -47,15 +66,25 @@ def _tables_equal(actual: pa.Table, expected: pa.Table) -> tuple[bool, str | Non
             False,
             f"column count mismatch: actual={actual.num_columns}, expected={expected.num_columns}",
         )
+    if actual.schema.names != expected.schema.names:
+        return (
+            False,
+            f"column names mismatch: actual={actual.schema.names}, expected={expected.schema.names}",
+        )
     if actual.equals(expected):
         return True, None
     for i in range(actual.num_columns):
+        field_name = actual.schema.field(i).name
         ac = actual.column(i).combine_chunks()
         ec = expected.column(i).combine_chunks()
         if ac.equals(ec):
             continue
+        if _normalize_type(ac.type) != _normalize_type(ec.type):
+            return (
+                False,
+                f"type mismatch in column {i} ({field_name}): actual={ac.type}, expected={ec.type}",
+            )
         if not _values_equal(ac.to_pylist(), ec.to_pylist()):
-            field_name = actual.schema.field(i).name
             return (
                 False,
                 f"value mismatch in column {i} ({field_name}, actual_type={ac.type}, expected_type={ec.type})",

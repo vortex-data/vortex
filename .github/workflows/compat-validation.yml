@@ -52,7 +52,8 @@ jobs:
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
               ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/setup-prebuild
+      - id: setup
+        uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - name: Run compat tests
@@ -62,6 +63,6 @@ jobs:
           uv run vortex-test/compat-gen/scripts/compat.py --profile ci check \
             --mode "$MODE"
       - name: Run edition compat tests
-        if: ${{ inputs.check_editions || github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (inputs.check_editions || github.event_name == 'schedule') }}
         run: |
           uv run vortex-test/compat-gen/scripts/compat.py --profile ci check-editions

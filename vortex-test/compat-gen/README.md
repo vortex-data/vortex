@@ -23,7 +23,7 @@ python scripts/compat.py publish
 python scripts/compat.py check
 
 # Generate fixtures targeting an older edition
-cargo run -p vortex-compat --release -- generate --output /tmp/fixtures --edition core2025.05.0
+cargo run -p vortex-compat --release -- generate --output /tmp/fixtures-core2025.05.0 --edition core2025.05.0
 
 # Check all frozen core editions with each edition's oldest vortex-data reader
 uv run scripts/compat.py --profile ci check-editions
