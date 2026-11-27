@@ -925,9 +925,15 @@ impl PivcoData {
         self.max_ebits
     }
 
+    /// Whether the chunk's wavelet tree is order-preserving (supports direct range comparisons).
+    #[inline]
+    pub fn is_order_preserving(&self) -> bool {
+        self.tree.is_order_preserving()
+    }
+
     /// Shared chunk-level wavelet tree.
     #[inline]
-    pub fn tree(&self) -> &Arc<PivcoTree> {
+    pub(crate) fn tree(&self) -> &Arc<PivcoTree> {
         &self.tree
     }
 
