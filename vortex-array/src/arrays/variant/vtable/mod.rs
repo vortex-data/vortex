@@ -206,11 +206,9 @@ fn merge_typed_object_as_variant(
         .as_ref()
         .and_then(|scalar| scalar.as_variant().value())
         .filter(|scalar| scalar.dtype().is_struct() && !scalar.is_null());
-    let Some(fallback_inner) = fallback_inner else {
-        return Ok(Scalar::variant(typed_scalar));
-    };
-
-    merge_struct_payload(&typed_scalar, Some(fallback_inner)).map(Scalar::variant)
+    // A null shredded field is absent even when the entire object is shredded. An explicit
+    // Variant null is a present field and is retained by the merge.
+    merge_struct_payload(&typed_scalar, fallback_inner).map(Scalar::variant)
 }
 
 fn merge_struct_payload(typed: &Scalar, raw: Option<&Scalar>) -> VortexResult<Scalar> {
@@ -238,9 +236,7 @@ fn merge_struct_payload(typed: &Scalar, raw: Option<&Scalar>) -> VortexResult<Sc
                 Some(scalar)
             }
         });
-        let field = if typed_field.dtype().is_struct()
-            && raw_payload.is_some_and(|raw| raw.dtype().is_struct() && !raw.is_null())
-        {
+        let field = if typed_field.dtype().is_struct() {
             Scalar::variant(merge_struct_payload(&typed_field, raw_payload)?)
         } else if typed_field.dtype().is_variant() {
             typed_field.cast(&DType::Variant(Nullability::NonNullable))?

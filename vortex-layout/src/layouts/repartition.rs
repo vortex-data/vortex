@@ -316,21 +316,25 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::varbinview::BinaryView;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_session::VortexSession;
@@ -455,6 +459,54 @@ mod tests {
         assert_eq!(last.row_count(), 1000 - 132 * (nchildren as u64 - 1));
 
         Ok(())
+    }
+
+    #[test]
+    fn repartition_merges_differently_shredded_variants() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let core = ConstantArray::new(Scalar::variant(Scalar::from(0i32)), 1).into_array();
+            let first = VariantArray::try_new(core.clone(), Some(buffer![10i32].into_array()))?;
+            let second = VariantArray::try_new(core, Some(buffer![20i64].into_array()))?;
+            let input = ChunkedArray::try_new(
+                vec![first.into_array(), second.into_array()],
+                DType::Variant(NonNullable),
+            )?;
+            // The flat writer accepts exactly one block, so these rows must be combined.
+            let strategy = RepartitionStrategy::new(
+                FlatLayoutStrategy::default(),
+                RepartitionWriterOptions {
+                    block_size_minimum: 0,
+                    block_len_multiple: 2,
+                    block_size_target: None,
+                    canonicalize: false,
+                },
+            );
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    input.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            assert_eq!(layout.row_count(), 2);
+
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
+                .await?;
+            let mut ctx = session.create_execution_ctx();
+            let expected = [Scalar::from(10i32), Scalar::from(20i64)];
+            for (row, value) in expected.into_iter().enumerate() {
+                assert_eq!(result.execute_scalar(row, &mut ctx)?, Scalar::variant(value));
+            }
+            Ok(())
+        })
     }
 
     #[test]

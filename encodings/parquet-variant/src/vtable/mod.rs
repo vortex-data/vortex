@@ -223,11 +223,15 @@ mod tests {
 
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::Int32Array;
+    use arrow_array::StringArray;
     use arrow_array::StructArray;
     use arrow_array::builder::BinaryViewBuilder;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use parquet_variant_compute::ShreddedSchemaBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
+    use parquet_variant_compute::json_to_variant;
+    use parquet_variant_compute::shred_variant;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -237,6 +241,8 @@ mod tests {
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
@@ -453,10 +459,41 @@ mod tests {
         Ok(())
     }
 
+    fn mixed_shredding_variant_array() -> VortexResult<ArrayRef> {
+        // Each chunk shreds a different path. The other field stays in
+        // raw storage, so reading back a row must recover both halves of the object.
+        let mut chunks = Vec::new();
+        for (rows, path, dtype) in [
+            (
+                [r#"{"a":42,"raw":"first"}"#, r#"{"a":null}"#],
+                "a",
+                DataType::Int32,
+            ),
+            (
+                [r#"{"b":"hello","raw":"second"}"#, r#"{"b":"only"}"#],
+                "b",
+                DataType::Utf8,
+            ),
+        ] {
+            let strings: ArrowArrayRef = Arc::new(StringArray::from(rows.to_vec()));
+            let schema = ShreddedSchemaBuilder::new()
+                .with_path(path, &dtype)?
+                .build();
+            let shredded = shred_variant(&json_to_variant(&strings)?, &schema)?;
+            let chunk = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+            chunks.push(chunk);
+        }
+        let dtype = chunks[0].dtype().clone();
+        ChunkedArray::try_new(chunks, dtype).map(IntoArray::into_array)
+    }
+
     #[rstest]
+    #[case::single_schema(typed_value_variant_array(), None)]
+    #[case::mixed_schemas(mixed_shredding_variant_array(), Some(["a", "b"]))]
     #[tokio::test]
     async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy(
-        #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
+        #[case] expected: VortexResult<ArrayRef>,
+        #[case] expected_fields: Option<[&str; 2]>,
         parquet_variant_file_session: VortexResult<VortexSession>,
     ) -> VortexResult<()> {
         let expected = expected?;
@@ -479,7 +516,27 @@ mod tests {
             .read_all()
             .await?;
 
-        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        if let Some(names) = expected_fields {
+            // Probe the original chunks directly so the expected objects never pass through
+            // schema unification. This distinguishes a missing key from a present Variant null.
+            for row in 0..expected.len() {
+                assert!(variant_scalars_equal(
+                    &actual.execute_scalar(row, &mut ctx)?,
+                    &expected.execute_scalar(row, &mut ctx)?,
+                ));
+            }
+            let variant = actual.execute::<VariantArray>(&mut ctx)?;
+            let shredded = variant
+                .shredded()
+                .ok_or_else(|| vortex_err!("missing shredded fields"))?;
+            let fields = shredded.dtype().as_struct_fields();
+            assert_eq!(fields.nfields(), names.len());
+            for name in names {
+                assert!(fields.field(name).is_some_and(|dtype| dtype.is_nullable()));
+            }
+        }
         Ok(())
     }
 
