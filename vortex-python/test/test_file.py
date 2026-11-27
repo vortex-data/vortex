@@ -55,9 +55,13 @@ def test_row_count(vxf: VortexFile) -> None:
 
 def test_scan(vxf: VortexFile) -> None:
     indices = np.arange(1_000_000, dtype=np.int64)
-    index = pa.array(indices)
     expected = pa.StructArray.from_arrays(
-        [index, pc.cast(index, pa.string_view()), pa.array((indices & 1) == 0), pa.array(np.sqrt(indices))],
+        [
+            pa.array(indices),
+            pa.array([str(i) for i in range(1_000_000)], type=pa.string_view()),
+            pa.array((indices & 1) == 0),
+            pa.array(np.sqrt(indices)),
+        ],
         names=["index", "string", "bool", "float"],
     )
     start = 0

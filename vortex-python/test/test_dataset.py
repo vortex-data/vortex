@@ -141,7 +141,7 @@ def test_to_batches(ds: pd.Dataset) -> None:
     chunk0 = next(ds.to_batches(columns=["string", "bool"]))
     indices = np.arange(len(chunk0), dtype=np.int64)
     expected = pa.StructArray.from_arrays(
-        [pc.cast(pa.array(indices), pa.string_view()), pa.array((indices & 1) == 0)],
+        [pa.array([str(i) for i in range(len(chunk0))], type=pa.string_view()), pa.array((indices & 1) == 0)],
         names=["string", "bool"],
     )
     assert chunk0.to_struct_array() == expected
@@ -482,7 +482,7 @@ def test_fragment_to_batches(ds: vx.dataset.VortexDataset) -> None:
     chunk0 = next(fragments[0].to_batches(columns=["string", "bool"]))
     indices = np.arange(len(chunk0), dtype=np.int64)
     expected = pa.StructArray.from_arrays(
-        [pc.cast(pa.array(indices), pa.string_view()), pa.array((indices & 1) == 0)],
+        [pa.array([str(i) for i in range(len(chunk0))], type=pa.string_view()), pa.array((indices & 1) == 0)],
         names=["string", "bool"],
     )
     assert chunk0.to_struct_array() == expected
