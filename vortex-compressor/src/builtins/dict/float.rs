@@ -590,6 +590,25 @@ mod tests {
             "expected ~32x ratio on 4-value NaN float array, got {nan_ratio}"
         );
 
+        // An all-NaN array would have runs == len + 1 (average_run_length == 0) without bitwise
+        // equality; with bitwise equality it has 1 run and estimates a high ratio.
+        let all_nan = PrimitiveArray::from_iter(vec![f64::NAN; 4096]);
+        let mut ctx = SESSION.create_execution_ctx();
+        let all_nan_stats = FloatStats::generate_opts(
+            &all_nan,
+            GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+            &mut ctx,
+        );
+        assert_eq!(all_nan_stats.run_count(), 1);
+        assert_eq!(all_nan_stats.average_run_length(), 4096);
+        let all_nan_ratio = estimate_ratio(all_nan, CompressorContext::new());
+        assert!(
+            all_nan_ratio > 100.0,
+            "expected high ratio on all-NaN float array, got {all_nan_ratio}"
+        );
+
         // Nullable array must price codes across full array.len() plus the 1-bit validity bitmap.
         let len = 16_384usize;
         let values = (0..len).map(|i| (i % 256) as f64).collect::<Vec<_>>();
