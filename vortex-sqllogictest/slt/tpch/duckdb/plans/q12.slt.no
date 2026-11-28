@@ -192,7 +192,7 @@ logical_opt [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "(o_orderkey = l_orderkey)",
-                                    "Estimated Cardinality": "120114"
+                                    "Estimated Cardinality": "30028"
                                 }
                             }
                         ],
@@ -202,7 +202,7 @@ logical_opt [
                                 "sum(CASE  WHEN (((o_orderpriority = '1-URGENT') OR (o_orderpriority = '2-HIGH'))) THEN (1) ELSE 0 END)",
                                 "sum(CASE  WHEN (((o_orderpriority != '1-URGENT') AND (o_orderpriority != '2-HIGH'))) THEN (1) ELSE 0 END)"
                             ],
-                            "Estimated Cardinality": "75926"
+                            "Estimated Cardinality": "26568"
                         }
                     }
                 ],
@@ -212,13 +212,13 @@ logical_opt [
                         "high_line_count",
                         "low_line_count"
                     ],
-                    "Estimated Cardinality": "75926"
+                    "Estimated Cardinality": "26568"
                 }
             }
         ],
         "extra_info": {
             "Order By": "l_shipmode",
-            "Estimated Cardinality": "75926"
+            "Estimated Cardinality": "26568"
         }
     }
 ]
@@ -271,7 +271,7 @@ physical_plan [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "o_orderkey = l_orderkey",
-                                    "Estimated Cardinality": "120114"
+                                    "Estimated Cardinality": "30028"
                                 }
                             }
                         ],
@@ -281,7 +281,7 @@ physical_plan [
                                 "CASE  WHEN (((o_orderpriority = '1-URGENT') OR (o_orderpriority = '2-HIGH'))) THEN (1) ELSE 0 END",
                                 "CASE  WHEN (((o_orderpriority != '1-URGENT') AND (o_orderpriority != '2-HIGH'))) THEN (1) ELSE 0 END"
                             ],
-                            "Estimated Cardinality": "120114"
+                            "Estimated Cardinality": "30028"
                         }
                     }
                 ],
@@ -291,13 +291,13 @@ physical_plan [
                         "sum(#1)",
                         "sum(#2)"
                     ],
-                    "Estimated Cardinality": "75926"
+                    "Estimated Cardinality": "26568"
                 }
             }
         ],
         "extra_info": {
             "Order By": "l_shipmode ASC",
-            "Estimated Cardinality": "75926"
+            "Estimated Cardinality": "26568"
         }
     }
 ]
