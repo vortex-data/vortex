@@ -82,7 +82,9 @@ pub(crate) fn fused_decompress(
 }
 
 fn fused_decompress_typed<
-    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
+        + AsPrimitive<T::Physical>
+        + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     reference: &Scalar,
@@ -304,7 +306,7 @@ fn fused_unpack<
 
     if let Some(patches) = bp.patches() {
         let offset = usize::from(bp.offset());
-        apply_patches(&mut uninit_range, &patches, offset, &chunk_reference, ctx)?;
+        apply_patches::<T>(&mut uninit_range, &patches, offset, &chunk_reference, ctx)?;
     }
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `len` values and
@@ -363,7 +365,7 @@ unsafe fn unfor_pack_into<T: FoR>(
     reference: T,
     dst: &mut [MaybeUninit<T>],
 ) {
-    // SAFETY: the caller guarantees the sizes, and the unpack initializes every value of `dst`.
+    // SAFETY: `T` is a primitive integer, and `unchecked_unfor_pack` only writes to `dst`.
     unsafe {
         T::unchecked_unfor_pack(
             bit_width,
@@ -374,52 +376,86 @@ unsafe fn unfor_pack_into<T: FoR>(
     }
 }
 
-/// Write each patch value plus the reference of the chunk it falls in.
-///
-/// `offset` is the position of the first value within the first chunk, as in `fused_unpack`.
-fn apply_patches<T: NativePType + WrappingAdd>(
-    uninit_range: &mut UninitRange<T>,
+/// Executes `patches` and invokes `visit(pos, decoded_value)` for every in-bounds patch entry.
+pub(crate) fn for_each_decoded_patch<T>(
     patches: &Patches,
-    offset: usize,
+    len: usize,
+    for_offset: usize,
     chunk_reference: impl Fn(usize) -> T,
+    visit: impl FnMut(usize, T),
     ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    assert_eq!(patches.array_len(), uninit_range.len());
-
+) -> VortexResult<()>
+where
+    T: NativePType + WrappingAdd,
+{
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-
-    assert!(values.all_valid(ctx)?, "Patch values must be all valid");
-
+    assert!(
+        values.as_ref().all_valid(ctx)?,
+        "Patch values must be all valid"
+    );
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-        set_patch_values(
-            uninit_range,
+        for_each_decoded_patch_typed(
             indices.as_slice::<P>(),
             values,
             patches.offset(),
-            offset,
+            len,
+            for_offset,
             chunk_reference,
+            visit,
         )
     });
     Ok(())
 }
 
-/// Write each patch value plus the reference of its chunk into `uninit_range` at its index, less
-/// `patch_offset`.
-fn set_patch_values<P: AsPrimitive<usize>, T: NativePType + WrappingAdd>(
-    uninit_range: &mut UninitRange<T>,
+fn for_each_decoded_patch_typed<P, T>(
     indices: &[P],
     values: &[T],
     patch_offset: usize,
+    len: usize,
+    for_offset: usize,
+    chunk_reference: impl Fn(usize) -> T,
+    mut visit: impl FnMut(usize, T),
+) where
+    P: AsPrimitive<usize>,
+    T: NativePType + WrappingAdd,
+{
+    for (&index, &value) in indices.iter().zip_eq(values) {
+        let Some(pos) = <P as AsPrimitive<usize>>::as_(index).checked_sub(patch_offset) else {
+            continue;
+        };
+        if pos >= len {
+            continue;
+        }
+        let reference = chunk_reference((for_offset + pos) / FL_CHUNK_SIZE);
+        visit(pos, reference.wrapping_add(&value));
+    }
+}
+
+/// Write each patch value plus the reference of the chunk it falls in.
+///
+/// `offset` is the position of the first value within the first chunk, as in `fused_unpack`.
+fn apply_patches<T>(
+    uninit_range: &mut UninitRange<T>,
+    patches: &Patches,
     offset: usize,
     chunk_reference: impl Fn(usize) -> T,
-) {
-    for (&index, &value) in indices.iter().zip_eq(values) {
-        let index = <P as AsPrimitive<usize>>::as_(index) - patch_offset;
-        let reference = chunk_reference((offset + index) / FL_CHUNK_SIZE);
-        uninit_range.set_value(index, value.wrapping_add(&reference));
-    }
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    T: NativePType + WrappingAdd,
+{
+    assert_eq!(patches.array_len(), uninit_range.len());
+    let len = uninit_range.len();
+    for_each_decoded_patch::<T>(
+        patches,
+        len,
+        offset,
+        chunk_reference,
+        |pos, decoded| uninit_range.set_value(pos, decoded),
+        ctx,
+    )
 }
 
 #[cfg(test)]

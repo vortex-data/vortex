@@ -189,7 +189,7 @@ impl FoR {
 
     /// Construct a FoR array with one reference per 1024-element chunk.
     ///
-    /// `references` must be a non-nullable integer array of the encoded array's type, with one
+    /// `references` must be a non-nullable integer array of the logical array's type, with one
     /// entry for each chunk spanned by `offset + encoded.len()` elements. `offset` is the position
     /// of the first element within the first chunk. Constant references become a global reference.
     pub fn try_new_chunked(

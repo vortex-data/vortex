@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serde for `fastlanes.for.v2`, which stores one reference per chunk as a child.
+//! Serde for `fastlanes.for.v2`, which stores one reference per chunk as a child with same-width
+//! residuals.
 
 use prost::Message as _;
 use vortex_array::ArrayDeserialization;

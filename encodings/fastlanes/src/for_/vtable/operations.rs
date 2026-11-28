@@ -16,6 +16,7 @@ use crate::FL_CHUNK_SIZE;
 use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRSlots;
+
 impl OperationsVTable<FoR> for FoR {
     type ProbeState = ();
 

@@ -39,8 +39,7 @@ pub fn for_v2_id() -> ArrayId {
 /// Serde for the [`FoR`] array.
 ///
 /// Arrays with constant references serialize as `fastlanes.for`, which stores the reference in
-/// its metadata. Arrays whose chunks have different references serialize as
-/// `fastlanes.for.v2`, which stores them as a child.
+/// its metadata. Arrays whose chunks have different references serialize as `fastlanes.for.v2`.
 ///
 /// Register this plugin, or call [`crate::initialize`], to enable serde. [`FoR`] does not
 /// implement [`ArrayPlugin`], so it cannot be registered on its own.
