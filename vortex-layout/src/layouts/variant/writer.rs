@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Writes a shredded Variant stream as a struct layout of the Variant.
+//! Writes shredded Variant chunks using the ordinary struct writer for their columns.
 
 use std::sync::Arc;
 
@@ -27,12 +27,13 @@ use vortex_session::VortexSession;
 
 use super::CORE;
 use super::SHREDDED;
-use super::layout_id;
+use super::Variant;
+use super::VariantLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::VTable;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
-use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -78,7 +79,7 @@ impl LayoutStrategy for VariantStrategy {
                 stream.dtype()
             );
         }
-        if !ctx.allows_layout(&layout_id()) {
+        if !ctx.allows_layout(&Variant.id()) {
             return self
                 .fallback
                 .write_stream(ctx, segment_sink, stream, eof, session)
@@ -133,7 +134,7 @@ impl LayoutStrategy for VariantChunk {
             .write_stream(ctx, segment_sink, stream.sendable(), eof, session)
             .await?;
         Ok(
-            StructLayout::try_new_variant(dtype, shredded.dtype().clone(), &layout, complete)?
+            VariantLayout::from_storage(dtype, shredded.dtype().clone(), &layout, complete)?
                 .into_layout(),
         )
     }

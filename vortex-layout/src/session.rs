@@ -21,7 +21,8 @@ use crate::layouts::dict::Dict;
 use crate::layouts::flat::Flat;
 use crate::layouts::indexed::Indexed;
 use crate::layouts::list::List;
-use crate::layouts::struct_::StructPlugin;
+use crate::layouts::struct_::Struct;
+use crate::layouts::variant::Variant;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 
@@ -77,7 +78,8 @@ impl Default for LayoutSession {
         // Register the built-in layout encodings.
         this.register(&Chunked as &dyn LayoutPlugin);
         this.register(&Flat as &dyn LayoutPlugin);
-        this.register(&StructPlugin as &dyn LayoutPlugin);
+        this.register(&Struct as &dyn LayoutPlugin);
+        this.register(&Variant as &dyn LayoutPlugin);
         this.register(&Zoned as &dyn LayoutPlugin);
         this.register(&LegacyStats as &dyn LayoutPlugin);
         this.register(&Dict as &dyn LayoutPlugin);

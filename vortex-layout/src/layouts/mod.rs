@@ -12,6 +12,7 @@ use vortex_error::SharedVortexResult;
 pub mod buffered;
 pub mod chunked;
 pub mod collect;
+mod columnar;
 pub mod compressed;
 pub mod constant;
 pub mod dict;

@@ -282,11 +282,11 @@ mod tests {
     use vortex_functions::variant_get::VariantPath;
     use vortex_functions::variant_get::VariantPathElement;
     use vortex_io::session::RuntimeSession;
+    use vortex_layout::VTable;
     use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::layouts::struct_::Struct as StructLayoutEncoding;
     use vortex_layout::layouts::table::TableStrategy;
-    use vortex_layout::layouts::variant;
+    use vortex_layout::layouts::variant::Variant as VariantLayoutEncoding;
     use vortex_layout::scan::metrics::ScanUsage;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
@@ -517,7 +517,10 @@ mod tests {
         ];
         for (kind, ids) in component_ids {
             for id in ids {
-                if !include_variant && kind == ComponentKind::Layout && id == variant::layout_id() {
+                if !include_variant
+                    && kind == ComponentKind::Layout
+                    && id == VariantLayoutEncoding.id()
+                {
                     continue;
                 }
                 editions.declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))?;
@@ -681,7 +684,7 @@ mod tests {
         let file = session.open_options().open_buffer(bytes)?;
         let layout = file.footer().layout();
         assert!(layout.dtype().is_variant());
-        assert_eq!(layout.is::<StructLayoutEncoding>(), include_variant);
+        assert_eq!(layout.is::<VariantLayoutEncoding>(), include_variant);
 
         let utf8 = DType::Utf8(Nullability::Nullable);
         let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
