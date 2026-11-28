@@ -12150,6 +12150,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 60.2.0",
  "arrow-buffer 60.2.0",
+ "arrow-cast 60.1.0",
  "arrow-schema 60.2.0",
  "chrono",
  "codspeed-divan-compat",

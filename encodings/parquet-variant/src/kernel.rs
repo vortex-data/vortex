@@ -148,7 +148,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             ));
         }
 
-        // A string or an integer under object fields of unshredded storage is read from the
+        // A string or number under object fields of unshredded storage is read from the
         // encoded bytes in place. Whatever that does not cover falls through to the kernel.
         if let Some(extracted) = extract_in_place(&array, &parent, ctx)? {
             return Ok(Some(extracted));
