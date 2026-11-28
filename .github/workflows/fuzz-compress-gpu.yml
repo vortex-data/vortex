@@ -28,5 +28,7 @@ jobs:
       cycle_hours: 3
       # CUDA driver/device mappings exceed a 2 GiB process RSS cap.
       rss_limit_mb: 0
-      report: false
+      report: true
+      # fuzzer-fix-automation runs on ubuntu-latest without a GPU and cannot reproduce CUDA crashes.
+      attempt_fix: false
     secrets: inherit

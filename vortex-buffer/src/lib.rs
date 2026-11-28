@@ -85,3 +85,19 @@ pub type ByteBufferMut = BufferMut<u8>;
 
 /// A const-aligned buffer of u8.
 pub type ConstByteBuffer<const A: usize> = ConstBuffer<u8, A>;
+
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn assert_panics_with(f: impl FnOnce(), expected: &str) {
+    let err =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).expect_err("expected panic");
+    let msg = err
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| err.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or_default();
+    assert!(
+        msg.contains(expected),
+        "expected panic containing `{expected}`, got `{msg}`"
+    );
+}

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT array_length("GT") FROM statpopgen LIMIT 1;
+----
+logical_plan
+01)Projection: array_length(statpopgen.GT)
+02)--Limit: skip=0, fetch=1
+03)----TableScan: statpopgen projection=[GT], fetch=1
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[array_length(GT@1181) as array_length(statpopgen.GT)], limit=1, file_type=vortex

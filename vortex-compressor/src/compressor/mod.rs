@@ -63,6 +63,12 @@ pub struct CascadingCompressor {
     /// Overrides schemes' decisions about which children to compress.
     child_policy: Option<Arc<dyn ChildPolicy>>,
 
+    /// Whether built-in constant encoding (`vortex.constant`) is allowed.
+    allow_constant: bool,
+
+    /// Whether built-in masked-constant encoding (`vortex.masked`) is allowed.
+    allow_masked: bool,
+
     /// Compresses the storage children of Variant arrays in place of this compressor, if set.
     variant_storage: Option<Arc<CascadingCompressor>>,
 }
@@ -83,6 +89,8 @@ impl CascadingCompressor {
             schemes,
             root_exclusions,
             child_policy: None,
+            allow_constant: true,
+            allow_masked: true,
             variant_storage: None,
         }
     }
@@ -102,6 +110,18 @@ impl CascadingCompressor {
             .iter()
             .find(|s| s.id() == id)
             .is_some_and(|s| !self.is_excluded(*s, ctx))
+    }
+
+    /// Configures whether the compressor may emit built-in constant arrays (`vortex.constant`).
+    pub fn with_allow_constant(mut self, allow: bool) -> Self {
+        self.allow_constant = allow;
+        self
+    }
+
+    /// Configures whether the compressor may wrap nullable constants in `vortex.masked`.
+    pub fn with_allow_masked(mut self, allow: bool) -> Self {
+        self.allow_masked = allow;
+        self
     }
 
     /// Compresses the storage children of Variant arrays with `compressor` instead of this one.

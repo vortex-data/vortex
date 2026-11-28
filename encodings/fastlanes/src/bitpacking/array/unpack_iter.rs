@@ -214,9 +214,12 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         128 * self.bit_width / size_of::<T>()
     }
 
-    /// Access first chunk of the array if the last chunk has fewer than 1024 due to slicing
+    /// Access the first chunk of the array if it has fewer than 1024 elements.
     pub fn initial(&mut self) -> Option<&mut [T]> {
-        (self.first_chunk_is_sliced() || self.num_chunks == 1).then(|| {
+        (self.len > 0
+            && (self.first_chunk_is_sliced()
+                || (self.num_chunks == 1 && self.last_chunk_is_sliced())))
+        .then(|| {
             let chunk: &[T::Physical] = &self.packed[..self.elems_per_chunk()];
 
             let header_end_slice = if self.num_chunks == 1 {
@@ -276,15 +279,13 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
             local_idx += chunk_len;
         }
 
-        if self.num_chunks > 1 {
-            let packed_slice = self.packed;
-            let elems_per_chunk = self.elems_per_chunk();
-            for i in self.full_chunks_range() {
-                let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
-                let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
-                f(values, local_idx..local_idx + CHUNK_SIZE);
-                local_idx += CHUNK_SIZE;
-            }
+        let packed_slice = self.packed;
+        let elems_per_chunk = self.elems_per_chunk();
+        for i in self.full_chunks_range() {
+            let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
+            let values = unpack_chunk(&self.strategy, self.bit_width, chunk, self.scratch);
+            f(values, local_idx..local_idx + CHUNK_SIZE);
+            local_idx += CHUNK_SIZE;
         }
 
         if let Some(trailer) = self.trailer() {
@@ -302,10 +303,6 @@ impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<'a, T, S> {
         output: &mut [MaybeUninit<T>],
         start_idx: usize,
     ) -> usize {
-        if self.num_chunks == 1 {
-            return start_idx;
-        }
-
         let mut local_idx = start_idx;
 
         let packed_slice = self.packed;
@@ -451,3 +448,120 @@ impl BitPacked for u8 {}
 impl BitPacked for u16 {}
 impl BitPacked for u32 {}
 impl BitPacked for u64 {}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::MaybeUninit;
+
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::BitPackedArrayExt;
+    use crate::BitPackedData;
+    use crate::bitpacking::array::bitpack_compress::bitpack_primitive;
+    use crate::test::SESSION;
+
+    #[rstest]
+    #[case::empty(0, 0, None, 0, None)]
+    #[case::empty_with_offset(10, 0, None, 0, None)]
+    #[case::single_partial(0, 500, Some(500), 0, None)]
+    #[case::single_full_chunk(0, 1024, None, 1, None)]
+    #[case::single_chunk_offset_partial(100, 500, Some(500), 0, None)]
+    #[case::single_chunk_offset_to_end(100, 924, Some(924), 0, None)]
+    #[case::two_full_chunks(0, 2048, None, 2, None)]
+    #[case::full_and_trailer(0, 1500, None, 1, Some(476))]
+    #[case::header_and_trailer(100, 1000, Some(924), 0, Some(76))]
+    #[case::header_full_and_trailer(100, 2048, Some(924), 1, Some(100))]
+    fn test_unpacked_chunks_partitions_without_overlap(
+        #[case] offset: usize,
+        #[case] len: usize,
+        #[case] expected_initial: Option<usize>,
+        #[case] expected_full_chunks: usize,
+        #[case] expected_trailer: Option<usize>,
+    ) -> VortexResult<()> {
+        let total_chunks = (offset + len).div_ceil(CHUNK_SIZE);
+        let source: Vec<u32> = (0..total_chunks * CHUNK_SIZE).map(|i| i as u32).collect();
+        let packed = bitpack_primitive(&source, 12);
+        let expected = &source[offset..offset + len];
+
+        let mut scratch = [const { MaybeUninit::<u32>::uninit() }; CHUNK_SIZE];
+        let mut chunks = BitUnpackedChunks::try_new_with_strategy(
+            BitPackingStrategy,
+            packed.as_slice(),
+            12,
+            offset,
+            len,
+            &mut scratch,
+        )?;
+
+        let mut collected = Vec::with_capacity(len);
+        let initial_len = chunks.initial().map(|slice| {
+            collected.extend_from_slice(slice);
+            slice.len()
+        });
+        assert_eq!(initial_len, expected_initial);
+
+        let mut full_count = 0;
+        {
+            let mut full = chunks.full_chunks();
+            while let Some(chunk) = full.next_chunk() {
+                collected.extend_from_slice(chunk);
+                full_count += 1;
+            }
+        }
+        assert_eq!(full_count, expected_full_chunks);
+
+        let trailer_len = chunks.trailer().map(|slice| {
+            collected.extend_from_slice(slice);
+            slice.len()
+        });
+        assert_eq!(trailer_len, expected_trailer);
+        assert_eq!(collected.as_slice(), expected);
+
+        // Verify `for_each_unpacked_chunk` and `decode_into` produce the same elements.
+        let mut visited = Vec::with_capacity(len);
+        chunks.for_each_unpacked_chunk(|slice, range| {
+            assert_eq!(range, visited.len()..visited.len() + slice.len());
+            visited.extend_from_slice(slice);
+        });
+        assert_eq!(visited.as_slice(), expected);
+
+        let mut decoded = vec![MaybeUninit::<u32>::uninit(); len];
+        chunks.decode_into(&mut decoded);
+        // SAFETY: `decode_into` initialized all `len` elements.
+        let decoded: Vec<u32> = decoded
+            .into_iter()
+            .map(|v| unsafe { v.assume_init() })
+            .collect();
+        assert_eq!(decoded.as_slice(), expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_single_full_chunk_array_unpacked_chunks() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<u32> = (0..1024).map(|i| i % 4).collect();
+        let array = BitPackedData::encode(
+            &PrimitiveArray::from_iter(values.clone()).into_array(),
+            2,
+            &mut ctx,
+        )?;
+        let mut scratch = [const { MaybeUninit::<u32>::uninit() }; CHUNK_SIZE];
+        let mut chunks = array.unpacked_chunks::<u32>(&mut scratch)?;
+
+        assert!(chunks.initial().is_none());
+        let mut full = chunks.full_chunks();
+        assert_eq!(
+            full.next_chunk().map(|c| c.as_slice()),
+            Some(values.as_slice())
+        );
+        assert!(full.next_chunk().is_none());
+        assert!(chunks.trailer().is_none());
+        Ok(())
+    }
+}

@@ -30,6 +30,7 @@ mod arrow;
 mod arrow_properties;
 mod builder;
 mod compute;
+mod extract;
 #[cfg(test)]
 mod json_to_variant_tests;
 mod kernel;

@@ -182,7 +182,7 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
 
         let sliced = {
             let elements = &self.duckdb_elements.lock();
-            Vector::slice(elements, offset_start..offset_end)
+            Vector::slice(elements, offset_start..offset_end)?
         };
 
         let child_len = offset_end - offset_start;

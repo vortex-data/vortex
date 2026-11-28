@@ -59,6 +59,14 @@ pub struct VariantGetOpts {
     #[prost(message, optional, tag = "2")]
     pub dtype: ::core::option::Option<super::dtype::DType>,
 }
+/// Options for `vortex.variant_pack`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VariantPackOpts {
+    #[prost(bool, tag = "1")]
+    pub complete: bool,
+    #[prost(bool, tag = "2")]
+    pub shredded_validity: bool,
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct VariantPathElement {
     #[prost(oneof = "variant_path_element::Element", tags = "1, 2")]
