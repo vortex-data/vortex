@@ -166,7 +166,12 @@ fn drive(
                 events.push(Event::Delivered(*read.segment_id));
                 scan.deliver(read.id, store.read(read.segment_id))?;
             }
-            Turn::Done => break,
+            Turn::Done => {
+                if !batch.is_empty() {
+                    events.push(Event::Io(std::mem::take(&mut batch)));
+                }
+                break;
+            }
         }
     }
     // Reads left in flight were read ahead for splits that emptied or cancelled with the
