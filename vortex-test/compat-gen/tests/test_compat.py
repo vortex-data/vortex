@@ -290,7 +290,7 @@ def test_cmd_check_editions_enforces_skips_gen_failures_and_shrink_only(compat, 
     monkeypatch.setattr(
         compat,
         "_run_rust_dump_expected",
-        lambda output, profile="release", exclude=None: dumped_expected.append(output),
+        lambda output, profile="release", exclude=None, check=True: (dumped_expected.append(output), 0)[1],
     )
     monkeypatch.setattr(compat, "_run_rust_generate", fake_generate)
 

@@ -145,33 +145,68 @@ pub fn dump_expected(output_dir: &Path, exclude: &[String]) -> VortexResult<()> 
         "dumping expected Arrow IPC for {} fixtures...",
         fixtures.len()
     );
+    let mut failed: Vec<FailedFixture> = Vec::new();
     for fixture in &fixtures {
         let name = fixture.name();
-        let array = fixture.build_expected(&mut ctx)?;
-        let arrow_array = array.execute_arrow(None, &mut ctx)?;
-        let batch =
-            if let Some(struct_arr) = arrow_array.as_any().downcast_ref::<ArrowStructArray>() {
-                RecordBatch::from(struct_arr)
-            } else {
-                let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
-                    "value",
-                    arrow_array.data_type().clone(),
-                    true,
-                )]));
-                RecordBatch::try_new(schema, vec![arrow_array])
-                    .map_err(|e| vortex_err!("failed to build RecordBatch for {name}: {e}"))?
-            };
-        let out_path = output_dir.join(format!("{name}.arrow"));
-        let file = File::create(&out_path)?;
-        let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
-            .map_err(|e| vortex_err!("failed to create IPC writer for {name}: {e}"))?;
-        writer
-            .write(&batch)
-            .map_err(|e| vortex_err!("failed to write IPC batch for {name}: {e}"))?;
-        writer
-            .finish()
-            .map_err(|e| vortex_err!("failed to finish IPC file for {name}: {e}"))?;
-        eprintln!("  dumped {name}.arrow");
+        let dump_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let array = fixture.build_expected(&mut ctx)?;
+            let arrow_array = array.execute_arrow(None, &mut ctx)?;
+            let batch =
+                if let Some(struct_arr) = arrow_array.as_any().downcast_ref::<ArrowStructArray>() {
+                    RecordBatch::from(struct_arr)
+                } else {
+                    let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+                        "value",
+                        arrow_array.data_type().clone(),
+                        true,
+                    )]));
+                    RecordBatch::try_new(schema, vec![arrow_array])
+                        .map_err(|e| vortex_err!("failed to build RecordBatch for {name}: {e}"))?
+                };
+            let out_path = output_dir.join(format!("{name}.arrow"));
+            let file = File::create(&out_path)?;
+            let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
+                .map_err(|e| vortex_err!("failed to create IPC writer for {name}: {e}"))?;
+            writer
+                .write(&batch)
+                .map_err(|e| vortex_err!("failed to write IPC batch for {name}: {e}"))?;
+            writer
+                .finish()
+                .map_err(|e| vortex_err!("failed to finish IPC file for {name}: {e}"))?;
+            VortexResult::Ok(())
+        }));
+        match dump_result {
+            Ok(Ok(())) => eprintln!("  dumped {name}.arrow"),
+            Ok(Err(e)) => {
+                let error = e.to_string();
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture {
+                    name: name.to_string(),
+                    error,
+                });
+            }
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("panic");
+                let error = format!("panic: {msg}");
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture {
+                    name: name.to_string(),
+                    error,
+                });
+            }
+        }
+    }
+    if !failed.is_empty() {
+        let names: Vec<&str> = failed.iter().map(|f| f.name.as_str()).collect();
+        vortex_bail!(
+            "{} fixture(s) failed to dump expected Arrow IPC: {}",
+            failed.len(),
+            names.join(", ")
+        );
     }
     Ok(())
 }

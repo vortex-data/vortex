@@ -883,13 +883,14 @@ def _run_rust_dump_expected(
     output: Path,
     profile: str = "release",
     exclude: list[str] | None = None,
-) -> None:
-    """Run `vortex-compat dump-expected --output <dir>` using HEAD's oracle."""
+    check: bool = True,
+) -> int:
+    """Run `vortex-compat dump-expected --output <dir>` using HEAD's oracle and return its exit code."""
     bin_path = _build_compat_bin(profile)
     cmd = [bin_path, "dump-expected", "--output", str(output)]
     if exclude:
         cmd.extend(["--exclude", ",".join(exclude)])
-    _run_cmd(cmd, check=True)
+    return _run_cmd(cmd, check=check).returncode
 
 
 def _load_accepted_edition_failures(
@@ -1192,10 +1193,10 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
         generated_dirs: dict[str, Path] = {}
         gen_rcs: dict[str, int] = {}
 
-        # 1. Dump expected Arrow IPC tables directly from HEAD's oracle.
+        # 1. Dump expected Arrow IPC tables directly from HEAD's oracle, continuing on partial failure.
         expected_dir = tmp_path / "_expected_ipc"
         _info("\n=== dumping expected Arrow IPC from HEAD ===")
-        _run_rust_dump_expected(expected_dir, profile=args.profile, exclude=exclude)
+        dump_rc = _run_rust_dump_expected(expected_dir, profile=args.profile, exclude=exclude, check=False)
 
         # 2. Generate fixtures for every selected edition, continuing even if one edition has write failures.
         for ed in selected:
@@ -1304,6 +1305,21 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
                     "stale": stale_entries,
                 }
             )
+
+    if dump_rc != 0:
+        err_msg = f"vortex-compat dump-expected failed (exit {dump_rc})"
+        _info(f"    UNEXPECTED (dump-expected): {err_msg}")
+        total_unexpected += 1
+        edition_results.append(
+            {
+                "edition": "(dump-expected)",
+                "reader_version": "",
+                "passed": [],
+                "accepted": [],
+                "unexpected": [{"name": "(dump-expected)", "error": err_msg, "causes": [err_msg]}],
+                "stale": [],
+            }
+        )
 
     _info(
         f"\n=== edition check summary: {total_passed} passed, {total_accepted} accepted, "
