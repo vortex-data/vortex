@@ -855,7 +855,6 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     file.cache = Some(cache.clone());
     let filter = || gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype());
     let projection = || get_item("ints", root()).bind(layout.dtype());
-    assert!(cache.filter_plans(&filter()?, false).is_none());
 
     let mut reads = Vec::new();
     for _ in 0..2 {
@@ -868,9 +867,9 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
         assert_eq!(actual.len(), 1_000);
         reads.push(counted.requests() - before);
     }
-    let plans = cache
-        .filter_plans(&filter()?, false)
-        .expect("the first scan kept its filter plans");
+    let plans = cache.filter_plans(&filter()?, false, || {
+        vortex_bail!("the first scan should have kept its filter plans")
+    })?;
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
@@ -908,10 +907,9 @@ async fn strict_and_permissive_filter_plans_are_isolated_in_cache() -> VortexRes
     }
     assert!(hint.filter().expect("hint filter").is_switched_off(0));
 
-    // Simulate a strict scan losing a cold-miss insertion race after the permissive entry exists:
-    // `insert_filter_plans` must keep the strict plan instead of returning the permissive one.
+    // A cold strict lookup must initialize its own plan even when the permissive plan is warm.
     let strict_plans = Arc::new(FilterPlans::new(filter.clone(), &layout, &session, false)?);
-    let inserted = cache.insert_filter_plans(filter.clone(), Arc::clone(&strict_plans));
+    let inserted = cache.filter_plans(&filter, false, || Ok(Arc::clone(&strict_plans)))?;
     assert!(Arc::ptr_eq(&inserted, &strict_plans));
     assert!(!inserted.skips_unselective_dynamic());
 
