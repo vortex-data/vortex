@@ -258,6 +258,7 @@ mod tests {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -541,6 +542,67 @@ mod tests {
             for name in names {
                 assert!(fields.field(name).is_some_and(|dtype| dtype.is_nullable()));
             }
+        }
+        Ok(())
+    }
+
+    /// Reading chunks that shred different fields back from a file unifies their shredded
+    /// objects, so each row lacks the fields of the other chunk. Exporting to Arrow must keep
+    /// them missing rather than present with a Variant null, which names a field that the row's
+    /// metadata does not hold.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_mixed_shredding_exports_missing_fields_to_arrow(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+
+        let rows = ["[]", r#"{"a":[{"x":2},{"y":4},null]}"#];
+        let mut chunks = Vec::new();
+        for (row, path, dtype) in [
+            (rows[0], "b", DataType::Boolean),
+            (rows[1], "a", DataType::Utf8),
+        ] {
+            let strings: ArrowArrayRef = Arc::new(StringArray::from(vec![row]));
+            let schema = ShreddedSchemaBuilder::new()
+                .with_path(path, &dtype)?
+                .build();
+            let shredded = shred_variant(&json_to_variant(&strings)?, &schema)?;
+            chunks.push(ParquetVariant::from_arrow_variant_nullable(
+                &shredded,
+                &session.arrow(),
+            )?);
+        }
+        let input =
+            ChunkedArray::try_new(chunks, DType::Variant(Nullability::Nullable))?.into_array();
+
+        let strategy = vortex_file::WriteStrategyBuilder::from_session(&session)
+            .with_row_block_size(2)
+            .build();
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, input.to_array_stream())
+            .await?;
+        let actual = session
+            .open_options()
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        let field = session.arrow().to_arrow_field("v", actual.dtype())?;
+        let exported = actual.execute_arrow(Some(&field), &mut session.create_execution_ctx())?;
+        let exported = ArrowVariantArray::try_new(exported.as_ref())?;
+
+        let strings: ArrowArrayRef = Arc::new(StringArray::from(rows.to_vec()));
+        let expected = json_to_variant(&strings)?;
+        assert_eq!(exported.len(), expected.len());
+        for row in 0..expected.len() {
+            assert_eq!(exported.try_value(row)?, expected.try_value(row)?);
         }
         Ok(())
     }

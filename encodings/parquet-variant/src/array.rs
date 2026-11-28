@@ -448,6 +448,15 @@ fn parquet_shredded_field_from_logical(
         let value = core.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
+        // A null row of the nested Variant is a missing field, which Parquet stores as a null
+        // `value` in a non-null shell. Storage under a null row may hold any bytes, such as the
+        // `Variant::Null` of a null constant, so its validity must move into `value`.
+        let validity = core.parquet_variant_validity();
+        let value = if validity.definitely_no_nulls() {
+            value
+        } else {
+            value.mask(validity.to_array(len))?
+        };
         let typed_value = variant
             .shredded()
             .cloned()
