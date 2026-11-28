@@ -197,10 +197,10 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// Maximum number of rows over which [`Scheme::fixed_nbytes`] is amortized before the fixed
     /// cost repeats in another chunk, or `None` if it is paid once for the whole array.
     ///
-    /// When `Some(chunk_len)`, the compressor scales `fixed_nbytes` by
-    /// `full_len.div_ceil(chunk_len) / sample_len.div_ceil(chunk_len)` before amortizing over
-    /// `full_len`. Using `full_len` rather than non-null count biases nullable multi-chunk arrays
-    /// toward a slight overestimate rather than an underestimate.
+    /// When `Some(chunk_len)` and the sample has fewer than `chunk_len` rows, the compressor
+    /// scales `fixed_nbytes` by `full_len.div_ceil(chunk_len)` before amortizing over `full_len`
+    /// (capped at `fixed_nbytes`). Once the sample itself reaches `chunk_len` rows, `fixed_nbytes`
+    /// is kept in full so nullable multi-chunk samples never undercount metadata.
     fn fixed_nbytes_chunk_len(&self) -> Option<NonZeroUsize> {
         None
     }

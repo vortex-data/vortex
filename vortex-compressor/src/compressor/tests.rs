@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
@@ -1193,8 +1194,8 @@ impl Scheme for ChunkedFixedTableScheme {
         Self::TABLE_NBYTES as u64
     }
 
-    fn fixed_nbytes_chunk_len(&self) -> Option<std::num::NonZeroUsize> {
-        std::num::NonZeroUsize::new(Self::CHUNK_LEN)
+    fn fixed_nbytes_chunk_len(&self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(Self::CHUNK_LEN)
     }
 
     fn expected_compression_ratio(
@@ -1225,7 +1226,7 @@ impl Scheme for ChunkedFixedTableScheme {
 /// Above `fixed_nbytes_chunk_len`, the compressor charges one fixed table per chunk of `full_len`
 /// rather than spreading a single table across the whole array.
 #[test]
-fn sampling_scales_fixed_nbytes_by_chunk_count_above_chunk_len() -> VortexResult<()> {
+fn test_sampling_scales_fixed_nbytes_by_chunk_count_above_chunk_len() -> VortexResult<()> {
     let array =
         PrimitiveArray::new(Buffer::from_iter(0..300_000_i32), Validity::NonNullable).into_array();
     let compressor = CascadingCompressor::new(vec![&ChunkedFixedTableScheme]);
@@ -1243,6 +1244,18 @@ fn sampling_scales_fixed_nbytes_by_chunk_count_above_chunk_len() -> VortexResult
     // 3 * 1024 = 3072 rows: ceil(4096 * 2 * 3072 / 300,000) = 84 bytes of fixed overhead.
     assert_eq!(score, EstimateScore::from_sample_sizes(4 * 3072, 3072 + 84));
     Ok(())
+}
+
+/// Once the sample itself reaches `fixed_nbytes_chunk_len` (e.g. a 1% sample of a 30M-row
+/// nullable array where the sample may still hold only one valid-value chunk), `fixed_nbytes` is
+/// kept unamortized so metadata is never undercounted.
+#[test]
+fn test_amortize_fixed_nbytes_keeps_total_when_sample_reaches_chunk_len() {
+    let chunk_len = NonZeroUsize::new(262_144);
+    assert_eq!(
+        super::sample::amortize_fixed_nbytes(10_000, 1_000, chunk_len, 300_000, 30_000_000),
+        10_000
+    );
 }
 
 type MapEntryFixture<'a> = (i32, Option<&'a str>);

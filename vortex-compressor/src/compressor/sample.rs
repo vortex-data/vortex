@@ -308,10 +308,12 @@ fn sample_rows(array: &ArrayRef) -> ArrayRef {
 ///
 /// A sample pays in full for bytes that do not grow with the input, such as a symbol table, which
 /// makes a scheme look worse than it is at full size. When `fixed_chunk_len` is `Some(chunk_len)`,
-/// the fixed cost repeats once per `chunk_len` rows so the full array is charged for
-/// `full_len.div_ceil(chunk_len)` chunks (relative to `sample_len.div_ceil(chunk_len)` in the
-/// sample). The amortized share rounds up, so a non-empty output never becomes a zero-byte one.
-fn amortize_fixed_nbytes(
+/// the fixed cost repeats once per `chunk_len` rows: if the sample itself spans at least
+/// `chunk_len` rows, `fixed` is kept unamortized so nullable samples that still fit in a single
+/// valid-value chunk never undercount; otherwise the full array is charged for
+/// `full_len.div_ceil(chunk_len)` chunks (capped at `fixed`). The amortized share rounds up, so a
+/// non-empty output never becomes a zero-byte one.
+pub(super) fn amortize_fixed_nbytes(
     total: u64,
     fixed: u64,
     fixed_chunk_len: Option<NonZeroUsize>,
@@ -323,19 +325,16 @@ fn amortize_fixed_nbytes(
     }
 
     let fixed = fixed.min(total);
-    let (sample_chunks, full_chunks) = match fixed_chunk_len {
-        Some(chunk_len) => (
-            sample_len.div_ceil(chunk_len.get()) as u128,
-            full_len.div_ceil(chunk_len.get()) as u128,
-        ),
-        None => (1u128, 1u128),
+    let full_chunks = match fixed_chunk_len {
+        Some(chunk_len) if sample_len >= chunk_len.get() => return total,
+        Some(chunk_len) => full_len.div_ceil(chunk_len.get()) as u128,
+        None => 1u128,
     };
-    let numerator = u128::from(fixed)
+    let amortized = u128::from(fixed)
         .saturating_mul(full_chunks)
-        .saturating_mul(sample_len as u128);
-    let denominator = sample_chunks.saturating_mul(full_len as u128);
-    let amortized = numerator.div_ceil(denominator);
-    (total - fixed).saturating_add(u64::try_from(amortized).unwrap_or(u64::MAX))
+        .saturating_mul(sample_len as u128)
+        .div_ceil(full_len as u128);
+    (total - fixed) + u64::try_from(amortized).unwrap_or(fixed).min(fixed)
 }
 
 /// Estimates a scheme's compression ratio by compressing the array's compression sample.
