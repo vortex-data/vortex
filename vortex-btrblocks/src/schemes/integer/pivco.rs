@@ -112,6 +112,9 @@ impl Default for PivcoScheme {
 }
 
 impl PivcoScheme {
+    /// Minimum array length eligible for [`PivcoScheme`] compression.
+    pub(crate) const MIN_LEN: usize = MIN_PIVCO_LEN;
+
     /// Creates a [`PivcoScheme`] using adaptive `PHA` with automatic block-shift selection and
     /// automatic `OP-PHA` promotion when order preservation costs at most `0.02 bpv`.
     pub const fn auto() -> Self {

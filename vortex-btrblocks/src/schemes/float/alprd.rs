@@ -121,7 +121,7 @@ impl Scheme for ALPRDScheme {
         );
         let validity = left_parts.validity()?;
 
-        let has_left_child = left_parts.nbytes() > 0;
+        let has_left_child = left_parts.nbytes() > 0 && left_parts.len() >= PivcoScheme::MIN_LEN;
         let compress = if has_left_child {
             vec![Child::new(self, 0, left_parts.clone())]
         } else {

@@ -1026,12 +1026,14 @@ fn test_alprd_left_parts_cascades_to_pivco_and_cuda_keeps_bitpacked(
     // `BitPacked`), so `left_parts` cascades to `Pivco` when `vortex.pivco` is permitted.
     let values: Vec<f32> = (0..len).map(|_| rng.random::<f32>()).collect();
     let input = if nullable {
+        // Use run-heavy nullability so core-edition validity compression (e.g. RunEnd) clearly
+        // compresses the validity bitmap and distinguishes `fallback` from raw `left_parts`.
         PrimitiveArray::from_option_iter(
             values
                 .iter()
                 .copied()
                 .enumerate()
-                .map(|(i, v)| (i % 29 != 0).then_some(v)),
+                .map(|(i, v)| (i % 512 >= 64).then_some(v)),
         )
         .into_array()
     } else {
@@ -1068,6 +1070,16 @@ fn test_alprd_left_parts_cascades_to_pivco_and_cuda_keeps_bitpacked(
         "expected BitPacked left_parts under core edition, got {}",
         core_alprd.left_parts().encoding_id()
     );
+    if nullable {
+        let Validity::Array(core_validity) = core_alprd.left_parts().validity()? else {
+            vortex_error::vortex_bail!("expected Validity::Array on nullable core ALPRD");
+        };
+        assert!(
+            !core_validity.is_canonical(),
+            "expected compressed validity on core ALPRD left_parts, got {}",
+            core_validity.encoding_id()
+        );
+    }
 
     // Core + unstable: ALPRD cascades left_parts into Pivco and shrinks strictly.
     let unstable_session = make_session(true)?;
@@ -1276,8 +1288,9 @@ fn test_alprd_child_zero_allows_only_pivco() -> VortexResult<()> {
         "BoolProbeCheck did not run"
     );
 
-    // End-to-end: when `PivcoScheme` is NOT enabled, `ALPRDScheme` skips `compress_child`
-    // completely and keeps `BitPacked` `left_parts` without invoking `ForbiddenFutureIntScheme`.
+    // End-to-end: when `PivcoScheme` is NOT enabled, `ALPRDScheme` still registers child 0 and
+    // calls `compress_child`, which returns early without canonicalizing `BitPacked` `left_parts`
+    // or invoking `ForbiddenFutureIntScheme`.
     let mut rng = StdRng::seed_from_u64(2026_1128);
     let input = PrimitiveArray::from_iter((0..4096).map(|_| rng.random::<f32>())).into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
