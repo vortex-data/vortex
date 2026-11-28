@@ -28,7 +28,6 @@ use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
@@ -441,18 +440,15 @@ fn parquet_shredded_field_from_logical(
 
     // Partially shredded fields canonicalize to a nested Variant whose core storage holds the
     // residual `value` and whose own shredded tree holds the typed children.
-    if let Some(variant) = logical_field.as_opt::<Variant>() {
-        // The core storage of a Variant read from a file can be chunked or masked.
-        let core = prepare_variant_for_export(variant.core_storage().clone(), None, ctx)?;
-        let core = core.as_::<ParquetVariant>();
-        let value = core.value().cloned().ok_or_else(|| {
+    if logical_field.is::<Variant>() {
+        // The core storage of a Variant read from a file can be chunked or masked, and can hold
+        // chunks with shredded children of their own.
+        let storage = prepare_variant_for_export(logical_field, None, ctx)?;
+        let storage = storage.as_::<ParquetVariant>();
+        let value = storage.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
-        let typed_value = variant
-            .shredded()
-            .cloned()
-            .map(|shredded| parquet_typed_value_from_logical_shredded(shredded, ctx))
-            .transpose()?;
+        let typed_value = storage.typed_value().cloned();
 
         let mut names = vec![FieldName::from("value")];
         let mut fields = vec![value];
