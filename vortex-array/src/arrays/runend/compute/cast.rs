@@ -5,31 +5,66 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ArrayView;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::runend::array::has_all_runs_referenced;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::builtin::cast::CastKernel;
 use crate::scalar_fn::builtin::cast::CastReduce;
+
 impl CastReduce for RunEnd {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Cast the values array to the target type
-        let casted_values = array.values().cast(dtype.clone())?;
-
-        // SAFETY: casting does not affect the ends being valid
-        unsafe {
-            Ok(Some(
-                RunEnd::new_unchecked(
-                    array.ends().clone(),
-                    casted_values,
-                    array.offset(),
-                    array.len(),
-                )
-                .into_array(),
-            ))
+        let safe_for_unused_values = match (array.dtype(), dtype) {
+            (DType::Primitive(from, _), DType::Primitive(to, _)) => from.casts_losslessly_to(*to),
+            (from, to) => from.as_nullable() == to.as_nullable(),
+        };
+        let may_reject_unused_values = !safe_for_unused_values
+            || (!dtype.is_nullable() && !array.values().validity()?.definitely_no_nulls());
+        if may_reject_unused_values && !has_all_runs_referenced(array) {
+            return Ok(None);
         }
+
+        cast_runs(array, dtype, None).map(Some)
     }
+}
+
+impl CastKernel for RunEnd {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if array.is_empty() {
+            return array.values().slice(0..0)?.cast(dtype.clone()).map(Some);
+        }
+
+        cast_runs(array, dtype, Some(ctx)).map(Some)
+    }
+}
+
+/// Cast the run values. With an execution context, first trim runs outside the logical range.
+fn cast_runs(
+    array: ArrayView<'_, RunEnd>,
+    dtype: &DType,
+    ctx: Option<&mut ExecutionCtx>,
+) -> VortexResult<ArrayRef> {
+    let (ends, values) = if let Some(ctx) = ctx {
+        let runs = array.find_physical_range(0..array.len(), ctx)?;
+        (
+            array.ends().slice(runs.clone())?,
+            array.values().slice(runs)?,
+        )
+    } else {
+        (array.ends().clone(), array.values().clone())
+    };
+    let values = values.cast(dtype.clone())?;
+
+    // SAFETY: Both children retain the same runs, which cover the entire logical range.
+    Ok(unsafe { RunEnd::new_unchecked(ends, values, array.offset(), array.len()) }.into_array())
 }
 
 #[cfg(test)]
@@ -38,11 +73,13 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::runend::RunEnd;
     use crate::arrays::runend::RunEndArray;
@@ -52,8 +89,76 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::test_harness::ExpectedOutcome;
+    use crate::test_harness::assert_execution_paths;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn test_cast_runend_ignores_unreferenced_null_timestamp() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let timestamp = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+        let values = ExtensionArray::try_new(
+            timestamp,
+            PrimitiveArray::from_option_iter([None, Some(5i64)]).into_array(),
+        )?;
+        let runs = RunEnd::try_new_offset_length(
+            buffer![1u32, 2].into_array(),
+            values.into_array(),
+            1,
+            1,
+            &mut ctx,
+        )?;
+        let target = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+        let expected = ExtensionArray::try_new(target.clone(), buffer![5i64].into_array())?;
+        assert_execution_paths(
+            &[runs.into_array()],
+            |inputs| inputs[0].cast(DType::Extension(target.clone())),
+            ExpectedOutcome::Array(expected.into_array()),
+            &mut ctx,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_runend_ignores_unreferenced_overflow() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let runs = RunEnd::try_new_offset_length(
+            buffer![1u32, 2].into_array(),
+            buffer![5i64, i64::MAX].into_array(),
+            0,
+            1,
+            &mut ctx,
+        )?;
+        assert_execution_paths(
+            &[runs.into_array()],
+            |inputs| inputs[0].cast(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ExpectedOutcome::Array(buffer![5i32].into_array()),
+            &mut ctx,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_empty_runend_rejects_unsupported_dtype() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let runs = RunEnd::try_new_offset_length(
+            buffer![1u32].into_array(),
+            buffer![5i64].into_array(),
+            0,
+            0,
+            &mut ctx,
+        )?;
+        assert_execution_paths(
+            &[runs.into_array()],
+            |inputs| inputs[0].cast(DType::Utf8(Nullability::NonNullable)),
+            ExpectedOutcome::Error,
+            &mut ctx,
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_cast_runend_i32_to_i64() {

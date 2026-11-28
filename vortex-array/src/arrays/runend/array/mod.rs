@@ -58,6 +58,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::require_child;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -236,6 +238,32 @@ impl RunEndArrayOwnedExt for Array<RunEnd> {
             },
         }
     }
+}
+
+/// Returns whether cached statistics of the ends prove that every run intersects the logical
+/// range.
+///
+/// Reduce rules have no execution context, so they cannot search the ends. A `false` result means
+/// only that the proof failed. The cast kernel then trims the runs at execution time.
+pub(super) fn has_all_runs_referenced(array: ArrayView<'_, RunEnd>) -> bool {
+    let ends = array.ends();
+    if array.is_empty() {
+        return ends.is_empty();
+    }
+    if ends.len() == 1 {
+        return true;
+    }
+
+    // If the logical range starts in the first run and reaches the last end, every run is used.
+    // Proving coverage when the slice ends inside the last run would require the penultimate end.
+    let stats = ends.statistics();
+    stats
+        .get(Stat::Min)
+        .as_exact()
+        .is_some_and(|min| usize::try_from(&min).is_ok_and(|first| first > array.offset()))
+        && stats.get(Stat::Max).as_exact().is_some_and(|max| {
+            usize::try_from(&max).is_ok_and(|last| last == array.offset() + array.len())
+        })
 }
 
 #[derive(Clone, Debug)]
