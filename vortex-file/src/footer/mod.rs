@@ -14,6 +14,7 @@ mod file_statistics;
 mod postscript;
 mod segment;
 
+use std::mem::size_of;
 use std::sync::Arc;
 
 mod serializer;
@@ -35,6 +36,7 @@ use vortex_error::vortex_err;
 use vortex_io::segments::SegmentLocation;
 use vortex_layout::LayoutId;
 use vortex_layout::LayoutRef;
+use vortex_layout::approx_layout_cache_bytes;
 use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
@@ -51,6 +53,9 @@ pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
 /// `org.apache.spark.sql.parquet.row.metadata` (41 bytes), which Spark writes into every Parquet
 /// file. With [`MAX_METADATA_SEGMENTS`] keys this bounds the postscript key budget at 1 KiB.
 pub(crate) const MAX_METADATA_KEY_BYTES: usize = 64;
+
+/// Fallback cache weight in bytes for footers constructed or mutated outside the file parser.
+const DEFAULT_CACHE_WEIGHT_BYTES: usize = 64 * 1024;
 
 /// User-defined metadata segment locators stored as `(key, locator)` pairs.
 pub(crate) type MetadataSegments = Arc<[(String, SegmentSpec)]>;
@@ -73,8 +78,9 @@ pub struct Footer {
     segments_end: Option<u64>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
-    // The approximate size of the footer in bytes, used for caching and memory management.
+    // The existing serialized-size estimate for the footer, layout, and metadata.
     approx_byte_size: Option<usize>,
+    approx_cache_byte_size: Option<usize>,
 }
 
 impl Footer {
@@ -93,6 +99,7 @@ impl Footer {
             metadata: Arc::from([]),
             array_read_ctx,
             approx_byte_size: None,
+            approx_cache_byte_size: None,
         }
     }
 
@@ -126,6 +133,7 @@ impl Footer {
             .map(|encoding| LayoutId::new(encoding.id()))
             .collect();
         let layout_read_ctx = ReadContext::new(layout_ids);
+        let approx_layout_bytes = approx_layout_cache_bytes(&layout_bytes, &layout_read_ctx);
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
@@ -159,6 +167,30 @@ impl Footer {
         }
 
         let segments_with_metadata = segments_with_metadata(&segments, &metadata);
+        let approx_cache_byte_size = size_of::<Self>()
+            .saturating_add(approx_layout_bytes)
+            .saturating_add(root_layout.dtype().approx_resident_bytes())
+            .saturating_add(
+                statistics
+                    .as_ref()
+                    .map_or(0, FileStatistics::approx_resident_bytes),
+            )
+            .saturating_add(segments.len().saturating_mul(size_of::<SegmentSpec>()))
+            .saturating_add(if Arc::ptr_eq(&segments, &segments_with_metadata) {
+                0
+            } else {
+                segments_with_metadata
+                    .len()
+                    .saturating_mul(size_of::<SegmentSpec>())
+            })
+            .saturating_add(
+                metadata
+                    .iter()
+                    .map(|(key, _)| {
+                        size_of::<(String, SegmentSpec)>().saturating_add(key.capacity())
+                    })
+                    .fold(0usize, usize::saturating_add),
+            );
 
         Ok(Self {
             root_layout,
@@ -169,6 +201,7 @@ impl Footer {
             metadata,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
+            approx_cache_byte_size: Some(approx_cache_byte_size),
         })
     }
 
@@ -219,6 +252,7 @@ impl Footer {
         self.segments_with_metadata = segments_with_metadata(&self.segments, &metadata);
         self.segments_end = segments_end(&self.segments_with_metadata);
         self.metadata = metadata;
+        self.approx_cache_byte_size = None;
         self
     }
 
@@ -252,9 +286,22 @@ impl Footer {
         self.root_layout.dtype()
     }
 
-    /// Returns the approximate size of the footer in bytes, used for caching and memory management.
+    /// Returns the estimated serialized size associated with the footer.
     pub fn approx_byte_size(&self) -> Option<usize> {
         self.approx_byte_size
+    }
+
+    /// Returns an approximate retained-byte weight for cache admission.
+    ///
+    /// Parsed footers use their projected layout, dtype, segment, metadata, and statistics sizes.
+    /// Footers constructed or mutated outside the file parser use a shared 64 KiB fallback. This
+    /// is not an RSS bound: allocator bookkeeping, Arc control blocks, cache metadata, hidden
+    /// plugin allocations, and shared owners across footer components or cache entries are not
+    /// measured exactly. Visible buffer and scalar byte lengths are proxies for backing capacity
+    /// and can under- or overestimate it.
+    pub fn cache_weight_bytes(&self) -> usize {
+        self.approx_cache_byte_size
+            .unwrap_or(DEFAULT_CACHE_WEIGHT_BYTES)
     }
 
     /// Returns the number of rows in the file.
@@ -330,9 +377,12 @@ fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> Vo
 mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_buffer::Alignment;
+    use vortex_buffer::ByteBufferMut;
     use vortex_layout::layouts::flat::FlatLayout;
     use vortex_layout::segments::SegmentId;
+    use vortex_layout::session::LayoutSession;
 
     use super::*;
 
@@ -378,6 +428,75 @@ mod tests {
     fn rejects_segment_offset_length_overflow() {
         let err = validate_segments_within_file(&[segment(u64::MAX, 1)], u64::MAX).unwrap_err();
         assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn test_parsed_wide_footer_has_a_cache_weight_separate_from_serialized_size() -> VortexResult<()>
+    {
+        let dtype = DType::Struct(
+            StructFields::from_iter((0..1024).map(|index| {
+                (
+                    format!("field_{index}"),
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                )
+            })),
+            Nullability::NonNullable,
+        );
+        let layout =
+            FlatLayout::new(1, dtype, SegmentId::from(0), ReadContext::new([])).into_layout();
+        let session = VortexSession::empty().with::<LayoutSession>();
+        let parts = Footer::new(
+            layout,
+            Arc::from([segment(0, 1)]),
+            None,
+            ReadContext::new([]),
+        )
+        .into_serializer(&session)
+        .serialize()?;
+        let total_len = parts.iter().map(ByteBuffer::len).sum();
+        let mut file = ByteBufferMut::with_capacity(total_len);
+        for part in parts {
+            file.extend_from_slice(part.as_ref());
+        }
+        let file = file.freeze();
+        let file_size = u64::try_from(file.len())?;
+        let mut deserializer = FooterDeserializer::new(file, session).with_size(file_size);
+        let footer = match deserializer.deserialize()? {
+            DeserializeStep::Done(footer) => footer,
+            _ => {
+                return Err(vortex_error::vortex_err!(
+                    "complete serialized file should deserialize in one step"
+                ));
+            }
+        };
+        let serialized_size = footer.approx_byte_size().ok_or_else(|| {
+            vortex_error::vortex_err!("parsed footer should have a serialized size")
+        })?;
+
+        assert!(footer.approx_cache_byte_size.is_some());
+        assert!(footer.cache_weight_bytes() > serialized_size);
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_mutation_invalidates_only_cache_weight() {
+        let layout = FlatLayout::new(
+            1,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            SegmentId::from(0),
+            ReadContext::new([]),
+        )
+        .into_layout();
+        let mut footer = Footer::new(layout, Arc::from([]), None, ReadContext::new([]))
+            .with_approx_byte_size(17);
+        footer.approx_cache_byte_size = Some(123);
+
+        let footer =
+            footer.with_metadata_segments(Arc::from([("metadata.key".to_string(), segment(0, 1))]));
+
+        assert_eq!(footer.approx_byte_size(), Some(17));
+        assert_eq!(footer.approx_cache_byte_size, None);
+        assert_eq!(footer.cache_weight_bytes(), DEFAULT_CACHE_WEIGHT_BYTES);
     }
 
     #[test]

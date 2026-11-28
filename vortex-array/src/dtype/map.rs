@@ -4,6 +4,7 @@
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -77,6 +78,22 @@ impl Hash for MapDTypeInner {
 }
 
 impl MapDType {
+    pub(crate) fn raw_key_value(&self) -> (&FieldDType, &FieldDType) {
+        (&self.0.key, &self.0.value)
+    }
+
+    pub(crate) fn footprint_id(&self) -> *const () {
+        Arc::as_ptr(&self.0).cast()
+    }
+
+    pub(crate) fn footprint_bytes(&self) -> usize {
+        size_of::<MapDTypeInner>()
+    }
+
+    pub(crate) fn projected_footprint_bytes() -> usize {
+        size_of::<MapDTypeInner>()
+    }
+
     pub(crate) fn eq_ignore_nullability(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
             || (self.key_dtype().eq_ignore_nullability(&other.key_dtype())

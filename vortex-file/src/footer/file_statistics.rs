@@ -7,6 +7,7 @@
 //! null counts, and other statistical information that can be used for query optimization
 //! and data exploration.
 use std::hash::Hash;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
@@ -67,6 +68,53 @@ pub struct FileStatistics {
 }
 
 impl FileStatistics {
+    /// Estimates statistics storage, while [`Footer`](super::Footer) accounts for the root dtype
+    /// and inline wrapper.
+    pub(crate) fn approx_resident_bytes(&self) -> usize {
+        let mut bytes = self
+            .aggregates
+            .len()
+            .saturating_mul(size_of::<AggregateStats>());
+        bytes = bytes
+            .saturating_add(
+                self.aggregates
+                    .iter()
+                    .map(AggregateStats::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(self.dtypes.len().saturating_mul(size_of::<DType>()))
+            .saturating_add(self.paths.len().saturating_mul(size_of::<FieldPath>()))
+            .saturating_add(
+                self.paths
+                    .iter()
+                    .map(FieldPath::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                self.path_index
+                    .capacity()
+                    .saturating_mul(size_of::<(FieldPath, usize)>()),
+            )
+            .saturating_add(
+                self.path_index
+                    .keys()
+                    .map(FieldPath::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                self.legacy_aggregates
+                    .len()
+                    .saturating_mul(size_of::<AggregateStats>()),
+            )
+            .saturating_add(
+                self.legacy_aggregates
+                    .iter()
+                    .map(AggregateStats::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            );
+        bytes
+    }
+
     /// Builds `path_index` from `paths` and assembles the final struct. The single place that
     /// constructs a [`FileStatistics`], so `path_index` can't drift out of sync with `paths`.
     fn from_parts(
@@ -601,6 +649,61 @@ mod tests {
     use vortex_array::stats::Stat;
 
     use super::*;
+
+    #[test]
+    fn test_field_path_projection_counts_nested_selector_storage() {
+        let short_names = FieldPath::from_name("a").push("b");
+        let long_names = FieldPath::from_name("a_long_top_level_name").push("long_nested_field");
+        let expected_selector_bytes = size_of_val(short_names.parts());
+
+        assert!(short_names.approx_resident_bytes() >= expected_selector_bytes);
+        assert_eq!(
+            short_names.approx_resident_bytes(),
+            long_names.approx_resident_bytes()
+        );
+    }
+
+    #[test]
+    fn test_approx_resident_bytes_list_struct_schema() {
+        let make_stats = |nested_name: &str, path_name: &str| {
+            let element_dtype =
+                DType::struct_([(nested_name, i32_dtype())], Nullability::NonNullable);
+            let file_dtype = DType::struct_(
+                [(
+                    path_name,
+                    DType::list(element_dtype, Nullability::NonNullable),
+                )],
+                Nullability::NonNullable,
+            );
+            let statistics = FileStatistics::new_with_dtype(
+                Arc::from([AggregateStats::default()]),
+                Arc::from([]),
+                &file_dtype,
+            );
+            (file_dtype, statistics)
+        };
+
+        let (_, short_nested_stats) = make_stats("a", "items");
+        let (_, long_nested_stats) = make_stats("long_nested_field_name", "items");
+        assert_eq!(
+            short_nested_stats.approx_resident_bytes(),
+            long_nested_stats.approx_resident_bytes()
+        );
+
+        let (short_path_dtype, short_path_stats) = make_stats("element", "x");
+        let (long_path_dtype, long_path_stats) = make_stats("element", "longer_path_name");
+        let short_total = short_path_dtype
+            .approx_resident_bytes()
+            .saturating_add(short_path_stats.approx_resident_bytes());
+        let long_total = long_path_dtype
+            .approx_resident_bytes()
+            .saturating_add(long_path_stats.approx_resident_bytes());
+
+        assert_eq!(
+            long_total.saturating_sub(short_total),
+            "longer_path_name".len() - "x".len()
+        );
+    }
 
     fn i32_dtype() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)

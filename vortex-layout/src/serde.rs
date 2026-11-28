@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::env;
+use std::mem::size_of;
 use std::sync::LazyLock;
 
 use flatbuffers::FlatBufferBuilder;
@@ -22,8 +23,11 @@ use crate::LayoutBuildContext;
 use crate::LayoutContext;
 use crate::LayoutDeserialization;
 use crate::LayoutRef;
+use crate::VTable;
 use crate::children::ViewedLayoutChildren;
+use crate::children::approx_viewed_children_bytes;
 use crate::flatbuffers::layout;
+use crate::layouts::chunked::Chunked;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
 use crate::session::LayoutSessionExt;
@@ -54,6 +58,56 @@ pub fn layout_from_flatbuffer(
     session: &VortexSession,
 ) -> VortexResult<LayoutRef> {
     layout_from_flatbuffer_with_options(flatbuffer, dtype, layout_ctx, ctx, session, false)
+}
+
+/// Projects the retained framework storage for a layout tree from its wire structure.
+///
+/// The serialized layout bytes are retained for lazy children, while parsed nodes may allocate
+/// their own metadata and child state. This deliberately estimates common built-in storage rather
+/// than introspecting plugin-owned allocations. Metadata payload lengths provide a copy allowance
+/// for built-in state. Allocator bookkeeping, Arc control blocks, and hidden plugin heap are
+/// omitted, and sharing between cached footers may be overcounted. This standalone estimate
+/// verifies the FlatBuffer independently, so normal layout deserialization verifies it again.
+pub fn approx_layout_cache_bytes(flatbuffer: &FlatBuffer, layout_ctx: &ReadContext) -> usize {
+    let Ok(root) = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, flatbuffer.as_ref()) else {
+        return flatbuffer.len();
+    };
+
+    let chunked_id = Chunked.id();
+    let mut pending = vec![root];
+    let mut nodes = 0usize;
+    let mut segments = 0usize;
+    let mut metadata_bytes = 0usize;
+    let mut chunk_offsets = 0usize;
+    let mut child_storage_bytes = 0usize;
+
+    while let Some(node) = pending.pop() {
+        nodes = nodes.saturating_add(1);
+        let node_children = node.children();
+        let child_count = node_children.as_ref().map_or(0, |children| children.len());
+        child_storage_bytes =
+            child_storage_bytes.saturating_add(approx_viewed_children_bytes(child_count));
+        segments = segments.saturating_add(node.segments().map_or(0, |segments| segments.len()));
+        metadata_bytes =
+            metadata_bytes.saturating_add(node.metadata().map_or(0, |metadata| metadata.len()));
+        if layout_ctx
+            .resolve(node.encoding())
+            .is_some_and(|id| id == chunked_id)
+        {
+            chunk_offsets = chunk_offsets.saturating_add(child_count.saturating_add(1));
+        }
+        if let Some(node_children) = node_children {
+            pending.extend(node_children.iter());
+        }
+    }
+
+    flatbuffer
+        .len()
+        .saturating_add(nodes.saturating_mul(crate::layout::max_core_layout_allocation_size()))
+        .saturating_add(child_storage_bytes)
+        .saturating_add(segments.saturating_mul(size_of::<SegmentId>()))
+        .saturating_add(metadata_bytes)
+        .saturating_add(chunk_offsets.saturating_mul(size_of::<u64>()))
 }
 
 /// Parse a [`LayoutRef`] from a layout flatbuffer with unknown-encoding behavior control.
@@ -270,6 +324,7 @@ mod tests {
     use crate::LayoutSerialization;
     use crate::VTable;
     use crate::flatbuffers::layout as fbl;
+    use crate::layouts::chunked::Chunked;
     use crate::layouts::flat::Flat;
     use crate::layouts::flat::FlatLayout;
     use crate::segments::SegmentId;
@@ -396,6 +451,59 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<LayoutSession>());
+
+    #[test]
+    fn test_cache_projection_counts_layout_metadata_and_chunk_offsets() -> VortexResult<()> {
+        const METADATA_BYTES: usize = 4096;
+
+        let mut fbb = FlatBufferBuilder::new();
+        let metadata = vec![0u8; METADATA_BYTES];
+        let child_metadata = fbb.create_vector(&metadata);
+        let child = fbl::Layout::create(
+            &mut fbb,
+            &fbl::LayoutArgs {
+                encoding: 1,
+                row_count: 3,
+                metadata: Some(child_metadata),
+                children: None,
+                segments: None,
+            },
+        );
+        let children = fbb.create_vector(&[child]);
+        let metadata = fbb.create_vector(&metadata);
+        let segments = fbb.create_vector(&[7u32, 8]);
+        let root = fbl::Layout::create(
+            &mut fbb,
+            &fbl::LayoutArgs {
+                encoding: 0,
+                row_count: 10,
+                metadata: Some(metadata),
+                children: Some(children),
+                segments: Some(segments),
+            },
+        );
+        fbb.finish_minimal(root);
+        let (buf, start) = fbb.collapse();
+        let flatbuffer = vortex_array::flatbuffers::FlatBuffer::align_from(
+            vortex_buffer::ByteBuffer::from(buf).slice(start..),
+        );
+        let layout_context = ReadContext::new([VTable::id(&Chunked)]);
+        let minimum = flatbuffer
+            .len()
+            .saturating_add(2 * METADATA_BYTES)
+            .saturating_add(2 * size_of::<u32>())
+            .saturating_add(2 * size_of::<u64>());
+        let without_chunk_offsets =
+            super::approx_layout_cache_bytes(&flatbuffer, &ReadContext::new([]));
+        let with_chunk_offsets = super::approx_layout_cache_bytes(&flatbuffer, &layout_context);
+
+        assert!(with_chunk_offsets >= minimum);
+        assert_eq!(
+            with_chunk_offsets,
+            without_chunk_offsets + 2 * size_of::<u64>()
+        );
+        Ok(())
+    }
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]

@@ -10,6 +10,7 @@
 use core::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -117,6 +118,12 @@ impl FieldPath {
     /// Returns the sequence of field selectors that make up this path
     pub fn parts(&self) -> &[Field] {
         &self.0
+    }
+
+    /// Estimates allocated selector slots. Field names are shared with and counted by the root
+    /// DType.
+    pub fn approx_resident_bytes(&self) -> usize {
+        self.0.capacity().saturating_mul(size_of::<Field>())
     }
 
     /// Returns whether this path is a root path.

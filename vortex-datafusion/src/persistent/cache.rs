@@ -34,11 +34,7 @@ impl FileMetadata for CachedVortexMetadata {
     }
 
     fn memory_size(&self) -> usize {
-        self.footer
-            .approx_byte_size()
-            // 64KB is not an insane estimate...
-            // We just want to avoid returning zero and _never_ being evicted from the cache.
-            .unwrap_or(1024 * 64)
+        self.footer.cache_weight_bytes()
     }
 
     fn extra_info(&self) -> HashMap<String, String> {

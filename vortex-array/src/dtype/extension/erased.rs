@@ -7,6 +7,7 @@ use std::any::type_name;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::size_of_val;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -38,6 +39,14 @@ use crate::scalar::ScalarValue;
 pub struct ExtDTypeRef(pub(super) Arc<dyn DynExtDType>);
 
 impl ExtDTypeRef {
+    pub(crate) fn approx_footprint_id(&self) -> *const () {
+        Arc::as_ptr(&self.0).cast()
+    }
+
+    pub(crate) fn approx_inline_bytes(&self) -> usize {
+        size_of_val(self.0.as_ref())
+    }
+
     /// Returns the [`ExtId`] identifying this extension type.
     pub fn id(&self) -> ExtId {
         self.0.id()
