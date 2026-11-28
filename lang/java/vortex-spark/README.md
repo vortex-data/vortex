@@ -11,6 +11,8 @@ Choose the artifact matching both Spark and Scala:
 | `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x          | 2.12  |
 | `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x          | 2.13  |
 | `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x to 4.3.x | 2.13  |
+| `dev.vortex:vortex-spark-4.1_2.13` | 4.1.x to 4.3.x | 2.13  |
+| `dev.vortex:vortex-spark-4.2_2.13` | 4.2.x to 4.3.x | 2.13  |
 
 Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries, and
 relocated Arrow, Guava, and Jackson dependencies. The unclassified thin JAR is not usable by
@@ -73,7 +75,12 @@ SELECT * FROM vortex.`/path/to/output`;
 catalog configuration. Direct path queries are read-only, as with Spark's built-in formats.
 Catalog tables read and write through the V1 file format;
 `spark.sql.sources.useV1SourceList=vortex` puts every path on it, which is what the `_metadata`
-column and dynamic partition pruning need.
+column, including `_metadata.row_index`, needs.
+
+Reads split large files across tasks, push filters, `IN` lists, `LIMIT`, nested column pruning,
+and runtime join filters into the native scan, and answer `COUNT`, `MIN`, `MAX`, and integer `SUM`
+per file from footer statistics, computing from the compressed data only what a footer does not
+state.
 
 ## Read coalescing
 
@@ -103,7 +110,7 @@ Java callers supplying their own `NativeReadable` can override `coalesceDistance
 ## Benchmarks
 
 JMH benchmarks live in `common/src/jmh/java`. They measure the per-file open cost of the
-framework's file-splitting model and the footer reads behind statistics and `COUNT(*)` pushdown.
+framework's file-splitting model and the footer reads behind statistics and aggregate pushdown.
 Run them for one variant and pass JMH arguments through `-PjmhArgs`:
 
 ```bash

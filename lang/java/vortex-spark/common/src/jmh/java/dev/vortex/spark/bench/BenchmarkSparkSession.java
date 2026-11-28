@@ -17,6 +17,7 @@ final class BenchmarkSparkSession {
                 .master("local[4]")
                 .config("spark.driver.host", "127.0.0.1")
                 .config("spark.ui.enabled", "false")
+                .config("spark.sql.extensions", "dev.vortex.spark.VortexSparkSessionExtensions")
                 .config("spark.sql.shuffle.partitions", "4")
                 .getOrCreate();
     }
