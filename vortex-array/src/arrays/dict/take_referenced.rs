@@ -176,11 +176,46 @@ fn likely_dense<P: AsPrimitive<usize>>(
         *word |= bit;
     }
     if repeats == 0 {
-        return Some(true);
+        // A stride can skip entire runs of equal indices. Probe neighbors at up to 32
+        // positions before treating a collision-free sample as a dense take.
+        let has_runs = step > 1
+            && indices
+                .windows(3)
+                .step_by(indices.len().div_ceil(32))
+                .any(|rows| rows[0].as_() == rows[1].as_() || rows[1].as_() == rows[2].as_());
+        return Some(!has_runs);
     }
     // For a small sample, repeat hits approximate the s * (s - 1) / (2 * d) colliding pairs
     // expected from s draws over d distinct rows. After k draws the unseen fraction is exp(-k / d).
     let domain = samples as f64 * (samples - 1) as f64 / (2 * repeats) as f64;
     let distinct = -domain * (-(indices.len() as f64) / domain).exp_m1();
     Some(distinct >= limit as f64)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_mask::Mask;
+
+    use super::ReferencedRows;
+    use super::gather_limit;
+    use super::likely_dense;
+    use super::remap_referenced;
+
+    #[test]
+    fn sorted_repeated_indices_decode_only_the_referenced_prefix() {
+        let rows = 16_384;
+        let indices: Vec<_> = (0..64_000u32).map(|i| i / 32).collect();
+        let limit = gather_limit(rows, indices.len(), None);
+        let referenced = remap_referenced(&indices, &Mask::new_true(indices.len()), rows, limit);
+        assert!(matches!(referenced, Some(ReferencedRows::Prefix(2_000))));
+    }
+
+    #[test]
+    fn collision_free_permutation_skips_full_marking() {
+        let rows = 16_384usize;
+        let indices: Vec<_> = (0..rows).map(|i| (i * 31) % rows).collect();
+        let limit = gather_limit(rows, indices.len(), None);
+        let mut words = vec![0; rows.div_ceil(64)];
+        assert_eq!(likely_dense(&indices, rows, limit, &mut words), Some(true));
+    }
 }
