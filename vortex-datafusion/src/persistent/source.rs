@@ -300,6 +300,7 @@ impl VortexSource {
     /// after a filtered scan, without re-evaluating mutable dynamic filters.
     pub fn without_predicates(mut self) -> Self {
         self.full_predicate = None;
+        self.file_pruning_cache = Arc::default();
         self.vortex_predicate = None;
         self
     }
@@ -915,22 +916,35 @@ mod tests {
 
     #[test]
     fn test_without_predicates_clears_scan_and_pruning_filters() -> anyhow::Result<()> {
-        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let schema = sort_test_schema();
         let source = sort_test_source(Arc::clone(&schema));
-        let result = source
-            .try_pushdown_filters(vec![octet_length_filter(&schema)], &ConfigOptions::new())?;
-        let filtered = result.updated_node.expect("expected updated source");
-        let filtered = filtered
-            .downcast_ref::<VortexSource>()
-            .expect("VortexSource");
-        assert!(filtered.full_predicate.is_some());
-        assert!(filtered.vortex_predicate.is_some());
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Gt,
+            df_expr::lit(10i32),
+        ));
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+        let updated = result.updated_node.expect("expected updated source");
+        let filtered = updated.downcast_ref::<VortexSource>().expect("VortexSource");
+        let predicate = filtered.full_predicate.as_ref().expect("pruning predicate");
+        let mut stats = Statistics::new_unknown(&schema);
+        stats.column_statistics[0].max_value = Precision::Exact(ScalarValue::Int32(Some(5)));
+        let file = PartitionedFile::new("file.vortex", 100).with_statistics(Arc::new(stats));
+        assert_eq!(
+            filtered
+                .file_pruning_cache
+                .should_prune(predicate, &schema, &file, &Count::new()),
+            Some(true)
+        );
+        let original_predicate = Arc::downgrade(predicate);
 
         let cleared = filtered.clone().without_predicates();
         assert!(cleared.full_predicate.is_none());
         assert!(cleared.vortex_predicate.is_none());
         assert!(filtered.full_predicate.is_some());
         assert!(filtered.vortex_predicate.is_some());
+        drop(updated);
+        assert!(original_predicate.upgrade().is_none());
         let config = FileScanConfigBuilder::new(
             ObjectStoreUrl::local_filesystem(),
             Arc::new(cleared.clone()),

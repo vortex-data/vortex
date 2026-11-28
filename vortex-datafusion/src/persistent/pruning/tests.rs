@@ -324,14 +324,16 @@ async fn custom_snapshots_are_refreshed_for_each_file(
 }
 
 #[rstest]
-#[case::already_rejected(5, true, true)]
-#[case::newly_rejected(20, false, true)]
-#[case::still_matches(40, false, false)]
+#[case::already_rejected(5, 30, true, true)]
+#[case::newly_rejected(20, 30, false, true)]
+#[case::still_matches(40, 30, false, false)]
+#[case::newly_matches(5, 1, true, false)]
 #[tokio::test]
-async fn older_dynamic_snapshots_are_conservative_under_refinement(
+async fn nested_dynamic_filters_use_current_bounds_for_each_file(
     #[case] maximum: i32,
+    #[case] new_bound: i32,
     #[case] initial_pruned: bool,
-    #[case] refined_pruned: bool,
+    #[case] updated_pruned: bool,
     #[values(false, true)] hidden_from_start: bool,
 ) -> DFResult<()> {
     let cache = Arc::new(FilePruningCache::default());
@@ -360,22 +362,26 @@ async fn older_dynamic_snapshots_are_conservative_under_refinement(
         initial_pruned
     );
     if !hidden_from_start {
-        outer.update(Arc::clone(&body))?;
+        outer.update(body)?;
         assert_eq!(
             initial_file_check(&cache, &expression, &schema, &file).await?,
             initial_pruned
         );
     }
-    inner.update(Arc::new(Literal::new(ScalarValue::Int32(Some(30)))))?;
+    inner.update(Arc::new(Literal::new(ScalarValue::Int32(Some(new_bound)))))?;
+    let mut next_file = file;
+    next_file.object_meta.location = "next.vortex".into();
+    let mut reference = datafusion_pruning::FilePruner::try_new(
+        Arc::clone(&expression),
+        &schema,
+        &next_file,
+        Count::new(),
+    )
+    .vortex_expect("file has statistics");
+    assert_eq!(reference.should_prune()?, updated_pruned);
     assert_eq!(
-        initial_file_check(&cache, &expression, &schema, &file).await?,
-        initial_pruned
-    );
-    // Publishing the refined body advances the outer generation and restores precise pruning.
-    outer.update(body)?;
-    assert_eq!(
-        initial_file_check(&cache, &expression, &schema, &file).await?,
-        refined_pruned
+        initial_file_check(&cache, &expression, &schema, &next_file).await?,
+        updated_pruned
     );
     Ok(())
 }

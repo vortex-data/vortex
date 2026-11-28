@@ -54,6 +54,7 @@ type CompiledPredicate = Option<Arc<PruningPredicate>>;
 
 struct VersionedPredicate {
     generation: u64,
+    shareable: bool,
     predicate: OnceCell<CompiledPredicate>,
 }
 
@@ -91,6 +92,25 @@ impl CacheKind {
         }
         kind
     }
+}
+
+/// A dynamic filter exposes its input columns as children. Its current body can also contain
+/// expressions that change without advancing the filter's generation.
+fn dynamic_bodies_are_static(expression: &PhysicalExprRef) -> bool {
+    let mut pending = vec![expression];
+    while let Some(node) = pending.pop() {
+        if let Some(filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
+            if !filter
+                .current()
+                .is_ok_and(|body| CacheKind::classify(&body) == CacheKind::Static)
+            {
+                return false;
+            }
+        } else {
+            pending.extend(node.children());
+        }
+    }
+    true
 }
 
 fn is_immutable_node(expression: &PhysicalExprRef) -> bool {
@@ -159,9 +179,10 @@ impl FilePruningCache {
         build: impl FnOnce() -> CompiledPredicate,
     ) -> CompiledPredicate {
         let generation = snapshot_generation(expression);
-        let entry = self.dynamic_entry(generation);
-        // Within this predicate epoch, an older filter admits a superset of the current
-        // matches. A stale snapshot can miss pruning, but cannot discard a matching file.
+        let entry = self.dynamic_entry(expression, generation);
+        if !entry.shareable {
+            return build();
+        }
         if let Some(predicate) = entry.predicate.get() {
             return predicate.clone();
         }
@@ -182,7 +203,10 @@ impl FilePruningCache {
         Fut: Future<Output = CompiledPredicate>,
     {
         let generation = snapshot_generation(expression);
-        let entry = self.dynamic_entry(generation);
+        let entry = self.dynamic_entry(expression, generation);
+        if !entry.shareable {
+            return build().await;
+        }
         match entry
             .predicate
             .get_or_try_init(|| async {
@@ -205,7 +229,11 @@ impl FilePruningCache {
         }
     }
 
-    fn dynamic_entry(&self, generation: u64) -> Arc<VersionedPredicate> {
+    fn dynamic_entry(
+        &self,
+        expression: &PhysicalExprRef,
+        generation: u64,
+    ) -> Arc<VersionedPredicate> {
         {
             let cached = self.dynamic_predicate.read();
             if let Some(cached) = cached.as_ref()
@@ -216,6 +244,7 @@ impl FilePruningCache {
         }
         let entry = Arc::new(VersionedPredicate {
             generation,
+            shareable: dynamic_bodies_are_static(expression),
             predicate: OnceCell::new(),
         });
         let previous = {
