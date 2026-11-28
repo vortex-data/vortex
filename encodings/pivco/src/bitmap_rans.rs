@@ -24,6 +24,7 @@ use std::sync::LazyLock;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::simd::popcount_bits;
 
@@ -549,10 +550,10 @@ pub(crate) fn decode_static_byte_rans<'o>(
         }
     }
 
-    vortex_ensure!(
-        word_pos == words.len(),
-        "Trailing words in PIVCO byte-rANS stream ({word_pos} != {})",
-        words.len()
+    vortex_ensure_eq!(
+        word_pos,
+        words.len(),
+        "Trailing words in PIVCO byte-rANS stream"
     );
     vortex_ensure!(
         states.iter().all(|&s| s == BM_RANS_L),
@@ -720,10 +721,12 @@ impl<'a> NodeBitmap<'a> {
 
     /// Returns the bit at `pos` (`< len`), the count of 1-bits in `0..pos` (`rank1(pos)`), and
     /// the total count of 1-bits in `0..len` (`count1()`).
+    /// # Safety
     ///
-    /// `scratch` must be the same buffer passed to [`Self::read`] (only read for `Self::Scratch`).
+    /// When `self` is [`Self::Scratch`], `scratch[..len.div_ceil(8)]` must have been initialized
+    /// by [`Self::read`].
     #[inline]
-    pub(crate) fn bit_and_ranks(
+    pub(crate) unsafe fn bit_and_ranks(
         &self,
         scratch: &[MaybeUninit<u8>],
         len: usize,
@@ -766,7 +769,8 @@ impl<'a> NodeBitmap<'a> {
                 (bit, ones_before, total_ones)
             }
             Self::Scratch => {
-                let bm = scratch_as_init(scratch, len.div_ceil(8));
+                // SAFETY: Caller guarantees `scratch[..len.div_ceil(8)]` was initialized by `Self::read`.
+                let bm = unsafe { scratch_as_init(scratch, len.div_ceil(8)) };
                 let bit = ((bm[pos >> 3] >> (pos & 7)) & 1) != 0;
                 (bit, popcount_bits(bm, pos), popcount_bits(bm, len))
             }
@@ -774,8 +778,13 @@ impl<'a> NodeBitmap<'a> {
     }
 
     /// Returns `(rank1(prefix_len), count1(len))` where `prefix_len <= len`.
+    ///
+    /// # Safety
+    ///
+    /// When `self` is [`Self::Scratch`], `scratch[..len.div_ceil(8)]` must have been initialized
+    /// by [`Self::read`].
     #[inline]
-    pub(crate) fn rank1_and_count1(
+    pub(crate) unsafe fn rank1_and_count1(
         &self,
         scratch: &[MaybeUninit<u8>],
         len: usize,
@@ -804,23 +813,35 @@ impl<'a> NodeBitmap<'a> {
                 }
             }
             Self::Scratch => {
-                let bm = scratch_as_init(scratch, len.div_ceil(8));
+                // SAFETY: Caller guarantees `scratch[..len.div_ceil(8)]` was initialized by `Self::read`.
+                let bm = unsafe { scratch_as_init(scratch, len.div_ceil(8)) };
                 (popcount_bits(bm, prefix_len), popcount_bits(bm, len))
             }
         }
     }
 
     /// Returns the bit at `pos` (`< len`).
+    ///
+    /// # Safety
+    ///
+    /// When `self` is [`Self::Scratch`], `scratch[..len.div_ceil(8)]` must have been initialized
+    /// by [`Self::read`].
     #[cfg(test)]
     #[inline]
-    pub(crate) fn bit(&self, scratch: &[MaybeUninit<u8>], len: usize, pos: usize) -> bool {
-        self.bit_and_ranks(scratch, len, pos).0
+    pub(crate) unsafe fn bit(&self, scratch: &[MaybeUninit<u8>], len: usize, pos: usize) -> bool {
+        // SAFETY: Forwarded from caller's safety contract.
+        unsafe { self.bit_and_ranks(scratch, len, pos).0 }
     }
 
     /// Returns the total count of 1-bits in `0..len`.
+    ///
+    /// # Safety
+    ///
+    /// When `self` is [`Self::Scratch`], `scratch[..len.div_ceil(8)]` must have been initialized
+    /// by [`Self::read`].
     #[cfg(test)]
     #[inline]
-    pub(crate) fn count1(&self, scratch: &[MaybeUninit<u8>], len: usize) -> usize {
+    pub(crate) unsafe fn count1(&self, scratch: &[MaybeUninit<u8>], len: usize) -> usize {
         match *self {
             Self::AllZero => 0,
             Self::AllOne => len,
@@ -829,14 +850,22 @@ impl<'a> NodeBitmap<'a> {
                 let count = idx_bytes.len() / 2;
                 if invert { len - count } else { count }
             }
-            Self::Scratch => popcount_bits(scratch_as_init(scratch, len.div_ceil(8)), len),
+            Self::Scratch => {
+                // SAFETY: Caller guarantees `scratch[..len.div_ceil(8)]` was initialized by `Self::read`.
+                popcount_bits(unsafe { scratch_as_init(scratch, len.div_ceil(8)) }, len)
+            }
         }
     }
 
     /// Materializes `Sparse` bitmaps into `scratch[..ceil(len/8)]` for dense SIMD merge kernels,
     /// returning a zero-copy slice for `Raw` and the initialized scratch slice for `Sparse`/`Scratch`.
+    ///
+    /// # Safety
+    ///
+    /// When `self` is [`Self::Scratch`], `scratch[..len.div_ceil(8)]` must have been initialized
+    /// by [`Self::read`].
     #[inline]
-    pub(crate) fn into_dense<'s>(
+    pub(crate) unsafe fn into_dense<'s>(
         self,
         scratch: &'s mut [MaybeUninit<u8>],
         len: usize,
@@ -872,16 +901,20 @@ impl<'a> NodeBitmap<'a> {
                 }
                 DenseBitmap::Bytes(dense)
             }
-            Self::Scratch => DenseBitmap::Bytes(scratch_as_init(scratch, nbytes)),
+            // SAFETY: Caller guarantees `scratch[..nbytes]` was initialized by `Self::read`.
+            Self::Scratch => DenseBitmap::Bytes(unsafe { scratch_as_init(scratch, nbytes) }),
         }
     }
 }
 
 /// Returns `&scratch[..nbytes]` as an initialized byte slice after `NodeBitmap::Scratch` was decoded.
+///
+/// # Safety
+///
+/// `scratch.len() >= nbytes` and every byte in `scratch[..nbytes]` must be initialized.
 #[inline]
-pub(crate) fn scratch_as_init(scratch: &[MaybeUninit<u8>], nbytes: usize) -> &[u8] {
+pub(crate) unsafe fn scratch_as_init(scratch: &[MaybeUninit<u8>], nbytes: usize) -> &[u8] {
     debug_assert!(scratch.len() >= nbytes);
-    // SAFETY: Caller only invokes this for `NodeBitmap::Scratch`, where `decode_static_byte_rans`
-    // initialized every byte in `0..nbytes`.
+    // SAFETY: Caller guarantees `scratch[..nbytes]` is in-bounds and initialized.
     unsafe { std::slice::from_raw_parts(scratch.as_ptr().cast::<u8>(), nbytes) }
 }

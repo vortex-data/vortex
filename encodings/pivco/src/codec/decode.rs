@@ -287,7 +287,9 @@ impl BlockReader<'_> {
             let root_cached = cached_root.then(|| {
                 let nbytes = block_len.div_ceil(8);
                 (
-                    scratch_as_init(&root_cache_buf, nbytes),
+                    // SAFETY: `cached_root` is true only after copying `bm_scratch[..nbytes]`
+                    // initialized by `NodeBitmap::read` into `root_cache_buf[..nbytes]`.
+                    unsafe { scratch_as_init(&root_cache_buf, nbytes) },
                     root_after_cursor,
                     root_left_bytes,
                 )
@@ -395,7 +397,9 @@ fn decode_symbol_at_inner(
                     cached_root = true;
                 }
 
-                let (go_right, ones_before, total_ones) = bm.bit_and_ranks(bm_scratch, len, pos);
+                // SAFETY: `bm_scratch` was just initialized by `NodeBitmap::read` for `bm`.
+                let (go_right, ones_before, total_ones) =
+                    unsafe { bm.bit_and_ranks(bm_scratch, len, pos) };
                 let k_left = len - total_ones;
                 let left_end = if let Some(lb) = left_bytes {
                     if k_left == 0 {
@@ -516,7 +520,8 @@ fn prefix_ebits_sum(
                     } else {
                         None
                     };
-                    let (pr, tr) = bm.rank1_and_count1(bm_scratch, len, prefix_len);
+                    // SAFETY: `bm_scratch` was just initialized by `NodeBitmap::read` for `bm`.
+                    let (pr, tr) = unsafe { bm.rank1_and_count1(bm_scratch, len, prefix_len) };
                     (pr, tr, left_bytes)
                 };
 
@@ -650,7 +655,8 @@ fn decode_subtree_ping_pong(
             };
             let left_start = *cursor;
 
-            match bm.into_dense(bm_head, n) {
+            // SAFETY: `bm_head` was just initialized by `NodeBitmap::read` for `bm`.
+            match unsafe { bm.into_dense(bm_head, n) } {
                 DenseBitmap::AllZero => {
                     match left_child {
                         ChildSpec::Leaf(l_sym) => {
