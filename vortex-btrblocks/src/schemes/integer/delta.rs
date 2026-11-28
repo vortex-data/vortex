@@ -265,10 +265,12 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
     use vortex_fastlanes::Delta;
-    use vortex_sequence::Sequence;
+    use vortex_fastlanes::delta_compress;
 
     use super::DeltaScheme;
+    use crate::ArrayAndStats;
     use crate::BtrBlocksCompressorBuilder;
+    use crate::GenerateStatsOptions;
     use crate::SESSION;
     use crate::schemes::integer::SequenceScheme;
 
@@ -277,9 +279,16 @@ mod tests {
     #[test]
     fn test_delta_compresses_zero_span_step_function() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let input =
-            PrimitiveArray::from_iter((0..65_536u64).map(|i| (i / 1024) * 1_000_000)).into_array();
+        let input = PrimitiveArray::from_iter((0..65_536u64).map(|i| (i / 1024) * 1_000_000));
 
+        let (_bases, deltas) = delta_compress(&input, &mut ctx)?;
+        let span = ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default())
+            .integer_stats(&mut ctx)
+            .erased()
+            .max_minus_min();
+        assert_eq!(span, 0);
+
+        let input = input.into_array();
         // With Delta and Sequence competing, Sequence skips (non-unique values) and Delta must
         // score `span == 0` with `delta_bits = 0` rather than skipping.
         let compressor = BtrBlocksCompressorBuilder::empty()
@@ -299,16 +308,22 @@ mod tests {
     }
 
     #[test]
-    fn test_delta_wins_full_compressor_on_zero_span_piecewise_linear() -> VortexResult<()> {
+    fn test_delta_wins_full_compressor_on_zero_span_constant_lanes() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Each 1024-row FastLanes chunk is a stride-1 ramp starting at a wide jump, so all 65,536
-        // values are unique (RunEnd/RLE/Dict/Sparse skip) and non-linear globally (Sequence skips),
-        // while every transposed delta inside a chunk is identical (`span == 0`).
+        // Each 1024-row FastLanes u64 chunk has 16 lanes of 64 elements, so holding each 64-row
+        // lane constant at a distinct pseudo-random value gives `span == 0`.
         let input = PrimitiveArray::from_iter(
-            (0..65_536u64).map(|i| (i / 1024) * (1u64 << 50) + (i % 1024)),
-        )
-        .into_array();
+            (0..65_536u64).map(|i| (i / 64).wrapping_mul(0x9e37_79b9_7f4a_7c15)),
+        );
 
+        let (_bases, deltas) = delta_compress(&input, &mut ctx)?;
+        let span = ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default())
+            .integer_stats(&mut ctx)
+            .erased()
+            .max_minus_min();
+        assert_eq!(span, 0);
+
+        let input = input.into_array();
         let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
             .unrestricted()
             .build();
@@ -318,25 +333,7 @@ mod tests {
             "expected Delta, got {}",
             compressed.encoding_id()
         );
-        assert!(compressed.nbytes() < input.nbytes() / 64);
-        assert_arrays_eq!(compressed, input, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
-    fn test_delta_zero_span_still_defers_to_sequence_on_linear_counter() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let input = PrimitiveArray::from_iter(0..65_536u64).into_array();
-
-        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
-            .unrestricted()
-            .build();
-        let compressed = compressor.compress(&input, &mut ctx)?;
-        assert!(
-            compressed.is::<Sequence>(),
-            "expected Sequence, got {}",
-            compressed.encoding_id()
-        );
+        assert!(compressed.nbytes() < input.nbytes() / 50);
         assert_arrays_eq!(compressed, input, &mut ctx);
         Ok(())
     }
