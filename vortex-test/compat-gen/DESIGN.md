@@ -11,10 +11,25 @@ We need back-compat!
 
 ## The Solution
 
-We maintain a library of `.vortex` fixture files, one set per released
-version, stored in S3. A test reads every old fixture with the current reader
-and compares the decoded values against a known-good oracle. If any fixture
-from any version decodes to the wrong values, the test fails.
+Compatibility testing covers both directions:
+
+1. **Backward compatibility (current reader, old files):** We maintain a library
+   of `.vortex` fixture files, one set per released version, stored in S3.
+   `compat.py check` reads every old fixture with the current reader and
+   compares decoded values against a known-good oracle. Keeping the recurring
+   `--mode all` sweep catches regressions on historical physical encodings that
+   HEAD no longer writes under the same fixture names (for example, pre-#10701
+   non-canonical decimal widths from #10754).
+2. **Forward compatibility (old reader, current files):**
+   `vortex-compat generate --edition <EDITION>` enables a specific frozen `core`
+   edition on the write session, skipping only encoding-specific fixtures whose
+   required encoding is not permitted by that edition. `compat.py check-editions`
+   generates fixtures at every frozen `core` edition and reads them with the
+   oldest `vortex-data` release that supports that edition, comparing decoded
+   values against HEAD's expected Arrow output. Known defects are tracked in
+   `accepted-edition-failures.json` (which is shrink-only: any unexpected
+   failure fails the check, and any accepted entry that starts passing also
+   fails until removed).
 
 ## How Fixtures Work
 
@@ -128,10 +143,10 @@ that is the form that the published file holds.
 ```
 ┌──────────────────────────────────────────────────┐
 │  Python orchestrator (compat.py)                 │
-│  Version-agnostic: S3, manifests, worktrees      │
+│  Version-agnostic: S3, manifests, tag detection  │
 │                                                  │
-│  Commands: publish, check, generate, list,       │
-│            validate-manifest                     │
+│  Commands: publish, check, check-editions,       │
+│            generate, list, validate-manifest     │
 └──────────────────┬───────────────────────────────┘
                    │ invokes
 ┌──────────────────▼───────────────────────────────┐
@@ -139,14 +154,15 @@ that is the form that the published file holds.
 │  Version-specific: builds arrays, writes/reads   │
 │  .vortex files, compares arrays                  │
 │                                                  │
-│  Commands: generate, check                       │
+│  Commands: generate, editions, dump-expected,    │
+│            check                                 │
 └──────────────────────────────────────────────────┘
 ```
 
 **Why the split?** Only the Rust binary links against Vortex. When Vortex
 APIs change across versions, only this small binary needs to recompile. The
-Python orchestrator handles S3, manifests, git worktrees, and additive-only
-enforcement without touching Vortex code.
+Python orchestrator handles S3, manifests, git tag version detection, and
+additive-only enforcement without touching Vortex code.
 
 ### Rust binary: `vortex-compat`
 
@@ -157,8 +173,8 @@ See [README.md](README.md) for CLI usage.
 The only code that calls Vortex file I/O APIs directly:
 
 ```rust
-pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()>;
-pub fn read_file(bytes: ByteBuffer) -> VortexResult<Vec<ArrayRef>>;
+pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()>;
+pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef>;
 ```
 
 Uses the Epoch C API (`session.write_options()` /
@@ -235,13 +251,19 @@ Two-phase workflow:
 
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 
-Validates the current code against previously published fixtures. Runs weekly
-(Monday 6am UTC) and via manual dispatch with a `mode` input:
+Validates the current code against previously published fixtures and checks
+edition-targeted generation against each edition's oldest reader. Runs every
+6 hours (`0 */6 * * *` UTC, using `mode: all` and `check_editions: true`), as a
+release-blocking check via `release-checks.yml` (`mode: all`,
+`check_editions: true`), via `workflow_call` (defaults to `mode: all` and
+`check_editions: true`), and via manual dispatch with `mode` (defaults to
+`last`) and `check_editions` (defaults to `false`):
 
 | Mode | Behavior |
 |------|----------|
-| `last` (default) | Compare against the most recent published release only |
-| `all` | Compare against all previously published versions (pre-release check) |
+| `last` | Compare against the most recent published release only |
+| `all` | Compare against all previously published versions (6-hour schedule, release checks, or when passed explicitly) |
+| `check_editions` | Generate fixtures at each frozen `core` edition and verify with its oldest `vortex-data` reader against `accepted-edition-failures.json` |
 
 ## Known Limitations
 

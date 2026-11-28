@@ -2,7 +2,7 @@ name: Compat Validation
 
 on:
   schedule:
-    - cron: "0 6 * * 1"  # Monday 6am UTC
+    - cron: "0 */6 * * *"  # Every 6 hours UTC
   workflow_call:
     inputs:
       mode:
@@ -15,6 +15,11 @@ on:
         required: false
         type: string
         default: ""
+      check_editions:
+        description: "Also run edition write + oldest-reader checks"
+        required: false
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       mode:
@@ -25,6 +30,11 @@ on:
         options:
           - last
           - all
+      check_editions:
+        description: "Also run edition write + oldest-reader checks"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   compat-test:
@@ -42,11 +52,21 @@ jobs:
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
             with:
               ref: ${{ inputs.ref }}
-      - uses: ./.github/actions/setup-prebuild
+      - id: setup
+        uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - name: Run compat tests
+        env:
+          MODE: ${{ inputs.mode || (github.event_name == 'schedule' && 'all' || 'last') }}
         run: |
-          MODE="${{ inputs.mode || 'last' }}"
-          uv run vortex-test/compat-gen/scripts/compat.py check \
+          uv run vortex-test/compat-gen/scripts/compat.py --profile ci check \
             --mode "$MODE"
+      - name: Run edition compat tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (inputs.check_editions || github.event_name == 'schedule') }}
+        run: |
+          if ! grep -q "check-editions" vortex-test/compat-gen/scripts/compat.py; then
+            echo "Skipping edition compat tests: checked-out ref predates check-editions"
+            exit 0
+          fi
+          uv run vortex-test/compat-gen/scripts/compat.py --profile ci check-editions

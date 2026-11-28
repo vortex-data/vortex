@@ -17,7 +17,7 @@ Quick start:
     # Generate + publish for HEAD (version auto-detected from latest tag)
     uv run compat.py publish
 
-    # Publish from an older tag
+    # Publish current tree using an older tag for version detection
     uv run compat.py publish --git-ref v0.62.0
 
     # Check all published versions against current code
@@ -38,6 +38,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -46,11 +47,18 @@ import jsonschema
 
 DEFAULT_STORE = "s3://vortex-compat-fixtures"
 CARGO_BIN = "vortex-compat"
+SCRIPTS_DIR = Path(__file__).resolve().parent
+COMPAT_GEN_DIR = SCRIPTS_DIR.parent
+EDITION_READER_SCRIPT = SCRIPTS_DIR / "edition_reader.py"
+DEFAULT_ACCEPTED_EDITION_FAILURES = COMPAT_GEN_DIR / "accepted-edition-failures.json"
+DEFAULT_EDITION_PYTHON = "3.12"
+# Must match `MISSING_EXPECTED_IPC_PREFIX` in `edition_reader.py` (checked by `test_compat.py`).
+MISSING_EXPECTED_IPC_PREFIX = "expected Arrow IPC missing: "
 
 EPILOG = """\
 environment variables:
   VORTEX_COMPAT_BIN    Path to a pre-built vortex-compat binary.
-                       Skips `cargo run` when set.
+                       Skips `cargo build` when set.
 
 store spec:
   Local path           --store /tmp/compat-store
@@ -178,7 +186,7 @@ class S3Store(Store):
                 if e.code in (403, 404):
                     return None
                 raise
-            except (URLError, ConnectionError, TimeoutError):
+            except (URLError, ConnectionError, TimeoutError, IncompleteRead):
                 if attempt < 2:
                     time.sleep(1 * (attempt + 1))
                     continue
@@ -337,7 +345,12 @@ def _read_manifest(store: Store, version: str) -> dict | None:
     manifest = json.loads(data)
 
     # Upgrade legacy format: flat list of filenames -> new object format.
-    if isinstance(manifest.get("fixtures"), list) and manifest["fixtures"] and isinstance(manifest["fixtures"][0], str):
+    if (
+        isinstance(manifest, dict)
+        and isinstance(manifest.get("fixtures"), list)
+        and manifest["fixtures"]
+        and isinstance(manifest["fixtures"][0], str)
+    ):
         _info(f"  upgrading legacy manifest format for v{version}")
         manifest["fixtures"] = [{"name": n, "description": "", "sha256": ""} for n in manifest["fixtures"]]
 
@@ -393,7 +406,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     output = Path(args.output)
     version = _version_from_ref(args.git_ref)
 
-    _run_rust_generate(output, profile=args.profile)
+    _run_rust_generate(output, profile=args.profile, edition=getattr(args, "edition", None))
 
     # Read fixtures.json (with sha256 from Rust) and write a versioned manifest.
     fixtures_json = json.loads((output / "fixtures.json").read_text())
@@ -573,7 +586,14 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     for version in versions:
         _info(f"\n--- v{version} ---")
-        manifest = _read_manifest(store, version)
+        try:
+            manifest = _read_manifest(store, version)
+        except (ValueError, HTTPError, URLError, OSError, IncompleteRead) as e:
+            _info(f"  v{version}: failed to load manifest: {e}")
+            all_failures.append((version, "(manifest)", str(e)))
+            total_failed += 1
+            continue
+
         if manifest is None:
             _info(f"  v{version}: no manifest found at v{version}/arrays/manifest.json or v{version}/manifest.json")
             all_failures.append((version, "(manifest)", "manifest not found"))
@@ -613,6 +633,9 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     _info(f"\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped")
     if all_failures:
+        _info("\nfailures:")
+        for version, name, error in all_failures:
+            _info(f"  v{version}/{name}: {error}")
         sys.exit(1)
 
 
@@ -779,17 +802,22 @@ def _parallel_download(
     failures: list[tuple[str, str]] = []
     total_bytes = 0
 
-    def _download_one(entry: dict) -> tuple[str, bytes | None]:
+    def _download_one(entry: dict) -> tuple[str, bytes | None, str | None]:
         name = entry["name"]
-        data = store.read(f"{prefix}/{name}")
-        return name, data
+        try:
+            data = store.read(f"{prefix}/{name}")
+        except (HTTPError, URLError, OSError, IncompleteRead) as e:
+            return name, None, f"download failed: {e}"
+        if data is None:
+            return name, None, f"not found at {prefix}/{name}"
+        return name, data, None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_download_one, entry): entry["name"] for entry in fixtures}
         for future in as_completed(futures):
-            name, data = future.result()
-            if data is None:
-                failures.append((name, f"not found at {prefix}/{name}"))
+            name, data, error = future.result()
+            if error is not None or data is None:
+                failures.append((name, error or f"not found at {prefix}/{name}"))
             else:
                 (dest / name).write_bytes(data)
                 total_bytes += len(data)
@@ -821,14 +849,493 @@ def _build_compat_bin(profile: str = "release") -> str:
     target_dir = json.loads(result.stdout)["target_directory"]
     # Cargo puts "dev" profile binaries in "debug/", all others in "<profile>/".
     dir_name = "debug" if profile == "dev" else profile
-    bin_path = str(Path(target_dir) / dir_name / CARGO_BIN)
-    return bin_path
+    return str(Path(target_dir) / dir_name / CARGO_BIN)
 
 
-def _run_rust_generate(output: Path, profile: str = "release") -> None:
-    """Run `vortex-compat generate --output <dir>`."""
+def _run_rust_generate(
+    output: Path,
+    profile: str = "release",
+    edition: str | None = None,
+    exclude: list[str] | None = None,
+    check: bool = True,
+) -> int:
+    """Run `vortex-compat generate --output <dir>` and return its exit code."""
     bin_path = _build_compat_bin(profile)
-    _run_cmd([bin_path, "generate", "--output", str(output)], check=True)
+    cmd = [bin_path, "generate", "--output", str(output)]
+    if edition:
+        cmd.extend(["--edition", edition])
+    if exclude:
+        cmd.extend(["--exclude", ",".join(exclude)])
+    return _run_cmd(cmd, check=check).returncode
+
+
+def _run_rust_editions(profile: str = "release") -> list[dict]:
+    """Run `vortex-compat editions` and return frozen core edition records."""
+    bin_path = _build_compat_bin(profile)
+    cmd = [bin_path, "editions"]
+    _info(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True, check=True)  # noqa: UP022
+    editions = json.loads(result.stdout)
+    if not isinstance(editions, list):
+        raise ValueError(f"expected JSON array from `{CARGO_BIN} editions`")
+    return editions
+
+
+def _run_rust_dump_expected(
+    output: Path,
+    profile: str = "release",
+    exclude: list[str] | None = None,
+    check: bool = True,
+) -> int:
+    """Run `vortex-compat dump-expected --output <dir>` using HEAD's oracle and return its exit code."""
+    bin_path = _build_compat_bin(profile)
+    cmd = [bin_path, "dump-expected", "--output", str(output)]
+    if exclude:
+        cmd.extend(["--exclude", ",".join(exclude)])
+    return _run_cmd(cmd, check=check).returncode
+
+
+def _load_accepted_edition_failures(
+    path: Path | None,
+) -> tuple[dict[str, set[str]], dict[tuple[str, str, str], dict[str, object]]]:
+    """Load `accepted-edition-failures.json`.
+
+    Returns `(expected_skips, accepted_failures)` where:
+      - `expected_skips`: `{edition: set[fixture_name]}`
+      - `accepted_failures`: `{(edition, reader_version, fixture): {"reason": str, "expected_causes": list[str]}}`
+    """
+    if path is None or not path.exists():
+        return {}, {}
+
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected JSON object")
+
+    raw_skips = data.get("expected_skips", {})
+    if not isinstance(raw_skips, dict):
+        raise ValueError(f"{path}: 'expected_skips' must be a JSON object")
+    expected_skips: dict[str, set[str]] = {}
+    for edition, names in raw_skips.items():
+        if not isinstance(names, list) or not all(isinstance(n, str) and n.strip() for n in names):
+            raise ValueError(f"{path}: expected_skips[{edition!r}] must be a list of non-empty strings")
+        stripped = [n.strip() for n in names]
+        if len(stripped) != len(set(stripped)):
+            raise ValueError(f"{path}: duplicate fixture in expected_skips[{edition!r}]")
+        expected_skips[edition] = set(stripped)
+
+    raw_failures = data.get("failures", [])
+    if not isinstance(raw_failures, list):
+        raise ValueError(f"{path}: 'failures' must be a JSON array")
+    accepted: dict[tuple[str, str, str], dict[str, object]] = {}
+    for i, entry in enumerate(raw_failures):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path}: failures[{i}] must be an object")
+        for field in ("edition", "reader_version", "fixture", "reason"):
+            val = entry.get(field)
+            if not isinstance(val, str) or not val.strip():
+                raise ValueError(f"{path}: failures[{i}].{field} must be a non-empty string")
+        raw_causes = entry.get("expected_causes")
+        if (
+            not isinstance(raw_causes, list)
+            or not raw_causes
+            or not all(isinstance(c, str) and c.strip() for c in raw_causes)
+        ):
+            raise ValueError(f"{path}: failures[{i}].expected_causes must be a non-empty list of non-empty strings")
+        key = (entry["edition"].strip(), entry["reader_version"].strip(), entry["fixture"].strip())
+        if key in accepted:
+            raise ValueError(f"{path}: duplicate accepted failure entry for {key}")
+        accepted[key] = {
+            "reason": entry["reason"].strip(),
+            "expected_causes": [c.strip() for c in raw_causes],
+        }
+
+    return expected_skips, accepted
+
+
+def _cause_matches(reported: str, expected: str) -> bool:
+    """Match a reported cause against an `expected_causes` entry.
+
+    Entries prefixed with `column <name>: <substring>` require the reported cause to be for that
+    exact column (`column <name>: ...`) and contain `<substring>` in its message, so a new failure
+    on another column cannot match an accepted cause. Unprefixed entries use plain substring matching.
+    """
+    if expected.startswith("column ") and ": " in expected:
+        col_prefix, sig = expected.split(": ", 1)
+        prefix = f"{col_prefix}: "
+        return reported.startswith(prefix) and sig in reported[len(prefix) :]
+    return expected in reported
+
+
+def _evaluate_edition_results(
+    edition: str,
+    reader_version: str,
+    written_names: list[str],
+    report: dict,
+    accepted_failures: dict[tuple[str, str, str], dict[str, object]],
+    exclude: list[str] | None = None,
+    skipped_names: list[str] | None = None,
+    expected_skips: set[str] | None = None,
+    gen_failures: list[dict] | None = None,
+) -> dict:
+    """Compare reader results for one edition against the accepted-failures and expected-skips lists.
+
+    Enforces four invariants:
+      1. Any fixture write failure, and any reader failure not listed in `accepted_failures`, is unexpected.
+      2. For a listed failure, every reported cause must match at least one substring in
+         `expected_causes`; any unrecognized cause is reported as an unexpected failure.
+      3. Any listed entry that now passes (or is no longer in `written_names`), or any
+         `expected_causes` substring that no longer matches any reported cause, is reported as
+         stale so the list only shrinks.
+      4. When `skipped_names` and `expected_skips` are provided, any fixture skipped unexpectedly
+         fails as unexpected and any expected skip that is now written fails as stale.
+    """
+    passed = list(report.get("passed", []))
+    failed = list(report.get("failed", []))
+    failed_by_name = {f["name"]: f for f in failed}
+    written_set = set(written_names)
+
+    accepted_hits: list[dict] = []
+    unexpected_failures: list[dict] = list(gen_failures or [])
+    stale_accepted: list[dict] = []
+    gen_failed_names = {f["name"] for f in (gen_failures or [])}
+    whole_gen_failed = "(generate)" in gen_failed_names
+
+    if skipped_names is not None and expected_skips is not None:
+        skipped_set = set(skipped_names)
+        for name in sorted(skipped_set - expected_skips):
+            unexpected_failures.append(
+                {
+                    "name": name,
+                    "error": f"unexpectedly skipped under {edition} (not in expected_skips)",
+                    "causes": ["unexpected skip"],
+                }
+            )
+        for name in sorted(expected_skips - skipped_set):
+            if exclude and any(pat in name for pat in exclude):
+                continue
+            if name in gen_failed_names:
+                continue
+            stale_accepted.append(
+                {
+                    "name": name,
+                    "status": "expected skip no longer skipped",
+                    "reason": f"listed in expected_skips[{edition}]",
+                }
+            )
+
+    for failure in failed:
+        name = failure["name"]
+        key = (edition, reader_version, name)
+        if key not in accepted_failures:
+            unexpected_failures.append(failure)
+            continue
+
+        entry = accepted_failures[key]
+        reason = str(entry["reason"])
+        expected_causes = list(entry["expected_causes"])  # type: ignore[arg-type]
+        reported_causes = [c for c in failure.get("causes", []) if c]
+        if not reported_causes and failure.get("error"):
+            reported_causes = [str(failure["error"])]
+
+        if any(c.startswith(MISSING_EXPECTED_IPC_PREFIX) for c in reported_causes):
+            unexpected_failures.append(failure)
+            continue
+
+        unexpected_causes = [c for c in reported_causes if not any(_cause_matches(c, sub) for sub in expected_causes)]
+        stale_causes = [sub for sub in expected_causes if not any(_cause_matches(c, sub) for c in reported_causes)]
+
+        if unexpected_causes:
+            unexpected_failures.append(
+                {
+                    "name": name,
+                    "error": f"unexpected cause(s): {'; '.join(unexpected_causes)}",
+                    "causes": unexpected_causes,
+                }
+            )
+        else:
+            accepted_hits.append(
+                {
+                    "name": name,
+                    "error": failure.get("error", ""),
+                    "causes": reported_causes,
+                    "reason": reason,
+                }
+            )
+
+        if stale_causes:
+            stale_accepted.append(
+                {
+                    "name": name,
+                    "status": f"stale expected_causes: {', '.join(stale_causes)}",
+                    "reason": reason,
+                }
+            )
+
+    passed_set = set(passed)
+    for (ed, rv, fixture_name), entry in sorted(accepted_failures.items()):
+        if ed != edition or rv != reader_version:
+            continue
+        if fixture_name not in failed_by_name:
+            if fixture_name in gen_failed_names or whole_gen_failed:
+                continue
+            if fixture_name not in written_set:
+                if exclude and any(pat in fixture_name for pat in exclude):
+                    continue
+                status = "not written"
+            elif fixture_name in passed_set:
+                status = "passed"
+            else:
+                # Written fixture was neither passed nor failed (e.g. whole-reader `(all)` failure);
+                # do not misreport accepted entries as stale.
+                continue
+            stale_accepted.append(
+                {
+                    "name": fixture_name,
+                    "status": status,
+                    "reason": str(entry["reason"]),
+                }
+            )
+
+    return {
+        "edition": edition,
+        "reader_version": reader_version,
+        "passed": passed,
+        "accepted": accepted_hits,
+        "unexpected": unexpected_failures,
+        "stale": stale_accepted,
+    }
+
+
+def _uv_with_args(reader_version: str) -> list[str]:
+    """Dependency flags for running `edition_reader.py` under a historical `vortex-data` wheel."""
+    args = [
+        "--with",
+        f"vortex-data=={reader_version}",
+        "--with",
+        "pyarrow",
+        "--with",
+        "typing-extensions",
+    ]
+    # Releases prior to 0.60 imported `substrait.gen.proto`, which was removed in substrait>=0.27.
+    if _version_sort_key(reader_version) < [0, 60, 0]:
+        args.extend(["--with", "substrait<0.27"])
+    return args
+
+
+def _run_edition_reader(
+    reader_version: str,
+    src_dir: Path,
+    expected_dir: Path,
+    python_version: str = DEFAULT_EDITION_PYTHON,
+) -> dict:
+    """Invoke `edition_reader.py verify` in an isolated `uv run` environment for `reader_version`."""
+    cmd = [
+        "uv",
+        "run",
+        "--no-project",
+        "--python",
+        python_version,
+        *_uv_with_args(reader_version),
+        "python",
+        str(EDITION_READER_SCRIPT),
+        "verify",
+        "--src-dir",
+        str(src_dir),
+        "--expected-dir",
+        str(expected_dir),
+    ]
+    _info(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: UP022
+    if result.stdout.strip():
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            return {
+                "passed": [],
+                "failed": [{"name": "(all)", "error": f"invalid JSON from edition reader: {e}", "causes": []}],
+            }
+    stderr_tail = (result.stderr or "").strip().splitlines()[-3:]
+    detail = " | ".join(stderr_tail) if stderr_tail else f"exit code {result.returncode}"
+    return {
+        "passed": [],
+        "failed": [{"name": "(all)", "error": f"edition reader failed ({detail})", "causes": []}],
+    }
+
+
+def cmd_check_editions(args: argparse.Namespace) -> None:
+    """Generate fixtures at each frozen core edition and verify each edition's oldest reader."""
+    all_editions = _run_rust_editions(profile=args.profile)
+    if not all_editions:
+        print("Error: no frozen core editions returned by vortex-compat", file=sys.stderr)
+        sys.exit(1)
+
+    if args.editions:
+        requested = [e.strip() for e in args.editions.split(",") if e.strip()]
+        by_id = {e["id"]: e for e in all_editions}
+        missing = [e for e in requested if e not in by_id]
+        if missing:
+            print(
+                f"Error: unknown edition(s): {', '.join(missing)} (available: {', '.join(by_id)})",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        selected = [by_id[e] for e in requested]
+    else:
+        selected = all_editions
+
+    accepted_path = Path(args.accepted_failures) if args.accepted_failures else None
+    has_accepted_file = accepted_path is not None and accepted_path.exists()
+    expected_skips, accepted_failures = _load_accepted_edition_failures(accepted_path)
+    exclude = [p.strip() for p in args.exclude.split(",") if p.strip()] if args.exclude else None
+
+    total_passed = 0
+    total_accepted = 0
+    total_unexpected = 0
+    total_stale = 0
+    edition_results: list[dict] = []
+
+    with tempfile.TemporaryDirectory(prefix="vortex-compat-editions-") as tmp:
+        tmp_path = Path(tmp)
+        generated_dirs: dict[str, Path] = {}
+        gen_rcs: dict[str, int] = {}
+
+        # 1. Dump expected Arrow IPC tables directly from HEAD's oracle, continuing on partial failure.
+        expected_dir = tmp_path / "_expected_ipc"
+        _info("\n=== dumping expected Arrow IPC from HEAD ===")
+        dump_rc = _run_rust_dump_expected(expected_dir, profile=args.profile, exclude=exclude, check=False)
+
+        # 2. Generate fixtures for every selected edition, continuing even if one edition has write failures.
+        for ed in selected:
+            eid = ed["id"]
+            out_dir = tmp_path / eid
+            _info(f"\n=== generating fixtures for {eid} ===")
+            gen_rcs[eid] = _run_rust_generate(out_dir, profile=args.profile, edition=eid, exclude=exclude, check=False)
+            generated_dirs[eid] = out_dir
+
+        # 3. Verify each selected edition with its oldest release reader.
+        checked_pairs: set[tuple[str, str]] = set()
+        selected_ids = {ed["id"] for ed in selected}
+        for ed in selected:
+            eid = ed["id"]
+            reader_ver = ed["min_library_version"]
+            _info(f"\n=== checking {eid} with vortex-data=={reader_ver} ===")
+
+            checked_pairs.add((eid, reader_ver))
+            manifest_path = generated_dirs[eid] / "fixtures.json"
+            gen_failures: list[dict] = []
+            written_names: list[str] = []
+            skipped_names: list[str] | None = None
+            if manifest_path.exists():
+                gen_manifest = json.loads(manifest_path.read_text())
+                written_names = [f["name"] for f in gen_manifest.get("fixtures", [])]
+                skipped_names = [s["name"] for s in gen_manifest.get("skipped", [])]
+                for gf in gen_manifest.get("failed", []):
+                    err_msg = f"generate failed: {gf['error']}"
+                    gen_failures.append({"name": gf["name"], "error": err_msg, "causes": [err_msg]})
+            if gen_rcs[eid] != 0 and not gen_failures:
+                err_msg = f"vortex-compat generate failed (exit {gen_rcs[eid]})"
+                gen_failures.append({"name": "(generate)", "error": err_msg, "causes": [err_msg]})
+
+            if written_names:
+                report = _run_edition_reader(
+                    reader_ver,
+                    generated_dirs[eid],
+                    expected_dir,
+                    python_version=args.python,
+                )
+            else:
+                report = {"passed": [], "failed": []}
+
+            evaluated = _evaluate_edition_results(
+                eid,
+                reader_ver,
+                written_names,
+                report,
+                accepted_failures,
+                exclude=exclude,
+                skipped_names=skipped_names,
+                expected_skips=expected_skips.get(eid, set()) if has_accepted_file else None,
+                gen_failures=gen_failures,
+            )
+            edition_results.append(evaluated)
+
+            total_passed += len(evaluated["passed"])
+            total_accepted += len(evaluated["accepted"])
+            total_unexpected += len(evaluated["unexpected"])
+            total_stale += len(evaluated["stale"])
+
+            _info(
+                f"  {eid} ({reader_ver}): "
+                f"{len(evaluated['passed'])} passed, "
+                f"{len(evaluated['accepted'])} accepted, "
+                f"{len(evaluated['unexpected'])} unexpected, "
+                f"{len(evaluated['stale'])} stale"
+            )
+            for f in evaluated["unexpected"]:
+                _info(f"    UNEXPECTED FAIL {f['name']}: {f.get('error', '')}")
+            for s in evaluated["stale"]:
+                action = (
+                    "update expected_causes in"
+                    if str(s["status"]).startswith("stale expected_causes:")
+                    else "remove from"
+                )
+                _info(f"    STALE ACCEPTED {s['name']} ({s['status']}): {action} {accepted_path} ({s['reason']})")
+
+        orphan_by_pair: dict[tuple[str, str], list[dict]] = {}
+        for (ed_id, rv, fixture_name), entry in sorted(accepted_failures.items()):
+            if args.editions and ed_id not in selected_ids:
+                continue
+            if (ed_id, rv) in checked_pairs:
+                continue
+            total_stale += 1
+            reason = str(entry["reason"])
+            orphan_by_pair.setdefault((ed_id, rv), []).append(
+                {
+                    "name": fixture_name,
+                    "status": "unchecked edition/reader_version",
+                    "reason": reason,
+                }
+            )
+            _info(
+                f"    STALE ACCEPTED {ed_id}/{rv} {fixture_name} (unchecked edition/reader_version): "
+                f"remove from {accepted_path} ({reason})"
+            )
+        for (ed_id, rv), stale_entries in sorted(orphan_by_pair.items()):
+            edition_results.append(
+                {
+                    "edition": ed_id,
+                    "reader_version": rv,
+                    "passed": [],
+                    "accepted": [],
+                    "unexpected": [],
+                    "stale": stale_entries,
+                }
+            )
+
+    if dump_rc != 0:
+        err_msg = f"vortex-compat dump-expected failed (exit {dump_rc})"
+        _info(f"    UNEXPECTED (dump-expected): {err_msg}")
+        total_unexpected += 1
+        edition_results.append(
+            {
+                "edition": "(dump-expected)",
+                "reader_version": "",
+                "passed": [],
+                "accepted": [],
+                "unexpected": [{"name": "(dump-expected)", "error": err_msg, "causes": [err_msg]}],
+                "stale": [],
+            }
+        )
+
+    _info(
+        f"\n=== edition check summary: {total_passed} passed, {total_accepted} accepted, "
+        f"{total_unexpected} unexpected failures, {total_stale} stale accepted entries ==="
+    )
+    if args.json_output:
+        Path(args.json_output).write_text(json.dumps(edition_results, indent=2) + "\n")
+
+    if total_unexpected > 0 or total_stale > 0:
+        sys.exit(1)
 
 
 def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release") -> dict:
@@ -839,7 +1346,14 @@ def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
 
     if result.stdout.strip():
-        return json.loads(result.stdout)
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            return {
+                "passed": [],
+                "failed": [{"name": "(all)", "error": f"invalid JSON from check process: {e}"}],
+                "skipped": [],
+            }
 
     if result.returncode != 0:
         return {
@@ -897,7 +1411,7 @@ def main() -> None:
     parser.add_argument(
         "--profile",
         default="release",
-        help="Cargo build profile (default: release). Use 'dev' for faster builds.",
+        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -918,6 +1432,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--output", required=True, help="Output directory")
+    p.add_argument(
+        "--edition",
+        help="Target edition to enable on the write session (e.g. core2025.05.0).",
+    )
     p.add_argument(
         "--git-ref",
         help="Git ref for version detection (e.g. v0.62.0). "
@@ -1004,6 +1522,46 @@ def main() -> None:
         "Mutually exclusive with --versions.",
     )
 
+    # -- check-editions --
+    p = sub.add_parser(
+        "check-editions",
+        help="Generate fixtures at each frozen core edition and verify each edition's oldest reader",
+        description=(
+            "For every frozen core edition, generate fixtures with HEAD restricted to that\n"
+            "edition, then read and value-check them with the edition's oldest vortex-data\n"
+            "release. Fails on any failure not in the accepted-failures list and on any\n"
+            "accepted entry that now passes."
+        ),
+        epilog=(
+            "examples:\n"
+            "  uv run compat.py --profile ci check-editions\n"
+            "  uv run compat.py --profile ci check-editions --editions core2026.08.0,core2026.08.3"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--editions",
+        help="Comma-separated editions to check (default: all frozen core editions)",
+    )
+    p.add_argument(
+        "--exclude",
+        help="Comma-separated fixture name substrings to exclude when generating",
+    )
+    p.add_argument(
+        "--accepted-failures",
+        default=str(DEFAULT_ACCEPTED_EDITION_FAILURES),
+        help="Path to accepted-edition-failures.json (default: %(default)s)",
+    )
+    p.add_argument(
+        "--python",
+        default=DEFAULT_EDITION_PYTHON,
+        help="Python version for historical vortex-data wheels (default: %(default)s)",
+    )
+    p.add_argument(
+        "--json-output",
+        help="Optional path to write the full JSON report",
+    )
+
     # -- list --
     p = sub.add_parser(
         "list",
@@ -1059,6 +1617,7 @@ def main() -> None:
         "generate": cmd_generate,
         "publish": cmd_publish,
         "check": cmd_check,
+        "check-editions": cmd_check_editions,
         "list": cmd_list,
         "verify": cmd_verify,
         "validate-manifest": cmd_validate_manifest,

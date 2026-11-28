@@ -103,12 +103,13 @@ jobs:
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
       # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
       # would break ON CONFLICT idempotency against the rows already in production.
-      - name: Pytest - measurement_id, benchmark reporting, ingestion, CodSpeed shards, fuzz corpus and triage
+      - name: Pytest - measurement_id, benchmark reporting, ingestion, CodSpeed shards, fuzz corpus, triage and compat
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
-            --with tabulate --with xxhash \
-            pytest scripts/tests
+            --with tabulate --with xxhash --with jsonschema --with pyarrow \
+            pytest scripts/tests \
+              vortex-test/compat-gen/tests/test_compat.py
 
       # bench-orchestrator does not depend on vortex-data, so this needs no Rust build.
       # Disable pytest-benchmark (installed in the workspace venv by the ty step above),

@@ -1,65 +1,335 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
+use std::ffi::OsStr;
+use std::fs::File;
+use std::path::Component;
 use std::path::Path;
+use std::sync::Arc;
 
+use arrow_array::RecordBatch;
+use arrow_array::StructArray as ArrowStructArray;
+use arrow_ipc::writer::FileWriter as ArrowIpcFileWriter;
+use arrow_schema::Field as ArrowField;
+use arrow_schema::Schema as ArrowSchema;
 use base16ct::HexDisplay;
+use serde::Deserialize;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
+use vortex::VortexSessionDefault;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionId;
+use vortex::editions::EditionSessionExt;
+use vortex_array::ArrayId;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
+use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ExecuteArrowExt;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::fixtures::all_fixtures;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct FixturesJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edition: Option<String>,
     fixtures: Vec<FixtureInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    skipped: Vec<SkippedFixture>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    failed: Vec<FailedFixture>,
 }
 
-#[derive(Serialize)]
+/// Metadata for a single generated `.vortex` fixture file in `fixtures.json`.
+#[derive(Serialize, Deserialize)]
 pub struct FixtureInfo {
+    /// File name relative to the output directory (e.g. `primitives.vortex`).
     pub name: String,
+    /// Short human-readable description of the fixture.
     pub description: String,
+    /// Hex-encoded SHA-256 digest of the generated file.
     pub sha256: String,
 }
 
-/// Write all fixture files into `output_dir`, returning name, description, and sha256 for each.
+/// Record of a fixture intentionally skipped because the target edition lacks a required encoding.
+#[derive(Serialize, Deserialize)]
+pub struct SkippedFixture {
+    /// Fixture file name that was skipped.
+    pub name: String,
+    /// Explanation naming the edition and missing required encoding(s).
+    pub reason: String,
+}
+
+/// Record of a fixture that failed to generate (returned an error or panicked).
+#[derive(Serialize, Deserialize)]
+pub struct FailedFixture {
+    /// Fixture file name that failed to generate.
+    pub name: String,
+    /// Error or panic message captured while writing the fixture.
+    pub error: String,
+}
+
+#[derive(Serialize)]
+pub struct EditionRecord {
+    pub id: String,
+    pub min_library_version: String,
+}
+
+/// List all frozen `core` editions in chronological order, along with their minimum reader version.
+pub fn list_core_editions() -> VortexResult<()> {
+    let session = VortexSession::default();
+    let mut editions: Vec<_> = session
+        .editions()
+        .editions()
+        .into_iter()
+        .filter(|e| e.id.family == "core" && e.min_library_version.is_some())
+        .collect();
+    editions.sort_by_key(|e| e.id);
+
+    let records: Vec<EditionRecord> = editions
+        .into_iter()
+        .map(|e| EditionRecord {
+            id: e.id.to_string(),
+            min_library_version: e.min_library_version.unwrap_or_default().to_string(),
+        })
+        .collect();
+
+    let json = serde_json::to_string_pretty(&records)
+        .map_err(|e| vortex_err!("failed to serialize editions: {e}"))?;
+    println!("{json}");
+    Ok(())
+}
+
+/// Resolve an edition name (e.g. `core2025.05.0`) against the session's registered editions.
+pub fn resolve_edition(session: &VortexSession, name: &str) -> VortexResult<EditionId> {
+    if let Some(edition) = session.editions().find_by_name(name) {
+        return Ok(edition.id);
+    }
+
+    let available: Vec<String> = session
+        .editions()
+        .editions()
+        .into_iter()
+        .map(|e| e.id.to_string())
+        .collect();
+    vortex_bail!(
+        "unknown edition {name:?} (available: {})",
+        available.join(", ")
+    );
+}
+
+/// Write expected Arrow IPC files from HEAD for every non-excluded fixture.
+///
+/// Each fixture is built directly in memory via `build_expected()` and exported to Arrow without
+/// round-tripping through Vortex serialization, so oldest-reader checks compare historical wheels
+/// against an oracle independent of HEAD's Vortex writer.
+pub fn dump_expected(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
+    std::fs::create_dir_all(output_dir)
+        .map_err(|e| vortex_err!("failed to create {}: {e}", output_dir.display()))?;
+
+    let fixtures: Vec<_> = all_fixtures()
+        .into_iter()
+        .filter(|f| !exclude.iter().any(|pat| f.name().contains(pat.as_str())))
+        .collect();
+
+    let session = VortexSession::default();
+    let mut ctx = session.create_execution_ctx();
+
+    eprintln!(
+        "dumping expected Arrow IPC for {} fixtures...",
+        fixtures.len()
+    );
+    let mut failed: Vec<FailedFixture> = Vec::new();
+    for fixture in &fixtures {
+        let name = fixture.name();
+        let dump_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let array = fixture.build_expected(&mut ctx)?;
+            let arrow_array = array.execute_arrow(None, &mut ctx)?;
+            let batch =
+                if let Some(struct_arr) = arrow_array.as_any().downcast_ref::<ArrowStructArray>() {
+                    RecordBatch::from(struct_arr)
+                } else {
+                    let schema = Arc::new(ArrowSchema::new(vec![ArrowField::new(
+                        "value",
+                        arrow_array.data_type().clone(),
+                        true,
+                    )]));
+                    RecordBatch::try_new(schema, vec![arrow_array])
+                        .map_err(|e| vortex_err!("failed to build RecordBatch for {name}: {e}"))?
+                };
+            let out_path = output_dir.join(format!("{name}.arrow"));
+            let tmp_path = output_dir.join(format!("{name}.arrow.tmp"));
+            let write_ipc = || -> VortexResult<()> {
+                let file = File::create(&tmp_path)?;
+                let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
+                    .map_err(|e| vortex_err!("failed to create IPC writer for {name}: {e}"))?;
+                writer
+                    .write(&batch)
+                    .map_err(|e| vortex_err!("failed to write IPC batch for {name}: {e}"))?;
+                writer
+                    .finish()
+                    .map_err(|e| vortex_err!("failed to finish IPC file for {name}: {e}"))?;
+                std::fs::rename(&tmp_path, &out_path)?;
+                Ok(())
+            };
+            if let Err(e) = write_ipc() {
+                drop(std::fs::remove_file(&tmp_path));
+                return Err(e);
+            }
+            VortexResult::Ok(())
+        }));
+        match dump_result {
+            Ok(Ok(())) => eprintln!("  dumped {name}.arrow"),
+            Ok(Err(e)) => {
+                let error = e.to_string();
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture {
+                    name: name.to_string(),
+                    error,
+                });
+            }
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("panic");
+                let error = format!("panic: {msg}");
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture {
+                    name: name.to_string(),
+                    error,
+                });
+            }
+        }
+    }
+    if !failed.is_empty() {
+        let names: Vec<&str> = failed.iter().map(|f| f.name.as_str()).collect();
+        vortex_bail!(
+            "{} fixture(s) failed to dump expected Arrow IPC: {}",
+            failed.len(),
+            names.join(", ")
+        );
+    }
+    Ok(())
+}
+
+fn encoding_supported_in_edition(
+    session: &VortexSession,
+    allowed: &BTreeSet<String>,
+    id: &ArrayId,
+) -> bool {
+    if let Some(plugin) = session.arrays().registry().get(id) {
+        plugin
+            .write_ids()
+            .iter()
+            .any(|wire_id| allowed.contains(wire_id.as_ref()))
+    } else {
+        allowed.contains(id.as_ref())
+    }
+}
+
+/// Write all fixture files into `output_dir`, collecting written, skipped, and failed fixtures
+/// without stopping at the first write error so callers can report every failure at once.
 pub fn write_fixtures(
     output_dir: &Path,
     exclude: &[String],
+    edition: Option<&str>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Vec<FixtureInfo>> {
+) -> VortexResult<(Vec<FixtureInfo>, Vec<SkippedFixture>, Vec<FailedFixture>)> {
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
         .filter(|f| {
-            let name = f.name();
-            !exclude.iter().any(|pat| name.contains(pat.as_str()))
+            let excluded = exclude.iter().any(|pat| f.name().contains(pat.as_str()));
+            if excluded {
+                eprintln!("  skip {} (excluded)", f.name());
+            }
+            !excluded
         })
         .collect();
 
-    if !exclude.is_empty() {
-        eprintln!("excluding: {}", exclude.join(", "));
-    }
-
     std::fs::create_dir_all(output_dir)
-        .map_err(|e| vortex_err!("failed to create output dir: {e}"))?;
+        .map_err(|e| vortex_err!("failed to create {}: {e}", output_dir.display()))?;
+
+    let prev_manifest_files: Vec<String> =
+        std::fs::read_to_string(output_dir.join("fixtures.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<FixturesJson>(&raw).ok())
+            .map(|prev| prev.fixtures.into_iter().map(|f| f.name).collect())
+            .unwrap_or_default();
+
+    let allowed_arrays: Option<BTreeSet<String>> = edition.map(|_| {
+        ctx.session()
+            .enabled_component_ids(ComponentKind::Array)
+            .into_iter()
+            .map(|id| id.as_str().to_string())
+            .collect()
+    });
 
     eprintln!("generating {} fixtures...", fixtures.len());
 
     let mut infos = Vec::new();
+    let mut skipped = Vec::new();
+    let mut failed = Vec::new();
     for fixture in &fixtures {
-        let entries = fixture.write(output_dir, ctx)?;
+        if let (Some(edition_name), Some(allowed)) = (edition, &allowed_arrays) {
+            let missing: Vec<String> = fixture
+                .required_encodings()
+                .into_iter()
+                .filter(|id| !encoding_supported_in_edition(ctx.session(), allowed, id))
+                .map(|id| id.to_string())
+                .collect();
+            if !missing.is_empty() {
+                let name = fixture.name().to_string();
+                let reason = format!(
+                    "required encoding(s) not in {edition_name}: {}",
+                    missing.join(", ")
+                );
+                eprintln!("  skip {name} ({reason})");
+                skipped.push(SkippedFixture { name, reason });
+                continue;
+            }
+        }
+
+        let write_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fixture.write(output_dir, ctx)
+        }));
+        let entries = match write_result {
+            Ok(Ok(entries)) => entries,
+            Ok(Err(e)) => {
+                let name = fixture.name().to_string();
+                let error = e.to_string();
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture { name, error });
+                continue;
+            }
+            Err(payload) => {
+                let name = fixture.name().to_string();
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("panic");
+                let error = format!("panic: {msg}");
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture { name, error });
+                continue;
+            }
+        };
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
-                .map_err(|e| vortex_err!("failed to read back {}: {e}", path.display()))?;
-            let sha256 = format!("{:x}", HexDisplay(&Sha256::digest(&file_bytes)));
-            eprintln!("  wrote {}", entry.name);
+                .map_err(|e| vortex_err!("failed to read {}: {e}", path.display()))?;
+            let digest = Sha256::digest(&file_bytes);
+            let sha256 = format!("{:x}", HexDisplay(&digest));
+            eprintln!("  wrote {} ({} bytes)", entry.name, file_bytes.len());
             infos.push(FixtureInfo {
                 name: entry.name,
                 description: entry.description,
@@ -68,12 +338,49 @@ pub fn write_fixtures(
         }
     }
 
-    Ok(infos)
+    let written_names: BTreeSet<&str> = infos.iter().map(|info| info.name.as_str()).collect();
+    let failed_names: BTreeSet<&str> = failed.iter().map(|f| f.name.as_str()).collect();
+    for stale_name in prev_manifest_files {
+        if written_names.contains(stale_name.as_str()) || failed_names.contains(stale_name.as_str())
+        {
+            continue;
+        }
+        if !stale_name.ends_with(".vortex")
+            || !Path::new(&stale_name)
+                .components()
+                .eq([Component::Normal(OsStr::new(&stale_name))])
+        {
+            continue;
+        }
+        let stale_path = output_dir.join(&stale_name);
+        if std::fs::symlink_metadata(&stale_path)
+            .map(|meta| meta.file_type().is_file())
+            .unwrap_or(false)
+        {
+            std::fs::remove_file(&stale_path).map_err(|e| {
+                VortexError::from(e)
+                    .with_context(format!("failed to remove stale {}", stale_path.display()))
+            })?;
+        }
+    }
+
+    Ok((infos, skipped, failed))
 }
 
 /// Write the `fixtures.json` manifest from previously collected fixture info.
-pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResult<()> {
-    let fixtures_json = FixturesJson { fixtures: infos };
+pub fn write_manifest(
+    output_dir: &Path,
+    edition: Option<&str>,
+    infos: Vec<FixtureInfo>,
+    skipped: Vec<SkippedFixture>,
+    failed: Vec<FailedFixture>,
+) -> VortexResult<()> {
+    let fixtures_json = FixturesJson {
+        edition: edition.map(ToOwned::to_owned),
+        fixtures: infos,
+        skipped,
+        failed,
+    };
     let json = serde_json::to_string_pretty(&fixtures_json)
         .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
     std::fs::write(output_dir.join("fixtures.json"), format!("{json}\n"))
@@ -81,16 +388,124 @@ pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResul
     eprintln!("  wrote fixtures.json");
 
     eprintln!(
-        "\ndone: {} fixtures in {}",
+        "\ndone: {} fixtures written, {} skipped, {} failed in {}",
         fixtures_json.fixtures.len(),
+        fixtures_json.skipped.len(),
+        fixtures_json.failed.len(),
         output_dir.display()
     );
     Ok(())
 }
 
 /// Generate all fixtures into `output_dir` and write the manifest.
-pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
-    let mut ctx = VortexSession::empty().create_execution_ctx();
-    let infos = write_fixtures(output_dir, exclude, &mut ctx)?;
-    write_manifest(output_dir, infos)
+pub fn generate(output_dir: &Path, exclude: &[String], edition: Option<&str>) -> VortexResult<()> {
+    let session = VortexSession::default();
+    if let Some(edition_name) = edition {
+        let edition_id = resolve_edition(&session, edition_name)?;
+        session.enable_edition(edition_id)?;
+        eprintln!("enabled edition: {edition_id}");
+    }
+    let mut ctx = session.create_execution_ctx();
+    let (infos, skipped, failed) = write_fixtures(output_dir, exclude, edition, &mut ctx)?;
+    let failed_summary: Vec<String> = failed
+        .iter()
+        .map(|f| format!("{}: {}", f.name, f.error))
+        .collect();
+    write_manifest(output_dir, edition, infos, skipped, failed)?;
+    if !failed_summary.is_empty() {
+        vortex_bail!(
+            "{} fixture(s) failed to generate:\n  {}",
+            failed_summary.len(),
+            failed_summary.join("\n  ")
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_edition_finds_known_and_rejects_unknown() -> VortexResult<()> {
+        let session = VortexSession::default();
+        let resolved = resolve_edition(&session, "core2025.05.0")?;
+        assert_eq!(resolved.to_string(), "core2025.05.0");
+        assert!(resolve_edition(&session, "core1999.01.0").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn generate_with_old_edition_writes_v1_and_skips_unsupported() -> VortexResult<()> {
+        let dir = tempfile::tempdir()?;
+        let exclude = vec!["tpch".to_string(), "clickbench".to_string()];
+        generate(dir.path(), &exclude, Some("core2025.05.0"))?;
+
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join("fixtures.json"))?)
+                .map_err(|e| vortex_err!("failed to parse fixtures.json: {e}"))?;
+        assert_eq!(manifest["edition"], "core2025.05.0");
+
+        let written: Vec<&str> = manifest["fixtures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|f| f["name"].as_str())
+            .collect();
+        let skipped: Vec<&str> = manifest["skipped"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|f| f["name"].as_str())
+            .collect();
+
+        assert!(written.contains(&"primitives.vortex"));
+        assert!(written.contains(&"bitpacked.vortex"));
+        assert!(written.contains(&"for.vortex"));
+        assert!(skipped.contains(&"map.vortex"));
+        assert!(skipped.contains(&"pco.vortex"));
+        assert!(skipped.contains(&"rle.vortex"));
+        assert!(skipped.contains(&"zstd.vortex"));
+        assert!(!dir.path().join("map.vortex").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn generate_reusing_dir_removes_stale_manifest_files_only() -> VortexResult<()> {
+        let parent = tempfile::tempdir()?;
+        let dir = parent.path().join("out");
+        std::fs::create_dir_all(&dir)?;
+        let exclude = vec!["tpch".to_string(), "clickbench".to_string()];
+        let unrelated = dir.join("notes.txt");
+        let outside = parent.path().join("outside.vortex");
+        std::fs::write(&unrelated, "keep me")?;
+        std::fs::write(&outside, "keep outside")?;
+
+        generate(&dir, &exclude, None)?;
+        assert!(dir.join("pco.vortex").exists());
+
+        // Inject a traversal entry into the previous manifest to verify it is ignored.
+        let manifest_path = dir.join("fixtures.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)
+                .map_err(|e| vortex_err!("failed to parse fixtures.json: {e}"))?;
+        manifest["fixtures"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": "../outside.vortex",
+                "description": "traversal",
+                "sha256": "0"
+            }));
+        let modified = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
+        std::fs::write(&manifest_path, modified)?;
+
+        generate(&dir, &exclude, Some("core2025.05.0"))?;
+        assert!(!dir.join("pco.vortex").exists());
+        assert!(dir.join("primitives.vortex").exists());
+        assert!(unrelated.exists());
+        assert!(outside.exists());
+        Ok(())
+    }
 }

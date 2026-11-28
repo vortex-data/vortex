@@ -1,8 +1,9 @@
 # vortex-compat
 
-Backward-compatibility testing for the Vortex file format. Ensures the
-current reader can always decode `.vortex` files written by any older
-released version.
+Backward-compatibility testing for the Vortex file format. Covers both
+directions: ensuring the current reader can decode `.vortex` files written by
+older releases, and ensuring the current writer targeting any supported frozen
+`core` edition can be read by that edition's oldest release.
 
 See [DESIGN.md](DESIGN.md) for full architecture and design rationale.
 
@@ -21,7 +22,13 @@ python scripts/compat.py publish
 # Check all published versions
 python scripts/compat.py check
 
-# Publish from a historical tag via git worktree
+# Generate fixtures targeting an older edition
+cargo run -p vortex-compat --release -- generate --output /tmp/fixtures-core2025.05.0 --edition core2025.05.0
+
+# Check all frozen core editions with each edition's oldest vortex-data reader
+uv run scripts/compat.py --profile ci check-editions
+
+# Publish current tree using a historical tag for version detection
 python scripts/compat.py publish --git-ref v0.62.0
 
 # Local-only workflow (no S3)
@@ -31,13 +38,18 @@ python scripts/compat.py check --store /tmp/compat-store
 
 ## Rust Binary: `vortex-compat`
 
-A thin binary with two commands. It has **no** knowledge of versions, S3,
-manifests, or orchestration.
+A thin binary with four commands (`generate`, `editions`, `dump-expected`,
+`check`). It has **no** knowledge of S3, published manifests, or orchestration.
 
 **Output protocol:** progress/diagnostics to stderr, structured JSON to
-stdout (`check` only).
+stdout (`check` and `editions`).
 
-### `generate --output <DIR> [--exclude <CSV>]`
+### `generate --output <DIR> [--edition <EDITION>] [--exclude <CSV>]`
+
+When `--edition` is passed, `vortex-compat` enables that edition on the write
+session and passes the session into both flat and dataset writers. Fixtures
+whose required encoding is not permitted by the target edition are skipped and
+recorded under `"skipped"` in `fixtures.json`; any other error fails generation.
 
 Three phases:
 
@@ -68,6 +80,10 @@ Output:
 }
 ```
 
+### `editions`
+
+Prints a JSON array of all frozen `core` editions and their `min_library_version`.
+
 ### `check --dir <DIR> --mode <MODE> [--exclude <CSV>]`
 
 For each known fixture:
@@ -75,8 +91,10 @@ For each known fixture:
 1. Write a fresh file into a temporary directory with `write_expected()`.
    This builds the expected arrays from the current code. For a synthetic
    fixture, it writes the result of `build()`.
-2. Read the stored file and the fresh file with `adapter::read_file()`.
-3. Compare the two arrays with `assert_arrays_eq!`.
+2. Validate the stored file's full layout tree via `adapter::read_layout_tree()`.
+3. Read both the stored file and the fresh file with `adapter::read_file()`
+   and compare them with `assert_arrays_eq!`, catching errors and panics per
+   fixture so every fixture runs to completion.
 
 JSON result to stdout:
 ```json
@@ -100,25 +118,35 @@ fixtures). Use `exact` for the current version.
 
 ## Python Orchestrator: `compat.py`
 
-### `publish [--git-ref <REF>] [--store <SPEC>] [--dry-run] [--exclude <CSV>]`
+Pass `--profile <PROFILE>` before the subcommand to override the Cargo build
+profile (default: `release`, e.g. `compat.py --profile ci check`).
+
+### `publish [--git-ref <REF>] [--store <SPEC>] [--dry-run]`
 
 1. Detect version from nearest git tag at HEAD (or `<REF>`)
-2. Generate fixtures (from current tree, or from a worktree at `<REF>`)
-3. Fetch previous version's manifest, merge `since` values, enforce additive-only
+2. Generate fixtures from the current working tree
+3. Verify against the previous version's manifest (additive-only)
 4. Upload `.vortex` files + `manifest.json` to `v{version}/arrays/`
 5. Update `versions.json`
 
-### `check [--versions <CSV>] [--store <SPEC>] [--exclude <CSV>]`
+### `check [--versions <CSV>] [--mode <MODE>] [--store <SPEC>]`
 
 1. Read `versions.json` from store
 2. For each version, download `arrays/manifest.json` + all `.vortex` files
 3. Run `vortex-compat check --dir <tmpdir> --mode superset`
-4. Aggregate results, exit 1 if any failures
+4. Aggregate results across all versions and fixtures, exit 1 if any failures
 
-### `generate --output <DIR> [--git-ref <REF>] [--exclude <CSV>]`
+### `check-editions [--editions <CSV>] [--exclude <CSV>] [--accepted-failures <PATH>] [--python <VER>] [--json-output <PATH>]`
 
-Generate fixtures locally without publishing. Writes `.vortex` files and a
-`manifest.json`.
+1. Queries `vortex-compat editions` for frozen `core` editions and their `min_library_version`
+2. Generates fixtures at each selected edition with `vortex-compat generate --edition <EDITION>`
+3. Dumps expected Arrow IPC tables directly from HEAD via `vortex-compat dump-expected`, then verifies each edition using its oldest `vortex-data` release wheel
+4. Fails on any generation failure, any reader failure not listed in `accepted-edition-failures.json`, any unexpected skip not in `expected_skips`, and any listed failure or skip that is now resolved (shrink-only)
+
+### `generate --output <DIR> [--edition <EDITION>] [--git-ref <REF>]`
+
+Generate fixtures locally from the current working tree without publishing. Writes `.vortex` files and a
+`manifest.json` tagged with the version detected from HEAD (or `<REF>`).
 
 ### `list [--store <SPEC>] [--version <VER>]`
 
@@ -137,19 +165,27 @@ consecutive versions (additive-only property).
 | `s3://vortex-compat-fixtures` (default) | S3 | Public reads (HTTPS), AWS creds for writes |
 | `/tmp/compat` | Local directory | None |
 
-### Git worktree workflow
+### Version detection and git worktree workflow
 
-`--git-ref` automates publishing from historical releases:
+`--git-ref` overrides only the git ref used for `git describe --tags --abbrev=0`
+version detection; `compat.py` always builds `vortex-compat` from the current
+working tree (or uses `VORTEX_COMPAT_BIN`):
 
 ```bash
 python compat.py publish --git-ref v0.62.0
 ```
 
-This creates a worktree at the tag, builds the binary against that code,
-generates fixtures, then cleans up.
+To generate and publish fixtures using the code at a historical release itself,
+create a temporary git worktree at that ref and run `compat.py` from inside it:
+
+```bash
+git worktree add /tmp/vortex-compat-v0.62.0 v0.62.0
+(cd /tmp/vortex-compat-v0.62.0 && uv run vortex-test/compat-gen/scripts/compat.py publish)
+git worktree remove /tmp/vortex-compat-v0.62.0
+```
 
 ### Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `VORTEX_COMPAT_BIN` | Path to pre-built `vortex-compat` binary. Skips `cargo run`. |
+| `VORTEX_COMPAT_BIN` | Path to pre-built `vortex-compat` binary. Skips `cargo build`. |

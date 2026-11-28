@@ -1,6 +1,6 @@
 [default]
 # metalness is a three.js material property, which the ASCII mark sets.
-extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui", "wht", "WHT", "metalness"]
+extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui", "wht", "WHT", "metalness", "Trafic"]
 # We support a few common special comments to tell the checker to ignore sections of code
 extend-ignore-re = [
     "(#|//)\\s*spellchecker:ignore-next-line\\n.*", # Ignore the next line
