@@ -178,7 +178,7 @@ fn open_uri_file(
 ///
 /// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
 /// keys the file in the session footer cache, as it does for the scan path.
-fn open_readable_file(
+pub(crate) fn open_readable_file(
     env: &mut jni::Env,
     session: &VortexSession,
     readable: &JObject,
