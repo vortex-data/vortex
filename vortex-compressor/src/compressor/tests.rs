@@ -1264,6 +1264,221 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
     Ok(())
 }
 
+mod nested_list_cascade_ctx {
+    use std::iter;
+
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListView;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::list::ListArraySlotsExt;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+
+    use super::SESSION;
+    use super::compressor;
+    use super::map_array_from_rows;
+    use crate::CascadingCompressor;
+    use crate::builtins::IntDictScheme;
+    use crate::scheme::CompressorContext;
+    use crate::scheme::MAX_CASCADE;
+    use crate::scheme::SchemeId;
+
+    /// Builds a `ListArray` whose offsets have 3 distinct values with max >= 256 so `narrow`
+    /// keeps `u16` and `IntDictScheme` would shrink them unless excluded by `root_exclusions`.
+    fn list_with_dict_compressible_offsets(exec_ctx: &mut ExecutionCtx) -> VortexResult<ListArray> {
+        let elements = PrimitiveArray::from_iter(0..600i32).into_array();
+        let offsets = iter::once(0u32)
+            .chain(iter::repeat_n(300u32, 512))
+            .chain(iter::repeat_n(600u32, 512))
+            .collect::<Buffer<u32>>();
+        ListArray::try_new(
+            elements,
+            PrimitiveArray::new(offsets, Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+            exec_ctx,
+        )
+    }
+
+    /// Builds a non-zero-copy `ListViewArray` (out-of-order offsets) whose offsets have 2 distinct
+    /// values with max >= 256 so `IntDictScheme` would shrink them unless excluded.
+    fn non_zctl_list_view_with_dict_compressible_offsets(
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ListViewArray> {
+        let elements = PrimitiveArray::from_iter(0..600i32).into_array();
+        let offsets = (0..1024)
+            .map(|i| if i % 2 == 0 { 300u32 } else { 0u32 })
+            .collect::<Buffer<u32>>();
+        let sizes = iter::repeat_n(1u32, 1024).collect::<Buffer<u32>>();
+        ListViewArray::try_new(
+            elements,
+            PrimitiveArray::new(offsets, Validity::NonNullable).into_array(),
+            PrimitiveArray::new(sizes, Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+            exec_ctx,
+        )
+    }
+
+    #[test]
+    fn test_nested_list_listview_and_map_do_not_panic_when_cascade_depth_exhausted()
+    -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let comp = compressor();
+        let outer = SchemeId {
+            name: "test.outer_scheme",
+        };
+        // Reach `allowed_cascading == 1` so `compress_child` descends to depth 0 before entering
+        // `compress_list_array` / `compress_list_view_array` / `compress_map_array`.
+        let mut parent_ctx = CompressorContext::new();
+        for depth in 0..(MAX_CASCADE - 1) {
+            parent_ctx = parent_ctx.descend_with_scheme(outer, depth);
+        }
+
+        let list = list_with_dict_compressible_offsets(&mut exec_ctx)?.into_array();
+        let compressed_list = comp.compress_child(&list, &parent_ctx, outer, 0, &mut exec_ctx)?;
+        assert_arrays_eq!(&compressed_list, &list, &mut exec_ctx);
+
+        let list_view =
+            non_zctl_list_view_with_dict_compressible_offsets(&mut exec_ctx)?.into_array();
+        let compressed_list_view =
+            comp.compress_child(&list_view, &parent_ctx, outer, 0, &mut exec_ctx)?;
+        assert_arrays_eq!(&compressed_list_view, &list_view, &mut exec_ctx);
+
+        let map = map_array_from_rows(
+            &[
+                Some(vec![(1, Some("a")), (2, Some("b"))]),
+                None,
+                Some(vec![(3, None)]),
+            ],
+            false,
+        )?;
+        let compressed_map = comp.compress_child(&map, &parent_ctx, outer, 0, &mut exec_ctx)?;
+        assert_arrays_eq!(&compressed_map, &map, &mut exec_ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_list_offsets_respect_root_exclusions() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let comp = CascadingCompressor::new(vec![&IntDictScheme]);
+        let outer = SchemeId {
+            name: "test.outer_scheme",
+        };
+        let parent_ctx = CompressorContext::new();
+
+        let list = list_with_dict_compressible_offsets(&mut exec_ctx)?.into_array();
+        let compressed_list = comp.compress_child(&list, &parent_ctx, outer, 0, &mut exec_ctx)?;
+        let offsets = compressed_list
+            .as_opt::<List>()
+            .ok_or_else(|| vortex_err!("expected List, got {}", compressed_list.encoding_id()))?
+            .offsets();
+        assert!(
+            !offsets.is::<Dict>(),
+            "root exclusion for IntDict on List offsets must apply in nested context"
+        );
+        assert_arrays_eq!(&compressed_list, &list, &mut exec_ctx);
+
+        let list_view =
+            non_zctl_list_view_with_dict_compressible_offsets(&mut exec_ctx)?.into_array();
+        let compressed_list_view =
+            comp.compress_child(&list_view, &parent_ctx, outer, 0, &mut exec_ctx)?;
+        let lv_offsets = compressed_list_view
+            .as_opt::<ListView>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "expected ListView, got {}",
+                    compressed_list_view.encoding_id()
+                )
+            })?
+            .offsets();
+        assert!(
+            !lv_offsets.is::<Dict>(),
+            "root exclusion for IntDict on ListView offsets must apply in nested context"
+        );
+        assert_arrays_eq!(&compressed_list_view, &list_view, &mut exec_ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_list_offsets_and_sizes_preserve_is_sample() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let comp = CascadingCompressor::new(Vec::new());
+        let sample_ctx = CompressorContext::new().with_sampling();
+
+        // Constant List offsets (all 0s for empty lists) must not collapse to ConstantArray while
+        // compressing a sample.
+        let empty_list = ListArray::try_new(
+            PrimitiveArray::from_iter(iter::empty::<i32>()).into_array(),
+            PrimitiveArray::new(
+                iter::repeat_n(0u32, 1025).collect::<Buffer<u32>>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            Validity::NonNullable,
+            &mut exec_ctx,
+        )?
+        .into_array();
+        let empty_list_canonical = empty_list.clone().execute::<Canonical>(&mut exec_ctx)?;
+        let compressed_list =
+            comp.compress_canonical(empty_list_canonical, sample_ctx.clone(), &mut exec_ctx)?;
+        let list_offsets = compressed_list
+            .as_opt::<List>()
+            .ok_or_else(|| vortex_err!("expected List, got {}", compressed_list.encoding_id()))?
+            .offsets();
+        assert!(
+            !list_offsets.is::<Constant>(),
+            "sample context must be preserved when compressing List offsets"
+        );
+        assert_arrays_eq!(&compressed_list, &empty_list, &mut exec_ctx);
+
+        // Constant ListView offsets (all 0s) and sizes (all 1s) must not collapse to ConstantArray
+        // while compressing a sample. Repeated offset 0 with size 1 is non-zero-copy-to-list, so
+        // this exercises `compress_list_view_array`.
+        let list_view = ListViewArray::try_new(
+            PrimitiveArray::from_iter([42i32]).into_array(),
+            PrimitiveArray::new(
+                iter::repeat_n(0u32, 1024).collect::<Buffer<u32>>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            PrimitiveArray::new(
+                iter::repeat_n(1u32, 1024).collect::<Buffer<u32>>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            Validity::NonNullable,
+            &mut exec_ctx,
+        )?
+        .into_array();
+        let list_view_canonical = list_view.clone().execute::<Canonical>(&mut exec_ctx)?;
+        let compressed = comp.compress_canonical(list_view_canonical, sample_ctx, &mut exec_ctx)?;
+        let lv = compressed
+            .as_opt::<ListView>()
+            .ok_or_else(|| vortex_err!("expected ListView, got {}", compressed.encoding_id()))?;
+        assert!(
+            !lv.offsets().is::<Constant>(),
+            "sample context must be preserved when compressing ListView offsets"
+        );
+        assert!(
+            !lv.sizes().is::<Constant>(),
+            "sample context must be preserved when compressing ListView sizes"
+        );
+        assert_arrays_eq!(&compressed, &list_view, &mut exec_ctx);
+        Ok(())
+    }
+}
+
 /// Distinct 27-byte strings whose views reference a small prefix of one 2 MiB buffer, the way
 /// Arrow's Parquet reader shares a decompressed page between batches.
 fn views_into_shared_page(rows: u32) -> ArrayRef {

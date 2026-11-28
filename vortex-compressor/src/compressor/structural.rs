@@ -175,9 +175,9 @@ impl CascadingCompressor {
         let compressed_elems =
             self.compress_with_ctx(list_array.elements(), compress_ctx.fresh_root(), exec_ctx)?;
 
-        // Record the root scheme with the offsets child index so root exclusion rules apply.
-        let offset_ctx = compress_ctx
-            .clone()
+        // Start from a fresh root context (preserving sampling mode) so root exclusion rules
+        // apply at index 0 and nested lists do not exhaust an ancestor's cascade budget.
+        let offset_ctx = fresh_root_ctx(&compress_ctx)
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
         let list_offsets_primitive = list_array
             .offsets()
@@ -215,8 +215,9 @@ impl CascadingCompressor {
         let compressed_elems =
             self.compress_with_ctx(list_view.elements(), compress_ctx.fresh_root(), exec_ctx)?;
 
-        let offset_ctx = compress_ctx
-            .clone()
+        // Start from a fresh root context (preserving sampling mode) so root exclusion rules
+        // apply at index 0 and nested lists do not exhaust an ancestor's cascade budget.
+        let offset_ctx = fresh_root_ctx(&compress_ctx)
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
         let list_view_offsets_primitive = list_view
             .offsets()
@@ -229,8 +230,7 @@ impl CascadingCompressor {
             exec_ctx,
         )?;
 
-        let sizes_ctx = compress_ctx
-            .clone()
+        let sizes_ctx = fresh_root_ctx(&compress_ctx)
             .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
         let list_view_sizes_primitive = list_view
             .sizes()
@@ -294,5 +294,18 @@ impl CascadingCompressor {
         // SAFETY: compression rewrites each child slot to an equivalent physical representation,
         // preserving the parent array's logical values and statistics.
         unsafe { array.clone().with_slots(slots) }
+    }
+}
+
+/// Returns a fresh root [`CompressorContext`] preserving whether `parent` is compressing a sample.
+///
+/// Starting from a fresh root clears outer cascade history so root exclusions apply at index 0
+/// and ancestor exclusions do not cross into list or map offsets and sizes.
+fn fresh_root_ctx(parent: &CompressorContext) -> CompressorContext {
+    let ctx = CompressorContext::new();
+    if parent.is_sample() {
+        ctx.with_sampling()
+    } else {
+        ctx
     }
 }
