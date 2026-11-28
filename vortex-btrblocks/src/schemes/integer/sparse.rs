@@ -13,6 +13,7 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::scheme::ChildSelection;
@@ -92,7 +93,7 @@ impl Scheme for SparseScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        let len = data.array_len() as f64;
+        let len = data.array_len();
         let stats = data.integer_stats(exec_ctx);
         let value_count = stats.value_count();
 
@@ -101,9 +102,22 @@ impl Scheme for SparseScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // If the majority (90%) of values is null, this will compress well.
-        if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
+        let elem_bytes = data.array_as_primitive().ptype().byte_width();
+        let idx_width =
+            PType::min_unsigned_ptype_for_value(len.saturating_sub(1) as u64).byte_width();
+        let has_nulls = stats.null_count() > 0;
+        let uncompressed_bytes = len * elem_bytes + if has_nulls { len.div_ceil(8) } else { 0 };
+
+        // If more than 90% of values are null, `Sparse::encode` uses a null fill value and stores
+        // only the non-null values (no patch validity bitmap) plus narrowed indices.
+        if stats.null_count() as f64 / len as f64 > 0.9 {
+            let compressed_bytes = value_count as usize * (elem_bytes + idx_width);
+            if compressed_bytes >= uncompressed_bytes {
+                return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            }
+            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+                uncompressed_bytes as f64 / compressed_bytes as f64,
+            ));
         }
 
         let (_, most_frequent_count) = stats
@@ -125,10 +139,20 @@ impl Scheme for SparseScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // We only store the positions of the non-top values. The fill value is not null, so
-        // `Sparse::encode` stores every null as a patch too.
+        // The fill value is not null, so `Sparse::encode` stores every non-fill value and every
+        // null as a patch with a narrowed index and (when nulls exist) a patch validity bitmap.
+        let exception_count = len - most_frequent_count as usize;
+        let patch_validity = if has_nulls {
+            exception_count.div_ceil(8)
+        } else {
+            0
+        };
+        let compressed_bytes = exception_count * (elem_bytes + idx_width) + patch_validity;
+        if compressed_bytes == 0 || compressed_bytes >= uncompressed_bytes {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            len / (len - most_frequent_count as f64),
+            uncompressed_bytes as f64 / compressed_bytes as f64,
         ))
     }
 
@@ -200,5 +224,43 @@ impl Scheme for SparseScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexResult;
+    use vortex_fastlanes::BitPacked;
+
+    use crate::BtrBlocksCompressorBuilder;
+    use crate::SESSION;
+    use crate::schemes::integer::BITPACKING_V1;
+    use crate::schemes::integer::SparseScheme;
+
+    #[test]
+    fn test_integer_sparse_prices_index_bytes_so_bitpacking_wins_on_u8() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 10,000 u8 values (90% 0, 10% 1): 1,000 patches cost 1,000 * (1 + 2) = 3,000 B (~3.33x),
+        // whereas 1-bit BitPacking costs ~1,280 B (~7.8x). Without pricing patch indices, Sparse
+        // claimed 10.0x and beat BitPacking while writing ~40% more bytes.
+        let input =
+            PrimitiveArray::from_iter((0..10_000).map(|i| u8::from(i % 10 == 0))).into_array();
+
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&BITPACKING_V1)
+            .with_new_scheme(&SparseScheme)
+            .build();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<BitPacked>(),
+            "expected BitPacked over Sparse, got {}",
+            compressed.encoding_id()
+        );
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
     }
 }
