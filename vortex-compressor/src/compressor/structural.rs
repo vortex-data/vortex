@@ -173,7 +173,7 @@ impl CascadingCompressor {
         let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
         let compressed_elems =
-            self.compress_with_sampling(list_array.elements(), compress_ctx.is_sample(), exec_ctx)?;
+            self.compress_with_ctx(list_array.elements(), compress_ctx.fresh_root(), exec_ctx)?;
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx = compress_ctx
@@ -213,7 +213,7 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let compressed_elems =
-            self.compress_with_sampling(list_view.elements(), compress_ctx.is_sample(), exec_ctx)?;
+            self.compress_with_ctx(list_view.elements(), compress_ctx.fresh_root(), exec_ctx)?;
 
         let offset_ctx = compress_ctx
             .clone()
@@ -275,10 +275,11 @@ impl CascadingCompressor {
         Ok(MapArray::try_new(data_parts.map_dtype, entries)?.into_array())
     }
 
-    /// Compress very child slot of the array, then re-build it from them.
+    /// Compress every child slot of the array, then re-build it from them.
     pub(super) fn compress_physical_slots(
         &self,
         array: &ArrayRef,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let slots = array
@@ -286,7 +287,7 @@ impl CascadingCompressor {
             .iter()
             .map(|slot| {
                 slot.as_ref()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .map(|child| self.compress_with_ctx(child, compress_ctx.fresh_root(), exec_ctx))
                     .transpose()
             })
             .collect::<VortexResult<ArraySlots>>()?;
