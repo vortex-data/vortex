@@ -10,7 +10,6 @@ use std::hash::Hash;
 
 use rustc_hash::FxBuildHasher;
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -31,7 +30,6 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::dictionary_encoded;
-use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
@@ -150,17 +148,6 @@ impl Scheme for DecimalDictScheme {
     ) -> VortexResult<Encoded> {
         let dict = dictionary_encode(data.array_as_decimal(), exec_ctx)?;
         Ok(dictionary_encoded(self, &dict))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

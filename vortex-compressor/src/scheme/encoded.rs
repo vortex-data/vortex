@@ -166,8 +166,8 @@ pub struct Encoded {
     pub validity: Option<Validity>,
     /// Builds the encoded array from the compressed and kept children.
     pub ctor: EncodedCtor,
-    /// Set by the default [`Scheme::encode`]: the scheme implements only
-    /// [`Scheme::compress`], which the compressor calls instead.
+    /// Set by the default [`Scheme::encode`]: the scheme does not implement `encode`, so the
+    /// compressor calls the deprecated [`Scheme::compress`] instead.
     uses_compress: bool,
 }
 
@@ -294,8 +294,8 @@ impl Encoded {
         self
     }
 
-    /// What the default [`Scheme::encode`] returns: the scheme implements only
-    /// [`Scheme::compress`], which the compressor calls instead.
+    /// What the default [`Scheme::encode`] returns: the scheme does not implement `encode`, so the
+    /// compressor calls the deprecated [`Scheme::compress`] instead.
     pub(crate) fn uses_compress() -> Self {
         Self {
             uses_compress: true,
@@ -303,7 +303,7 @@ impl Encoded {
         }
     }
 
-    /// Whether the scheme implements only [`Scheme::compress`].
+    /// Whether the scheme does not implement [`Scheme::encode`].
     pub(crate) fn is_uses_compress(&self) -> bool {
         self.uses_compress
     }

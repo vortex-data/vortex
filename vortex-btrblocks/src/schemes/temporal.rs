@@ -25,7 +25,6 @@ use vortex_datetime_parts::split_temporal;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -102,17 +101,6 @@ impl Scheme for TemporalScheme {
             let [days, seconds, subseconds] = children.compressed()?;
             Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
         }))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

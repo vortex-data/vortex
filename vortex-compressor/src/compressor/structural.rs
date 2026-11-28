@@ -75,9 +75,9 @@ impl CascadingCompressor {
     /// Compresses an array-backed validity with the enabled boolean schemes, keeping the bitmap
     /// when it does not get smaller.
     ///
-    /// A scheme that implements only [`Scheme::compress`] and stores a validity it builds itself
-    /// calls this before storing it. The compressor's [`ChildPolicy`] is asked about it with a
-    /// root context.
+    /// A scheme that implements only the deprecated [`Scheme::compress`] and stores a validity it
+    /// builds itself calls this before storing it. The compressor's [`ChildPolicy`] is asked about
+    /// it with a root context.
     ///
     /// [`Scheme::compress`]: crate::scheme::Scheme::compress
     /// [`ChildPolicy`]: crate::scheme::ChildPolicy
@@ -85,6 +85,9 @@ impl CascadingCompressor {
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
+    #[deprecated(
+        note = "implement `Scheme::encode` and register the validity with `Encoded::with_validity`"
+    )]
     pub fn compress_validity(
         &self,
         validity: Validity,
@@ -96,9 +99,9 @@ impl CascadingCompressor {
     /// Returns `array` with its validity compressed, if it is a bool, primitive, decimal or
     /// string leaf with a validity bitmap; any other array is returned as it is.
     ///
-    /// A scheme that implements only [`Scheme::compress`] and stores its input's validity calls
-    /// this on its input before encoding it, so that the encoding stores the compressed bitmap.
-    /// The compressor's [`ChildPolicy`] is asked about it with a root context.
+    /// A scheme that implements only the deprecated [`Scheme::compress`] and stores its input's
+    /// validity calls this on its input before encoding it, so that the encoding stores the
+    /// compressed bitmap. The compressor's [`ChildPolicy`] is asked about it with a root context.
     ///
     /// [`Scheme::compress`]: crate::scheme::Scheme::compress
     /// [`ChildPolicy`]: crate::scheme::ChildPolicy
@@ -106,6 +109,9 @@ impl CascadingCompressor {
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
+    #[deprecated(
+        note = "implement `Scheme::encode` and build the encoding with `Encoded::of_leaf`"
+    )]
     pub fn with_compressed_validity(
         &self,
         array: &ArrayRef,

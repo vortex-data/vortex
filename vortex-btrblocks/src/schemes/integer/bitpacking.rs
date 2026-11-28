@@ -5,7 +5,6 @@
 
 use itertools::Itertools;
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -33,7 +32,6 @@ use vortex_fastlanes::bitpacked_v1_id;
 use vortex_fastlanes::bitpacked_v2_id;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -220,17 +218,6 @@ impl Scheme for BitPackingScheme {
         Ok(self
             .try_encode(data, exec_ctx)?
             .unwrap_or_else(|| Encoded::leaf(data.array().clone())))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

@@ -4,7 +4,6 @@
 //! Run-length float encoding.
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
@@ -17,7 +16,6 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::RLE;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Encoded;
 use crate::Scheme;
@@ -82,16 +80,5 @@ impl Scheme for FloatRLEScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
         rle_encode(self, data, exec_ctx)
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

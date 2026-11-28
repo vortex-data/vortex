@@ -24,7 +24,6 @@ use vortex_mask::Mask;
 use vortex_sparse::Sparse;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -148,17 +147,6 @@ impl Scheme for FixedSizeListSparseScheme {
                 Ok(Sparse::try_new(indices, values, len, fill, exec_ctx)?.into_array())
             },
         ))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

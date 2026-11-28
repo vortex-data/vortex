@@ -120,7 +120,7 @@ impl CascadingCompressor {
     /// Compresses a child array of a cascading scheme.
     ///
     /// The compressor calls this for the children a scheme registers in its
-    /// [`Encoded`](crate::scheme::Encoded). A scheme that implements only
+    /// [`Encoded`](crate::scheme::Encoded). A scheme that implements only the deprecated
     /// [`Scheme::compress`] calls it for its own children.
     ///
     /// If the cascade budget is exhausted, the child is returned as-is, apart from the validity of
@@ -495,9 +495,9 @@ impl CascadingCompressor {
 
 impl CascadingCompressor {
     /// Compresses `data` with `scheme`: runs its [`encode`](Scheme::encode) and compresses the
-    /// children it registers, or calls its [`compress`](Scheme::compress) when `encode` falls back
-    /// to it. An estimate that already stored the scheme's complete output as a [`TrialOutput`]
-    /// is reused.
+    /// children it registers, or calls its deprecated [`compress`](Scheme::compress) when `encode`
+    /// falls back to it. An estimate that already stored the scheme's complete output as a
+    /// [`TrialOutput`] is reused.
     ///
     /// # Errors
     ///
@@ -517,6 +517,7 @@ impl CascadingCompressor {
         let encoded = scheme.encode(data, compress_ctx, exec_ctx)?;
         if encoded.is_uses_compress() {
             // The scheme compresses its children, and any validity it stores, itself.
+            #[expect(deprecated, reason = "the fallback for schemes not yet on `encode`")]
             return scheme.compress(self, data, compress_ctx.clone(), exec_ctx);
         }
         self.compress_encoded(scheme.id(), encoded, compress_ctx, exec_ctx)

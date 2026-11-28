@@ -29,7 +29,6 @@ use vortex_fastlanes::BitPackedSlots;
 use vortex_fastlanes::bitpacked_v1_id;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Encoded;
 use crate::Scheme;
@@ -115,17 +114,6 @@ impl Scheme for ALPRDScheme {
             })
         })
         .with_validity(validity))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

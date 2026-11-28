@@ -4,7 +4,6 @@
 //! Frame of Reference integer encoding.
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -30,7 +29,6 @@ use vortex_fastlanes::for_v2_id;
 
 use super::BitPackingScheme;
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -277,17 +275,6 @@ impl Scheme for FoRScheme {
                 Ok(for_compressed.into_array())
             }),
         )
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

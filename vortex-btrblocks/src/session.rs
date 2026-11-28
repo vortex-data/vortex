@@ -192,13 +192,10 @@ mod tests {
     use std::thread;
 
     use vortex_array::ArrayId;
-    use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
-    use vortex_compressor::CascadingCompressor;
     use vortex_compressor::scheme::CompressionEstimate;
     use vortex_compressor::scheme::EstimateVerdict;
-    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::CompressionSession;
@@ -232,16 +229,6 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Verdict(EstimateVerdict::Skip)
-        }
-
-        fn compress(
-            &self,
-            _compressor: &CascadingCompressor,
-            _data: &ArrayAndStats,
-            _compress_ctx: CompressorContext,
-            _exec_ctx: &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef> {
-            unreachable!()
         }
     }
 

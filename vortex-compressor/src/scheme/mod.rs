@@ -37,6 +37,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
@@ -103,6 +104,9 @@ impl fmt::Display for SchemeId {
 ///
 /// # Implementing a scheme
 ///
+/// A scheme implements [`encode`]. The deprecated [`compress`], which compresses the children
+/// itself, remains only for schemes written before `encode`.
+///
 /// [`expected_compression_ratio`] should return
 /// `CompressionEstimate::Deferred(DeferredEstimate::Sample)` when a cheap heuristic is not
 /// available, asking the compressor to estimate via sampling. Implementors should return an
@@ -119,6 +123,7 @@ impl fmt::Display for SchemeId {
 /// [`scheme_name`]: Scheme::scheme_name
 /// [`matches`]: Scheme::matches
 /// [`encode`]: Scheme::encode
+/// [`compress`]: Scheme::compress
 /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
 /// [`stats_options`]: Scheme::stats_options
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
@@ -232,9 +237,8 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// leave it uncompressed, and register the encoding's own validity with
     /// [`Encoded::with_validity`].
     ///
-    /// The default falls back to [`compress`](Self::compress): the compressor calls the
-    /// scheme's `compress` instead, as it always has. A scheme migrates by implementing this and
-    /// leaving its `compress` `unimplemented!`.
+    /// Every scheme should implement this. The default makes the compressor call the deprecated
+    /// [`compress`](Self::compress) instead, so that schemes written before `encode` keep working.
     ///
     /// # Errors
     ///
@@ -248,22 +252,30 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
         Ok(Encoded::uses_compress())
     }
 
-    /// Compress the array using this scheme.
+    /// Compresses the array using this scheme, compressing its children itself.
     ///
-    /// The compressor calls this for a scheme that does not implement [`encode`](Self::encode),
-    /// which replaces it. A scheme migrated to `encode` implements this with `unimplemented!`
-    /// until it is removed.
+    /// The compressor calls this only for a scheme that does not implement
+    /// [`encode`](Self::encode).
     ///
     /// # Errors
     ///
-    /// Returns an error if compression fails.
+    /// Returns an error if compression fails. The default always returns an error, since the
+    /// scheme then implements neither this nor `encode`.
+    #[deprecated(
+        note = "implement `Scheme::encode` instead, which leaves the children to the compressor"
+    )]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef>;
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_bail!(
+            "scheme {} implements neither Scheme::encode nor Scheme::compress",
+            self.scheme_name()
+        )
+    }
 }
 
 impl PartialEq for dyn Scheme {

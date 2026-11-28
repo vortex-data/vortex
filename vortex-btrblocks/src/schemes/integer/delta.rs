@@ -4,7 +4,6 @@
 //! FastLanes Delta integer encoding.
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -28,7 +27,6 @@ use vortex_fastlanes::Delta;
 use vortex_fastlanes::FL_CHUNK_SIZE;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -241,16 +239,5 @@ impl Scheme for DeltaScheme {
             },
         )
         .with_validity(primitive.validity()?))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
