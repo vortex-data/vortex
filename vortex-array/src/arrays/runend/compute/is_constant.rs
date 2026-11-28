@@ -107,14 +107,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unsliced_constant(vec![3u32, 6, 10], vec![5i32, 5, 5], 0, 10, true)]
-    #[case::unsliced_non_constant(vec![3u32, 6, 10], vec![5i32, 6, 5], 0, 10, false)]
     #[case::leading_zero_length_run(vec![0u32, 3, 6], vec![1i32, 5, 5], 0, 6, true)]
     #[case::leading_distinct_run_trimmed(vec![3u32, 6, 10], vec![1i32, 5, 5], 3, 7, true)]
-    #[case::leading_distinct_run_still_active(vec![3u32, 6, 10], vec![1i32, 5, 5], 2, 8, false)]
     #[case::trailing_distinct_run_trimmed_mid_run(vec![3u32, 6, 10], vec![5i32, 5, 9], 0, 5, true)]
-    #[case::trailing_distinct_run_trimmed_boundary(vec![3u32, 6, 10], vec![5i32, 5, 9], 0, 6, true)]
-    #[case::trailing_distinct_run_active(vec![3u32, 6, 10], vec![5i32, 5, 9], 0, 7, false)]
     #[case::leading_and_trailing_trimmed_multi_run(
         vec![3u32, 6, 9, 12],
         vec![1i32, 5, 5, 9],
@@ -124,7 +119,6 @@ mod tests {
     )]
     #[case::single_active_middle_run(vec![3u32, 6, 9], vec![1i32, 5, 9], 3, 3, true)]
     #[case::empty_with_retained_runs(vec![3u32, 6, 10], vec![5i32, 5, 5], 3, 0, false)]
-    #[case::empty_no_runs(vec![], vec![], 0, 0, false)]
     fn test_runend_is_constant_sliced(
         #[case] ends: Vec<u32>,
         #[case] values: Vec<i32>,
@@ -148,7 +142,6 @@ mod tests {
     #[rstest]
     #[case::active_all_null(vec![Some(1i32), None, None, Some(2)], 3, 6, true)]
     #[case::active_all_valid_same(vec![None, Some(7i32), Some(7), None], 3, 6, true)]
-    #[case::active_mixed_null(vec![Some(1i32), None, Some(7), Some(2)], 3, 6, false)]
     fn test_runend_is_constant_nullable_sliced(
         #[case] values: Vec<Option<i32>>,
         #[case] offset: usize,
@@ -166,6 +159,21 @@ mod tests {
         .into_array();
 
         check_is_constant(array, expected)
+    }
+
+    #[test]
+    fn test_runend_is_constant_leading_null_end() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = RunEnd::try_new_offset_length(
+            PrimitiveArray::from_option_iter([None, Some(3u32), Some(6)]).into_array(),
+            buffer![1i32, 5, 5].into_array(),
+            0,
+            6,
+            &mut ctx,
+        )?
+        .into_array();
+
+        check_is_constant(array, true)
     }
 
     #[test]

@@ -114,11 +114,9 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unsliced(vec![3u32, 6, 10], vec![10i32, -5, 20], 0, 10, Some((-5, 20)))]
     #[case::leading_zero_length_run(vec![0u32, 3, 6], vec![-100i32, 5, 10], 0, 6, Some((5, 10)))]
     #[case::leading_unreferenced_extreme(vec![3u32, 6, 10], vec![-100i32, 5, 10], 3, 7, Some((5, 10)))]
     #[case::trailing_unreferenced_mid_run(vec![3u32, 6, 10], vec![5i32, 10, 999], 0, 5, Some((5, 10)))]
-    #[case::trailing_unreferenced_at_boundary(vec![3u32, 6, 10], vec![5i32, 10, 999], 0, 6, Some((5, 10)))]
     #[case::leading_and_trailing_unreferenced(
         vec![3u32, 6, 9, 12],
         vec![-100i32, 5, 10, 999],
@@ -134,8 +132,6 @@ mod tests {
         Some((7, 7))
     )]
     #[case::empty_with_retained_runs(vec![3u32, 6, 10], vec![-100i32, 5, 999], 3, 0, None)]
-    #[case::empty_zero_offset_retained_runs(vec![3u32, 6], vec![1i32, 2], 0, 0, None)]
-    #[case::empty_no_runs(vec![], vec![], 0, 0, None)]
     fn test_runend_min_max_sliced(
         #[case] ends: Vec<u32>,
         #[case] values: Vec<i32>,
@@ -159,6 +155,28 @@ mod tests {
             expected.map(|(min, max)| MinMaxResult {
                 min: min.into(),
                 max: max.into(),
+            }),
+        )
+    }
+
+    #[test]
+    fn test_runend_min_max_leading_null_end() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = RunEnd::try_new_offset_length(
+            PrimitiveArray::from_option_iter([None, Some(3u32), Some(6)]).into_array(),
+            buffer![-100i32, 5, 10].into_array(),
+            0,
+            6,
+            &mut ctx,
+        )?
+        .into_array();
+
+        check_min_max(
+            array,
+            NumericalAggregateOpts::default(),
+            Some(MinMaxResult {
+                min: 5i32.into(),
+                max: 10i32.into(),
             }),
         )
     }

@@ -24,10 +24,6 @@ use crate::arrays::runend::array::RunEndArraySlotsExt;
 
 /// Returns the active physical run range covering `[offset..offset + len)` for a non-empty
 /// [`RunEnd`] array.
-///
-/// Fast-paths single-run arrays without touching `ends`, and unsliced arrays (`offset == 0` with
-/// `ends[0] > 0` and `ends[num_runs - 1] == len`) with at most two scalar reads instead of binary
-/// searching `ends`.
 pub(super) fn active_physical_range(
     run_end: ArrayView<'_, RunEnd>,
     ctx: &mut ExecutionCtx,
@@ -43,8 +39,8 @@ pub(super) fn active_physical_range(
     if run_end.offset() == 0 {
         let last_end = usize::try_from(&ends.execute_scalar(num_runs - 1, ctx)?)?;
         if last_end == run_end.len() {
-            let first_end = usize::try_from(&ends.execute_scalar(0, ctx)?)?;
-            if first_end > 0 {
+            let first_end = ends.execute_scalar(0, ctx)?;
+            if !first_end.is_null() && usize::try_from(&first_end)? > 0 {
                 return Ok(0..num_runs);
             }
         }
