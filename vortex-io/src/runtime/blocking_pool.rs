@@ -31,6 +31,8 @@ pub(crate) struct BlockingPool {
     receiver: Receiver<Job>,
     state: Arc<Mutex<PoolState>>,
     thread_limit: usize,
+    #[cfg(test)]
+    idle_notify: Arc<parking_lot::Condvar>,
 }
 
 impl Default for BlockingPool {
@@ -48,6 +50,8 @@ impl BlockingPool {
             receiver,
             state: Arc::new(Mutex::new(PoolState::default())),
             thread_limit,
+            #[cfg(test)]
+            idle_notify: Arc::new(parking_lot::Condvar::new()),
         }
     }
 
@@ -79,9 +83,18 @@ impl BlockingPool {
 
         let receiver = self.receiver.clone();
         let worker_state = Arc::clone(&self.state);
+        #[cfg(test)]
+        let idle_notify = Arc::clone(&self.idle_notify);
         if let Err(error) = std::thread::Builder::new()
             .name("vortex-blocking-io".to_string())
-            .spawn(move || worker_loop(receiver, worker_state))
+            .spawn(move || {
+                worker_loop(
+                    receiver,
+                    worker_state,
+                    #[cfg(test)]
+                    idle_notify,
+                )
+            })
         {
             state.thread_count -= 1;
             vortex_panic!("failed to spawn a blocking I/O worker: {error}");
@@ -121,7 +134,11 @@ impl AbortHandle for BlockingAbortHandle {
     }
 }
 
-fn worker_loop(receiver: Receiver<Job>, state: Arc<Mutex<PoolState>>) {
+fn worker_loop(
+    receiver: Receiver<Job>,
+    state: Arc<Mutex<PoolState>>,
+    #[cfg(test)] idle_notify: Arc<parking_lot::Condvar>,
+) {
     loop {
         let mut pool_state = state.lock();
         match receiver.try_recv() {
@@ -137,6 +154,8 @@ fn worker_loop(receiver: Receiver<Job>, state: Arc<Mutex<PoolState>>) {
             }
             Err(TryRecvError::Empty) => {
                 pool_state.idle_thread_count += 1;
+                #[cfg(test)]
+                idle_notify.notify_all();
             }
         }
         drop(pool_state);
@@ -194,7 +213,6 @@ fn max_threads() -> usize {
 mod tests {
     use std::sync::Barrier;
     use std::sync::mpsc;
-    use std::time::Instant;
 
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -283,12 +301,18 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .map_err(|error| vortex_err!("first blocking job did not finish: {error}"))?;
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while pool.state.lock().idle_thread_count != 1 {
-            if Instant::now() >= deadline {
-                return Err(vortex_err!("blocking worker did not become idle"));
+        {
+            let mut state = pool.state.lock();
+            while state.idle_thread_count != 1 {
+                if pool
+                    .idle_notify
+                    .wait_for(&mut state, Duration::from_secs(5))
+                    .timed_out()
+                    && state.idle_thread_count != 1
+                {
+                    return Err(vortex_err!("blocking worker did not become idle"));
+                }
             }
-            std::thread::yield_now();
         }
 
         let (started_send, started_recv) = mpsc::sync_channel(1);

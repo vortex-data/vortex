@@ -295,22 +295,23 @@ async fn test_task_detach() {
     let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = Arc::clone(&counter);
-    let (tx, rx) = oneshot::channel::<()>();
+    let (gate_tx, gate_rx) = oneshot::channel::<()>();
+    let (done_tx, done_rx) = oneshot::channel::<()>();
 
     let task = handle.spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let _ = gate_rx.await;
         c.fetch_add(1, Ordering::SeqCst);
-        tx.send(())
+        let _ = done_tx.send(());
     });
 
-    // Detach the task so it continues running
+    // Detach the task while it is still blocked on the gate so it must continue running.
     task.detach();
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
 
-    // Wait for task to complete
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    let _ = rx.await;
+    assert!(gate_tx.send(()).is_ok());
+    done_rx.await.expect("detached task should complete");
 
-    // Task should have completed even though we detached it
+    // Task should have completed even though we detached it.
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 

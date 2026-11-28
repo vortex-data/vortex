@@ -54,7 +54,7 @@ impl CurrentThreadWorkerPool {
                 let executor = Arc::clone(&self.executor);
                 let shutdown_clone = Arc::clone(&shutdown);
 
-                std::thread::Builder::new()
+                let join_handle = std::thread::Builder::new()
                     .name("vortex-current-thread-worker".to_string())
                     .spawn(move || {
                         // Run the executor with a sleeping future that checks for shutdown
@@ -66,7 +66,14 @@ impl CurrentThreadWorkerPool {
                     })
                     .vortex_expect("Failed to spawn current thread worker");
 
-                state.workers.push(WorkerHandle { shutdown });
+                #[cfg(not(test))]
+                drop(join_handle);
+
+                state.workers.push(WorkerHandle {
+                    shutdown,
+                    #[cfg(test)]
+                    join_handle: Some(join_handle),
+                });
             }
         } else if n < current {
             // Drop excess worker handles so their `Drop` impl signals shutdown.
@@ -89,6 +96,8 @@ struct PoolState {
 struct WorkerHandle {
     /// The shutdown flag indicating that the worker should stop.
     shutdown: Arc<AtomicBool>,
+    #[cfg(test)]
+    join_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for WorkerHandle {
@@ -100,8 +109,6 @@ impl Drop for WorkerHandle {
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
-    use std::thread;
-    use std::time::Instant;
 
     use super::*;
     use crate::runtime::BlockingRuntime;
@@ -119,23 +126,21 @@ mod tests {
             .expect("background worker should complete spawned task");
     }
 
-    fn wait_for_worker_exit(shutdown: &Arc<AtomicBool>) {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while Arc::strong_count(shutdown) > 1 {
-            assert!(
-                Instant::now() < deadline,
-                "worker thread did not exit after shutdown"
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-
     #[test]
     fn test_worker_pool_clone_and_shutdown() {
         let runtime = CurrentThreadRuntime::new();
         let pool = runtime.new_pool();
         pool.set_workers(1);
-        let shutdown = Arc::clone(&pool.state.lock().workers[0].shutdown);
+        let (shutdown, join_handle) = {
+            let mut state = pool.state.lock();
+            (
+                Arc::clone(&state.workers[0].shutdown),
+                state.workers[0]
+                    .join_handle
+                    .take()
+                    .expect("worker join handle present"),
+            )
+        };
 
         run_task(&runtime);
 
@@ -148,6 +153,8 @@ mod tests {
         // Dropping the last owner must shut down workers.
         drop(pool);
         assert!(shutdown.load(Ordering::Relaxed));
-        wait_for_worker_exit(&shutdown);
+        join_handle
+            .join()
+            .expect("worker thread should exit cleanly after shutdown");
     }
 }

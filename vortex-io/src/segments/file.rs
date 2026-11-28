@@ -575,12 +575,15 @@ mod tests {
 
     use futures::future::BoxFuture;
     use futures::task::ArcWake;
-    use vortex_error::vortex_bail;
     use vortex_metrics::DefaultMetricsRegistry;
 
     use super::SegmentSource;
     use super::*;
     use crate::runtime::tokio::TokioRuntime;
+    use crate::test_harness::PendingReadId;
+    use crate::test_harness::ReadFault;
+    use crate::test_harness::SimulatedExecutor;
+    use crate::test_harness::SimulatedReadAt;
 
     fn io_request(id: RequestId, offset: u64, length: usize) -> IoRequest {
         let (callback, _receiver) = oneshot::channel();
@@ -836,66 +839,10 @@ mod tests {
         Ok(())
     }
 
-    #[derive(Clone)]
-    struct ControlledReadRanges {
-        active: Arc<AtomicUsize>,
-        max_active: Arc<AtomicUsize>,
-        batch_sizes: Arc<Mutex<Vec<usize>>>,
-        permits: Arc<tokio::sync::Semaphore>,
-    }
-
-    impl VortexReadAt for ControlledReadRanges {
-        fn concurrency(&self) -> usize {
-            4
-        }
-
-        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-            async { Ok(24) }.boxed()
-        }
-
-        fn read_at(
-            &self,
-            _offset: u64,
-            _length: usize,
-            _alignment: Alignment,
-        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-            async { panic!("read_at should not be called") }.boxed()
-        }
-
-        fn read_ranges(&self, requests: Arc<[ReadAtRequest]>) -> ReadAtStream {
-            self.batch_sizes.lock().push(requests.len());
-            let active = self.active.fetch_add(requests.len(), Ordering::SeqCst) + requests.len();
-            self.max_active.fetch_max(active, Ordering::SeqCst);
-
-            let reads = requests
-                .iter()
-                .copied()
-                .map(|request| {
-                    let active = Arc::clone(&self.active);
-                    let permits = Arc::clone(&self.permits);
-                    async move {
-                        let Ok(permit) = permits.acquire_owned().await else {
-                            vortex_panic!("test semaphore unexpectedly closed");
-                        };
-                        permit.forget();
-                        active.fetch_sub(1, Ordering::SeqCst);
-                        let buffer = BufferHandle::new_host(
-                            ByteBuffer::from(vec![0; request.length]).aligned(request.alignment),
-                        );
-                        (request, Ok(buffer))
-                    }
-                })
-                .collect::<Vec<_>>();
-            futures::stream::iter(reads).buffer_unordered(4).boxed()
-        }
-    }
-
-    #[tokio::test]
-    async fn read_driver_refills_global_concurrency_across_batches() -> VortexResult<()> {
-        let active = Arc::new(AtomicUsize::new(0));
-        let max_active = Arc::new(AtomicUsize::new(0));
-        let batch_sizes = Arc::new(Mutex::new(Vec::new()));
-        let permits = Arc::new(tokio::sync::Semaphore::new(0));
+    #[test]
+    fn read_driver_refills_global_concurrency_across_batches() -> VortexResult<()> {
+        let exec = SimulatedExecutor::new();
+        let sim = SimulatedReadAt::gated(ByteBuffer::from(vec![0u8; 24])).with_concurrency(4);
         let segments: Arc<[SegmentLocation]> = (0..6)
             .map(|i| SegmentLocation {
                 offset: i * 4,
@@ -906,56 +853,39 @@ mod tests {
         let metrics = DefaultMetricsRegistry::default();
         let source = FileSegmentSource::open(
             segments,
-            ControlledReadRanges {
-                active: Arc::clone(&active),
-                max_active: Arc::clone(&max_active),
-                batch_sizes: Arc::clone(&batch_sizes),
-                permits: Arc::clone(&permits),
-            },
-            TokioRuntime::current(),
+            sim.clone(),
+            exec.handle(),
             RequestMetrics::new(&metrics, vec![]),
         );
-        let reads = TokioRuntime::current().spawn(async move {
+        let reads = exec.handle().spawn(async move {
             future::join_all((0..6).map(|i| source.request(SegmentId::from(i)))).await
         });
 
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while active.load(Ordering::SeqCst) != 4 {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .is_ok()
-        );
+        exec.run_until_stalled();
+        assert_eq!(sim.in_flight_count(), 4);
+        assert_eq!(sim.read_ranges_batch_sizes(), [4]);
 
-        permits.add_permits(1);
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while batch_sizes.lock().len() < 2 || active.load(Ordering::SeqCst) != 4 {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .is_ok()
-        );
-        assert_eq!(batch_sizes.lock().as_slice(), [4, 1]);
-        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+        assert!(sim.complete_next().is_some());
+        exec.run_until_stalled();
+        assert_eq!(sim.read_ranges_batch_sizes(), [4, 1]);
+        assert_eq!(sim.in_flight_count(), 4);
+        assert_eq!(sim.max_in_flight(), 4);
 
-        permits.add_permits(5);
-        for result in reads.await {
+        while sim.pending_count() > 0 {
+            sim.complete_all();
+            exec.run_until_stalled();
+        }
+        for result in exec.drive(reads) {
             assert_eq!(result?.len(), 4);
         }
-        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+        assert_eq!(sim.max_in_flight(), 4);
         Ok(())
     }
 
-    #[tokio::test]
-    async fn read_driver_keeps_slots_full_while_a_straggler_is_in_flight() -> VortexResult<()> {
-        let active = Arc::new(AtomicUsize::new(0));
-        let max_active = Arc::new(AtomicUsize::new(0));
-        let batch_sizes = Arc::new(Mutex::new(Vec::new()));
-        let permits = Arc::new(tokio::sync::Semaphore::new(0));
+    #[test]
+    fn read_driver_keeps_slots_full_while_a_straggler_is_in_flight() -> VortexResult<()> {
+        let exec = SimulatedExecutor::new();
+        let sim = SimulatedReadAt::gated(ByteBuffer::from(vec![0u8; 32])).with_concurrency(4);
         let segments: Arc<[SegmentLocation]> = (0..8)
             .map(|i| SegmentLocation {
                 offset: i * 4,
@@ -966,89 +896,51 @@ mod tests {
         let metrics = DefaultMetricsRegistry::default();
         let source = FileSegmentSource::open(
             segments,
-            ControlledReadRanges {
-                active: Arc::clone(&active),
-                max_active: Arc::clone(&max_active),
-                batch_sizes: Arc::clone(&batch_sizes),
-                permits: Arc::clone(&permits),
-            },
-            TokioRuntime::current(),
+            sim.clone(),
+            exec.handle(),
             RequestMetrics::new(&metrics, vec![]),
         );
-        let reads = TokioRuntime::current().spawn(async move {
+        let reads = exec.handle().spawn(async move {
             future::join_all((0..8).map(|i| source.request(SegmentId::from(i)))).await
         });
 
-        wait_for_active_reads(&active, 4).await;
+        exec.run_until_stalled();
+        assert_eq!(sim.in_flight_count(), 4);
 
-        // Complete three reads while leaving one original read blocked as a straggler. Each freed
-        // slot must be refilled before the next completion; a batch-barrier implementation would
-        // instead fall from four active reads to one and submit no replacement work.
-        for expected_calls in 2..=4 {
-            permits.add_permits(1);
-            assert!(
-                tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                    while batch_sizes.lock().len() < expected_calls
-                        || active.load(Ordering::SeqCst) != 4
-                    {
-                        tokio::task::yield_now().await;
-                    }
-                })
-                .await
-                .is_ok()
-            );
+        // Complete three of the original reads while leaving the oldest read blocked as a
+        // straggler. Each freed slot must be refilled before the next completion; a batch-barrier
+        // implementation would instead fall from four active reads to one and submit no
+        // replacement work.
+        for (expected_calls, read_id) in
+            (2..=4).zip([PendingReadId(3), PendingReadId(2), PendingReadId(1)])
+        {
+            assert!(sim.complete(read_id));
+            exec.run_until_stalled();
+            assert_eq!(sim.read_ranges_batch_sizes().len(), expected_calls);
+            assert_eq!(sim.in_flight_count(), 4);
         }
 
-        assert_eq!(batch_sizes.lock().as_slice(), [4, 1, 1, 1]);
-        assert_eq!(active.load(Ordering::SeqCst), 4);
-        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+        assert_eq!(sim.read_ranges_batch_sizes(), [4, 1, 1, 1]);
+        assert_eq!(
+            sim.pending_ids(),
+            [
+                PendingReadId(0),
+                PendingReadId(4),
+                PendingReadId(5),
+                PendingReadId(6),
+            ]
+        );
+        assert_eq!(sim.in_flight_count(), 4);
+        assert_eq!(sim.max_in_flight(), 4);
 
-        permits.add_permits(5);
-        for result in reads.await {
+        while sim.pending_count() > 0 {
+            sim.complete_all();
+            exec.run_until_stalled();
+        }
+        for result in exec.drive(reads) {
             assert_eq!(result?.len(), 4);
         }
         Ok(())
-    }
-
-    async fn wait_for_active_reads(active: &AtomicUsize, expected: usize) {
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while active.load(Ordering::SeqCst) != expected {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .is_ok()
-        );
-    }
-
-    #[derive(Clone)]
-    struct SlowErrReadAt;
-
-    impl VortexReadAt for SlowErrReadAt {
-        fn concurrency(&self) -> usize {
-            4
-        }
-
-        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-            async { Ok(1024) }.boxed()
-        }
-
-        fn read_at(
-            &self,
-            offset: u64,
-            _length: usize,
-            _alignment: Alignment,
-        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-            async move {
-                // Stagger completions so some reads finish while others are still in flight.
-                for _ in 0..(offset % 5 + 1) {
-                    tokio::task::yield_now().await;
-                }
-                vortex_bail!("slow read done")
-            }
-            .boxed()
-        }
     }
 
     // Many segment reads driven on separate tasks must all make progress and complete.
@@ -1062,10 +954,17 @@ mod tests {
                 alignment: Alignment::none(),
             })
             .collect();
+        let sim = SimulatedReadAt::new(ByteBuffer::from(vec![0u8; 1024]))
+            .with_concurrency(4)
+            .with_seeded_poll_delays(7, 5);
+        sim.inject_fault_for_all(ReadFault::FatalError {
+            message: "slow read done".to_string(),
+        });
+
         let metrics = DefaultMetricsRegistry::default();
         let source = Arc::new(FileSegmentSource::open(
             segments,
-            SlowErrReadAt,
+            sim,
             TokioRuntime::current(),
             RequestMetrics::new(&metrics, vec![]),
         ));

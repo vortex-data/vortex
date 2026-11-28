@@ -39,6 +39,7 @@ mod multipart_lifecycle_tests {
         complete_calls: AtomicUsize,
         abort_calls: AtomicUsize,
         abort_notify: Notify,
+        abort_done: (parking_lot::Mutex<usize>, parking_lot::Condvar),
     }
 
     #[derive(Default)]
@@ -181,10 +182,20 @@ mod multipart_lifecycle_tests {
 
         async fn abort(&mut self) -> object_store::Result<()> {
             if self.behavior.abort_uses_tokio_timer {
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                // Exercises both the Tokio task scheduler and time driver in the current context
+                // without sleeping on the wall clock.
+                timeout(Duration::from_secs(5), tokio::task::spawn(async {}))
+                    .await
+                    .expect("tokio timer driver should be active")
+                    .expect("tokio task should complete");
             }
             self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
             self.counters.abort_notify.notify_one();
+            {
+                let (lock, cvar) = &self.counters.abort_done;
+                *lock.lock() += 1;
+                cvar.notify_all();
+            }
             if self.behavior.fail_abort {
                 return Err(object_store::Error::Generic {
                     store: "test",
@@ -377,14 +388,16 @@ mod multipart_lifecycle_tests {
 
         // Native cleanup runs on smol + Compat even after the caller's Tokio runtime stops.
         drop(writer);
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while counters.abort_calls.load(Ordering::SeqCst) == 0 {
+        let (lock, cvar) = &counters.abort_done;
+        let mut aborts = lock.lock();
+        while *aborts == 0 {
+            let wait_result = cvar.wait_for(&mut aborts, Duration::from_secs(2));
             assert!(
-                std::time::Instant::now() < deadline,
+                !wait_result.timed_out() || *aborts > 0,
                 "timed out waiting for background multipart abort"
             );
-            std::thread::sleep(Duration::from_millis(5));
         }
+        drop(aborts);
 
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
         Ok(())

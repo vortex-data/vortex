@@ -14,6 +14,8 @@ mod filesystem;
 #[cfg(feature = "object_store")]
 mod obj_store;
 mod read_at;
+#[cfg(test)]
+mod tests;
 mod write;
 
 use std::pin::Pin;
