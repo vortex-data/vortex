@@ -88,6 +88,19 @@ impl Default for BitPackingScheme {
 }
 
 impl BitPackingScheme {
+    /// Bit-packs `primitive_array`, or returns `None` when it is empty or its best bit width does
+    /// not save at least [`MIN_BITS_SAVED`] bits.
+    pub(super) fn compress_array(
+        &self,
+        primitive_array: &PrimitiveArray,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<BitPackedArray>> {
+        match self.mode {
+            BitPackingSchemeMode::V1 => compress_global(primitive_array, exec_ctx),
+            BitPackingSchemeMode::V2 => compress_blocked(primitive_array, exec_ctx),
+        }
+    }
+
     /// Bit-packs `data`, or returns `None` when it is empty or its best bit width is its native
     /// width.
     pub(super) fn try_encode(
@@ -96,11 +109,7 @@ impl BitPackingScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Encoded>> {
         let primitive_array = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-        let packed = match self.mode {
-            BitPackingSchemeMode::V1 => compress_global(&primitive_array, exec_ctx)?,
-            BitPackingSchemeMode::V2 => compress_blocked(&primitive_array, exec_ctx)?,
-        };
-        let Some(packed) = packed else {
+        let Some(packed) = self.compress_array(&primitive_array, exec_ctx)? else {
             return Ok(None);
         };
 

@@ -2,8 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod corruption;
+#[cfg(feature = "native")]
+mod roundtrip;
 mod session;
 mod settings;
+#[cfg(feature = "native")]
+mod variant;
 
 use std::panic;
 use std::sync::Once;
@@ -11,6 +15,8 @@ use std::sync::Once;
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 pub use corruption::*;
+#[cfg(feature = "native")]
+pub use roundtrip::FileRoundTrip;
 pub use session::*;
 pub use settings::*;
 use vortex::expr::Expression;
