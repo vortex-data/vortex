@@ -156,7 +156,7 @@ mod tests {
     use crate::sample_valid_values;
 
     #[test]
-    fn sample_valid_values_fills_budget_and_reaches_tail_when_clustered() {
+    fn test_sample_valid_values_fills_budget_and_reaches_tail_when_clustered() {
         let values: Vec<usize> = (0..1000).collect();
         let mask = Mask::from_iter((0..1000).map(|idx| idx < 200));
         let Mask::Values(mask_values) = mask else {
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn alp_encode_nullable_samples_trailing_fractions() -> VortexResult<()> {
+    fn test_alp_encode_nullable_samples_trailing_fractions() -> VortexResult<()> {
         let mut ctx = VortexSession::empty().create_execution_ctx();
         let len = 8192;
         let values: Vec<f64> = (0..len)
