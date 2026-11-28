@@ -154,53 +154,10 @@ jobs:
         env:
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
         run: |
-          # Each value below comes from the untrusted issue body. Validate each value
-          # before it becomes a step output, and stop the job if a value is not valid.
-          # Do not print a value that failed validation.
-          BODY_FILE="$WORK_DIR/issue.md"
-
-          # Use only the first match. More than one match gives a multi-line value,
-          # and a multi-line value can add outputs of its own.
-          TARGET=$(grep -oP '(?<=\*\*Target\*\*: `)[^`]+' "$BODY_FILE" | head -n 1 || true)
-          CRASH_FILE=$(grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+' "$BODY_FILE" | head -n 1 || true)
-          ARTIFACT_URL=$(grep -oP 'https://[^\s)]+/artifacts/[0-9]+' "$BODY_FILE" | head -n 1 || true)
-
-          # The target must be the name of a fuzz target in this repository.
-          if [[ ! "$TARGET" =~ ^[a-z0-9_]+$ ]] || [[ ! -f "fuzz/fuzz_targets/$TARGET.rs" ]]; then
-            echo "::error::The issue has no target, or the target is not a fuzz target of this repository"
-            exit 1
-          fi
-
-          # libFuzzer names a crash file `<kind>-<hash>`. The pattern permits no path
-          # separator, and the first character cannot be `.` or `-`.
-          if [[ ! "$CRASH_FILE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
-            echo "::error::The issue has no crash file name, or the name is not valid"
-            exit 1
-          fi
-
-          # The artifact must belong to a workflow run of this repository.
-          URL_PREFIX="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/"
-          URL_SUFFIX="${ARTIFACT_URL#"$URL_PREFIX"}"
-
-          if [[ "$ARTIFACT_URL" != "$URL_PREFIX"* ]] || [[ ! "$URL_SUFFIX" =~ ^([0-9]+)/artifacts/([0-9]+)$ ]]; then
-            echo "::error::The issue has no artifact URL, or the URL is not an artifact of this repository"
-            exit 1
-          fi
-
-          RUN_ID="${BASH_REMATCH[1]}"
-          ARTIFACT_ID="${BASH_REMATCH[2]}"
-          RSS_LIMIT_MB=0
-          if [[ "$CRASH_FILE" == oom-* ]]; then
-            RSS_LIMIT_MB=2048
-          fi
-
-          {
-            echo "target=$TARGET"
-            echo "crash_file=$CRASH_FILE"
-            echo "artifact_id=$ARTIFACT_ID"
-            echo "rss_limit_mb=$RSS_LIMIT_MB"
-          } >> "$GITHUB_OUTPUT"
-          echo "Extracted: target=$TARGET, crash_file=$CRASH_FILE, run=$RUN_ID, artifact=$ARTIFACT_ID, rss_limit_mb=$RSS_LIMIT_MB"
+          python3 .github/scripts/extract_fuzz_crash.py extract \
+            --body-file "$WORK_DIR/issue.md" \
+            --repo "$GITHUB_REPOSITORY" \
+            --server-url "$GITHUB_SERVER_URL"
 
       # A fix session takes 15-30 minutes, so don't start one for an issue that
       # already has an open fix pull request. A closed one doesn't count: the
@@ -229,36 +186,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           ARTIFACT_ID: ${{ steps.extract.outputs.artifact_id }}
+          ATTACHMENT_URL: ${{ steps.extract.outputs.attachment_url }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
         run: |
-          # Download by artifact ID, not by name. A re-run of the fuzz workflow uploads a
-          # second artifact with the same name, and `gh run download --name` then gets the
-          # artifact of the latest attempt, which does not contain this crash file.
-          gh api "repos/$REPO/actions/artifacts/$ARTIFACT_ID/zip" > "$WORK_DIR/crash-artifact.zip"
-
-          # Extract only the crash file, outside the checkout, and never replace a file
-          # that exists. The artifact ID comes from the issue, so the archive can be
-          # from a different workflow.
-          mkdir -p "$WORK_DIR/crash"
-          crash_path=""
-          for member in "$TARGET/$CRASH_FILE" "$CRASH_FILE"; do
-            if unzip -q -n "$WORK_DIR/crash-artifact.zip" "$member" -d "$WORK_DIR/crash" 2> /dev/null; then
-              crash_path="$WORK_DIR/crash/$member"
-              break
-            fi
-          done
-          rm "$WORK_DIR/crash-artifact.zip"
-
-          # The crash file must be a regular file, not a symbolic link.
-          if [ -z "$crash_path" ] || [ ! -f "$crash_path" ] || [ -L "$crash_path" ]; then
-            echo "::error::Crash file $CRASH_FILE not found in artifact $ARTIFACT_ID"
-            exit 1
-          fi
-
-          echo "Downloaded crash file: $crash_path"
-          echo "crash_file_path=$crash_path" >> "$GITHUB_OUTPUT"
+          python3 .github/scripts/extract_fuzz_crash.py download \
+            --repo "$REPO" \
+            --target "$TARGET" \
+            --crash-file "$CRASH_FILE" \
+            --dest-dir "$WORK_DIR/crash" \
+            --artifact-id "$ARTIFACT_ID" \
+            --attachment-url "$ATTACHMENT_URL"
 
       # Two toolchains: `cargo test` and `cargo clippy` use the stable toolchain
       # pinned in rust-toolchain.toml, and cargo-fuzz and rustfmt need the nightly.
@@ -763,14 +702,16 @@ jobs:
             state="❌ failed"
             detail=$(cat <<'EOF'
           The attempt could not start, because this issue does not have the crash details it
-          needs. It reads these lines from the issue body, in the format that the fuzz
-          pipeline's report uses:
+          needs. Provide either the fuzz pipeline report format:
 
           ```
           **Target**: `<fuzz target>`
           **Crash File**: `<crash file name>`
           https://github.com/<owner>/<repo>/actions/runs/<run>/artifacts/<id>
           ```
+
+          or a `cargo ... fuzz run ... <fuzz target> <crash file>` command together with an
+          attached crash file or `.tgz` / `.zip` archive (`https://github.com/user-attachments/files/...`).
           EOF
             )
           elif [ "$CRASH_REPRODUCED" = false ]; then
