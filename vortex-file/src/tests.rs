@@ -34,6 +34,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinct;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinctOptions;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -2792,6 +2794,110 @@ async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
     assert_eq!(
         accumulator.final_scalar()?,
         Scalar::primitive(12_i64, Nullability::Nullable)
+    );
+    Ok(())
+}
+
+async fn write_numbers(
+    chunks: &[&[Option<i32>]],
+    disable_editions: bool,
+    file_statistics: Option<Vec<AggregateFnRef>>,
+) -> VortexResult<ByteBufferMut> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::Primitive(I32, Nullability::Nullable))]),
+        Nullability::NonNullable,
+    );
+    let mut options = SESSION.write_options().include_nested_statistics();
+    if disable_editions {
+        options = options.disable_editions();
+    }
+    if let Some(file_statistics) = file_statistics {
+        options = options.with_file_statistics(file_statistics);
+    }
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = options.writer(&mut buf, dtype);
+    for chunk in chunks {
+        let numbers = PrimitiveArray::from_option_iter(chunk.iter().copied()).into_array();
+        writer
+            .push(StructArray::from_fields(&[("numbers", numbers)])?.into_array())
+            .await?;
+    }
+    writer.finish().await?;
+    Ok(buf)
+}
+
+#[tokio::test]
+async fn approx_distinct_is_not_written_under_core_editions() -> VortexResult<()> {
+    // No enabled edition includes it yet: it is left out, and asking for it fails the write.
+    let approx_distinct = ApproxDistinct.bind(ApproxDistinctOptions::default());
+    let buf = write_numbers(&[&[Some(1), Some(2)]], false, None).await?;
+    let source = SESSION.open_options().open_buffer(buf)?.data_source()?;
+    assert!(
+        source
+            .field_statistic(&field_path!(numbers), &approx_distinct)
+            .await?
+            .is_absent()
+    );
+
+    let explicit = write_numbers(&[&[Some(1)]], false, Some(vec![approx_distinct])).await;
+    assert!(explicit.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn approx_distinct_is_a_default_footer_aggregate() -> VortexResult<()> {
+    // Merged across chunks, with nulls not counted.
+    let buf = write_numbers(
+        &[
+            &[Some(1), Some(2), None, Some(3)],
+            &[Some(3), Some(4), None],
+            &[Some(4), Some(5), Some(1)],
+        ],
+        true,
+        None,
+    )
+    .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file.file_stats().expect("default statistics were written");
+    let (numbers, _) = file_stats.get(0);
+    assert_eq!(
+        numbers.get(&ApproxDistinct.bind(ApproxDistinctOptions::default())),
+        Precision::exact(Scalar::primitive(5_u64, Nullability::NonNullable))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn approx_distinct_partials_merge_across_files() -> VortexResult<()> {
+    // Two files share the values 3..=5; merging their partials must count them once.
+    let approx_distinct = ApproxDistinct.bind(ApproxDistinctOptions::default());
+    let files: [&[Option<i32>]; 2] = [
+        &[Some(1), Some(2), Some(3), Some(4), Some(5)],
+        &[Some(3), Some(4), Some(5), Some(6)],
+    ];
+    let mut partials = Vec::new();
+    for values in files {
+        let buf = write_numbers(&[values], true, Some(vec![approx_distinct.clone()])).await?;
+        let source = SESSION.open_options().open_buffer(buf)?.data_source()?;
+        partials.push(
+            source
+                .field_statistic(&field_path!(numbers), &approx_distinct)
+                .await?
+                .as_exact()
+                .expect("stored partial"),
+        );
+    }
+
+    let mut accumulator =
+        approx_distinct.accumulator(&DType::Primitive(I32, Nullability::Nullable))?;
+    for partial in &partials {
+        accumulator.combine_partials(partial)?;
+    }
+    // Combining the same file twice must not change the count, unlike a sum.
+    accumulator.combine_partials(&partials[0])?;
+    assert_eq!(
+        accumulator.final_scalar()?,
+        Scalar::primitive(6_u64, Nullability::NonNullable)
     );
     Ok(())
 }
