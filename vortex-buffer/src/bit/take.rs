@@ -343,8 +343,10 @@ mod tests {
     use rand::rngs::StdRng;
     use rstest::rstest;
 
+    use super::first_unset;
     use super::take_bits;
     use crate::BitBuffer;
+    use crate::BitBufferView;
 
     fn random_bits(len: usize) -> BitBuffer {
         let mut rng = StdRng::seed_from_u64(42);
@@ -354,6 +356,101 @@ mod tests {
     fn random_indices(len: usize, bound: usize) -> Vec<usize> {
         let mut rng = StdRng::seed_from_u64(43);
         (0..len).map(|_| rng.random_range(0..bound)).collect()
+    }
+
+    fn random_model(len: usize) -> Vec<bool> {
+        let mut rng = StdRng::seed_from_u64(44);
+        (0..len).map(|_| rng.random()).collect()
+    }
+
+    /// Packs `model` LSB-first from bit `offset`, padded so that the AVX2 kernel's 32-bit
+    /// gathers stay in bounds and it does not fall back to the scalar path.
+    fn pack(model: &[bool], offset: usize) -> Vec<u8> {
+        let mut bytes = vec![0u8; (offset + model.len()).div_ceil(32) * 4 + 8];
+        for (i, _) in model.iter().enumerate().filter(|&(_, &bit)| bit) {
+            bytes[(offset + i) / 8] |= 1 << ((offset + i) % 8);
+        }
+        bytes
+    }
+
+    fn take_matches_model<I>(
+        bits_len: usize,
+        bits_offset: usize,
+        validity_offset: Option<usize>,
+        garbage: I,
+    ) where
+        I: AsPrimitive<usize> + TryFrom<usize> + Ord + Zero,
+        <I as TryFrom<usize>>::Error: std::fmt::Debug,
+    {
+        let model = random_model(bits_len);
+        let bytes = pack(&model, bits_offset);
+        let bits = BitBufferView::new_with_offset(&bytes, bits_len, bits_offset);
+
+        let len = 403;
+        let mut positions = random_indices(len, bits_len);
+        positions[0] = bits_len - 1;
+        positions[len - 1] = bits_len - 1;
+        let valid: Vec<bool> = (0..len)
+            .map(|i| validity_offset.is_none() || i % 3 != 1)
+            .collect();
+        let indices: Vec<I> = positions
+            .iter()
+            .zip(&valid)
+            .map(|(&idx, &v)| {
+                if v {
+                    I::try_from(idx).unwrap()
+                } else {
+                    garbage
+                }
+            })
+            .collect();
+
+        let validity_bytes = pack(&valid, validity_offset.unwrap_or(0));
+        let validity = validity_offset
+            .map(|offset| BitBufferView::new_with_offset(&validity_bytes, len, offset));
+
+        let taken = take_bits(bits, &indices, validity);
+        assert_eq!(taken.len(), len);
+        for (i, &idx) in positions.iter().enumerate() {
+            if valid[i] {
+                assert_eq!(taken.value(i), model[idx], "index {i}");
+            }
+        }
+    }
+
+    #[rstest]
+    fn take_matches_model_u16(
+        #[values(20, 300, 5000)] bits_len: usize,
+        #[values(0, 5)] bits_offset: usize,
+        #[values(None, Some(0), Some(3))] validity_offset: Option<usize>,
+    ) {
+        take_matches_model(bits_len, bits_offset, validity_offset, u16::MAX);
+    }
+
+    #[rstest]
+    fn take_matches_model_u32(
+        #[values(20, 300, 5000)] bits_len: usize,
+        #[values(0, 5)] bits_offset: usize,
+        #[values(None, Some(0), Some(3))] validity_offset: Option<usize>,
+    ) {
+        take_matches_model(bits_len, bits_offset, validity_offset, u32::MAX);
+    }
+
+    #[rstest]
+    fn take_matches_model_u64(
+        #[values(20, 300, 5000)] bits_len: usize,
+        #[values(0, 5)] bits_offset: usize,
+        #[values(None, Some(0), Some(3))] validity_offset: Option<usize>,
+    ) {
+        take_matches_model(bits_len, bits_offset, validity_offset, u64::MAX);
+    }
+
+    #[rstest]
+    fn take_matches_model_i64(
+        #[values(300, 5000)] bits_len: usize,
+        #[values(None, Some(3))] validity_offset: Option<usize>,
+    ) {
+        take_matches_model(bits_len, 5, validity_offset, -1i64);
     }
 
     fn gathers<I>(bits_len: usize, garbage: [I; 2])
@@ -474,6 +571,82 @@ mod tests {
         for (i, &idx) in indices.iter().enumerate() {
             assert_eq!(taken.value(i), expected(usize::from(idx)));
         }
+    }
+
+    #[rstest]
+    fn single_differing_bit(
+        #[values(0, 63, 64, 150, 199)] pos: usize,
+        #[values(0, 5)] offset: usize,
+        #[values(true, false)] set: bool,
+    ) {
+        let len = 200;
+        let model: Vec<bool> = (0..len).map(|i| (i == pos) == set).collect();
+        let bytes = pack(&model, offset);
+        let bits = BitBufferView::new_with_offset(&bytes, len, offset);
+        let indices: Vec<usize> = (0..len).rev().chain(0..len).collect();
+
+        let taken = take_bits(bits, &indices, None);
+        for (i, &idx) in indices.iter().enumerate() {
+            assert_eq!(taken.value(i), model[idx], "index {i}");
+        }
+    }
+
+    #[rstest]
+    #[case(0, 0, None)]
+    #[case(1, 0, None)]
+    #[case(64, 0, None)]
+    #[case(130, 0, None)]
+    #[case(130, 3, None)]
+    #[case(10, 0, Some(9))]
+    #[case(130, 0, Some(0))]
+    #[case(130, 0, Some(63))]
+    #[case(130, 0, Some(64))]
+    #[case(130, 0, Some(127))]
+    #[case(130, 0, Some(128))]
+    #[case(130, 0, Some(129))]
+    #[case(130, 3, Some(70))]
+    #[case(130, 3, Some(129))]
+    fn first_unset_matches_model(
+        #[case] len: usize,
+        #[case] offset: usize,
+        #[case] unset: Option<usize>,
+    ) {
+        let model: Vec<bool> = (0..len).map(|i| Some(i) != unset).collect();
+        let bytes = pack(&model, offset);
+        let bits = BitBufferView::new_with_offset(&bytes, len, offset);
+        assert_eq!(first_unset(bits), unset);
+    }
+
+    // A single index only takes the all-set/all-unset shortcut for up to 64 bits, so these
+    // lengths reach the bounds check.
+    #[rstest]
+    #[case(BitBuffer::new_set(65))]
+    #[case(BitBuffer::new_unset(65))]
+    #[case(BitBuffer::new_set(1000))]
+    #[case(BitBuffer::new_unset(1000))]
+    #[should_panic(expected = "take index out of bounds")]
+    fn index_equal_to_len_panics(#[case] bits: BitBuffer) {
+        let _taken = take_bits(bits.as_view(), &[bits.len()], None);
+    }
+
+    // u64 indices skip the AVX2 kernel, so this covers both scalar paths with validity.
+    #[rstest]
+    #[case::collected_group(300, 5)]
+    #[case::collected_tail(300, 401)]
+    #[case::unchecked_group(5000, 5)]
+    #[case::unchecked_tail(5000, 401)]
+    #[should_panic(expected = "take index out of bounds")]
+    fn valid_index_equal_to_len_panics(#[case] bits_len: usize, #[case] pos: usize) {
+        let model = random_model(bits_len);
+        let bytes = pack(&model, 0);
+        let bits = BitBufferView::new(&bytes, bits_len);
+        let mut indices: Vec<u64> = random_indices(403, bits_len)
+            .into_iter()
+            .map(|idx| idx as u64)
+            .collect();
+        indices[pos] = bits_len as u64;
+        let validity = BitBuffer::new_set(403);
+        let _taken = take_bits(bits, &indices, Some(validity.as_view()));
     }
 
     #[test]
