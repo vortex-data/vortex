@@ -44,6 +44,7 @@ use crate::FoR;
 use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::array::for_decompress::unfor_pack_into;
 
 const _: () = assert!(FL_CHUNK_SIZE == FILTER_CHUNK_LEN);
 
@@ -185,15 +186,10 @@ where
             dst.fill(MaybeUninit::new(ref_p));
             return;
         }
-        // SAFETY: `unchecked_unfor_pack` only writes to `dst`, and the packed chunk holds
-        // `FL_CHUNK_SIZE` values of `bit_width` bits.
+        // SAFETY: `self.chunk(chunk_idx)` holds `FL_CHUNK_SIZE` values of `self.bit_width` bits
+        // and `unfor_pack_into` initializes every element of `dst`.
         unsafe {
-            FastLanesFoR::unchecked_unfor_pack(
-                self.bit_width,
-                self.chunk(chunk_idx),
-                ref_p,
-                dst.assume_init_mut(),
-            );
+            unfor_pack_into(self.bit_width, self.chunk(chunk_idx), ref_p, dst);
         }
     }
 

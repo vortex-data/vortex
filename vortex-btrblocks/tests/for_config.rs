@@ -284,6 +284,21 @@ fn test_v2_handles_wide_span_inside_block() -> VortexResult<()> {
     let ids = compress_roundtrip(for_only(), &array)?;
     assert!(!has_blocked_for(&ids));
     assert!(!ids.contains(&for_v1_id()));
+
+    // With a runner-up scheme available, FoR's fallback delegates to the cascade instead of
+    // leaving the column uncompressed.
+    let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
+    let compressed = for_only()
+        .with_new_scheme(&IntDictScheme)
+        .build()
+        .compress(&array, &mut ctx)?;
+    assert!(
+        compressed.nbytes() < array.nbytes(),
+        "runner-up scheme should compress wide-span column: {} >= {}",
+        compressed.nbytes(),
+        array.nbytes()
+    );
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 

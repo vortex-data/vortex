@@ -260,18 +260,30 @@ impl Scheme for FoRScheme {
 
         // Immediately bitpack when residuals satisfy BitPacking's non-negative precondition.
         // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
-        // residuals; only scan when the cached global span exceeds `T::MAX`, and hand the input
-        // back for the size check to reject rather than materializing an uncompressed FoR array
-        // larger than the input.
+        // residuals; only scan when the cached global span exceeds `T::MAX`. When FoR cannot
+        // bitpack its residuals, delegate back to the cascade (excluding FoR via cascade history)
+        // so runner-up schemes such as Dict or ZigZag+BitPacking can still compress the column.
         if span_exceeds_signed_max(data, exec_ctx) && has_negative_residuals(&biased, exec_ctx) {
-            return Ok(Encoded::leaf(data.array().clone()));
+            return Ok(Encoded::new(
+                vec![Child::new(self, 0, data.array().clone())],
+                Vec::new(),
+                |children, _| {
+                    let [compressed] = children.compressed()?;
+                    Ok(compressed)
+                },
+            ));
         }
         let biased_data =
             ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
         let Some(packed) = BitPackingScheme.try_encode(&biased_data, exec_ctx)? else {
-            // Unpacked residuals are no smaller than the input, so hand it back for the size
-            // check to reject.
-            return Ok(Encoded::leaf(data.array().clone()));
+            return Ok(Encoded::new(
+                vec![Child::new(self, 0, data.array().clone())],
+                Vec::new(),
+                |children, _| {
+                    let [compressed] = children.compressed()?;
+                    Ok(compressed)
+                },
+            ));
         };
 
         let for_stats = for_array.statistics().to_owned();

@@ -82,7 +82,9 @@ pub(crate) fn fused_decompress(
 }
 
 fn fused_decompress_typed<
-    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
+        + AsPrimitive<T::Physical>
+        + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     reference: &Scalar,
@@ -268,7 +270,9 @@ fn fused_decompress_many_refs(
 }
 
 fn fused_decompress_many_refs_typed<
-    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
+        + AsPrimitive<T::Physical>
+        + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     references: &PrimitiveArray,
@@ -283,7 +287,9 @@ fn fused_decompress_many_refs_typed<
 /// `chunk_reference` maps the index of a chunk, counted from the first chunk of `bp`, to its
 /// reference.
 fn fused_unpack<
-    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
+        + AsPrimitive<T::Physical>
+        + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
@@ -321,7 +327,9 @@ fn fused_unpack<
 /// Full chunks unpack straight into `output`. A partial first or last chunk unpacks into a scratch
 /// chunk, and only its values in `output` are copied over.
 fn unpack_chunks<
-    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
+        + AsPrimitive<T::Physical>
+        + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
@@ -357,20 +365,19 @@ fn unpack_chunks<
 ///
 /// `packed` must hold one chunk at `bit_width`, and `dst` must have room for a full chunk.
 #[inline]
-unsafe fn unfor_pack_into<T: FoR>(
+pub(crate) unsafe fn unfor_pack_into<T: BitPacking + WrappingAdd>(
     bit_width: usize,
     packed: &[T],
     reference: T,
     dst: &mut [MaybeUninit<T>],
 ) {
-    // SAFETY: the caller guarantees the sizes, and the unpack initializes every value of `dst`.
+    // SAFETY: the caller guarantees `packed` holds one chunk at `bit_width` and `dst` has room
+    // for a full chunk; `unchecked_unpack_uninit` initializes every element of `dst`.
     unsafe {
-        T::unchecked_unfor_pack(
-            bit_width,
-            packed,
-            reference,
-            mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
-        );
+        T::unchecked_unpack_uninit(bit_width, packed, dst);
+        for val in dst.assume_init_mut() {
+            *val = val.wrapping_add(&reference);
+        }
     }
 }
 
@@ -388,6 +395,10 @@ where
 {
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+    assert!(
+        values.as_ref().all_valid(ctx)?,
+        "Patch values must be all valid"
+    );
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         for_each_decoded_patch_typed(
@@ -441,10 +452,6 @@ where
     T: NativePType + WrappingAdd,
 {
     assert_eq!(patches.array_len(), uninit_range.len());
-    assert!(
-        patches.values().all_valid(ctx)?,
-        "Patch values must be all valid"
-    );
     let len = uninit_range.len();
     for_each_decoded_patch::<T>(
         patches,
