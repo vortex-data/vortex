@@ -763,7 +763,8 @@ fn audit_node_pointer_alignment(
 
             let mut scratch = vec![MaybeUninit::<u8>::uninit(); n.div_ceil(8)];
             let bm = NodeBitmap::read(wire, cursor, n, &mut scratch)?;
-            let k_right = bm.count1(&scratch, n);
+            // SAFETY: `scratch` was just initialized by `NodeBitmap::read` for `bm`.
+            let k_right = unsafe { bm.count1(&scratch, n) };
             let k_left = n - k_right;
 
             if let ChildSpec::Node(l_idx) = left_child {
@@ -1454,12 +1455,15 @@ fn bitmap_rans_32lane_roundtrip_and_integrity_checks() -> VortexResult<()> {
             let mut scratch = vec![MaybeUninit::<u8>::uninit(); nbytes];
             let decoded = NodeBitmap::read(&wire, &mut cursor, len, &mut scratch)?;
             assert_eq!(cursor, wire.len());
-            assert_eq!(decoded.count1(&scratch, len), k_right);
+            // SAFETY: `scratch` was just initialized by `NodeBitmap::read` for `decoded`.
+            assert_eq!(unsafe { decoded.count1(&scratch, len) }, k_right);
             for spot in [0usize, len / 2, len - 1] {
                 let expected_bit = ((bm[spot >> 3] >> (spot & 7)) & 1) != 0;
-                assert_eq!(decoded.bit(&scratch, len, spot), expected_bit);
+                // SAFETY: `scratch` was just initialized by `NodeBitmap::read` for `decoded`.
+                assert_eq!(unsafe { decoded.bit(&scratch, len, spot) }, expected_bit);
             }
-            match decoded.into_dense(&mut scratch, len) {
+            // SAFETY: `scratch` was just initialized by `NodeBitmap::read` for `decoded`.
+            match unsafe { decoded.into_dense(&mut scratch, len) } {
                 DenseBitmap::AllZero => assert_eq!(k_right, 0),
                 DenseBitmap::AllOne => assert_eq!(k_right, len),
                 DenseBitmap::Bytes(slice) => assert_eq!(slice, bm.as_slice()),

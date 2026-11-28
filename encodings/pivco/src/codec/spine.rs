@@ -109,7 +109,8 @@ impl BlockReader<'_> {
                 let bm =
                     NodeBitmap::read(block_tree_bytes, &mut cursor, block_len, &mut bm_scratch)?;
 
-                match bm.into_dense(&mut bm_scratch, block_len) {
+                // SAFETY: `bm_scratch` was just initialized by `NodeBitmap::read` for `bm`.
+                match unsafe { bm.into_dense(&mut bm_scratch, block_len) } {
                     DenseBitmap::AllZero => {
                         packed_out.push_n(if invert_bits { 0xFF } else { 0x00 }, copy_bytes);
                     }
@@ -313,7 +314,8 @@ fn eval_spine_node(
             let left_const = rank_outcome(lo_rank, *pivot_rank, pred);
             let right_const = rank_outcome(*pivot_rank, hi_rank, pred);
 
-            match bm.into_dense(bm_head, n) {
+            // SAFETY: `bm_head` was just initialized by `NodeBitmap::read` for `bm`.
+            match unsafe { bm.into_dense(bm_head, n) } {
                 DenseBitmap::AllZero => {
                     if let Some(lc) = left_const {
                         out01[..n].fill(lc);

@@ -28,7 +28,6 @@ use crate::array::PivcoMetadata;
 use crate::array::PivcoSlots;
 use crate::array::checked_num_blocks_for;
 use crate::array::pivco_id;
-use crate::codec::DEFAULT_BLOCK_SHIFT;
 use crate::codec::MAX_BLOCK_SHIFT;
 use crate::codec::MIN_BLOCK_SHIFT;
 use crate::tree::PivcoTree;
@@ -95,11 +94,7 @@ impl ArrayPlugin for PivcoPlugin {
         );
 
         let metadata = PivcoMetadata::decode(metadata)?;
-        let block_shift = if metadata.block_shift == 0 {
-            DEFAULT_BLOCK_SHIFT
-        } else {
-            u8::try_from(metadata.block_shift)?
-        };
+        let block_shift = u8::try_from(metadata.block_shift)?;
         vortex_ensure!(
             (MIN_BLOCK_SHIFT..=MAX_BLOCK_SHIFT).contains(&block_shift),
             "PivcoMetadata block_shift {block_shift} must be in {MIN_BLOCK_SHIFT}..={MAX_BLOCK_SHIFT}"
