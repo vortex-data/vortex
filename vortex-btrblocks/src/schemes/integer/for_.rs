@@ -314,7 +314,6 @@ mod tests {
     use super::FOR_V1;
     use super::FOR_V2;
     use crate::ArrayAndStats;
-    use crate::BtrBlocksCompressorBuilder;
     use crate::CascadingCompressor;
     use crate::Child;
     use crate::CompressorContext;
@@ -430,8 +429,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_for_skips_when_saving_fewer_than_min_bits_saved() -> VortexResult<()> {
+    #[rstest]
+    fn test_for_skips_when_saving_fewer_than_min_bits_saved(
+        #[values(&FOR_V1, &FOR_V2)] for_scheme: &'static dyn Scheme,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // 64 distinct u8 values split across 1..=32 and 97..=128: biased span is 127 (7 bits,
         // saving only 1 bit on u8) and half the values require bit 6, so BitPacking refuses to
@@ -445,11 +446,11 @@ mod tests {
             .collect();
         let input = PrimitiveArray::from_iter(values).into_array();
 
-        let compressor = BtrBlocksCompressorBuilder::empty()
-            .with_new_scheme(&FOR_V1)
-            .with_new_scheme(&IntDictScheme)
-            .with_new_scheme(&super::super::BITPACKING_V1)
-            .build();
+        let compressor = CascadingCompressor::new(vec![
+            for_scheme,
+            &IntDictScheme,
+            &super::super::BITPACKING_V1,
+        ]);
         let compressed = compressor.compress(&input, &mut ctx)?;
         assert!(
             !compressed.is::<FoR>() && !compressed.is_canonical(),
@@ -461,8 +462,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_for_selected_for_negative_values_with_sparse_outliers() -> VortexResult<()> {
+    #[rstest]
+    fn test_for_selected_for_negative_values_with_sparse_outliers(
+        #[values(&FOR_V1, &FOR_V2)] for_scheme: &'static dyn Scheme,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // Mostly -100..=-85 with sparse outliers at 15: global range is 115 (7 bits, saving only
         // 1 bit on i8), but after subtracting -100 almost all residuals fit in 4 bits and the
@@ -478,10 +481,7 @@ mod tests {
             .collect();
         let input = PrimitiveArray::from_iter(values).into_array();
 
-        let compressor = BtrBlocksCompressorBuilder::empty()
-            .with_new_scheme(&FOR_V1)
-            .with_new_scheme(&super::super::BITPACKING_V1)
-            .build();
+        let compressor = CascadingCompressor::new(vec![for_scheme, &super::super::BITPACKING_V1]);
         let compressed = compressor.compress(&input, &mut ctx)?;
         assert!(
             compressed.is::<FoR>(),
@@ -493,17 +493,16 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_for_prices_fastlanes_padding_on_short_arrays() -> VortexResult<()> {
+    #[rstest]
+    fn test_for_prices_fastlanes_padding_on_short_arrays(
+        #[values(&FOR_V1, &FOR_V2)] for_scheme: &'static dyn Scheme,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // 10 u64 values take 80 bytes uncompressed, whereas a 1024-padded 4-bit FastLanes block
         // takes 512 + 8 bytes. Sequence must win instead of FoR outscoring it and failing size.
         let input = PrimitiveArray::from_iter(1000u64..1010).into_array();
 
-        let compressor = BtrBlocksCompressorBuilder::empty()
-            .with_new_scheme(&FOR_V1)
-            .with_new_scheme(&SequenceScheme)
-            .build();
+        let compressor = CascadingCompressor::new(vec![for_scheme, &SequenceScheme]);
         let compressed = compressor.compress(&input, &mut ctx)?;
         assert!(
             compressed.is::<Sequence>(),
