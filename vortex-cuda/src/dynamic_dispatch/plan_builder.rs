@@ -109,7 +109,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return is_alprd_compatible(array);
     }
     if id == BitPacked.id() {
-        return array.is::<BitPacked>();
+        return true;
     }
     if id == Dict.id() {
         let arr = array.as_::<Dict>();
