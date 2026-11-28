@@ -11114,6 +11114,7 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-functions",
