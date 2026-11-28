@@ -68,6 +68,7 @@ pub struct TestLayoutReader {
     fail_projection: bool,
     pruning_rejection: Option<(bool, bool)>,
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
+    prepared_projections: Option<Arc<AtomicUsize>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
     in_flight: Option<Arc<InFlight>>,
 }
@@ -99,6 +100,7 @@ impl TestLayoutReader {
             fail_projection: false,
             pruning_rejection: None,
             projection_masks: None,
+            prepared_projections: None,
             filter_exprs: None,
             in_flight: None,
         }
@@ -127,6 +129,12 @@ impl TestLayoutReader {
 
     pub fn with_projection_masks(mut self, projection_masks: Arc<Mutex<Vec<usize>>>) -> Self {
         self.projection_masks = Some(projection_masks);
+        self
+    }
+
+    /// Counts into `prepared` the projections that the scan has prepared, started or not.
+    pub fn with_prepared_projections(mut self, prepared: Arc<AtomicUsize>) -> Self {
+        self.prepared_projections = Some(prepared);
         self
     }
 
@@ -256,6 +264,9 @@ impl LayoutReader for TestLayoutReader {
         _expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        if let Some(prepared) = &self.prepared_projections {
+            prepared.fetch_add(1, Ordering::Relaxed);
+        }
         let row_range = row_range.clone();
         let base = self.base;
         let projection_masks = self.projection_masks.clone();

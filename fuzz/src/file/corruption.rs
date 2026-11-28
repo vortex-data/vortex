@@ -183,6 +183,7 @@ pub fn run_file_corruption(fuzz: FuzzFileCorruption) -> VortexResult<bool> {
         }
     });
 
+    let row_count = array.len();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(u64::from(seed));
     let mut ctx = SESSION.create_execution_ctx();
     for _ in 0..CORRUPTION_SETS {
@@ -197,20 +198,34 @@ pub fn run_file_corruption(fuzz: FuzzFileCorruption) -> VortexResult<bool> {
             *slot = corruption.and_then(|corruption| targets.apply(&mut corrupted, corruption));
         }
         CURRENT_SET.set(applied);
-        read_corrupted(&mut ctx, corrupted).ok();
+        read_corrupted(&mut ctx, corrupted, row_count).ok();
     }
     CURRENT_SET.set([None; MAX_CORRUPTIONS]);
     Ok(true)
 }
 
-fn read_corrupted(ctx: &mut ExecutionCtx, file: Vec<u8>) -> VortexResult<()> {
+fn read_corrupted(
+    ctx: &mut ExecutionCtx,
+    file: Vec<u8>,
+    mut unread_rows: usize,
+) -> VortexResult<()> {
     let iter = SESSION
         .open_options()
         .open_buffer(file)?
         .scan()?
         .into_array_iter(&*RUNTIME)?;
+    // A corrupted row count makes the file declare more rows than `array` holds, up to
+    // `u64::MAX`. The scan returns them all in batches of bounded size, so stop when it has
+    // returned more rows than were written.
     for batch in iter {
-        let _canonical = batch?.execute::<RecursiveCanonical>(ctx);
+        let batch = batch?;
+        let batch_rows = batch.len();
+        let _canonical = batch.execute::<RecursiveCanonical>(ctx);
+
+        let Some(rest) = unread_rows.checked_sub(batch_rows) else {
+            return Ok(());
+        };
+        unread_rows = rest;
     }
     Ok(())
 }

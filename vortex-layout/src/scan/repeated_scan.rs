@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp;
+use std::collections::VecDeque;
 use std::iter;
 use std::num::NonZeroUsize;
 use std::ops::Range;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
 use std::task::Poll;
 
 use futures::Future;
@@ -18,7 +21,6 @@ use futures::ready;
 use futures::stream;
 use futures::stream::BoxStream;
 use itertools::Either;
-use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::iter::ArrayIterator;
@@ -32,6 +34,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_expr::BoundExpression;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::Handle;
+use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::row_mask::RowMask;
 use vortex_scan::selection::Selection;
@@ -114,6 +118,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
     ///
     /// No tasks are spawned. Each future returns the mapped split, or `None` when its split is
     /// filtered out. The futures may be polled independently in any order.
+    ///
+    /// The result holds one future for each split, so its size follows the row count of the file.
+    /// [`Self::execute_stream`] prepares its splits as it advances instead.
     ///
     /// Scans with row limits must use [`Self::execute_stream`] so the scan can coordinate the
     /// limit across splits.
@@ -200,7 +207,13 @@ impl<A: 'static + Send> RepeatedScan<A> {
         })
     }
 
-    fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
+    /// The row ranges of the splits within `row_range`, in split order.
+    ///
+    /// The number of natural splits follows the row count of the file, so they are not collected.
+    fn split_ranges(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> impl Iterator<Item = Range<u64>> + Send + use<A> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -214,58 +227,34 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let row_range = intersect_ranges(row_range.as_ref(), selection_range);
 
         match &self.splits {
-            Splits::Natural(vec) => {
-                debug_assert!(vec.is_sorted());
-                let splits_iter = match row_range {
-                    None => Either::Left(vec.iter().copied()),
-                    Some(range) => {
-                        if range.is_empty() {
-                            return Vec::new();
-                        }
-                        let lo = vec.partition_point(|&x| x <= range.start);
-                        let hi = vec.partition_point(|&x| x < range.end);
-                        Either::Right(
-                            iter::once(range.start)
-                                .chain(vec[lo..hi].iter().copied())
-                                .chain(iter::once(range.end)),
-                        )
-                    }
-                };
-
-                splits_iter
-                    .tuple_windows()
-                    .map(|(start, end)| start..end)
-                    .collect()
-            }
-            Splits::Ranges(ranges) => match row_range {
-                None => ranges.to_vec(),
-                Some(range) => {
-                    if range.is_empty() {
-                        return Vec::new();
-                    }
-                    ranges
+            Splits::Natural(splits) => Either::Left(splits.ranges(row_range)),
+            Splits::Ranges(ranges) => Either::Right(
+                match row_range {
+                    None => ranges.clone(),
+                    Some(range) => ranges
                         .iter()
-                        .filter_map(move |r| {
+                        .filter_map(|r| {
                             let start = cmp::max(r.start, range.start);
                             let end = cmp::min(r.end, range.end);
                             (start < end).then_some(start..end)
                         })
-                        .collect()
+                        .collect(),
                 }
-            },
+                .into_iter(),
+            ),
         }
     }
 
     /// The non-empty row masks of the splits within `row_range`, in split order.
     fn split_masks(&self, row_range: Option<Range<u64>>) -> impl Iterator<Item = RowMask> + '_ {
         self.split_ranges(row_range)
-            .into_iter()
             .filter_map(|range| selected_mask(&self.selection, &range))
     }
 
     /// Execute the scan over `row_range` as a stream of the mapped split arrays.
     ///
-    /// The stream ends after yielding its first error.
+    /// The stream ends after yielding its first error. A split that cannot be prepared yields its
+    /// error in the place of its array.
     pub fn execute_stream(
         &self,
         row_range: Option<Range<u64>>,
@@ -279,7 +268,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             return Ok(stream::empty().boxed());
         }
         let ctx = self.task_context();
-        let mut ranges = self.split_ranges(row_range).into_iter();
+        let mut ranges = self.split_ranges(row_range);
         let first_mask = ranges
             .by_ref()
             .find_map(|range| selected_mask(&self.selection, &range));
@@ -339,24 +328,36 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 buffer(mapped, ordered, concurrency)
             }
             limit => {
-                // Build eagerly to register I/O up front. Without a filter, selected row counts
-                // are exact, so a limit can also be reserved here in split order.
-                let mut tasks = Vec::new();
-                for row_mask in iter::once(first_mask)
-                    .chain(ranges.filter_map(|range| selected_mask(&self.selection, &range)))
-                {
-                    let row_mask = match &limit {
-                        Some(limit) if limit.is_exhausted() => break,
-                        Some(limit) => RowMask::new(
-                            row_mask.row_range().start,
-                            limit.limit(row_mask.mask().clone()),
-                        ),
-                        None => row_mask,
-                    };
-                    tasks.push(map_split(split_exec(&ctx, row_mask)?, map_fn));
-                }
+                // Without a filter, selected row counts are exact, so each task reserves its
+                // rows from a limit as it is prepared, in split order.
+                let selection = self.selection.clone();
+                let map_fn = Arc::clone(map_fn);
+                let mut failed = false;
+                let tasks = iter::once(first_mask)
+                    .chain(ranges.filter_map(move |range| selected_mask(&selection, &range)))
+                    .map_while(move |row_mask| {
+                        if failed {
+                            return None;
+                        }
+                        let row_mask = match &limit {
+                            Some(limit) if limit.is_exhausted() => return None,
+                            Some(limit) => RowMask::new(
+                                row_mask.row_range().start,
+                                limit.limit(row_mask.mask().clone()),
+                            ),
+                            None => row_mask,
+                        };
+                        // An error ends the stream, so no later split needs a task.
+                        Some(match split_exec(&ctx, row_mask) {
+                            Ok(task) => map_split(task, &map_fn),
+                            Err(error) => {
+                                failed = true;
+                                future::ready(Err(error)).boxed()
+                            }
+                        })
+                    });
                 buffer(
-                    stream::iter(tasks).map(move |task| handle.spawn(task)),
+                    PreparedTasks::new(handle.clone(), tasks).map(move |task| handle.spawn(task)),
                     ordered,
                     concurrency,
                 )
@@ -366,6 +367,107 @@ impl<A: 'static + Send> RepeatedScan<A> {
         };
 
         Ok(stop_on_error(arrays))
+    }
+}
+
+/// The number of split tasks that a scan keeps prepared ahead of the ones it has started.
+///
+/// Preparing a task registers its I/O, and the reads of a started split coalesce with registered
+/// reads that are close to them. The window keeps that read-ahead while it bounds the memory of a
+/// scan: the number of splits follows the row count, and a file can declare any row count (see
+/// [`NaturalSplits`](crate::scan::splits::NaturalSplits)).
+///
+/// A scan with no more splits than this prepares them all before it starts. A smaller window lets
+/// fewer reads coalesce. A larger window holds more prepared tasks in memory.
+pub(crate) const SPLIT_LOOKAHEAD: usize = 1024;
+
+/// A stream of split tasks that are prepared up to [`SPLIT_LOOKAHEAD`] ahead of the one taken.
+///
+/// Preparing a task walks the layout and registers its I/O, so it must not run on the thread that
+/// polls the scan. [`Self::new`] prepares the first tasks on the calling thread. CPU tasks prepare
+/// the rest in batches as the stream advances. Every task is prepared in split order, one after
+/// another.
+struct PreparedTasks<I: Iterator> {
+    handle: Handle,
+    /// The tasks that are prepared and not yet taken, in split order.
+    ready: VecDeque<I::Item>,
+    /// The tasks that are not prepared. `None` while `refill` holds them, and when none remain.
+    unprepared: Option<I>,
+    /// A CPU task that prepares the next batch.
+    refill: Option<Task<PreparedBatch<I>>>,
+}
+
+/// The tasks that one refill prepared, with the tasks that are still not prepared.
+struct PreparedBatch<I: Iterator> {
+    tasks: Vec<I::Item>,
+    /// `None` when `tasks` holds the last ones.
+    unprepared: Option<I>,
+}
+
+impl<I: Iterator> PreparedBatch<I> {
+    /// Prepare the next `count` tasks of `unprepared`.
+    fn prepare(mut unprepared: I, count: usize) -> Self {
+        let tasks = unprepared.by_ref().take(count).collect::<Vec<_>>();
+        let unprepared = (tasks.len() == count).then_some(unprepared);
+
+        Self { tasks, unprepared }
+    }
+}
+
+impl<I> PreparedTasks<I>
+where
+    I: Iterator + Send + 'static,
+    I::Item: Send + 'static,
+{
+    /// Prepare the first tasks of `tasks` on the calling thread.
+    fn new(handle: Handle, tasks: I) -> Self {
+        let first = PreparedBatch::prepare(tasks, SPLIT_LOOKAHEAD);
+
+        Self {
+            handle,
+            ready: first.tasks.into(),
+            unprepared: first.unprepared,
+            refill: None,
+        }
+    }
+}
+
+/// The stream never pins `I`: it only moves the iterator into and out of a refill.
+impl<I: Iterator> Unpin for PreparedTasks<I> {}
+
+impl<I> Stream for PreparedTasks<I>
+where
+    I: Iterator + Send + 'static,
+    I::Item: Send + 'static,
+{
+    type Item = I::Item;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        // Refill once half of the window is taken, so that each CPU task prepares a large batch.
+        if this.ready.len() <= SPLIT_LOOKAHEAD / 2
+            && let Some(unprepared) = this.unprepared.take()
+        {
+            let count = SPLIT_LOOKAHEAD - this.ready.len();
+            let refill = move || PreparedBatch::prepare(unprepared, count);
+            this.refill = Some(this.handle.spawn_cpu(refill));
+        }
+
+        // Wait for the refill only when every prepared task is taken.
+        if let Some(refill) = &mut this.refill {
+            match Pin::new(refill).poll(cx) {
+                Poll::Ready(batch) => {
+                    this.ready.extend(batch.tasks);
+                    this.unprepared = batch.unprepared;
+                    this.refill = None;
+                }
+                Poll::Pending if this.ready.is_empty() => return Poll::Pending,
+                Poll::Pending => {}
+            }
+        }
+
+        Poll::Ready(this.ready.pop_front())
     }
 }
 
@@ -503,21 +605,63 @@ fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> Vortex
 mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::task::Context;
     use std::task::Poll;
 
     use futures::FutureExt;
     use futures::StreamExt;
     use futures::stream;
+    use futures::task::noop_waker_ref;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_io::runtime::single::block_on;
 
+    use super::PreparedTasks;
+    use super::SPLIT_LOOKAHEAD;
     use super::SplitConcurrency;
     use super::limit_rows;
     use super::stop_on_error;
     use crate::scan::limit::RowLimit;
+
+    /// The single-thread runtime runs a CPU task only while it is driven, so a refill cannot run
+    /// during a manual poll. A task that the poll prepared itself would show in `prepared`.
+    #[test]
+    fn prepared_tasks_refill_off_the_poller() {
+        block_on(|handle| async move {
+            let prepared = Arc::new(AtomicUsize::new(0));
+            let counter = Arc::clone(&prepared);
+            let tasks = (0..).inspect(move |_| {
+                counter.fetch_add(1, Ordering::Relaxed);
+            });
+            let mut tasks = PreparedTasks::new(handle, tasks);
+            assert_eq!(prepared.load(Ordering::Relaxed), SPLIT_LOOKAHEAD);
+
+            let mut cx = Context::from_waker(noop_waker_ref());
+            for task in 0..SPLIT_LOOKAHEAD {
+                assert_eq!(tasks.poll_next_unpin(&mut cx), Poll::Ready(Some(task)));
+            }
+            assert_eq!(tasks.poll_next_unpin(&mut cx), Poll::Pending);
+            assert_eq!(prepared.load(Ordering::Relaxed), SPLIT_LOOKAHEAD);
+
+            assert_eq!(tasks.next().await, Some(SPLIT_LOOKAHEAD));
+            assert!(prepared.load(Ordering::Relaxed) <= 2 * SPLIT_LOOKAHEAD);
+        });
+    }
+
+    #[rstest]
+    #[case::empty(0)]
+    #[case::within_the_window(3)]
+    #[case::the_window(SPLIT_LOOKAHEAD)]
+    #[case::several_refills(3 * SPLIT_LOOKAHEAD + 7)]
+    fn prepared_tasks_yield_every_task_in_order(#[case] tasks: usize) {
+        let taken = block_on(|handle| PreparedTasks::new(handle, 0..tasks).collect::<Vec<_>>());
+        assert_eq!(taken, (0..tasks).collect::<Vec<_>>());
+    }
 
     #[test]
     fn split_cap_handles_oversized_per_worker_concurrency() {

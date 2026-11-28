@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::once;
+use std::num::NonZeroU64;
 use std::ops::Range;
 
 use vortex_array::dtype::FieldMask;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::BoundaryMode;
 use crate::LayoutReader;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::scan::IDEAL_SPLIT_SIZE;
+use crate::scan::splits::NaturalSplits;
+use crate::scan::splits::Subdivision;
 
 /// The default `max_rows` for [`SplitBy::LayoutSubSplitting`]: chunk-boundary spans wider than
 /// this are sub-divided into multiple row-range splits so that a file with few, large chunks can
@@ -62,23 +63,30 @@ impl Default for SplitBy {
 impl SplitBy {
     /// Validate that the split configuration uses a positive split size.
     pub(crate) fn validate(&self) -> VortexResult<()> {
-        match *self {
-            SplitBy::Layout => Ok(()),
+        self.subdivision().map(drop)
+    }
+
+    /// How this configuration divides the spans between the boundaries it collects, or an error
+    /// if its split size is zero.
+    fn subdivision(&self) -> VortexResult<Subdivision> {
+        Ok(match *self {
+            SplitBy::Layout => Subdivision::Whole,
             SplitBy::LayoutSubSplitting { max_rows } => {
-                vortex_ensure!(
-                    max_rows > 0,
-                    "SplitBy::LayoutSubSplitting max_rows must be greater than zero"
-                );
-                Ok(())
+                Subdivision::Even(NonZeroU64::new(max_rows).ok_or_else(|| {
+                    vortex_err!("SplitBy::LayoutSubSplitting max_rows must be greater than zero")
+                })?)
             }
-            SplitBy::RowCount(n) => {
-                vortex_ensure!(n > 0, "SplitBy::RowCount must be greater than zero");
-                Ok(())
-            }
-        }
+            SplitBy::RowCount(n) => Subdivision::Every(
+                NonZeroU64::new(n as u64)
+                    .ok_or_else(|| vortex_err!("SplitBy::RowCount must be greater than zero"))?,
+            ),
+        })
     }
 
     /// Compute the splits for the given layout.
+    ///
+    /// The result holds one boundary for each split, so its size follows the row count of the
+    /// layout. A scan iterates its splits instead of collecting them.
     // TODO(ngates): remove this once layout readers are stream based.
     pub fn splits(
         &self,
@@ -86,8 +94,48 @@ impl SplitBy {
         row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<u64>> {
-        self.validate()?;
-        Ok(match *self {
+        let (boundaries, subdivision) =
+            self.boundaries_and_subdivision(layout_reader, row_range, field_mask)?;
+
+        // Fast path: return the collected boundaries without converting to `Arc<[u64]>` and
+        // re-collecting when no span needs subdivision.
+        match subdivision {
+            Subdivision::Whole => return Ok(boundaries),
+            Subdivision::Even(max_rows)
+                if boundaries.windows(2).all(|w| w[1] - w[0] <= max_rows.get()) =>
+            {
+                return Ok(boundaries);
+            }
+            Subdivision::Even(_) | Subdivision::Every(_) => {}
+        }
+
+        Ok(NaturalSplits::new(boundaries.into(), subdivision)
+            .points()
+            .collect())
+    }
+
+    /// Compute the splits for the given layout without collecting them.
+    pub(crate) fn natural_splits(
+        &self,
+        layout_reader: &dyn LayoutReader,
+        row_range: &Range<u64>,
+        field_mask: &[FieldMask],
+    ) -> VortexResult<NaturalSplits> {
+        let (boundaries, subdivision) =
+            self.boundaries_and_subdivision(layout_reader, row_range, field_mask)?;
+
+        Ok(NaturalSplits::new(boundaries.into(), subdivision))
+    }
+
+    /// Collect the sorted, deduplicated boundaries and how each span between them is divided.
+    fn boundaries_and_subdivision(
+        &self,
+        layout_reader: &dyn LayoutReader,
+        row_range: &Range<u64>,
+        field_mask: &[FieldMask],
+    ) -> VortexResult<(Vec<u64>, Subdivision)> {
+        let subdivision = self.subdivision()?;
+        let boundaries = match *self {
             SplitBy::Layout => layout_boundaries(layout_reader, row_range, field_mask)?,
             SplitBy::LayoutSubSplitting { max_rows } => {
                 let (boundaries, soft) = register_boundaries(
@@ -97,22 +145,19 @@ impl SplitBy {
                     BoundaryMode::WithSoftMarks,
                 )?
                 .into_sorted_deduped_with_soft();
-                subdivide_large_spans(
-                    merge_small_spans(
-                        boundaries,
-                        &soft,
-                        DEFAULT_MIN_SPLIT_ROWS.min(max_rows),
-                        max_rows,
-                    ),
+                merge_small_spans(
+                    boundaries,
+                    &soft,
+                    DEFAULT_MIN_SPLIT_ROWS.min(max_rows),
                     max_rows,
                 )
             }
-            SplitBy::RowCount(n) => row_range
-                .clone()
-                .step_by(n)
-                .chain(once(row_range.end))
-                .collect(),
-        })
+            // The row range is the only span.
+            SplitBy::RowCount(_) if row_range.is_empty() => vec![row_range.end],
+            SplitBy::RowCount(_) => vec![row_range.start, row_range.end],
+        };
+
+        Ok((boundaries, subdivision))
     }
 }
 
@@ -154,14 +199,13 @@ pub(crate) fn register_boundaries(
 /// Remove interior split boundaries in the sorted `soft` until no span ending at one is narrower
 /// than `min_span`, without merging any span past `max_span`.
 ///
-/// Like [`subdivide_large_spans`], this works on the sorted, deduplicated boundary list. It never
-/// adds or moves a boundary, and always keeps the first, the last and every boundary not in `soft`,
-/// so the ranges still cover the same rows contiguously, each exactly once. Boundaries are dropped
-/// from the front: a soft boundary is kept once the span since the last kept one reaches
-/// `min_span`. A short span left before the end, or before a hard boundary, keeps its end and drops
-/// its start where that is soft. A soft boundary is also kept where dropping it would leave a span
-/// wider than `max_span`, which [`subdivide_large_spans`] would re-split at a row no column chunks
-/// at.
+/// This works on the sorted, deduplicated boundary list. It never adds or moves a boundary, and
+/// always keeps the first, the last and every boundary not in `soft`, so the ranges still cover
+/// the same rows contiguously, each exactly once. Boundaries are dropped from the front: a soft
+/// boundary is kept once the span since the last kept one reaches `min_span`. A short span left
+/// before the end, or before a hard boundary, keeps its end and drops its start where that is
+/// soft. A soft boundary is also kept where dropping it would leave a span wider than `max_span`,
+/// which [`Subdivision::Even`] would re-split at a row no column chunks at.
 fn merge_small_spans(boundaries: Vec<u64>, soft: &[u64], min_span: u64, max_span: u64) -> Vec<u64> {
     debug_assert!(boundaries.is_sorted(), "boundaries must be sorted");
     debug_assert!(soft.is_sorted(), "soft boundaries must be sorted");
@@ -203,60 +247,6 @@ fn merge_small_spans(boundaries: Vec<u64>, soft: &[u64], min_span: u64, max_span
     out
 }
 
-/// Sub-divide any gap between adjacent split boundaries that is wider than `max_span` into evenly
-/// sized row-range sub-splits.
-///
-/// `boundaries` is the sorted, deduplicated list of split points produced by the layout (chunk
-/// boundaries). Downstream consumers turn this list into half-open ranges by pairing adjacent
-/// entries (`tuple_windows().map(|(s, e)| s..e)`), so the row coverage is fully determined by the
-/// boundary set. This function only *inserts* points that lie strictly between two existing
-/// adjacent boundaries; it never moves or removes a boundary. Splitting `[lo, hi)` at an interior
-/// point `m` (with `lo < m < hi`) yields exactly `[lo, m) + [m, hi)`, so the union of ranges is
-/// unchanged: the rows are still partitioned contiguously, with no gaps and no overlaps, covering
-/// every row exactly once. The output remains sorted and deduplicated.
-fn subdivide_large_spans(boundaries: Vec<u64>, max_span: u64) -> Vec<u64> {
-    debug_assert!(boundaries.is_sorted(), "boundaries must be sorted");
-    debug_assert!(max_span > 0, "max_span must be non-zero");
-
-    // Fast path: nothing to split (also covers the empty / single-boundary cases).
-    if boundaries.len() < 2 || boundaries.windows(2).all(|w| w[1] - w[0] <= max_span) {
-        return boundaries;
-    }
-
-    let mut out = Vec::with_capacity(boundaries.len() * 2);
-    for window in boundaries.windows(2) {
-        let lo = window[0];
-        let hi = window[1];
-        // Always emit the lower boundary; the final `hi` is appended once after the loop.
-        out.push(lo);
-
-        let span = hi - lo;
-        if span > max_span {
-            // Number of sub-ranges so that each is <= max_span. `span > max_span` and
-            // `max_span >= 1` guarantee `sub_count >= 2`.
-            let sub_count = span.div_ceil(max_span);
-            // Even sub-range size (rounded up); the last sub-range absorbs any remainder and is
-            // bounded by `hi`. Inserted points `lo + k*sub_size` are strictly in `(lo, hi)`.
-            let sub_size = span.div_ceil(sub_count);
-            let mut point = lo + sub_size;
-            while point < hi {
-                out.push(point);
-                // Saturating: a sum past u64::MAX can never be < `hi`, so the loop exits.
-                point = point.saturating_add(sub_size);
-            }
-        }
-    }
-    // Append the final boundary (the `hi` of the last window).
-    out.push(*boundaries.last().vortex_expect("len >= 2 checked above"));
-
-    debug_assert!(out.is_sorted(), "subdivided boundaries must stay sorted");
-    debug_assert!(
-        out.windows(2).all(|w| w[0] < w[1]),
-        "subdivided boundaries must stay strictly increasing (deduped)"
-    );
-    out
-}
-
 #[cfg(test)]
 mod test {
     use std::any::Any;
@@ -291,6 +281,14 @@ mod test {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+
+    /// The split points of `boundaries` with spans wider than `max_span` divided evenly.
+    fn subdivide_large_spans(boundaries: Vec<u64>, max_span: u64) -> Vec<u64> {
+        let max_span = NonZeroU64::new(max_span).expect("max_span must be non-zero");
+        NaturalSplits::new(boundaries.into(), Subdivision::Even(max_span))
+            .points()
+            .collect()
+    }
 
     fn reader() -> LayoutReaderRef {
         let ctx = ArrayContext::empty();
