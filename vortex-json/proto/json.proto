@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+syntax = "proto3";
+
+package vortex.json;
+
+// Options for `vortex.json_text`.
+message JsonTextOpts {
+  enum Direction {
+    DIRECTION_UNSPECIFIED = 0;
+    DIRECTION_PARSE = 1;
+    DIRECTION_FORMAT = 2;
+  }
+
+  Direction direction = 1;
+}
