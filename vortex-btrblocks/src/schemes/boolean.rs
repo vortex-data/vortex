@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn test_bool_sparse_prices_u16_indices_at_65536_rows() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // 2,979 scattered exceptions in 65,536 rows: 8,192 B raw vs ~5,958 B with u16 indices.
+        // 2,979 scattered exceptions in 65,536 rows: 8,192 B raw vs ~5,962 B with u16 indices.
         // Hardcoding u32 (4 B/patch) priced this at ~11,918 B (< 1.0x) and left it uncompressed.
         let input = BoolArray::from_iter((0..65_536).map(|i| i % 22 == 0)).into_array();
         let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
