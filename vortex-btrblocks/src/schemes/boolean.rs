@@ -187,6 +187,9 @@ impl Scheme for BoolSparseScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        // Fill scalar (2 B) + constant patch-value scalar (2 B).
+        const SPARSE_SCALAR_OVERHEAD_BYTES: u64 = 4;
+
         let stats = data.bool_stats(exec_ctx);
         let fill = stats.true_count() > stats.value_count() / 2;
         let exceptions = if fill {
@@ -194,6 +197,11 @@ impl Scheme for BoolSparseScheme {
         } else {
             stats.true_count()
         };
+        let nbytes = data.array().nbytes();
+        // Even with 1-byte indices, sparse cannot shrink the bitmap.
+        if u64::from(exceptions).saturating_add(SPARSE_SCALAR_OVERHEAD_BYTES) >= nbytes {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
         // `encode` narrows 0-based indices (`0..=last_index`) to the tightest unsigned type.
         let last_index = exceptions
             .checked_sub(1)
@@ -213,7 +221,8 @@ impl Scheme for BoolSparseScheme {
             .unwrap_or(0);
         let index_width = sparse_index_width(last_index);
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            data.array().nbytes() as f64 / (exceptions as f64 * index_width as f64 + 2.0),
+            nbytes as f64
+                / (exceptions as f64 * index_width as f64 + SPARSE_SCALAR_OVERHEAD_BYTES as f64),
         ))
     }
 
@@ -355,6 +364,31 @@ mod tests {
             compressed.encoding_id()
         );
         assert!(compressed.nbytes() < 250);
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bool_sparse_overhead_does_not_block_runend() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 257 flags (33 B bitmap) with 29 true bits in 15 runs, all within 0..=255.
+        // Sparse needs 29 * 1 + 4 = 33 B (no savings), whereas RunEnd compresses to 32 B.
+        let input = BoolArray::from_iter((0..257).map(
+            |i| matches!(i, 1..=4 | 6..=9 | 11..=14 | 16..=19 | 21..=24 | 26..=29 | 251..=255),
+        ))
+        .into_array();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
+
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.nbytes() < input.nbytes(),
+            "expected compression below {} B, got {} B ({})",
+            input.nbytes(),
+            compressed.nbytes(),
+            compressed.encoding_id()
+        );
         assert_arrays_eq!(compressed, input, &mut ctx);
         Ok(())
     }
