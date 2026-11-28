@@ -472,12 +472,19 @@ fn split_parts_masked_simd<S: Simd, T: ALPRDFloat>(
     let right_mask = (T::UINT::one() << right_shift) - T::UINT::one();
 
     for_each_mask_word(mask, |valid_word, base, count| {
+        let word_values = &values[base..base + count];
+        let word_left = &mut left_out[base..base + count];
+        let word_right = &mut right_out[base..base + count];
+
         let mut miss_bits: u64 = 0;
-        for bit_idx in 0..count {
-            let idx = base + bit_idx;
-            // SAFETY: `base + count <= values.len() == left_out.len() == right_out.len()`.
-            let bits = T::to_bits(unsafe { *values.get_unchecked(idx) });
-            unsafe { right_out.get_unchecked_mut(idx).write(bits & right_mask) };
+        for (bit_idx, ((&value, left), right)) in word_values
+            .iter()
+            .zip(word_left.iter_mut())
+            .zip(word_right.iter_mut())
+            .enumerate()
+        {
+            let bits = T::to_bits(value);
+            right.write(bits & right_mask);
 
             let pattern = <T as ALPRDFloat>::to_u16(bits >> right_shift);
             let mut matched_code = 0u16;
@@ -489,17 +496,15 @@ fn split_parts_masked_simd<S: Simd, T: ALPRDFloat>(
                 }
             }
             miss_bits |= (!matched as u64) << bit_idx;
-            unsafe { left_out.get_unchecked_mut(idx).write(matched_code) };
+            left.write(matched_code);
         }
 
         let mut valid_misses = miss_bits & valid_word;
         while valid_misses != 0 {
             let bit = valid_misses.trailing_zeros() as usize;
-            let idx = base + bit;
-            // SAFETY: `idx < values.len()`.
-            let bits = T::to_bits(unsafe { *values.get_unchecked(idx) });
+            let bits = T::to_bits(word_values[bit]);
             let pattern = <T as ALPRDFloat>::to_u16(bits >> right_shift);
-            exception_pos.push(idx as u64);
+            exception_pos.push((base + bit) as u64);
             exception_values.push(pattern);
             valid_misses &= valid_misses - 1;
         }
@@ -507,12 +512,8 @@ fn split_parts_masked_simd<S: Simd, T: ALPRDFloat>(
         let mut nulls = !valid_word & low_bits_mask(count);
         while nulls != 0 {
             let bit = nulls.trailing_zeros() as usize;
-            let idx = base + bit;
-            // SAFETY: `idx < left_out.len() == right_out.len()`.
-            unsafe {
-                left_out.get_unchecked_mut(idx).write(0);
-                right_out.get_unchecked_mut(idx).write(T::UINT::zero());
-            }
+            word_left[bit].write(0);
+            word_right[bit].write(T::UINT::zero());
             nulls &= nulls - 1;
         }
     });
