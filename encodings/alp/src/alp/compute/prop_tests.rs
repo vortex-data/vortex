@@ -19,6 +19,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::hegel::EncodingCheckOptions;
+use vortex_array::compute::conformance::hegel::check_encoding_roundtrip_and_ops;
+use vortex_array::compute::conformance::hegel::draw_validity_for;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::patches::Patches;
@@ -41,10 +44,16 @@ use crate::ALP;
 use crate::ALPArray;
 use crate::ALPArrayExt;
 use crate::ALPFloat;
+use crate::ALPRDFloat;
 use crate::Exponents;
+use crate::RDEncoder;
+use crate::RDEncoderExt;
+use crate::alp_encode;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
+    vortex_array::initialize(&session);
+    vortex_fastlanes::initialize(&session);
     crate::initialize(&session);
     session
 });
@@ -193,14 +202,14 @@ fn draw_boundary_float<F: BoundaryFloat>(tc: &TestCase, anchor: F) -> F {
 }
 
 /// Builds a small ALP array directly from encoded integers around `anchor` plus the integer
-/// extremes, with optional nulls and patches, so tests hit boundaries that `alp_encode` alone
-/// rarely emits.
+/// extremes, with optional nulls and patches, along with an independently decoded canonical
+/// reference, so tests hit boundaries that `alp_encode` alone rarely emits.
 fn draw_boundary_alp<F: BoundaryFloat>(
     tc: &TestCase,
     exponents: Exponents,
     anchor: F::ALPInt,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<ALPArray> {
+) -> VortexResult<(ALPArray, PrimitiveArray)> {
     let one = F::ALPInt::one();
     let two = one.saturating_add(&one);
     let ints = [
@@ -214,6 +223,10 @@ fn draw_boundary_alp<F: BoundaryFloat>(
         F::ALPInt::max_value(),
     ];
     let len = ints.len();
+    let mut expected: Vec<F> = ints
+        .iter()
+        .map(|&int| F::decode_single(int, exponents))
+        .collect();
 
     let (validity, valid_mask) = if tc.draw(gs::booleans()) {
         let mask: Vec<bool> = tc.draw(gs::vecs(gs::booleans()).min_size(len).max_size(len));
@@ -221,7 +234,7 @@ fn draw_boundary_alp<F: BoundaryFloat>(
     } else {
         (Validity::NonNullable, None)
     };
-    let encoded = PrimitiveArray::new(Buffer::copy_from(ints), validity).into_array();
+    let encoded = PrimitiveArray::new(Buffer::copy_from(ints), validity.clone()).into_array();
 
     let patches = if tc.draw(gs::booleans()) {
         let decoded_anchor = F::decode_single(anchor, exponents);
@@ -230,8 +243,10 @@ fn draw_boundary_alp<F: BoundaryFloat>(
         for idx in 0..len {
             let is_valid = valid_mask.as_ref().is_none_or(|m| m[idx]);
             if is_valid && tc.draw(gs::booleans()) {
+                let patch_val = draw_boundary_float::<F>(tc, decoded_anchor);
                 indices.push(u32::try_from(idx)?);
-                values.push(draw_boundary_float::<F>(tc, decoded_anchor));
+                values.push(patch_val);
+                expected[idx] = patch_val;
             }
         }
         if indices.is_empty() {
@@ -257,7 +272,9 @@ fn draw_boundary_alp<F: BoundaryFloat>(
         None
     };
 
-    ALP::try_new(encoded, exponents, patches)
+    let alp = ALP::try_new(encoded, exponents, patches)?;
+    let canonical = PrimitiveArray::new(Buffer::from(expected), validity);
+    Ok((alp, canonical))
 }
 
 fn check_compare<F: BoundaryFloat>(tc: &TestCase) -> VortexResult<()> {
@@ -267,11 +284,7 @@ fn check_compare<F: BoundaryFloat>(tc: &TestCase) -> VortexResult<()> {
         f: tc.draw(gs::integers::<u8>().max_value(F::MAX_EXPONENT)),
     };
     let anchor = draw_anchor_int::<F>(tc);
-    let alp = draw_boundary_alp::<F>(tc, exponents, anchor, &mut ctx)?;
-    let canonical = alp
-        .clone()
-        .into_array()
-        .execute::<PrimitiveArray>(&mut ctx)?;
+    let (alp, canonical) = draw_boundary_alp::<F>(tc, exponents, anchor, &mut ctx)?;
 
     let cutoff = draw_boundary_float::<F>(tc, F::decode_single(anchor, exponents));
     let rhs_nullability = if tc.draw(gs::booleans()) {
@@ -301,11 +314,7 @@ fn check_between<F: BoundaryFloat>(tc: &TestCase) -> VortexResult<()> {
         f: tc.draw(gs::integers::<u8>().max_value(F::MAX_EXPONENT)),
     };
     let anchor = draw_anchor_int::<F>(tc);
-    let alp = draw_boundary_alp::<F>(tc, exponents, anchor, &mut ctx)?;
-    let canonical = alp
-        .clone()
-        .into_array()
-        .execute::<PrimitiveArray>(&mut ctx)?;
+    let (alp, canonical) = draw_boundary_alp::<F>(tc, exponents, anchor, &mut ctx)?;
 
     let decoded_anchor = F::decode_single(anchor, exponents);
     let lower_val = draw_boundary_float::<F>(tc, decoded_anchor);
@@ -371,4 +380,107 @@ fn between_matches_canonical_at_boundaries(tc: TestCase) {
         check_between::<f64>(&tc)
     }
     .vortex_expect("ALP between boundary property");
+}
+
+fn draw_float_vec<F: BoundaryFloat + ALPRDFloat>(tc: &TestCase) -> Vec<F> {
+    let len = if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+        tc.draw(gs::integers::<usize>().min_value(65).max_value(140))
+    } else {
+        tc.draw(gs::integers::<usize>().max_value(64))
+    };
+    let mut values: Vec<F> = (0..len)
+        .map(|_| match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => tc.draw(gs::sampled_from(F::SPECIALS)),
+            1..=2 => {
+                // Decimal-like floats that compress cleanly via ALP.
+                let mantissa = tc.draw(gs::integers::<i16>().min_value(-10_000).max_value(10_000));
+                F::from(mantissa).unwrap_or_else(F::zero) / F::from(100.0).unwrap_or_else(F::one)
+            }
+            _ => tc.draw(gs::floats::<F>()),
+        })
+        .collect();
+    if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
+        values.sort_by(|a, b| a.total_compare(*b));
+    }
+    values
+}
+
+fn check_alp_harness<F: BoundaryFloat + ALPRDFloat>(tc: &TestCase) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (encoded, canonical) = if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
+        let exponents = Exponents {
+            e: tc.draw(gs::integers::<u8>().max_value(F::MAX_EXPONENT)),
+            f: tc.draw(gs::integers::<u8>().max_value(F::MAX_EXPONENT)),
+        };
+        let anchor = draw_anchor_int::<F>(tc);
+        let (alp, canonical) = draw_boundary_alp::<F>(tc, exponents, anchor, &mut ctx)?;
+        (alp.into_array(), canonical.into_array())
+    } else {
+        let values = draw_float_vec::<F>(tc);
+        let nullability = if tc.draw(gs::booleans()) {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let validity = draw_validity_for(tc, nullability, values.len());
+        let prim = PrimitiveArray::new(Buffer::from(values), validity);
+        let alp = alp_encode(prim.as_view(), None, &mut ctx)?.into_array();
+        (alp, prim.into_array())
+    };
+
+    check_encoding_roundtrip_and_ops(
+        tc,
+        &encoded,
+        &canonical,
+        &EncodingCheckOptions::default(),
+        &mut ctx,
+    )
+}
+
+fn check_alprd_harness<F: BoundaryFloat + ALPRDFloat>(tc: &TestCase) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = draw_float_vec::<F>(tc);
+    let nullability = if tc.draw(gs::booleans()) {
+        Nullability::Nullable
+    } else {
+        Nullability::NonNullable
+    };
+    let validity = draw_validity_for(tc, nullability, values.len());
+    let fallback = [F::zero()];
+    let sample = if values.is_empty() {
+        &fallback[..]
+    } else {
+        &values[..]
+    };
+    let encoder = RDEncoder::new(sample);
+    let prim = PrimitiveArray::new(Buffer::from(values), validity);
+    let encoded = encoder.encode(prim.as_view()).into_array();
+
+    check_encoding_roundtrip_and_ops(
+        tc,
+        &encoded,
+        &prim.into_array(),
+        &EncodingCheckOptions::default(),
+        &mut ctx,
+    )
+}
+
+#[hegel::test(test_cases = 40, print_blob = true)]
+fn alp_hegel_encoding_harness(tc: TestCase) {
+    if tc.draw(gs::booleans()) {
+        check_alp_harness::<f32>(&tc)
+    } else {
+        check_alp_harness::<f64>(&tc)
+    }
+    .vortex_expect("ALP harness check");
+}
+
+#[hegel::test(test_cases = 40, print_blob = true)]
+fn alprd_hegel_encoding_harness(tc: TestCase) {
+    if tc.draw(gs::booleans()) {
+        check_alprd_harness::<f32>(&tc)
+    } else {
+        check_alprd_harness::<f64>(&tc)
+    }
+    .vortex_expect("ALPRD harness check");
 }

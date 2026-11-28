@@ -262,6 +262,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -269,11 +271,14 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::conformance::hegel::draw_validity_for;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_expr::ArrayExprExt;
     use vortex_expr::lit;
@@ -899,6 +904,143 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[hegel::test(test_cases = 50, print_blob = true)]
+    fn test_bitpacked_list_contains_differential(tc: TestCase) {
+        const PTYPES: [PType; 8] = [
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+        ];
+        let mut ctx = SESSION.create_execution_ctx();
+        let ptype = tc.draw(gs::sampled_from(&PTYPES));
+        let max_bw = (ptype.byte_width() * 8) as u8;
+        let bw = tc.draw(gs::integers::<u8>().max_value(max_bw - 1));
+        let packed_max: u64 = if bw == 0 { 0 } else { (1u64 << bw) - 1 };
+        let max_pos: u64 = if ptype.is_signed_int() {
+            (1u64 << (max_bw - 1)) - 1
+        } else if max_bw == 64 {
+            u64::MAX
+        } else {
+            (1u64 << max_bw) - 1
+        };
+
+        let len = if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+            tc.draw(gs::integers::<usize>().min_value(1024).max_value(1100))
+        } else {
+            tc.draw(gs::integers::<usize>().max_value(64))
+        };
+        let nullability = if tc.draw(gs::booleans()) {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let validity = draw_validity_for(&tc, nullability, len);
+
+        let raw: Vec<u64> = (0..len)
+            .map(|_| match tc.draw(gs::integers::<u8>().max_value(9)) {
+                0 => tc.draw(gs::integers::<u64>().max_value(max_pos)),
+                _ => tc.draw(gs::integers::<u64>().max_value(packed_max.min(max_pos))),
+            })
+            .collect();
+
+        let prim = match ptype {
+            PType::U8 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as u8)), validity)
+            }
+            PType::U16 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as u16)), validity)
+            }
+            PType::U32 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as u32)), validity)
+            }
+            PType::U64 => PrimitiveArray::new(Buffer::from(raw), validity),
+            PType::I8 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as i8)), validity)
+            }
+            PType::I16 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as i16)), validity)
+            }
+            PType::I32 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as i32)), validity)
+            }
+            PType::I64 => {
+                PrimitiveArray::new(Buffer::from_iter(raw.iter().map(|&x| x as i64)), validity)
+            }
+            _ => unreachable!(),
+        };
+
+        let bp = bitpack_encode(&prim, bw, None, &mut ctx)
+            .vortex_expect("bitpack_encode")
+            .into_array();
+        let prim_arr = prim.into_array();
+
+        let (bp_sliced, prim_sliced) = if len == 0 {
+            (bp, prim_arr)
+        } else {
+            let a = tc.draw(gs::integers::<usize>().max_value(len));
+            let b = tc.draw(gs::integers::<usize>().max_value(len));
+            let range = a.min(b)..a.max(b);
+            (
+                bp.slice(range.clone()).vortex_expect("slice bp"),
+                prim_arr.slice(range).vortex_expect("slice prim"),
+            )
+        };
+
+        let set_len = tc.draw(gs::integers::<usize>().max_value(6));
+        let list_has_null = tc.draw(gs::booleans());
+        let elem_nullability = if list_has_null {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let mut members: Vec<Scalar> = (0..set_len)
+            .map(|i| {
+                let v = match i {
+                    0 => packed_max.min(max_pos),
+                    1 => packed_max.saturating_add(1).min(max_pos),
+                    _ => tc.draw(
+                        gs::integers::<u64>().max_value(packed_max.saturating_add(4).min(max_pos)),
+                    ),
+                };
+                match ptype {
+                    PType::U8 => Scalar::primitive(v as u8, elem_nullability),
+                    PType::U16 => Scalar::primitive(v as u16, elem_nullability),
+                    PType::U32 => Scalar::primitive(v as u32, elem_nullability),
+                    PType::U64 => Scalar::primitive(v, elem_nullability),
+                    PType::I8 => Scalar::primitive(v as i8, elem_nullability),
+                    PType::I16 => Scalar::primitive(v as i16, elem_nullability),
+                    PType::I32 => Scalar::primitive(v as i32, elem_nullability),
+                    PType::I64 => Scalar::primitive(v as i64, elem_nullability),
+                    _ => unreachable!(),
+                }
+            })
+            .collect();
+        if list_has_null {
+            members.push(Scalar::null(DType::Primitive(ptype, Nullability::Nullable)));
+        }
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Primitive(ptype, elem_nullability)),
+            members,
+            Nullability::NonNullable,
+        );
+
+        let opts = ListContainsOptions {
+            sql_null_semantics: tc.draw(gs::booleans()),
+            ..Default::default()
+        };
+        let actual = eval_list_contains(&bp_sliced, list_scalar.clone(), opts)
+            .vortex_expect("eval bp list_contains");
+        let expected = eval_list_contains(&prim_sliced, list_scalar, opts)
+            .vortex_expect("eval prim list_contains");
+        assert_eq!(actual.dtype(), expected.dtype());
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]

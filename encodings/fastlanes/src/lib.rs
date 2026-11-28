@@ -44,6 +44,8 @@ mod bitpacking;
 mod block;
 mod delta;
 mod for_;
+#[cfg(test)]
+mod prop_tests;
 mod rle;
 mod take_chunks;
 

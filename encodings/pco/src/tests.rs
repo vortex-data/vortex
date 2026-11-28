@@ -2,8 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![expect(clippy::cast_possible_truncation)]
 
+use std::cmp::Ordering;
+use std::fmt::Debug;
 use std::sync::LazyLock;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -11,7 +15,11 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
+use vortex_array::compute::conformance::hegel::EncodingCheckOptions;
+use vortex_array::compute::conformance::hegel::check_encoding_roundtrip_and_ops;
+use vortex_array::compute::conformance::hegel::draw_validity_for;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
@@ -288,4 +296,169 @@ fn test_f16_nullable_roundtrip() -> VortexResult<()> {
         &mut ctx
     );
     Ok(())
+}
+
+fn draw_pco_ints<T: NativePType + gs::Integer + Ord>(
+    tc: &TestCase,
+    len: usize,
+    validity: Validity,
+    sorted: bool,
+) -> PrimitiveArray {
+    let mut v = tc.draw(gs::vecs(gs::integers::<T>()).min_size(len).max_size(len));
+    if sorted {
+        v.sort_unstable();
+    }
+    PrimitiveArray::new(Buffer::from(v), validity)
+}
+
+fn draw_pco_floats<T: NativePType + Copy + Debug>(
+    tc: &TestCase,
+    len: usize,
+    validity: Validity,
+    sorted: bool,
+    specials: &[T],
+    draw_general: impl Fn(&TestCase) -> T,
+    cmp: fn(&T, &T) -> Ordering,
+) -> PrimitiveArray {
+    let mut v: Vec<T> = (0..len)
+        .map(|_| match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => tc.draw(gs::sampled_from(specials)),
+            _ => draw_general(tc),
+        })
+        .collect();
+    if sorted {
+        v.sort_by(cmp);
+    }
+    PrimitiveArray::new(Buffer::from(v), validity)
+}
+
+fn draw_pco_primitive(tc: &TestCase) -> PrimitiveArray {
+    const PCO_PTYPES: [PType; 9] = [
+        PType::U16,
+        PType::U32,
+        PType::U64,
+        PType::I16,
+        PType::I32,
+        PType::I64,
+        PType::F16,
+        PType::F32,
+        PType::F64,
+    ];
+    let ptype = tc.draw(gs::sampled_from(&PCO_PTYPES));
+    let len = if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+        tc.draw(gs::integers::<usize>().min_value(65).max_value(200))
+    } else {
+        tc.draw(gs::integers::<usize>().max_value(64))
+    };
+    let nullability = if tc.draw(gs::booleans()) {
+        Nullability::Nullable
+    } else {
+        Nullability::NonNullable
+    };
+    let validity = draw_validity_for(tc, nullability, len);
+    let sorted = tc.draw(gs::integers::<u8>().max_value(3)) == 0;
+
+    match ptype {
+        PType::U16 => draw_pco_ints::<u16>(tc, len, validity, sorted),
+        PType::U32 => draw_pco_ints::<u32>(tc, len, validity, sorted),
+        PType::U64 => draw_pco_ints::<u64>(tc, len, validity, sorted),
+        PType::I16 => draw_pco_ints::<i16>(tc, len, validity, sorted),
+        PType::I32 => draw_pco_ints::<i32>(tc, len, validity, sorted),
+        PType::I64 => draw_pco_ints::<i64>(tc, len, validity, sorted),
+        PType::F16 => draw_pco_floats(
+            tc,
+            len,
+            validity,
+            sorted,
+            &[
+                f16::from_f32(0.0),
+                f16::from_f32(-0.0),
+                f16::from_bits(1),
+                f16::MIN,
+                f16::MAX,
+                f16::INFINITY,
+                f16::NEG_INFINITY,
+                f16::NAN,
+            ],
+            |tc| f16::from_bits(tc.draw(gs::integers::<u16>())),
+            f16::total_cmp,
+        ),
+        PType::F32 => draw_pco_floats(
+            tc,
+            len,
+            validity,
+            sorted,
+            &[
+                0.0,
+                -0.0,
+                f32::from_bits(1),
+                f32::MIN,
+                f32::MAX,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::NAN,
+            ],
+            |tc| tc.draw(gs::floats::<f32>()),
+            f32::total_cmp,
+        ),
+        PType::F64 => draw_pco_floats(
+            tc,
+            len,
+            validity,
+            sorted,
+            &[
+                0.0,
+                -0.0,
+                f64::from_bits(1),
+                f64::MIN,
+                f64::MAX,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NAN,
+            ],
+            |tc| tc.draw(gs::floats::<f64>()),
+            f64::total_cmp,
+        ),
+        _ => unreachable!(),
+    }
+}
+
+#[hegel::test(test_cases = 30, print_blob = true)]
+fn test_pco_hegel_encoding_harness(tc: TestCase) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let prim = draw_pco_primitive(&tc);
+    let level = tc.draw(gs::integers::<usize>().max_value(3));
+    let values_per_chunk = tc.draw(gs::sampled_from(&[0usize, 16, 33]));
+    let values_per_page = tc.draw(gs::sampled_from(&[0usize, 8, 17]));
+    let encoded = if values_per_chunk == 0 {
+        Pco::from_primitive(prim.as_view(), level, values_per_page, &mut ctx)
+            .vortex_expect("Pco::from_primitive")
+            .into_array()
+    } else {
+        let validity = prim.validity().vortex_expect("prim validity");
+        Pco::try_new(
+            prim.dtype().clone(),
+            PcoData::from_primitive_with_values_per_chunk(
+                prim.as_view(),
+                level,
+                values_per_chunk,
+                values_per_page,
+                &mut ctx,
+            )
+            .vortex_expect("PcoData::from_primitive_with_values_per_chunk"),
+            validity,
+        )
+        .vortex_expect("Pco::try_new")
+        .into_array()
+    };
+    let canonical = prim.into_array();
+
+    check_encoding_roundtrip_and_ops(
+        &tc,
+        &encoded,
+        &canonical,
+        &EncodingCheckOptions::default(),
+        &mut ctx,
+    )
+    .vortex_expect("Pco harness check");
 }

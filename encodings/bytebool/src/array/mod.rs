@@ -280,14 +280,22 @@ impl OperationsVTable<ByteBool> for ByteBool {
 mod tests {
     use std::sync::LazyLock;
 
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::conformance::hegel::EncodingCheckOptions;
+    use vortex_array::compute::conformance::hegel::check_encoding_roundtrip_and_ops;
+    use vortex_array::compute::conformance::hegel::draw_validity_for;
+    use vortex_array::dtype::Nullability;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
@@ -295,6 +303,7 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
+        vortex_array::initialize(&session);
         crate::initialize(&session);
         session
     });
@@ -379,5 +388,54 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[hegel::test(test_cases = 50, print_blob = true)]
+    fn test_bytebool_hegel_encoding_harness(tc: TestCase) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+            tc.draw(gs::integers::<usize>().min_value(64).max_value(130))
+        } else {
+            tc.draw(gs::integers::<usize>().max_value(64))
+        };
+
+        let mut bytes: Vec<u8> = (0..len)
+            .map(|_| match tc.draw(gs::integers::<u8>().max_value(4)) {
+                0 => 0,
+                1 => 1,
+                2 => 2,
+                3 => 255,
+                _ => tc.draw(gs::integers::<u8>()),
+            })
+            .collect();
+        if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
+            bytes.sort_by_key(|&b| b != 0);
+        }
+
+        let nullability = if tc.draw(gs::booleans()) {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let validity = draw_validity_for(&tc, nullability, len);
+        let encoded = ByteBool::new(
+            BufferHandle::new_host(ByteBuffer::from(bytes.clone())),
+            validity.clone(),
+        )
+        .into_array();
+        let canonical = BoolArray::new(
+            BitBuffer::from_iter(bytes.iter().map(|&b| b != 0)),
+            validity,
+        )
+        .into_array();
+
+        check_encoding_roundtrip_and_ops(
+            &tc,
+            &encoded,
+            &canonical,
+            &EncodingCheckOptions::default(),
+            &mut ctx,
+        )
+        .vortex_expect("ByteBool harness check");
     }
 }
