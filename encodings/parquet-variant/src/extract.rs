@@ -18,6 +18,8 @@
 //!
 //! [Variant encoding]: https://github.com/apache/parquet-format/blob/master/VariantEncoding.md
 
+mod boolean;
+
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -30,6 +32,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::arrays::varbinview::ResolvedViews;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::BoolBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -37,6 +41,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_mask::Mask;
@@ -65,6 +70,8 @@ pub(crate) fn extract(
 
     let depth = path.len();
     match &mut builder {
+        Builder::Bool(bools) => append_rows(bools, &mut cache, &metadata, &value, valid, depth)?,
+        Builder::Binary(bytes) => append_rows(bytes, &mut cache, &metadata, &value, valid, depth)?,
         Builder::Utf8(utf8) => append_rows(utf8, &mut cache, &metadata, &value, valid, depth)?,
         Builder::Int64(int64) => append_rows(int64, &mut cache, &metadata, &value, valid, depth)?,
         nested => append_rows(nested, &mut cache, &metadata, &value, valid, depth)?,
@@ -78,6 +85,7 @@ pub(crate) fn extract(
 /// It covers strings, 64-bit integers, and structs and lists of them. The fields of a struct and
 /// the elements of a list must be nullable, as a value that does not convert is a null. A struct
 /// without fields is left to the general kernel, which cannot build one.
+/// Binary and boolean leaves are also supported at every depth.
 pub(crate) fn covers(dtype: &DType) -> bool {
     match dtype {
         DType::Utf8(_) | DType::Primitive(PType::I64, _) => true,
@@ -88,6 +96,7 @@ pub(crate) fn covers(dtype: &DType) -> bool {
                     .all(|field| field.is_nullable() && covers(&field))
         }
         DType::List(element, _) => element.is_nullable() && covers(element),
+        DType::Bool(_) | DType::Binary(_) => true,
         _ => false,
     }
 }
@@ -201,6 +210,8 @@ fn append_rows<'m, B: Append>(
 
 /// Builds an extracted array of any dtype that [`covers`] covers.
 enum Builder {
+    Bool(BoolBuilder),
+    Binary(BinaryBuilder),
     Utf8(Utf8Builder),
     Int64(Int64Builder),
     /// Reads each field from the field of the object of the same name.
@@ -227,6 +238,12 @@ impl Builder {
             return None;
         }
         Some(match dtype {
+            DType::Bool(_) => Self::Bool(BoolBuilder::with_capacity_in(
+                Nullability::Nullable,
+                capacity,
+                BufferAllocatorRef::static_ref(),
+            )),
+            DType::Binary(_) => Self::Binary(BinaryBuilder::new(capacity)),
             DType::Utf8(_) => Self::Utf8(Utf8Builder::new(capacity)),
             DType::Primitive(..) => Self::Int64(Int64Builder::new(capacity)),
             DType::Struct(struct_fields, _) => {
@@ -256,9 +273,11 @@ impl Builder {
         })
     }
 
-    /// Returns `None` if the strings do not fit the offsets of one buffer.
+    /// Returns `None` if the variable-length values do not fit the offsets of one buffer.
     fn finish(self) -> Option<ArrayRef> {
         Some(match self {
+            Self::Bool(mut builder) => builder.finish_into_bool().into_array(),
+            Self::Binary(builder) => builder.finish()?,
             Self::Utf8(builder) => builder.finish()?,
             Self::Int64(builder) => builder.finish(),
             Self::Struct {
@@ -301,6 +320,8 @@ impl Builder {
 impl Append for Builder {
     fn append(&mut self, names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         match self {
+            Self::Bool(builder) => builder.append(names, value),
+            Self::Binary(builder) => builder.append(names, value),
             Self::Utf8(builder) => builder.append(names, value),
             Self::Int64(builder) => builder.append(names, value),
             Self::Struct {
@@ -344,6 +365,8 @@ impl Append for Builder {
 
     fn append_null(&mut self) {
         match self {
+            Self::Bool(builder) => ArrayBuilder::append_null(builder),
+            Self::Binary(builder) => builder.append_null(),
             Self::Utf8(builder) => builder.append_null(),
             Self::Int64(builder) => builder.append_null(),
             Self::Struct {
@@ -365,13 +388,21 @@ impl Append for Builder {
     }
 }
 
-struct Utf8Builder {
+fn length_prefixed_bytes(payload: &[u8]) -> Option<&[u8]> {
+    let (length, bytes) = payload.split_at_checked(4)?;
+    bytes.get(..read_uint(length, 4)?)
+}
+
+type Utf8Builder = ViewBuilder<true>;
+type BinaryBuilder = ViewBuilder<false>;
+
+struct ViewBuilder<const UTF8: bool> {
     views: BufferMut<BinaryView>,
     bytes: ByteBufferMut,
     validity: BitBufferMut,
 }
 
-impl Utf8Builder {
+impl<const UTF8: bool> ViewBuilder<UTF8> {
     fn new(capacity: usize) -> Self {
         Self {
             views: BufferMut::with_capacity(capacity),
@@ -381,29 +412,32 @@ impl Utf8Builder {
     }
 
     #[inline]
-    fn push(&mut self, string: Option<&str>) {
-        self.validity.append(string.is_some());
-        let string = string.unwrap_or_default().as_bytes();
-        // The views are built here rather than by a builder, which would check the UTF-8 of every
-        // string a second time. The offset of an inlined string is not read, and `finish` checks
-        // that the offsets of the others fit.
+    fn push(&mut self, value: Option<&[u8]>) {
+        self.validity.append(value.is_some());
+        let bytes = value.unwrap_or_default();
+        // Inlined views ignore the offset. For external views, finish checks that the offsets fit.
         let offset = u32::try_from(self.bytes.len()).unwrap_or(u32::MAX);
-        if string.len() > BinaryView::MAX_INLINED_SIZE {
-            self.bytes.extend_from_slice(string);
+        if bytes.len() > BinaryView::MAX_INLINED_SIZE {
+            self.bytes.extend_from_slice(bytes);
         }
-        self.views.push(BinaryView::make_view(string, 0, offset));
+        self.views.push(BinaryView::make_view(bytes, 0, offset));
     }
 
-    /// Returns `None` if the strings do not fit the offsets of one buffer.
+    /// Returns `None` if the variable-length values do not fit the offsets of one buffer.
     fn finish(self) -> Option<ArrayRef> {
         u32::try_from(self.bytes.len()).ok()?;
-        // SAFETY: every view is either inlined or spans a string just copied to the only buffer,
-        // and each string was checked to be UTF-8 when it was read.
+        let dtype = if UTF8 {
+            DType::Utf8(Nullability::Nullable)
+        } else {
+            DType::Binary(Nullability::Nullable)
+        };
+        // SAFETY: each view is inline or points to bytes copied into the single backing buffer.
+        // The UTF-8 path validates the bytes before appending them.
         let array = unsafe {
             VarBinViewArray::new_unchecked(
                 self.views.freeze(),
                 Arc::from([self.bytes.freeze()]),
-                DType::Utf8(Nullability::Nullable),
+                dtype,
                 Validity::from(self.validity.freeze()),
             )
         };
@@ -411,27 +445,26 @@ impl Utf8Builder {
     }
 }
 
-impl Append for Utf8Builder {
+impl<const UTF8: bool> Append for ViewBuilder<UTF8> {
     #[inline]
     fn append(&mut self, _names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         let header = *value.first()?;
         let payload = &value[1..];
-        let string = match (header & BASIC_TYPE_MASK, header >> 2) {
-            (SHORT_STRING, len) => Some(utf8(payload.get(..usize::from(len))?)?),
-            (PRIMITIVE, LONG_STRING) => {
-                let len = read_uint(payload, 4)?;
-                Some(utf8(payload.get(4..4 + len)?)?)
-            }
+        let bytes = match (header & BASIC_TYPE_MASK, header >> 2) {
+            (SHORT_STRING, len) if UTF8 => Some(payload.get(..usize::from(len))?),
+            (PRIMITIVE, LONG_STRING) if UTF8 => Some(length_prefixed_bytes(payload)?),
+            (PRIMITIVE, BINARY) if !UTF8 => Some(length_prefixed_bytes(payload)?),
             (OBJECT | ARRAY, _) => None,
-            // What `Variant::as_string` returns, which borrows from the variant and not from the
-            // value.
-            _ => match decode(value)? {
-                Variant::String(string) => Some(string),
-                Variant::ShortString(string) => Some(string.as_str()),
-                _ => None,
-            },
+            _ => {
+                // Let the general kernel handle malformed encodings even on a type mismatch.
+                decode(value)?;
+                None
+            }
         };
-        self.push(string);
+        if UTF8 && let Some(bytes) = bytes {
+            utf8(bytes)?;
+        }
+        self.push(bytes);
         Some(())
     }
 
@@ -630,6 +663,7 @@ const INT16: u8 = 4;
 const INT32: u8 = 5;
 const INT64: u8 = 6;
 const LONG_STRING: u8 = 16;
+const BINARY: u8 = 15;
 
 /// The dictionary of field names of a Variant value.
 #[derive(Clone, Copy)]
@@ -916,6 +950,49 @@ mod tests {
         DType::List(Arc::new(element), Nullability::Nullable)
     }
 
+    #[rstest]
+    #[case::binary("a", DType::Binary(Nullability::Nullable))]
+    #[case::boolean("a", DType::Bool(Nullability::Nullable))]
+    #[case::nested("", struct_of([
+        ("a", DType::Binary(Nullability::Nullable)),
+        ("items", list_of(DType::Bool(Nullability::Nullable))),
+    ]))]
+    fn extracts_bytes_and_booleans_as_parquet_rs_does(
+        #[case] path: &str,
+        #[case] dtype: DType,
+    ) -> VortexResult<()> {
+        let values = [
+            Variant::Null,
+            Variant::Binary(&[]),
+            Variant::Binary(&[0xff; 12]),
+            Variant::Binary(&[0xfe; 13]),
+            Variant::Binary(&[0xfd; 80]),
+            Variant::BooleanTrue,
+            Variant::BooleanFalse,
+            Variant::Int8(-1),
+            Variant::Int16(0),
+            Variant::Int32(5),
+            Variant::Int64(0),
+            Variant::Float(-0.0),
+            Variant::Double(f64::NAN),
+            Variant::from("TRUE"),
+            Variant::from("false"),
+            Variant::from("not a boolean"),
+        ];
+        let mut input = VariantArrayBuilder::new(values.len() + 1);
+        input.new_object().finish();
+        for value in values {
+            let mut object = input.new_object();
+            object.insert("a", value.clone());
+            object.new_list("items").with_value(value).finish();
+            object.finish();
+        }
+        let (actual, expected) = extract_both_variant(&input.build(), path, &dtype)?;
+        let actual = actual.ok_or_else(|| vortex_err!("{dtype} must be covered"))?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
     /// A struct or a list is extracted as the general kernel extracts it, from rows whose values
     /// at the path are objects, arrays, and neither, with fields and elements of every type.
     #[rstest]
@@ -964,7 +1041,7 @@ mod tests {
         Arc::new(DType::Utf8(Nullability::NonNullable)),
         Nullability::Nullable,
     ))]
-    #[case::uncovered_field(struct_of([("a", DType::Bool(Nullability::Nullable))]))]
+    #[case::uncovered_field(struct_of([("a", DType::Variant(Nullability::Nullable))]))]
     #[case::struct_without_fields(struct_of([]))]
     fn does_not_cover_non_nullable_or_uncovered_children(#[case] dtype: DType) {
         assert!(!covers(&dtype));
@@ -1163,6 +1240,8 @@ mod tests {
     /// Values of types that JSON does not have convert as the general kernel converts them.
     #[rstest]
     #[case::as_string(utf8())]
+    #[case::as_binary(DType::Binary(Nullability::Nullable))]
+    #[case::as_boolean(DType::Bool(Nullability::Nullable))]
     #[case::as_integer(int64())]
     #[case::in_a_struct(struct_of([("a", int64()), ("b", utf8())]))]
     fn converts_non_json_values_as_the_kernel_does(#[case] dtype: DType) -> VortexResult<()> {
@@ -1305,6 +1384,21 @@ mod tests {
         METADATA_A,
         &[0x02, 1, 0, 0, 6, LONG_STRING << 2, 9, 0, 0, 0, b'x'],
         utf8()
+    )]
+    #[case::binary_length_is_truncated(
+        METADATA_A,
+        &[0x02, 1, 0, 0, 3, BINARY << 2, 1, 0],
+        DType::Binary(Nullability::Nullable)
+    )]
+    #[case::binary_payload_is_truncated(
+        METADATA_A,
+        &[0x02, 1, 0, 0, 6, BINARY << 2, 2, 0, 0, 0, 0xff],
+        DType::Binary(Nullability::Nullable)
+    )]
+    #[case::boolean_cast_from_invalid_utf8(
+        METADATA_A,
+        &[0x02, 1, 0, 0, 2, 0x05, 0xff],
+        DType::Bool(Nullability::Nullable)
     )]
     #[case::integer_past_the_end(METADATA_A, &[0x02, 1, 0, 0, 2, INT64 << 2, 1], int64())]
     #[case::double_past_the_end(METADATA_A, &[0x02, 1, 0, 0, 2, 7 << 2, 1], int64())]
