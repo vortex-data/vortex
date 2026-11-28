@@ -156,12 +156,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
             flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
-        match stream.next().await {
-            None => {}
-            Some(Err(e)) => return Err(e),
-            Some(Ok(_)) => {
-                vortex_bail!("flat layout received stream with more than a single chunk");
-            }
+        if stream.next().await.transpose()?.is_some() {
+            vortex_bail!("flat layout received stream with more than a single chunk");
         }
         Ok(FlatLayout::new_with_metadata(
             row_count,
@@ -465,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_propagates_trailing_stream_error() {
+    fn test_write_stream_propagates_trailing_stream_error() {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
