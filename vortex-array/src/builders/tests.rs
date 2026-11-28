@@ -58,6 +58,7 @@ use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
@@ -835,7 +836,7 @@ fn hegel_list_and_listview_builder_offset_types(tc: TestCase) {
     }
 }
 
-fn distinct_scalar_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> usize {
+fn distinct_scalars(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vec<Scalar> {
     let mut seen: Vec<Scalar> = Vec::new();
     for i in 0..array.len() {
         let scalar = array.execute_scalar(i, ctx).vortex_expect("scalar");
@@ -843,7 +844,35 @@ fn distinct_scalar_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> usize {
             seen.push(scalar);
         }
     }
-    seen.len()
+    seen
+}
+
+fn expected_dict_bytes(dtype: &DType, distinct: &[Scalar]) -> usize {
+    match dtype {
+        DType::Primitive(ptype, _) => distinct.len() * ptype.byte_width(),
+        DType::Decimal(dec_dtype, _) => {
+            distinct.len() * dec_dtype.canonical_values_type().byte_width()
+        }
+        DType::Utf8(_) | DType::Binary(_) => distinct
+            .iter()
+            .map(|scalar| {
+                let payload_len = if scalar.is_null() {
+                    0
+                } else if matches!(dtype, DType::Utf8(_)) {
+                    scalar.as_utf8().value().map_or(0, |v| v.len())
+                } else {
+                    scalar.as_binary().value().map_or(0, |v| v.len())
+                };
+                size_of::<BinaryView>()
+                    + if payload_len > BinaryView::MAX_INLINED_SIZE {
+                        payload_len
+                    } else {
+                        0
+                    }
+            })
+            .sum(),
+        other => unreachable!("unexpected dict dtype {other}"),
+    }
 }
 
 /// Differential model for primitive, decimal, and bytes (`Utf8`/`Binary`) dictionary builders:
@@ -938,7 +967,9 @@ fn hegel_dict_builders_roundtrip_and_frequency(tc: TestCase) {
     };
 
     let arr = make_chunk(&tc, len, &mut ctx);
-    let expected_distinct = distinct_scalar_count(&arr, &mut ctx);
+    let distinct = distinct_scalars(&arr, &mut ctx);
+    let expected_distinct = distinct.len();
+    let dict_bytes = expected_dict_bytes(arr.dtype(), &distinct);
 
     // 1. dict_encode roundtrip + exact distinct count check.
     let dict = dict_encode(&arr, &mut ctx).vortex_expect("dict_encode");
@@ -992,17 +1023,24 @@ fn hegel_dict_builders_roundtrip_and_frequency(tc: TestCase) {
         );
     }
 
-    let max_bytes = tc.draw(gs::integers::<usize>().max_value(64));
+    let max_bytes = tc.draw(gs::integers::<usize>().max_value(160));
     let byte_constraints = DictConstraints {
         max_bytes,
         max_len: usize::MAX,
     };
-    if let Some(constrained_by_bytes) =
+    let constrained_by_bytes =
         dict_encode_by_frequency_with_constraints(&arr, &byte_constraints, &mut ctx)
-            .vortex_expect("constrained max_bytes")
-    {
-        assert_eq!(constrained_by_bytes.values().len(), expected_distinct);
-        assert_arrays_eq!(constrained_by_bytes, &arr, &mut ctx);
+            .vortex_expect("constrained max_bytes");
+    if expected_distinct <= 1 || dict_bytes <= max_bytes {
+        let constrained = constrained_by_bytes
+            .vortex_expect("inputs within max_bytes (or <=1 distinct entry) must succeed");
+        assert_eq!(constrained.values().len(), expected_distinct);
+        assert_arrays_eq!(constrained, &arr, &mut ctx);
+    } else {
+        assert!(
+            constrained_by_bytes.is_none(),
+            "inputs exceeding max_bytes must return None"
+        );
     }
 
     // 4. Streaming multi-chunk encoder + reset() clearing stale dictionary entries.
@@ -1012,7 +1050,7 @@ fn hegel_dict_builders_roundtrip_and_frequency(tc: TestCase) {
             tc.draw(gs::integers::<usize>().min_value(1).max_value(8)),
             &mut ctx,
         );
-        let chunk2_distinct = distinct_scalar_count(&chunk2, &mut ctx);
+        let chunk2_distinct = distinct_scalars(&chunk2, &mut ctx).len();
 
         let mut encoder = dict_encoder_in(&arr, &UNCONSTRAINED, ctx.allocator().clone());
         let c1 = encoder.encode(&arr, &mut ctx).vortex_expect("enc1");

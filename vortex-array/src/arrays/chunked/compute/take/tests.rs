@@ -684,6 +684,30 @@ fn test_take_out_of_bounds() -> VortexResult<()> {
             .and_then(|taken| taken.execute::<Canonical>(&mut ctx));
         assert!(result.is_err(), "expected out-of-bounds error");
     }
+
+    // Exercise the primitive-index bounds check in `take_chunked_fsl -> touched_chunks`,
+    // including empty and untouched chunks.
+    let mut fsl_chunks = Vec::new();
+    let mut start = 0u64;
+    for length in [2usize, 0, 3, 1, 2] {
+        let end = start + length as u64;
+        fsl_chunks.push(
+            FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                2,
+                Validity::NonNullable,
+                length,
+            )?
+            .into_array(),
+        );
+        start = end;
+    }
+    let fsl_dtype = fsl_chunks[0].dtype().clone();
+    let fsl_chunked = ChunkedArray::try_new(fsl_chunks, fsl_dtype)?;
+    let fsl_result = fsl_chunked
+        .take(buffer![1u64, 8].into_array())
+        .and_then(|taken| taken.execute::<Canonical>(&mut ctx));
+    assert!(fsl_result.is_err(), "expected FSL out-of-bounds error");
     Ok(())
 }
 
