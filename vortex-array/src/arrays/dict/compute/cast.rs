@@ -32,7 +32,7 @@ impl CastReduce for Dict {
         // Do not push a fallible non-nullable cast onto nullable codes: values-side `take`
         // shortcuts (such as `Constant` or all-true/all-false `Bool`) inspect `codes.validity()`
         // without executing the lazy cast and would silently swallow null-to-non-null errors.
-        if !dtype.is_nullable() && array.codes().dtype().is_nullable() {
+        if !dtype.is_nullable() && !array.codes().validity()?.definitely_no_nulls() {
             return Ok(None);
         }
 
@@ -40,13 +40,24 @@ impl CastReduce for Dict {
         if !dtype.is_nullable() && !array.values().validity()?.definitely_no_nulls() {
             return Ok(None);
         }
+
         // Cast the dictionary values to the target type
         let casted_values = array.values().cast(dtype.clone())?;
+
+        // If the codes are nullable (with `Validity::AllValid`) and we are casting to a
+        // non-nullable dtype, strip nullability from codes as well.
+        let casted_codes = if array.codes().dtype().is_nullable() && !dtype.is_nullable() {
+            array
+                .codes()
+                .cast(array.codes().dtype().with_nullability(dtype.nullability()))?
+        } else {
+            array.codes().clone()
+        };
 
         // SAFETY: casting does not alter invariants of the codes
         Ok(Some(
             unsafe {
-                DictArray::new_unchecked(array.codes().clone(), casted_values)
+                DictArray::new_unchecked(casted_codes, casted_values)
                     .set_all_values_referenced(array.has_all_values_referenced())
             }
             .into_array(),
