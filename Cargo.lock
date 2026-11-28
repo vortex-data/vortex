@@ -8183,6 +8183,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "populate-builtins"
+version = "0.1.0"
+source = "git+https://github.com/joseph-isaacs/populate?rev=0b85d9996bb2fd0ebb579337f934db7abb12ea52#0b85d9996bb2fd0ebb579337f934db7abb12ea52"
+dependencies = [
+ "populate-core",
+ "rand 0.9.5",
+]
+
+[[package]]
+name = "populate-core"
+version = "0.1.0"
+source = "git+https://github.com/joseph-isaacs/populate?rev=0b85d9996bb2fd0ebb579337f934db7abb12ea52#0b85d9996bb2fd0ebb579337f934db7abb12ea52"
+dependencies = [
+ "rand 0.9.5",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11152,10 +11169,13 @@ dependencies = [
  "parking_lot 0.12.5",
  "paste",
  "pin-project-lite",
+ "populate-builtins",
+ "populate-core",
  "primitive-types",
  "prost 0.14.4",
  "prost-types",
  "rand 0.10.3",
+ "rand 0.9.5",
  "rand_distr 0.6.0",
  "rstest",
  "rstest_reuse",

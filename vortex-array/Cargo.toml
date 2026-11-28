@@ -82,6 +82,9 @@ serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 unstable_row_fns = []
 
 [dev-dependencies]
+populate-builtins = { git = "https://github.com/joseph-isaacs/populate", rev = "0b85d9996bb2fd0ebb579337f934db7abb12ea52" }
+populate-core = { git = "https://github.com/joseph-isaacs/populate", rev = "0b85d9996bb2fd0ebb579337f934db7abb12ea52" }
+populate-rand = { package = "rand", version = "0.9" }
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }

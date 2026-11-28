@@ -6,18 +6,23 @@
 
 #![expect(clippy::cast_possible_truncation, clippy::unwrap_used)]
 
+pub mod fixture;
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use fixture::VortexColumns;
 use mimalloc::MiMalloc;
-use rand::RngExt;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use populate_builtins::bernoulli;
+use populate_builtins::fixed_size_list;
+use populate_builtins::range;
+use populate_core::Distribution;
+use populate_rand::SeedableRng;
+use populate_rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::test_harness::mark_optimized;
@@ -45,7 +50,7 @@ const NUM_ELEMENTS: usize = 1 << 17;
 /// List size 2 covers the plain-bitmap expansion with many short runs, and 16 covers the
 /// cached-slices expansion.
 #[divan::bench(consts = [2, 16], args = [0.01, 0.5])]
-fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
+fn fsl_i32<const LIST_SIZE: usize>(bencher: Bencher, density: f64) {
     // Short lists produce many more runs per element and dense selections copy far more
     // elements, so both use smaller arrays to keep each iteration short.
     let mut num_elements = NUM_ELEMENTS;
@@ -55,14 +60,22 @@ fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
     if density > 0.1 {
         num_elements /= 8;
     }
-    let len = num_elements / LIST_SIZE as usize;
-    let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE as usize) as i32).into_array();
-    let array =
-        FixedSizeListArray::new(elements, LIST_SIZE, Validity::NonNullable, len).into_array();
-    mark_optimized(&array, &SESSION).unwrap();
-
+    let len = num_elements / LIST_SIZE;
     let mut rng = StdRng::seed_from_u64(0);
-    let bits = BitBuffer::from_iter((0..len).map(|_| rng.random_bool(density)));
+    let (lists, selected) = (
+        fixed_size_list::<LIST_SIZE, _>(range(0i32, 1)),
+        bernoulli(density),
+    )
+        .collect(&mut rng, len);
+    let array = FixedSizeListArray::new(
+        lists.into_flattened().into_vortex(),
+        LIST_SIZE as u32,
+        Validity::NonNullable,
+        len,
+    )
+    .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+    let bits = BitBuffer::from(selected);
 
     // Build a fresh mask for every iteration so that representations cached on the mask are not
     // reused across iterations.

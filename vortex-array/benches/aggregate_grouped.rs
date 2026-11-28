@@ -4,13 +4,23 @@
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::unwrap_used)]
 
+pub mod fixture;
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use fixture::DistributionVortex;
+use fixture::VortexColumns;
 use mimalloc::MiMalloc;
-use rand::RngExt;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use populate_builtins::constant;
+use populate_builtins::draw_if;
+use populate_builtins::indexed;
+use populate_builtins::nullable;
+use populate_builtins::sample_range;
+use populate_core::Columns;
+use populate_core::Distribution;
+use populate_rand::SeedableRng;
+use populate_rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -24,7 +34,6 @@ use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ListViewArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::kernels::KernelSession;
@@ -54,9 +63,7 @@ const MAX_VALUES_PER_GROUP: usize = 15;
 
 fn random_group_sizes() -> Vec<usize> {
     let mut rng = StdRng::seed_from_u64(GROUP_SIZE_SEED);
-    (0..GROUP_COUNT)
-        .map(|_| rng.random_range(MIN_VALUES_PER_GROUP..=MAX_VALUES_PER_GROUP))
-        .collect()
+    sample_range(MIN_VALUES_PER_GROUP..=MAX_VALUES_PER_GROUP).collect(&mut rng, GROUP_COUNT)
 }
 
 fn total_element_count(group_sizes: &[usize]) -> usize {
@@ -92,63 +99,40 @@ fn contiguous_list_view(elements: ArrayRef, group_sizes: &[usize]) -> ArrayRef {
     list_view
 }
 
-fn i32_nullable_all_valid_input() -> ArrayRef {
-    let group_sizes = random_group_sizes();
-    let element_count = total_element_count(&group_sizes);
-    let values: Buffer<i32> = (0..element_count)
-        .map(|i| (i % 1024) as i32 - 512)
-        .collect();
-    let validity = Validity::from_iter(std::iter::repeat_n(true, element_count));
+fn grouped_input<D: Distribution>(mut values: D) -> ArrayRef
+where
+    Columns<D::Item>: VortexColumns,
+{
+    let sizes = random_group_sizes();
+    let mut rng = StdRng::seed_from_u64(GROUP_SIZE_SEED);
     contiguous_list_view(
-        PrimitiveArray::new(values, validity).into_array(),
-        &group_sizes,
+        values.collect_vortex(&mut rng, total_element_count(&sizes)),
+        &sizes,
     )
+}
+
+fn i32_value(i: usize) -> i32 {
+    (i % 1024) as i32 - 512
+}
+
+fn present(i: usize) -> bool {
+    !(i / 16).is_multiple_of(8)
+}
+
+fn i32_nullable_all_valid_input() -> ArrayRef {
+    grouped_input(nullable(indexed(i32_value), constant(true)))
 }
 
 fn i32_clustered_nulls_input() -> ArrayRef {
-    let group_sizes = random_group_sizes();
-    let element_count = total_element_count(&group_sizes);
-    let values = (0..element_count).map(|i| {
-        if (i / 16) % 8 == 0 {
-            None
-        } else {
-            Some((i % 1024) as i32 - 512)
-        }
-    });
-    contiguous_list_view(
-        PrimitiveArray::from_option_iter(values).into_array(),
-        &group_sizes,
-    )
+    grouped_input(indexed(|i| present(i).then(|| i32_value(i))))
 }
 
 fn f64_all_valid_input() -> ArrayRef {
-    let group_sizes = random_group_sizes();
-    let element_count = total_element_count(&group_sizes);
-    let mut rng = StdRng::seed_from_u64(GROUP_SIZE_SEED);
-    let values: Buffer<f64> = (0..element_count)
-        .map(|_| rng.random_range(-1000.0..1000.0))
-        .collect();
-    contiguous_list_view(
-        PrimitiveArray::new(values, Validity::NonNullable).into_array(),
-        &group_sizes,
-    )
+    grouped_input(sample_range(-1000.0f64..1000.0))
 }
 
 fn f64_clustered_nulls_input() -> ArrayRef {
-    let group_sizes = random_group_sizes();
-    let element_count = total_element_count(&group_sizes);
-    let mut rng = StdRng::seed_from_u64(GROUP_SIZE_SEED);
-    let values = (0..element_count).map(|i| {
-        if (i / 16) % 8 == 0 {
-            None
-        } else {
-            Some(rng.random_range(-1000.0f64..1000.0))
-        }
-    });
-    contiguous_list_view(
-        PrimitiveArray::from_option_iter(values).into_array(),
-        &group_sizes,
-    )
+    grouped_input(draw_if(indexed(present), sample_range(-1000.0f64..1000.0)))
 }
 
 fn varbinview_input() -> ArrayRef {

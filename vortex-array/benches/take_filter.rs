@@ -17,11 +17,19 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+pub mod fixture;
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use fixture::DistributionVortex;
 use mimalloc::MiMalloc;
-use rand::RngExt;
+use populate_builtins::draw_if;
+use populate_builtins::indexed;
+use populate_builtins::range;
+use populate_builtins::sample_range;
+use populate_rand::SeedableRng as _;
+use populate_rand::rngs::StdRng as FixtureRng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -113,25 +121,20 @@ fn random_mask_buffer(array_len: usize, filtered_len: usize) -> BitBuffer {
 }
 
 fn sequential_indices(num_indices: usize) -> ArrayRef {
-    Buffer::from_iter(0..num_indices as u64).into_array()
+    range(0u64, 1).collect_vortex(&mut FixtureRng::seed_from_u64(INDEX_SEED), num_indices)
 }
 
 fn random_indices(num_indices: usize, filtered_len: usize) -> ArrayRef {
-    let mut rng = StdRng::seed_from_u64(INDEX_SEED);
-    Buffer::from_iter((0..num_indices).map(|_| rng.random_range(0..filtered_len as u64)))
-        .into_array()
+    sample_range(0..filtered_len as u64)
+        .collect_vortex(&mut FixtureRng::seed_from_u64(INDEX_SEED), num_indices)
 }
 
 fn nullable_random_indices(num_indices: usize, filtered_len: usize) -> ArrayRef {
-    let mut rng = StdRng::seed_from_u64(INDEX_SEED);
-    PrimitiveArray::from_option_iter((0..num_indices).map(|idx| {
-        if idx % NULL_INDEX_INTERVAL == 0 {
-            None
-        } else {
-            Some(rng.random_range(0..filtered_len as u64))
-        }
-    }))
-    .into_array()
+    draw_if(
+        indexed(|i| !i.is_multiple_of(NULL_INDEX_INTERVAL)),
+        sample_range(0..filtered_len as u64),
+    )
+    .collect_vortex(&mut FixtureRng::seed_from_u64(INDEX_SEED), num_indices)
 }
 
 fn bench_take_filter(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
