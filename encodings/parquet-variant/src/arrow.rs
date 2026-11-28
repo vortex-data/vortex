@@ -128,15 +128,25 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let arrow_variant = parquet_array.to_arrow(options, ctx)?;
-    let unshredded = unshred_variant(&arrow_variant)?;
-    let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
-        ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())?
-    } else {
-        ParquetVariant::from_arrow_variant(&unshredded, &ctx.session().arrow())?
-    };
+    let unshredded_array = unshred_storage(parquet_array, options, ctx)?;
     let unshredded_parquet = unshredded_array.as_::<ParquetVariant>();
     export_storage_to_target(&unshredded_parquet, target_fields, options, ctx)
+}
+
+/// Merges the `typed_value` of Parquet Variant storage into its `value`, giving storage with the
+/// same rows and no `typed_value`.
+fn unshred_storage<T: ParquetVariantArrayExt>(
+    parquet_array: &T,
+    options: &ArrowExportOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let arrow_variant = parquet_array.to_arrow(options, ctx)?;
+    let unshredded = unshred_variant(&arrow_variant)?;
+    if parquet_array.as_ref().dtype().is_nullable() {
+        ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())
+    } else {
+        ParquetVariant::from_arrow_variant(&unshredded, &ctx.session().arrow())
+    }
 }
 
 /// Stop before canonicalization hides constant, masked, and chunked storage behind a Variant
@@ -236,6 +246,11 @@ pub(crate) fn prepare_variant_for_export(
 /// A chunked Variant whose chunks are not all plain Parquet Variant storage, such as a constant
 /// run beside stored values, canonicalizes to a Variant over chunked storage again, so executing
 /// it never reaches Parquet Variant storage.
+///
+/// A chunk can keep a shredding of its own that the other chunks do not share: `VariantBuilder`
+/// leaves a Variant whose typed value conflicts with the shared shredding in core storage. Storage
+/// concatenates only if every chunk has the same children, so when they differ, each chunk with a
+/// `typed_value` is unshredded into its `value`.
 fn prepare_chunked_variant_for_export(
     array: &ArrayRef,
     typed_value: Option<ArrayRef>,
@@ -244,16 +259,46 @@ fn prepare_chunked_variant_for_export(
     let chunked = array.as_::<Chunked>();
 
     let mut offset = 0;
-    let mut storage = StorageBuilder::new(array.dtype());
+    let mut chunks = Vec::with_capacity(chunked.nchunks());
     for chunk in chunked.iter_chunks() {
         let end = offset + chunk.len();
         let typed_value = typed_value
             .as_ref()
             .map(|typed_value| typed_value.slice(offset..end))
             .transpose()?;
-        let chunk = prepare_variant_for_export(chunk.clone(), typed_value, ctx)?;
-        storage.append(chunk.as_::<ParquetVariant>())?;
+        chunks.push(prepare_variant_for_export(chunk.clone(), typed_value, ctx)?);
         offset = end;
+    }
+
+    // Storage without `value` has a `typed_value`, so unshredding leaves every chunk with only
+    // `metadata` and `value`.
+    let children = |chunk: &ArrayRef| {
+        let storage = chunk.as_::<ParquetVariant>();
+        (
+            storage.value().is_some(),
+            storage
+                .typed_value()
+                .map(|typed_value| typed_value.dtype().as_nullable()),
+        )
+    };
+    let mut non_empty = chunks.iter().filter(|chunk| !chunk.is_empty());
+    let unshred = non_empty.next().is_some_and(|first| {
+        let first = children(first);
+        non_empty.any(|chunk| children(chunk) != first)
+    });
+
+    let mut storage = StorageBuilder::new(array.dtype());
+    for chunk in chunks {
+        let chunk = if unshred && chunk.as_::<ParquetVariant>().typed_value().is_some() {
+            unshred_storage(
+                &chunk.as_::<ParquetVariant>(),
+                &ArrowExportOptions::default(),
+                ctx,
+            )?
+        } else {
+            chunk
+        };
+        storage.append(chunk.as_::<ParquetVariant>())?;
     }
     storage.finish_storage()
 }

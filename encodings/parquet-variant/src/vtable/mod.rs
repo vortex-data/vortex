@@ -258,6 +258,7 @@ mod tests {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -541,6 +542,65 @@ mod tests {
             for name in names {
                 assert!(fields.field(name).is_some_and(|dtype| dtype.is_nullable()));
             }
+        }
+        Ok(())
+    }
+
+    /// Chunks that shred `a` as an object and as an integer cannot share a shredded `a`, so a
+    /// file read keeps the integer chunk with its own shredding in the core storage of `a`.
+    /// Exporting the column to Arrow must still concatenate that core storage.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_conflicting_nested_shredding_exports_to_arrow(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        let mut chunks = Vec::new();
+        for (row, path, dtype) in [
+            (r#"{"a":{"x":7,"y":"z"}}"#, "a.x", DataType::Int64),
+            (r#"{"a":42,"extra":0}"#, "a", DataType::Int32),
+        ] {
+            let strings: ArrowArrayRef = Arc::new(StringArray::from(vec![None, Some(row)]));
+            let schema = ShreddedSchemaBuilder::new()
+                .with_path(path, &dtype)?
+                .build();
+            let shredded = shred_variant(&json_to_variant(&strings)?, &schema)?;
+            chunks.push(ParquetVariant::from_arrow_variant_nullable(
+                &shredded,
+                &SESSION.arrow(),
+            )?);
+        }
+        let dtype = DType::Variant(Nullability::Nullable);
+        let expected = ChunkedArray::try_new(chunks, dtype.clone())?.into_array();
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(
+                vortex_file::WriteStrategyBuilder::from_session(&session)
+                    .with_row_block_size(2)
+                    .build(),
+            )
+            .write(&mut bytes, expected.to_array_stream())
+            .await?;
+        let actual = session
+            .open_options()
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = SESSION.arrow().to_arrow_field("v", &dtype)?;
+        let exported = actual.execute_arrow(Some(&field), &mut ctx)?;
+        let restored = SESSION.arrow().from_arrow_array(exported, &field)?;
+        assert_eq!(restored.len(), expected.len());
+        for row in 0..expected.len() {
+            assert!(variant_scalars_equal(
+                &restored.execute_scalar(row, &mut ctx)?,
+                &expected.execute_scalar(row, &mut ctx)?,
+            ));
         }
         Ok(())
     }
