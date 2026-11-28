@@ -156,9 +156,9 @@ impl LayoutStrategy for FlatLayoutStrategy {
             flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
-        let None = stream.next().await else {
+        if stream.next().await.transpose()?.is_some() {
             vortex_bail!("flat layout received stream with more than a single chunk");
-        };
+        }
         Ok(FlatLayout::new_with_metadata(
             row_count,
             stream.dtype().clone(),
@@ -174,6 +174,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
 mod tests {
     use std::sync::Arc;
 
+    use futures::StreamExt;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::ArrayVTable;
@@ -203,6 +204,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -213,6 +215,8 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::sequence::SequentialStreamAdapter;
+    use crate::sequence::SequentialStreamExt;
     use crate::test::SESSION;
     use crate::test::new_session;
 
@@ -453,6 +457,36 @@ mod tests {
             assert_arrays_eq!(result, array, &mut ctx_exec);
 
             Ok(())
+        })
+    }
+
+    #[test]
+    fn test_write_stream_propagates_trailing_stream_error() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (mut ptr, eof) = SequenceId::root().split();
+            let array = PrimitiveArray::from_iter([1u8, 2]).into_array();
+            let dtype = array.dtype().clone();
+            let stream = SequentialStreamAdapter::new(
+                dtype,
+                futures::stream::iter([
+                    Ok((ptr.advance(), array)),
+                    Err(vortex_err!("trailing upstream boom")),
+                ])
+                .boxed(),
+            )
+            .sendable();
+
+            let err = FlatLayoutStrategy::default()
+                .write_stream(ctx.into(), segments, stream, eof, &session)
+                .await
+                .expect_err("expected trailing upstream error");
+            assert!(
+                err.to_string().contains("trailing upstream boom"),
+                "unexpected error: {err}"
+            );
         })
     }
 }
