@@ -116,3 +116,88 @@ impl Scheme for ALPScheme {
         unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_alp::ALP;
+    use vortex_alp::ALPArrayExt;
+    use vortex_alp::ALPFloat;
+    use vortex_alp::alp_encode;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_compressor::CascadingCompressor;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::schemes::float::ALPScheme;
+    use crate::schemes::integer::BitPackingScheme;
+    use crate::schemes::integer::FoRScheme;
+
+    static BITPACKING: BitPackingScheme = BitPackingScheme::v1();
+    static FOR: FoRScheme = FoRScheme::v1();
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        vortex_alp::initialize(&session);
+        vortex_fastlanes::initialize(&session);
+        session
+    });
+
+    #[rstest]
+    #[case::f32(
+        vec![1.25_f32, 2.50, 3.75, 4.00],
+        vec![f32::NAN, f32::from_bits(0xdead_beef), 1e30_f32, 1.234_567_f32],
+    )]
+    #[case::f64(
+        vec![1.25_f64, 2.50, 3.75, 4.00],
+        vec![f64::NAN, f64::from_bits(0xdead_beef_cafe_babe), 1e300_f64, 1.234_567_89_f64],
+    )]
+    fn test_alp_scheme_ignores_dirty_nulls<T>(
+        #[case] clean_values: Vec<T>,
+        #[case] dirty_values: Vec<T>,
+    ) -> VortexResult<()>
+    where
+        T: ALPFloat + NativePType,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 10_000;
+        let mut raw = Vec::with_capacity(len);
+        let mut valid_only = Vec::with_capacity(len);
+        let mut is_valid = Vec::with_capacity(len);
+
+        for row in 0..len {
+            if row % 10 == 0 {
+                raw.push(dirty_values[row % dirty_values.len()]);
+                is_valid.push(false);
+            } else {
+                let value = clean_values[row % clean_values.len()];
+                raw.push(value);
+                valid_only.push(value);
+                is_valid.push(true);
+            }
+        }
+
+        let array = PrimitiveArray::new(Buffer::from(raw), Validity::from_iter(is_valid));
+        let clean = PrimitiveArray::new(Buffer::from(valid_only), Validity::NonNullable);
+        let expected_exponents = alp_encode(clean.as_view(), None, &mut ctx)?.exponents();
+
+        let compressor = CascadingCompressor::new(vec![&ALPScheme, &FOR, &BITPACKING]);
+        let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
+        let alp = compressed
+            .as_opt::<ALP>()
+            .expect("expected ALPScheme to compress clean decimals with dirty nulls");
+        assert_eq!(alp.exponents(), expected_exponents);
+        assert!(alp.patches().is_none());
+        assert_arrays_eq!(compressed, array, &mut ctx);
+
+        Ok(())
+    }
+}

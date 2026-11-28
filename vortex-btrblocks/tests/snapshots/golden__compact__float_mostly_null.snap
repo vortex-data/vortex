@@ -3,11 +3,17 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: f64?, len=16384, nbytes=133120
-root: vortex.sparse(f64?, len=16384) nbytes=7545
-  metadata: fill_value: null
-  patch_indices: vortex.pco(u16, len=850) nbytes=636
-    metadata: ptype: u16, nrows: 850, slice: 0..850
-  patch_values: vortex.primitive(f64?, len=850) nbytes=6907
+root: vortex.alp(f64?, len=16384) nbytes=7137
+  metadata: exponents: e: 16, f: 0, patch_offset: 0
+  encoded: vortex.sparse(i64?, len=16384) nbytes=5791
+    metadata: fill_value: null
+    patch_indices: vortex.pco(u16, len=850) nbytes=636
+      metadata: ptype: u16, nrows: 850, slice: 0..850
+    patch_values: vortex.pco(i64?, len=850) nbytes=5153
+      metadata: ptype: i64, nrows: 850, slice: 0..850
+  patch_indices: vortex.primitive(u16, len=133) nbytes=266
+    metadata: ptype: u16
+  patch_values: vortex.primitive(f64?, len=133) nbytes=1064
     metadata: ptype: f64
-    validity_child: vortex.bool(bool, len=850) nbytes=107
-      metadata: offset: 0
+  patch_chunk_offsets: vortex.primitive(u8, len=16) nbytes=16
+    metadata: ptype: u8

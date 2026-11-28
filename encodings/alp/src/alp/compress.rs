@@ -8,7 +8,7 @@ use fearless_simd::Level;
 use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
-use itertools::Itertools;
+use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -19,8 +19,11 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -29,6 +32,11 @@ use crate::ALP;
 use crate::Exponents;
 use crate::alp::ALPArray;
 use crate::alp::ALPFloat;
+use crate::sample_valid_values;
+
+/// Matches the `alp` crate's exponent search sample budget and run length.
+const ALP_SAMPLE_SIZE: usize = 64;
+const ALP_SAMPLE_BLOCK: usize = 8;
 
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
@@ -107,10 +115,178 @@ fn encode_into_simd<S: Simd, T: ALPFloat>(
     )
 }
 
+/// Finds the best ALP exponents for a sample, compiled for the best SIMD level the CPU supports.
+fn find_best_exponents<T: ALPFloat>(values: &[T]) -> Exponents {
+    dispatch!(Level::new(), simd => find_best_exponents_simd(simd, values))
+}
+
+#[simd]
+fn find_best_exponents_simd<S: Simd, T: ALPFloat>(_: S, values: &[T]) -> Exponents {
+    ::alp::find_best_exponents(values)
+}
+
+/// Encodes `values` directly with a validity mask, skipping exception emission on null lanes and
+/// writing `fill_value` into null and patched slots without copying the input buffer.
 #[expect(
-    clippy::cast_possible_truncation,
-    reason = "u64 index cast to usize is safe for reasonable array sizes"
+    clippy::too_many_arguments,
+    reason = "SIMD kernel passes pre-allocated output buffers directly"
 )]
+fn encode_masked_into<T: ALPFloat>(
+    values: &[T],
+    mask: BitBufferView<'_>,
+    exp: Exponents,
+    encoded: &mut [MaybeUninit<T::ALPInt>],
+    patch_indices: &mut Vec<u64>,
+    patch_values: &mut Vec<T>,
+    chunk_offsets: &mut Vec<u64>,
+    fill_value: Option<T::ALPInt>,
+) {
+    dispatch!(Level::new(), simd => encode_masked_into_simd(
+        simd,
+        values,
+        mask,
+        exp,
+        encoded,
+        patch_indices,
+        patch_values,
+        chunk_offsets,
+        fill_value,
+    ));
+}
+
+#[simd]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel passes pre-allocated output buffers directly"
+)]
+fn encode_masked_into_simd<S: Simd, T: ALPFloat>(
+    _: S,
+    values: &[T],
+    mask: BitBufferView<'_>,
+    exp: Exponents,
+    encoded: &mut [MaybeUninit<T::ALPInt>],
+    patch_indices: &mut Vec<u64>,
+    patch_values: &mut Vec<T>,
+    chunk_offsets: &mut Vec<u64>,
+    mut fill_value: Option<T::ALPInt>,
+) {
+    assert_eq!(encoded.len(), values.len());
+    assert_eq!(mask.len(), values.len());
+
+    let initially_had_fill = fill_value.is_some();
+
+    for (chunk_idx, chunk_values) in values.chunks(ENCODE_CHUNK_SIZE).enumerate() {
+        let chunk_base = chunk_idx * ENCODE_CHUNK_SIZE;
+        let chunk_len = chunk_values.len();
+        chunk_offsets.push(patch_indices.len() as u64);
+
+        let chunk_mask = mask.slice(chunk_base..chunk_base + chunk_len);
+        let chunk_out = &mut encoded[chunk_base..chunk_base + chunk_len];
+
+        // Pass 1: encode the whole 1024-element chunk branchlessly so LLVM vectorizes it the same
+        // way as the non-nullable `alp::encode_into` loop.
+        let mut chunk_patch_count = 0usize;
+        for (out, &v) in chunk_out.iter_mut().zip(chunk_values) {
+            let enc = T::encode_single_unchecked(v, exp);
+            let dec = T::decode_single(enc, exp);
+            chunk_patch_count += usize::from(!dec.is_eq(v));
+            out.write(enc);
+        }
+
+        // SAFETY: Pass 1 initialized every element of `chunk_out`.
+        let chunk_encoded: &mut [T::ALPInt] = unsafe {
+            std::slice::from_raw_parts_mut(chunk_out.as_mut_ptr().cast::<T::ALPInt>(), chunk_len)
+        };
+
+        if chunk_patch_count == 0 {
+            for_each_mask_word(chunk_mask, |valid_word, word_start, word_len| {
+                if fill_value.is_none() && valid_word != 0 {
+                    let ok_idx = word_start + valid_word.trailing_zeros() as usize;
+                    fill_value = Some(chunk_encoded[ok_idx]);
+                }
+                if let Some(fill) = fill_value {
+                    let mut nulls = !valid_word & low_bits_mask(word_len);
+                    while nulls != 0 {
+                        let bit = nulls.trailing_zeros() as usize;
+                        chunk_encoded[word_start + bit] = fill;
+                        nulls &= nulls - 1;
+                    }
+                }
+            });
+            continue;
+        }
+
+        // Pass 2: compute per-lane exception flags in a separate branchless SIMD loop, then mask
+        // against the validity words so null lanes never emit patches.
+        let mut is_exc = [0u8; ENCODE_CHUNK_SIZE];
+        for ((&enc, &v), flag) in chunk_encoded.iter().zip(chunk_values).zip(&mut is_exc) {
+            *flag = u8::from(!T::decode_single(enc, exp).is_eq(v));
+        }
+
+        for_each_mask_word(chunk_mask, |valid_word, word_start, word_len| {
+            let mut fail_bits = 0u64;
+            let word_flags = &is_exc[word_start..word_start + word_len];
+            let (blocks, rem) = word_flags.as_chunks::<8>();
+            for (block_idx, &bytes) in blocks.iter().enumerate() {
+                let mut flags = u64::from_le_bytes(bytes);
+                while flags != 0 {
+                    let lane = block_idx * 8 + flags.trailing_zeros() as usize / 8;
+                    fail_bits |= 1u64 << lane;
+                    flags &= flags - 1;
+                }
+            }
+            let rem_base = blocks.len() * 8;
+            for (offset, &flag) in rem.iter().enumerate() {
+                fail_bits |= u64::from(flag) << (rem_base + offset);
+            }
+
+            let valid_failures = fail_bits & valid_word;
+            if fill_value.is_none() {
+                let valid_successes = valid_word & !valid_failures;
+                if valid_successes != 0 {
+                    let ok_idx = word_start + valid_successes.trailing_zeros() as usize;
+                    fill_value = Some(chunk_encoded[ok_idx]);
+                }
+            }
+
+            let mut failures = valid_failures;
+            while failures != 0 {
+                let bit = failures.trailing_zeros() as usize;
+                let local_idx = word_start + bit;
+                patch_indices.push((chunk_base + local_idx) as u64);
+                patch_values.push(chunk_values[local_idx]);
+                failures &= failures - 1;
+            }
+
+            if let Some(fill) = fill_value {
+                let mut to_fill = (!valid_word & low_bits_mask(word_len)) | valid_failures;
+                while to_fill != 0 {
+                    let bit = to_fill.trailing_zeros() as usize;
+                    chunk_encoded[word_start + bit] = fill;
+                    to_fill &= to_fill - 1;
+                }
+            }
+        });
+    }
+
+    if !initially_had_fill {
+        let fill = fill_value.unwrap_or_else(T::ALPInt::zero);
+        for &idx in patch_indices.iter() {
+            #[expect(clippy::cast_possible_truncation)]
+            encoded[idx as usize].write(fill);
+        }
+        for_each_mask_word(mask, |valid_word, word_start, word_len| {
+            let mut nulls = !valid_word & low_bits_mask(word_len);
+            while nulls != 0 {
+                let bit = nulls.trailing_zeros() as usize;
+                // SAFETY: `word_start + bit < encoded.len()`.
+                unsafe { encoded.get_unchecked_mut(word_start + bit).write(fill) };
+                nulls &= nulls - 1;
+            }
+        });
+    }
+}
+
 fn alp_encode_components_typed<T>(
     values: ArrayView<'_, Primitive>,
     exponents: Option<Exponents>,
@@ -121,59 +297,71 @@ where
     T::ALPInt: NativePType,
 {
     let values_slice = values.as_slice::<T>();
+    let len = values_slice.len();
+    let validity = values.validity()?;
+    let validity_mask = validity.execute_mask(len, ctx)?;
 
     // Encode straight into a Vortex buffer, so that the encoded array owns its values rather than
     // adopting a `Vec` allocated by the encoder.
-    let mut encoded = BufferMut::<T::ALPInt>::with_capacity(values_slice.len());
+    let mut encoded = BufferMut::<T::ALPInt>::with_capacity(len);
 
     // Estimate capacity to be one patch per 32 values.
-    let mut exceptional_positions = Vec::with_capacity(values_slice.len() / 32);
-    let mut exceptional_values = Vec::with_capacity(values_slice.len() / 32);
+    let mut exceptional_positions = Vec::with_capacity(len / 32);
+    let mut exceptional_values = Vec::with_capacity(len / 32);
 
     // There's exactly one offset per chunk.
-    let mut chunk_offsets = Vec::with_capacity(values_slice.len().div_ceil(ENCODE_CHUNK_SIZE));
-    let exponents = encode_into::<T>(
-        values_slice,
-        exponents,
-        &mut encoded.spare_capacity_mut()[..values_slice.len()],
-        &mut exceptional_positions,
-        &mut exceptional_values,
-        &mut chunk_offsets,
-    );
-    // SAFETY: `encode_into` initializes exactly one element per value.
-    unsafe { encoded.set_len(values_slice.len()) };
+    let mut chunk_offsets = Vec::with_capacity(len.div_ceil(ENCODE_CHUNK_SIZE));
 
-    let encoded_array = PrimitiveArray::new(encoded.freeze(), values.validity()?).into_array();
-
-    let validity = values
-        .array()
-        .validity()?
-        .execute_mask(values.array().len(), ctx)?;
-    // exceptional_positions may contain exceptions at invalid positions (which contain garbage
-    // data). We remove null exceptions in order to keep the Patches small.
-    let (valid_exceptional_positions, valid_exceptional_values): (Vec<u64>, Vec<T>) = match validity
-    {
-        Mask::AllTrue(_) => (exceptional_positions, exceptional_values),
+    let exponents = match validity_mask {
         Mask::AllFalse(_) => {
-            // no valid positions, ergo nothing worth patching
-            (Vec::new(), Vec::new())
+            let exponents = exponents.unwrap_or(Exponents { e: 0, f: 0 });
+            let encoded_array =
+                PrimitiveArray::new(Buffer::<T::ALPInt>::zeroed(len), validity).into_array();
+            return Ok((exponents, encoded_array, None));
         }
-        Mask::Values(is_valid) => exceptional_positions
-            .into_iter()
-            .zip_eq(exceptional_values)
-            .filter(|(index, _)| {
-                let is_valid = is_valid.value(*index as usize);
-                if !is_valid {
-                    let patch_chunk = *index as usize / ENCODE_CHUNK_SIZE;
-                    for chunk_idx in (patch_chunk + 1)..chunk_offsets.len() {
-                        chunk_offsets[chunk_idx] -= 1;
-                    }
-                }
-                is_valid
-            })
-            .unzip(),
+        Mask::AllTrue(_) => encode_into::<T>(
+            values_slice,
+            exponents,
+            &mut encoded.spare_capacity_mut()[..len],
+            &mut exceptional_positions,
+            &mut exceptional_values,
+            &mut chunk_offsets,
+        ),
+        Mask::Values(mask_values) => {
+            // Sample only valid values so dirty garbage bits in null slots cannot corrupt exponent
+            // selection, then encode directly with the validity mask so null indices never emit
+            // patches or widen the encoded integer range.
+            let sample = sample_valid_values(
+                values_slice,
+                &mask_values,
+                ALP_SAMPLE_SIZE,
+                ALP_SAMPLE_BLOCK,
+            );
+            let exp = exponents.unwrap_or_else(|| find_best_exponents::<T>(&sample));
+            let fill_value = sample
+                .iter()
+                .copied()
+                .find_map(|value| T::encode_single(value, exp));
+
+            encode_masked_into::<T>(
+                values_slice,
+                mask_values.bit_buffer().into(),
+                exp,
+                &mut encoded.spare_capacity_mut()[..len],
+                &mut exceptional_positions,
+                &mut exceptional_values,
+                &mut chunk_offsets,
+                fill_value,
+            );
+            exp
+        }
     };
-    let patches = if valid_exceptional_positions.is_empty() {
+    // SAFETY: `encode_into` initializes exactly one element per value.
+    unsafe { encoded.set_len(len) };
+
+    let encoded_array = PrimitiveArray::new(encoded.freeze(), validity).into_array();
+
+    let patches = if exceptional_positions.is_empty() {
         None
     } else {
         let patches_validity = if values.dtype().is_nullable() {
@@ -181,15 +369,14 @@ where
         } else {
             Validity::NonNullable
         };
-        let valid_exceptional_values =
-            PrimitiveArray::new(Buffer::from(valid_exceptional_values), patches_validity)
-                .into_array();
+        let patch_values =
+            PrimitiveArray::new(Buffer::from(exceptional_values), patches_validity).into_array();
 
         Some(Patches::new(
-            values_slice.len(),
+            len,
             0,
-            Buffer::from(valid_exceptional_positions).into_array(),
-            valid_exceptional_values,
+            Buffer::from(exceptional_positions).into_array(),
+            patch_values,
             Some(Buffer::from(chunk_offsets).into_array()),
             ctx,
         )?)
@@ -205,12 +392,15 @@ mod tests {
     use std::f64::consts::PI;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -477,6 +667,60 @@ mod tests {
         let patch_values = patches.values().clone();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values, &mut ctx);
+    }
+
+    #[test]
+    fn test_chunk_offsets_nullable_sliced() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let offset = 3;
+        let len = 3072;
+        let mut values = vec![1.0f64; offset + len];
+        let mut valid = vec![true; offset + len];
+
+        // Valid exceptions across chunk boundaries after slicing off the first 3 rows.
+        values[offset + 1023] = PI;
+        values[offset + 1024] = E;
+        values[offset + 2050] = PI;
+
+        // Dirty null payloads in every chunk must produce no patches and leave chunk offsets clean.
+        for null_idx in [
+            offset,
+            offset + 500,
+            offset + 1022,
+            offset + 1500,
+            offset + 2048,
+        ] {
+            valid[null_idx] = false;
+            values[null_idx] = f64::NAN;
+        }
+
+        let full = PrimitiveArray::new(Buffer::from(values), Validity::from_iter(valid));
+        let sliced = full.slice(offset..offset + len)?;
+        let sliced_prim = sliced.execute::<PrimitiveArray>(&mut ctx)?;
+        let encoded = alp_encode(sliced_prim.as_view(), None, &mut ctx)?;
+
+        assert_arrays_eq!(encoded, sliced_prim, &mut ctx);
+
+        let patches = encoded
+            .patches()
+            .expect("expected patches for valid exceptions");
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .expect("expected chunk offsets");
+        let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 2]);
+        assert_arrays_eq!(chunk_offsets, expected_offsets, &mut ctx);
+
+        let patch_indices = patches.indices().clone();
+        let expected_indices = PrimitiveArray::from_iter(vec![1023u64, 1024, 2050]);
+        assert_arrays_eq!(patch_indices, expected_indices, &mut ctx);
+
+        let patch_values = patches.values().clone();
+        let expected_values =
+            PrimitiveArray::new(Buffer::from(vec![PI, E, PI]), Validity::AllValid);
+        assert_arrays_eq!(patch_values, expected_values, &mut ctx);
+
+        Ok(())
     }
 
     #[test]
@@ -768,5 +1012,207 @@ mod tests {
         let sliced_alp = encoded.slice(500..2500).unwrap();
         let expected = original.slice(500..2500).unwrap();
         assert_arrays_eq!(sliced_alp, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    fn dirty_null_values_f32() -> [f32; 8] {
+        [
+            f32::NAN,
+            f32::from_bits(0xdead_beef),
+            1e30_f32,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::from_bits(1),
+            -1e30_f32,
+            1.234_567_f32,
+        ]
+    }
+
+    fn dirty_null_values_f64() -> [f64; 8] {
+        [
+            f64::NAN,
+            f64::from_bits(0xdead_beef_cafe_babe),
+            1e300_f64,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::from_bits(1),
+            -1e300_f64,
+            1.234_567_89_f64,
+        ]
+    }
+
+    fn check_dirty_nulls_alp<T>(
+        clean_values: &[T],
+        dirty_values: &[T],
+        valid_exception: T,
+    ) -> VortexResult<()>
+    where
+        T: ALPFloat + NativePType,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 10_000;
+        let mut raw = Vec::with_capacity(len);
+        let mut valid_only = Vec::with_capacity(len);
+        let mut is_valid = Vec::with_capacity(len);
+
+        for row in 0..len {
+            // Make leading rows and 10% of all rows dirty nulls so they overlap the exponent sample.
+            if row < 16 || row % 10 == 0 {
+                raw.push(dirty_values[row % dirty_values.len()]);
+                is_valid.push(false);
+            } else {
+                let value = clean_values[row % clean_values.len()];
+                raw.push(value);
+                valid_only.push(value);
+                is_valid.push(true);
+            }
+        }
+
+        let array = PrimitiveArray::new(Buffer::from(raw), Validity::from_iter(is_valid));
+        let clean_array = PrimitiveArray::new(Buffer::from(valid_only), Validity::NonNullable);
+
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
+        let clean_encoded = alp_encode(clean_array.as_view(), None, &mut ctx)?;
+
+        assert_eq!(encoded.exponents(), clean_encoded.exponents());
+        assert!(encoded.patches().is_none());
+        assert_arrays_eq!(encoded.clone(), array, &mut ctx);
+
+        // Verify take, filter, slice, and scalar_at remain sound on dummy null slots.
+        let take_indices = PrimitiveArray::from_iter([0u32, 16, 20, 17, 9990, 9999]).into_array();
+        assert_arrays_eq!(
+            encoded.take(take_indices.clone())?,
+            array.take(take_indices)?,
+            &mut ctx
+        );
+        let filter_mask = Mask::from_iter((0..len).map(|row| row % 7 == 0));
+        assert_arrays_eq!(
+            encoded.filter(filter_mask.clone())?,
+            array.filter(filter_mask)?,
+            &mut ctx
+        );
+        assert_arrays_eq!(encoded.slice(10..50)?, array.slice(10..50)?, &mut ctx);
+        assert!(encoded.execute_scalar(0, &mut ctx)?.is_null());
+        assert_eq!(
+            encoded.execute_scalar(16, &mut ctx)?,
+            array.execute_scalar(16, &mut ctx)?
+        );
+
+        // Mix valid exceptions with dirty nulls: only valid exceptions should produce patches.
+        let mut mixed_raw = Vec::with_capacity(2048);
+        let mut mixed_valid = Vec::with_capacity(2048);
+        let mut expected_patches = 0usize;
+        for row in 0..2048 {
+            if row % 5 == 0 {
+                mixed_raw.push(dirty_values[row % dirty_values.len()]);
+                mixed_valid.push(false);
+            } else if row % 17 == 0 {
+                mixed_raw.push(valid_exception);
+                mixed_valid.push(true);
+                expected_patches += 1;
+            } else {
+                mixed_raw.push(clean_values[row % clean_values.len()]);
+                mixed_valid.push(true);
+            }
+        }
+        let mixed_array =
+            PrimitiveArray::new(Buffer::from(mixed_raw), Validity::from_iter(mixed_valid));
+        let mixed_encoded = alp_encode(mixed_array.as_view(), None, &mut ctx)?;
+        let patches = mixed_encoded
+            .patches()
+            .expect("valid exceptions should still produce patches");
+        assert_eq!(patches.num_patches(), expected_patches);
+        assert_arrays_eq!(mixed_encoded, mixed_array, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dirty_nulls_alp_f32() -> VortexResult<()> {
+        check_dirty_nulls_alp(
+            &[1.25_f32, 2.50, 3.75, 4.00],
+            &dirty_null_values_f32(),
+            PI_F32,
+        )
+    }
+
+    #[test]
+    fn test_dirty_nulls_alp_f64() -> VortexResult<()> {
+        check_dirty_nulls_alp(&[1.25_f64, 2.50, 3.75, 4.00], &dirty_null_values_f64(), PI)
+    }
+
+    #[rstest]
+    #[case::f32(1.25_f32, f32::INFINITY, dirty_null_values_f32().to_vec())]
+    #[case::f64(1.25_f64, f64::INFINITY, dirty_null_values_f64().to_vec())]
+    fn test_dirty_nulls_alp_edge_cases<T>(
+        #[case] valid_value: T,
+        #[case] valid_exception: T,
+        #[case] dirty_values: Vec<T>,
+    ) -> VortexResult<()>
+    where
+        T: ALPFloat + NativePType,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // All-null array filled with dirty garbage bits.
+        let all_null_raw: Vec<T> = (0..1024)
+            .map(|row| dirty_values[row % dirty_values.len()])
+            .collect();
+        let all_null = PrimitiveArray::new(Buffer::from(all_null_raw), Validity::AllInvalid);
+        let all_null_encoded = alp_encode(all_null.as_view(), None, &mut ctx)?;
+        assert!(all_null_encoded.patches().is_none());
+        assert_arrays_eq!(all_null_encoded.clone(), all_null, &mut ctx);
+        assert!(all_null_encoded.execute_scalar(0, &mut ctx)?.is_null());
+
+        // Single valid value surrounded by dirty nulls.
+        let mut one_valid_raw: Vec<T> = (0..1024)
+            .map(|row| dirty_values[row % dirty_values.len()])
+            .collect();
+        let mut one_valid_mask = vec![false; 1024];
+        one_valid_raw[777] = valid_value;
+        one_valid_mask[777] = true;
+        let one_valid = PrimitiveArray::new(
+            Buffer::from(one_valid_raw),
+            Validity::from_iter(one_valid_mask),
+        );
+        let one_valid_encoded = alp_encode(one_valid.as_view(), None, &mut ctx)?;
+        let single_clean =
+            PrimitiveArray::new(Buffer::from(vec![valid_value]), Validity::NonNullable);
+        let single_clean_encoded = alp_encode(single_clean.as_view(), None, &mut ctx)?;
+        assert_eq!(
+            one_valid_encoded.exponents(),
+            single_clean_encoded.exponents()
+        );
+        assert!(one_valid_encoded.patches().is_none());
+        assert_arrays_eq!(one_valid_encoded, one_valid, &mut ctx);
+
+        // Every valid value is an exception, exercising the zero-fill fallback for dirty nulls.
+        let mut all_exc_raw = Vec::with_capacity(256);
+        let mut all_exc_valid = Vec::with_capacity(256);
+        let mut valid_count = 0usize;
+        for row in 0..256 {
+            if row % 4 == 0 {
+                all_exc_raw.push(valid_exception);
+                all_exc_valid.push(true);
+                valid_count += 1;
+            } else {
+                all_exc_raw.push(dirty_values[row % dirty_values.len()]);
+                all_exc_valid.push(false);
+            }
+        }
+        let all_exc = PrimitiveArray::new(
+            Buffer::from(all_exc_raw),
+            Validity::from_iter(all_exc_valid),
+        );
+        let all_exc_encoded = alp_encode(all_exc.as_view(), None, &mut ctx)?;
+        assert_eq!(
+            all_exc_encoded
+                .patches()
+                .expect("valid exceptions must still be patched")
+                .num_patches(),
+            valid_count
+        );
+        assert_arrays_eq!(all_exc_encoded, all_exc, &mut ctx);
+
+        Ok(())
     }
 }

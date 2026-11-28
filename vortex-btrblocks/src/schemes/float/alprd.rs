@@ -6,8 +6,7 @@
 use vortex_alp::ALPRDArrayExt;
 use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::ALPRDDataParts;
-use vortex_alp::RDEncoder;
-use vortex_alp::RDEncoderExt;
+use vortex_alp::alp_rd_encode;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -23,7 +22,6 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedSlots;
 use vortex_fastlanes::bitpacked_v1_id;
@@ -75,14 +73,7 @@ impl Scheme for ALPRDScheme {
         _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
-        let primitive_array = data.array_as_primitive();
-        let encoder = match primitive_array.ptype() {
-            PType::F32 => RDEncoder::new(primitive_array.as_slice::<f32>()),
-            PType::F64 => RDEncoder::new(primitive_array.as_slice::<f64>()),
-            ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
-        };
-
-        let alp_rd = encoder.encode(primitive_array);
+        let alp_rd = alp_rd_encode(data.array_as_primitive(), exec_ctx)?;
         let dtype = alp_rd.dtype().clone();
         let right_bit_width = alp_rd.right_bit_width();
         let ALPRDDataParts {
@@ -139,4 +130,120 @@ fn with_compressed_validity(left_parts: ArrayRef, validity: Validity) -> VortexR
     let bitmap = validity.to_array(left_parts.len());
     // SAFETY: the bitmap is a compressed form of the one it replaces, which holds the same values.
     unsafe { left_parts.with_slot(BitPackedSlots::VALIDITY_CHILD, bitmap) }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_alp::ALPRD;
+    use vortex_alp::ALPRDArrayExt;
+    use vortex_alp::ALPRDFloat;
+    use vortex_alp::alp_rd_encode;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_compressor::CascadingCompressor;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::schemes::float::ALPRDScheme;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        vortex_alp::initialize(&session);
+        vortex_fastlanes::initialize(&session);
+        session
+    });
+
+    fn dirty_values_f32() -> Vec<f32> {
+        let mut values = vec![
+            f32::NAN,
+            f32::from_bits(0xdead_beef),
+            1e30_f32,
+            -1e30_f32,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ];
+        for prefix in 0u32..12 {
+            values.push(f32::from_bits((0x2000 + prefix * 0x0333) << 16 | 0x1234));
+        }
+        values
+    }
+
+    fn dirty_values_f64() -> Vec<f64> {
+        let mut values = vec![
+            f64::NAN,
+            f64::from_bits(0xdead_beef_cafe_babe),
+            1e300_f64,
+            -1e300_f64,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ];
+        for prefix in 0u64..12 {
+            values.push(f64::from_bits(
+                (0x2000 + prefix * 0x0333) << 48 | 0x1234_5678_9abc,
+            ));
+        }
+        values
+    }
+
+    #[rstest]
+    #[case::f32(
+        (0..64).map(|idx| 1.0_f32 + (idx as f32) * 1e-4).collect::<Vec<_>>(),
+        dirty_values_f32(),
+    )]
+    #[case::f64(
+        (0..64).map(|idx| 1.0_f64 + (idx as f64) * 1e-6).collect::<Vec<_>>(),
+        dirty_values_f64(),
+    )]
+    fn test_alprd_scheme_ignores_dirty_nulls<T>(
+        #[case] clean_values: Vec<T>,
+        #[case] dirty_values: Vec<T>,
+    ) -> VortexResult<()>
+    where
+        T: ALPRDFloat + NativePType,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 10_000;
+        let mut raw = Vec::with_capacity(len);
+        let mut valid_only = Vec::with_capacity(len);
+        let mut is_valid = Vec::with_capacity(len);
+
+        for row in 0..len {
+            if row % 10 == 0 {
+                raw.push(dirty_values[row % dirty_values.len()]);
+                is_valid.push(false);
+            } else {
+                let value = clean_values[row % clean_values.len()];
+                raw.push(value);
+                valid_only.push(value);
+                is_valid.push(true);
+            }
+        }
+
+        let array = PrimitiveArray::new(Buffer::from(raw), Validity::from_iter(is_valid));
+        let clean = PrimitiveArray::new(Buffer::from(valid_only), Validity::NonNullable);
+        let expected_clean = alp_rd_encode(clean.as_view(), &mut ctx)?;
+
+        let compressor = CascadingCompressor::new(vec![&ALPRDScheme]);
+        let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
+        let alprd = compressed
+            .as_opt::<ALPRD>()
+            .expect("expected ALPRDScheme to compress floats with dirty nulls");
+        assert!(alprd.left_parts_patches().is_none());
+        assert_eq!(alprd.right_bit_width(), expected_clean.right_bit_width());
+        assert_eq!(
+            alprd.left_parts_dictionary().as_slice(),
+            expected_clean.left_parts_dictionary().as_slice()
+        );
+        assert_arrays_eq!(compressed, array, &mut ctx);
+
+        Ok(())
+    }
 }
