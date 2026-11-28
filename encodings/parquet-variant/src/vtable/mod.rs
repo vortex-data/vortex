@@ -258,6 +258,7 @@ mod tests {
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -628,6 +629,80 @@ mod tests {
             typed.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
+        Ok(())
+    }
+
+    /// Shreds `rows` into Parquet Variant storage, with `path` typed as `dtype`.
+    fn shredded_chunk(
+        rows: &[Option<&str>],
+        path: &str,
+        dtype: &DataType,
+    ) -> VortexResult<ArrayRef> {
+        let strings: ArrowArrayRef = Arc::new(StringArray::from(rows.to_vec()));
+        let original = json_to_variant(&strings)?;
+        let shredded = if path.is_empty() {
+            shred_variant(&original, dtype)?
+        } else {
+            shred_variant(
+                &original,
+                &ShreddedSchemaBuilder::new().with_path(path, dtype)?.build(),
+            )?
+        };
+        ParquetVariant::from_arrow_variant_nullable(&shredded, &SESSION.arrow())
+    }
+
+    /// Chunks that shred the same path as incompatible types are read back as one Variant whose
+    /// core storage keeps the incompatible chunk with its own shredded child. Arrow export must
+    /// still produce every row.
+    #[rstest]
+    #[case::nested_field(
+        shredded_chunk(&[None], "a", &DataType::Int32),
+        shredded_chunk(
+            &[Some(r#"{"a":[],"b":{}}"#), Some(r#"{"b":false}"#)],
+            "a[*].x",
+            &DataType::Int32,
+        ),
+    )]
+    #[case::top_level(
+        shredded_chunk(&[Some("3")], "", &DataType::Int32),
+        shredded_chunk(&[Some(r#""hello""#); 2], "", &DataType::Utf8),
+    )]
+    #[tokio::test]
+    async fn test_file_roundtrip_incompatible_shredding_exports_to_arrow(
+        #[case] first: VortexResult<ArrayRef>,
+        #[case] second: VortexResult<ArrayRef>,
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        let dtype = DType::Variant(Nullability::Nullable);
+        let expected = ChunkedArray::try_new([first?, second?], dtype.clone())?.into_array();
+        let strategy = vortex_file::WriteStrategyBuilder::from_session(&session).build();
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, expected.to_array_stream())
+            .await?;
+        let actual = session
+            .open_options()
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        let field = SESSION.arrow().to_arrow_field("v", &dtype)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let exported = actual.execute_arrow(Some(&field), &mut ctx)?;
+        let restored = SESSION.arrow().from_arrow_array(exported, &field)?;
+        assert_eq!(restored.len(), expected.len());
+        for row in 0..expected.len() {
+            assert!(variant_scalars_equal(
+                &restored.execute_scalar(row, &mut ctx)?,
+                &expected.execute_scalar(row, &mut ctx)?,
+            ));
+        }
         Ok(())
     }
 }

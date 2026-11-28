@@ -128,15 +128,25 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let arrow_variant = parquet_array.to_arrow(options, ctx)?;
-    let unshredded = unshred_variant(&arrow_variant)?;
-    let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
-        ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())?
-    } else {
-        ParquetVariant::from_arrow_variant(&unshredded, &ctx.session().arrow())?
-    };
+    let unshredded_array = unshred_storage(parquet_array, options, ctx)?;
     let unshredded_parquet = unshredded_array.as_::<ParquetVariant>();
     export_storage_to_target(&unshredded_parquet, target_fields, options, ctx)
+}
+
+/// Merges the `typed_value` of Parquet Variant storage into its `value`, giving storage without a
+/// `typed_value` child. Null rows keep a null `value`.
+fn unshred_storage<T: ParquetVariantArrayExt>(
+    parquet_array: &T,
+    options: &ArrowExportOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let arrow_variant = parquet_array.to_arrow(options, ctx)?;
+    let unshredded = unshred_variant(&arrow_variant)?;
+    if parquet_array.as_ref().dtype().is_nullable() {
+        ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())
+    } else {
+        ParquetVariant::from_arrow_variant(&unshredded, &ctx.session().arrow())
+    }
 }
 
 /// Stop before canonicalization hides constant, masked, and chunked storage behind a Variant
@@ -173,18 +183,31 @@ pub(crate) fn prepare_variant_for_export(
     let array = array.execute_until::<ParquetVariantExportable>(ctx)?;
 
     if let Some(variant) = array.as_opt::<Variant>() {
-        let typed_value = match variant.shredded() {
-            Some(shredded) => {
+        let typed_value = match (variant.shredded(), typed_value) {
+            (Some(shredded), None) => Some(parquet_typed_value_from_logical_shredded(
+                shredded.clone(),
+                ctx,
+            )?),
+            (Some(_), Some(outer)) => {
+                // Parquet storage has one level of shredding. `VariantBuilder` keeps a chunk whose
+                // shredded type conflicts with its siblings in the core storage, with its own
+                // shredded child, and pads the shared shredded child with nulls over its rows.
+                // Rows whose outer `typed_value` is null are read from `value` alone, so the chunk
+                // exports with its shredded values merged into `value`.
                 vortex_ensure!(
-                    typed_value.is_none(),
+                    outer.all_invalid(ctx)?,
                     "multiple levels of Variant shredding are unsupported during Arrow export"
                 );
-                Some(parquet_typed_value_from_logical_shredded(
-                    shredded.clone(),
+                let storage = prepare_variant_for_export(array.clone(), None, ctx)?;
+                // The Arrow array is converted straight back, so export options do not apply.
+                let storage = unshred_storage(
+                    &storage.as_::<ParquetVariant>(),
+                    &ArrowExportOptions::default(),
                     ctx,
-                )?)
+                )?;
+                return attach_typed_value(storage, Some(outer));
             }
-            None => typed_value,
+            (None, typed_value) => typed_value,
         };
 
         return prepare_variant_for_export(variant.core_storage().clone(), typed_value, ctx);
