@@ -60,7 +60,8 @@ use crate::sequence::SequentialStreamExt;
 /// dtype-dependent pruning aggregates (see `default_pruning_aggregate_fns`).
 ///
 /// Entries beneath a nullable struct record their aggregates over the logical column, which is null
-/// wherever an ancestor struct is null (see [`postorder_stats_layout`]).
+/// wherever an ancestor struct is null (aggregates that measure physical storage, such as
+/// `UncompressedSizeInBytes`, still cover the stored batch; see [`postorder_stats_layout`]).
 #[derive(Clone, Debug, Default)]
 pub struct FileStatsSelection {
     default: Option<Arc<[AggregateFnRef]>>,

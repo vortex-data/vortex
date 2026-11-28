@@ -40,6 +40,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -356,12 +357,28 @@ fn kept_offsets<O: Copy + Into<u64>>(offsets: &[O], lists: &Mask) -> Buffer<u64>
     kept.push(0);
 
     let mut end = 0u64;
-    for (row, bounds) in offsets.windows(2).enumerate() {
-        if lists.value(row) {
-            end += bounds[1].into() - bounds[0].into();
+    let mut cursor = 0usize;
+    match lists.slices() {
+        AllOr::All => {
+            for bounds in offsets.windows(2) {
+                end += bounds[1].into() - bounds[0].into();
+                kept.push(end);
+            }
+            cursor = offsets.len() - 1;
         }
-        kept.push(end);
+        AllOr::None => {}
+        AllOr::Some(slices) => {
+            for &(start, stop) in slices {
+                kept.push_n(end, start - cursor);
+                for bounds in offsets[start..=stop].windows(2) {
+                    end += bounds[1].into() - bounds[0].into();
+                    kept.push(end);
+                }
+                cursor = stop;
+            }
+        }
     }
+    kept.push_n(end, (offsets.len() - 1) - cursor);
 
     kept.freeze()
 }

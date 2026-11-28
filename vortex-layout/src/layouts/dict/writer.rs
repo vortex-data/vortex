@@ -1151,7 +1151,7 @@ mod tests {
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         dtype,
-                        futures::stream::once(async move { Ok((seq, values)) }),
+                        futures::stream::once(async move { Ok(fully_defined(seq, values)) }),
                     )
                     .sendable(),
                     eof,
