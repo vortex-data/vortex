@@ -482,7 +482,7 @@ pub fn pushdown_complex_filter(
 ) -> VortexResult<bool> {
     debug!(%expr, "pushing down expression");
 
-    let Some(expr) = try_from_bound_expression(expr, &bind_data.columns)? else {
+    let Some(expr) = try_from_bound_expression(expr, &bind_data.columns, &bind_data.dtype)? else {
         debug!(%expr, "failed to push down expression");
         return Ok(false);
     };
