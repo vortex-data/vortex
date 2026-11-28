@@ -18,17 +18,20 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
+use vortex_array::arrays::variant::decode_unshredded_storage;
 use vortex_array::builders::VariantBuilder;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::BoundExpression;
 use vortex_array::proto::expr as pb;
 use vortex_array::proto::expr::variant_path_element;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
@@ -36,7 +39,9 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::display::ExprDisplay;
+use vortex_array::scalar_fn::is_not_null_node;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -63,6 +68,30 @@ pub(crate) fn initialize(session: &VortexSession) {
 /// but must fall back to the core Variant value for paths not represented by shredded storage.
 #[derive(Clone)]
 pub struct VariantGet;
+
+/// Decodes the storage of an unshredded Variant `array` if `expr` extracts from it more than once,
+/// as each `variant_get` would otherwise decode it again.
+pub fn decode_for_repeated_extraction(
+    array: ArrayRef,
+    expr: &BoundExpression,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if array.dtype().is_variant() && count_variant_gets(expr) > 1 {
+        decode_unshredded_storage(array, ctx)
+    } else {
+        Ok(array)
+    }
+}
+
+/// The number of `variant_get` calls in `expr`.
+fn count_variant_gets(expr: &BoundExpression) -> usize {
+    usize::from(expr.is::<VariantGet>())
+        + expr
+            .children()
+            .iter()
+            .map(count_variant_gets)
+            .sum::<usize>()
+}
 
 impl VariantGet {
     /// Creates a lazy extraction from Variant `input`.
@@ -205,6 +234,12 @@ impl ScalarFnVTable for VariantGet {
         };
         let core = input.child(0);
         let mut current = input.child(1);
+        if core.node_dtype()?.is_nullable() && !pack.shredded_is_masked() {
+            current = node.new_node(
+                Mask.bind(EmptyOptions),
+                &[current, is_not_null_node(&core)?],
+            )?;
+        }
         let mut path = options.path().elements();
         // Whether `current` is below the shredded child itself. Only the shredded child can
         // have left values in the core storage, so only reading it needs it to be complete.
@@ -245,7 +280,7 @@ impl ScalarFnVTable for VariantGet {
                 (dtype, None)
                     if options.dtype().is_some_and(|requested| {
                         !requested.is_variant() && dtype.as_nullable() == requested.as_nullable()
-                    }) && (descended || (pack.complete() && !pack.shredded_validity())) =>
+                    }) && (descended || pack.complete()) =>
                 {
                     return node
                         .new_node(Cast.bind(node.node_dtype()?), &[current])

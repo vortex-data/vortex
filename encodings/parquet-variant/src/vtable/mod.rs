@@ -240,10 +240,13 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray as VxStruct;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::variant::VariantArraySlotsExt;
@@ -255,6 +258,7 @@ mod tests {
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::stream::ArrayStreamAdapter;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
@@ -268,12 +272,29 @@ mod tests {
     use vortex_edition::EditionSessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::and;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
+    use vortex_file::v2::ScanDriver;
+    use vortex_functions::expr::variant_get;
+    use vortex_functions::variant_get::VariantPath;
+    use vortex_functions::variant_get::VariantPathElement;
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_io::session::RuntimeSession;
+    use vortex_layout::VTable;
+    use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex_layout::layouts::table::TableStrategy;
+    use vortex_layout::layouts::variant::Variant as VariantLayoutEncoding;
+    use vortex_layout::scan::v2::ScanBuilder;
+    use vortex_layout::segments::CountingSegmentSource;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
@@ -285,6 +306,176 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[rstest]
+    #[tokio::test]
+    async fn repeated_variant_predicates_respect_sparse_masks(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+        let rows: Vec<_> = (0..1000)
+            .map(|i| match i % 3 {
+                0 => r#"{"a":12,"b":11}"#,
+                1 => r#"{"a":0,"b":11}"#,
+                _ => r#"{"a":12}"#,
+            })
+            .collect();
+        let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+        let input = ParquetVariant::from_arrow_variant(&json_to_variant(&json)?, &session.arrow())?;
+        let field = |name| {
+            variant_get(
+                root(),
+                VariantPath::field(name),
+                Some(DType::Primitive(PType::I32, Nullability::Nullable)),
+            )
+        };
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+            .write(&mut bytes, input.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        let reader = file.layout_reader()?;
+        let predicate =
+            and(gt(field("a"), lit(0i32)), gt(field("b"), lit(0i32))).bind(file.dtype())?;
+        for selected in [0, 10, 1000] {
+            let keep = |i| i % 100 < selected / 10;
+            let mask = Mask::from_iter((0..1000).map(keep));
+            let result = reader
+                .filter_evaluation(&(0..1000), &predicate, MaskFuture::ready(mask))?
+                .await?;
+            assert_eq!(
+                result,
+                Mask::from_iter((0..1000).map(|i| keep(i) && i % 3 == 0))
+            );
+        }
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::coalesced([true, true, true, false], &[3, 1], false)]
+    #[case::alternating([true, false, true, false], &[1, 1, 1, 1], false)]
+    #[case::nested_overlap([true, false, true, false], &[1, 1, 1, 1], true)]
+    #[tokio::test]
+    async fn projected_field_reads_residual_only_for_incomplete_chunks(
+        #[case] complete: [bool; 4],
+        #[case] run_lengths: &[usize],
+        #[case] nested_overlap: bool,
+        #[values(false, true)] nullable: bool,
+        #[values(false, true)] v2: bool,
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        const ROWS: u8 = 4;
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+        let mut chunks = Vec::new();
+        for (chunk, complete) in (0..).zip(complete) {
+            // Keep a shredded value under a SQL-null core, and a distinct fallback in each run.
+            let rows: Vec<_> = (0..ROWS)
+                .map(|row| {
+                    if nullable && row == 0 {
+                        None
+                    } else if complete {
+                        Some(r#"{"extra":true}"#.to_owned())
+                    } else if nested_overlap {
+                        Some(r#"{"z":{"residual":true}}"#.to_owned())
+                    } else {
+                        Some(format!(r#"{{"a":{}}}"#, chunk * ROWS + row))
+                    }
+                })
+                .collect();
+            let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
+            let core =
+                ParquetVariant::from_arrow_variant(&json_to_variant(&json)?, &session.arrow())?;
+            assert_eq!(core.dtype().is_nullable(), nullable);
+            let nested = VxStruct::from_fields(&[(
+                "n",
+                ConstantArray::new(1i32, usize::from(ROWS)).into_array(),
+            )])?
+            .into_array();
+            let shredded = VxStruct::from_fields(&[
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter((0..ROWS).map(|row| {
+                        ((nullable && row == 0) || complete || nested_overlap)
+                            .then_some(i32::from(chunk * ROWS + row))
+                    }))
+                    .into_array(),
+                ),
+                ("b", nested.clone()),
+                ("z", nested),
+            ])?
+            .into_array();
+            chunks.push(VariantArray::try_new(core, Some(shredded))?.into_array());
+        }
+        let dtype = chunks[0].dtype().clone();
+        let chunks = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let leaf = Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+        let strategy = TableStrategy::new(Arc::<ChunkedLayoutStrategy>::clone(&leaf), leaf);
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(Arc::new(strategy))
+            .write(&mut bytes, chunks.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        let source = Arc::new(CountingSegmentSource::new(file.segment_source()));
+        let file = file.with_segment_source(Arc::<CountingSegmentSource>::clone(&source));
+        let runs = file.footer().layout().children()?;
+        assert_eq!(runs.len(), run_lengths.len());
+        let extract = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I32, Nullability::Nullable)),
+        );
+        let projection = extract.bind(file.dtype())?;
+        let actual = if v2 {
+            let scan =
+                ScanBuilder::new(session.clone(), file.scan_file()).with_projection(projection);
+            let driver = ScanDriver::new(TokioRuntime::current(), 2, true);
+            ArrayStreamAdapter::new(scan.dtype().clone(), driver.run(scan))
+                .read_all()
+                .await?
+        } else {
+            file.scan()?
+                .with_projection(projection)
+                .into_array_stream()?
+                .read_all()
+                .await?
+        };
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_option_iter(
+                (0..ROWS * u8::try_from(complete.len())?)
+                    .map(|row| (!nullable || !row.is_multiple_of(ROWS)).then_some(i32::from(row)))
+            ),
+            &mut session.create_execution_ctx()
+        );
+        let requested = source.requested_segments();
+        let mut start = 0;
+        for (run, &length) in runs.iter().zip(run_lengths) {
+            assert!(run.is::<VariantLayoutEncoding>());
+            assert_eq!(run.row_count(), u64::try_from(length)? * u64::from(ROWS));
+            let core = &run.children()?[0];
+            let mut segments = Vec::new();
+            for layout in core.depth_first_traversal() {
+                segments.extend(layout?.segment_ids());
+            }
+            assert!(!segments.is_empty());
+            for id in segments {
+                assert_eq!(
+                    requested.contains(&id),
+                    !complete[start],
+                    "core segment {id}"
+                );
+            }
+            start += length;
+        }
+        Ok(())
+    }
 
     fn roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
         let dtype = array.dtype().clone();
@@ -332,6 +523,10 @@ mod tests {
 
     #[fixture]
     fn parquet_variant_file_session() -> VortexResult<VortexSession> {
+        file_session_with_layout_edition(true)
+    }
+
+    fn file_session_with_layout_edition(include_variant: bool) -> VortexResult<VortexSession> {
         const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
 
         let session = VortexSession::empty()
@@ -370,6 +565,12 @@ mod tests {
         ];
         for (kind, ids) in component_ids {
             for id in ids {
+                if !include_variant
+                    && kind == ComponentKind::Layout
+                    && id == VariantLayoutEncoding.id()
+                {
+                    continue;
+                }
                 editions.declare_inclusion(EditionInclusion::new(kind, &id, TEST_EDITION))?;
             }
         }
@@ -462,7 +663,11 @@ mod tests {
     fn mixed_shredding_variant_array() -> VortexResult<ArrayRef> {
         // Each chunk shreds a different path. The other field stays in
         // raw storage, so reading back a row must recover both halves of the object.
-        let mut chunks = Vec::new();
+        let raw: ArrowArrayRef = Arc::new(StringArray::from(vec![r#"{"a":77,"raw_only":true}"#]));
+        let mut chunks = vec![ParquetVariant::from_arrow_variant(
+            &json_to_variant(&raw)?,
+            &SESSION.arrow(),
+        )?];
         for (rows, path, dtype) in [
             (
                 [r#"{"a":42,"left_only":"first"}"#, r#"{"a":null}"#],
@@ -490,6 +695,94 @@ mod tests {
         }
         let dtype = chunks[0].dtype().clone();
         ChunkedArray::try_new(chunks, dtype).map(IntoArray::into_array)
+    }
+
+    /// The write's edition selects the physical layout. Both layouts preserve shredded
+    /// and residual fields when reading the whole Variant or projecting a path.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_shredded_object_across_editions(
+        #[values(false, true)] include_variant: bool,
+    ) -> VortexResult<()> {
+        // Build with the opposite layout permission to exercise the edition of the actual write.
+        let builder_session = file_session_with_layout_edition(!include_variant)?;
+        let strategy = vortex_file::WriteStrategyBuilder::from_session(&builder_session).build();
+        let session = file_session_with_layout_edition(include_variant)?;
+        crate::initialize(&session);
+
+        // Only some events have a `commit`, and `commit.rev` stays in its residual value.
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","n":1,"commit":{"collection":"post","rev":7}}"#,
+            r#"{"kind":"identity","n":2}"#,
+            r#"{"kind":"commit","n":3,"commit":{"collection":"like","rev":8}}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .with_path("commit.collection", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let expected = ParquetVariant::from_arrow_variant(&shredded, &session.arrow())?;
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut bytes, expected.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        let layout = file.footer().layout();
+        assert!(layout.dtype().is_variant());
+        assert_eq!(layout.is::<VariantLayoutEncoding>(), include_variant);
+
+        let utf8 = DType::Utf8(Nullability::Nullable);
+        let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mut ctx = session.create_execution_ctx();
+        let actual = file.scan()?.into_array_stream()?.read_all().await?;
+        for (path, dtype) in [
+            // A shredded leaf, and a leaf of a shredded object.
+            (VariantPath::field("kind"), utf8.clone()),
+            (
+                VariantPath::new([
+                    VariantPathElement::field("commit"),
+                    VariantPathElement::field("collection"),
+                ]),
+                utf8,
+            ),
+            // A field in the residual value of a shredded object, and one in the core storage.
+            (
+                VariantPath::new([
+                    VariantPathElement::field("commit"),
+                    VariantPathElement::field("rev"),
+                ]),
+                i64.clone(),
+            ),
+            (VariantPath::field("n"), i64),
+        ] {
+            let extraction = variant_get(root(), path.clone(), Some(dtype));
+            let extracted = expected
+                .clone()
+                .apply(&extraction)?
+                .execute::<ArrayRef>(&mut ctx)?;
+
+            // Extracting from the Variant that was read back.
+            assert_arrays_eq!(
+                actual
+                    .clone()
+                    .apply(&extraction)?
+                    .execute::<ArrayRef>(&mut ctx)?,
+                extracted,
+                &mut ctx
+            );
+            // Extracting in the scan, which reads the column that holds the path.
+            let scanned = file
+                .scan()?
+                .with_projection(extraction.bind(file.dtype())?)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(scanned, extracted, &mut ctx);
+        }
+        Ok(())
     }
 
     #[rstest]

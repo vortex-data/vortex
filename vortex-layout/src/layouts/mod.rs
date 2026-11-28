@@ -12,6 +12,7 @@ use vortex_error::SharedVortexResult;
 pub mod buffered;
 pub mod chunked;
 pub mod collect;
+mod columnar;
 pub mod compressed;
 pub mod constant;
 pub mod dict;
@@ -25,6 +26,7 @@ pub mod repartition;
 pub mod row_idx;
 pub mod struct_;
 pub mod table;
+pub mod variant;
 pub mod zoned;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;

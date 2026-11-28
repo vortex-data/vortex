@@ -21,6 +21,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::BoundExpression;
+use vortex_functions::variant_get::decode_for_repeated_extraction;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -60,15 +61,24 @@ impl FlatReader {
         }
     }
 
-    /// Register the segment request and return a future that would resolve into the deserialised array.
-    fn array_future(&self) -> SharedArrayFuture {
+    /// Return a future for the decoded array, registering the segment early when appropriate.
+    fn array_future(&self, mask: &MaskFuture) -> SharedArrayFuture {
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
-        // We create the segment_fut here to ensure we give the segment reader visibility into
-        // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
+        let id = self.layout.segment_id();
+        let defer_request = match mask.peek() {
+            Some(mask) => mask.all_false(),
+            // A pending filter can eliminate a Variant's residual payload. Keep other
+            // columns eligible to coalesce with the filter's reads.
+            None => self.layout.dtype().is_variant(),
+        };
+        let segment_fut = if defer_request {
+            let source = Arc::clone(&self.segment_source);
+            async move { source.request(id).await }.boxed()
+        } else {
+            self.segment_source.request(id)
+        };
 
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
@@ -135,17 +145,20 @@ impl LayoutReader for FlatReader {
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
+        if mask.peek().is_some_and(Mask::all_false) {
+            return Ok(mask);
+        }
         let name = Arc::clone(&self.name);
-        let array = self.array_future();
+        let array = self.array_future(&mask);
         let expr = expr.clone();
         let session = self.session.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
-            // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
-            //  (as often happens with zone map pruning), then we could slice/filter the array prior
-            //  to evaluating the expression.
-            let mut array = array.clone().await?;
             let mask = mask.await?;
+            if mask.all_false() {
+                return Ok(mask);
+            }
+            let mut array = array.await?;
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
@@ -153,23 +166,26 @@ impl LayoutReader for FlatReader {
             }
 
             let mask_density = mask.density();
-            let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
-                // We have the choice to apply the filter or the expression first, we apply the
-                // expression first so that it can try pushing down itself and then the filter
-                // after this.
-                let array = array.apply_bound(&expr)?;
-                let array = array.filter(mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
-
-                mask.intersect_by_rank(&array_mask)
+            let sparse = mask_density < EXPR_EVAL_THRESHOLD;
+            let mut ctx = session.create_execution_ctx();
+            // Filtering Variant rows before decoding bounds repeated path extraction by the
+            // surviving payload. Other encodings can push the expression into the full array.
+            let prefilter = sparse && array.dtype().is_variant();
+            if prefilter {
+                array = array.filter(mask.clone())?;
+            }
+            let array =
+                decode_for_repeated_extraction(array, &expr, &mut ctx)?.apply_bound(&expr)?;
+            let array = if sparse && !prefilter {
+                array.filter(mask.clone())?
             } else {
-                // Run over the full array, with a simpler bitand at the end.
-                let array = array.apply_bound(&expr)?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
-
-                mask.bitand(&array_mask)
+                array
+            };
+            let result = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+            let array_mask = if sparse {
+                mask.intersect_by_rank(&result)
+            } else {
+                mask.bitand(&result)
             };
 
             trace!(
@@ -195,8 +211,9 @@ impl LayoutReader for FlatReader {
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = Arc::clone(&self.name);
-        let array = self.array_future();
+        let array = self.array_future(&mask);
         let expr = expr.clone();
+        let session = self.session.clone();
 
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
@@ -222,6 +239,9 @@ impl LayoutReader for FlatReader {
                 array = array.filter(mask)?;
             }
 
+            array =
+                decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
+
             // Evaluate the projection expression.
             array = array.apply_bound(&expr)?;
 
@@ -239,6 +259,7 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -246,21 +267,69 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::gt;
+    use vortex_expr::is_not_null;
     use vortex_expr::lit;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
+    use vortex_session::registry::ReadContext;
 
     use crate::LayoutStrategy;
+    use crate::layouts::flat::FlatLayout;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::CountingSegmentSource;
+    use crate::segments::SegmentId;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::new_session;
+
+    #[rstest]
+    #[case::ready_bool(DType::Bool(Nullability::Nullable), true, 0)]
+    #[case::pending_bool(DType::Bool(Nullability::Nullable), false, 2)]
+    #[case::pending_variant(DType::Variant(Nullability::Nullable), false, 0)]
+    fn empty_mask_segment_requests(
+        #[case] dtype: DType,
+        #[case] ready: bool,
+        #[case] expected_requests: usize,
+    ) -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let segments = Arc::new(CountingSegmentSource::new(
+                Arc::new(TestSegments::default()),
+            ));
+            let layout = FlatLayout::new(4, dtype, SegmentId::from(0), ReadContext::new([]));
+            let reader = layout.into_layout().new_reader(
+                "".into(),
+                Arc::<CountingSegmentSource>::clone(&segments),
+                &session,
+                &Default::default(),
+            )?;
+            let mask = if ready {
+                MaskFuture::ready(Mask::new_false(4))
+            } else {
+                MaskFuture::new(4, async { Ok(Mask::new_false(4)) })
+            };
+            let predicate = is_not_null(root()).bind(reader.dtype())?;
+            let filter = reader.filter_evaluation(&(0..4), &predicate, mask.clone())?;
+            let root = root().bind(reader.dtype())?;
+            let projection = reader.projection_evaluation(&(0..4), &root, mask)?;
+            assert_eq!(segments.requests(), expected_requests);
+            assert!(filter.await?.all_false());
+            let projected = projection.await?;
+            assert_eq!(projected.dtype(), reader.dtype());
+            assert!(projected.is_empty());
+            assert_eq!(segments.requests(), expected_requests);
+            Ok(())
+        })
+    }
 
     #[test]
     fn flat_identity() -> VortexResult<()> {

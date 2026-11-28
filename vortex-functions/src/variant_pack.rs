@@ -12,22 +12,20 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VariantArray;
-use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::proto::expr as pb;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
+use vortex_array::scalar_fn::ReduceNodeValidity;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::validity::Validity;
+use vortex_array::scalar_fn::is_not_null_node;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -37,13 +35,12 @@ use vortex_session::registry::CachedId;
 /// the Variant values without what `shredded` holds, and `shredded` is the typed tree of the
 /// fields that were shredded out. The result is the canonical [`VariantArray`] over the two.
 ///
-/// A shredded struct is null in the rows that are not objects. Stored with that validity it
-/// would be a nullable struct, which a scan cannot push a field read through, so the validity
-/// can be a third child, `validity`, over a `shredded` struct that is not nullable. The fields
-/// of such a struct are null wherever the struct was.
+/// The packed Variant takes its SQL validity from `core`. A shredded struct carries its
+/// own validity, which masks its fields.
 ///
 /// [`VariantGet`](super::variant_get::VariantGet) over this function reads a shredded path from
-/// `shredded` alone, when [`VariantPackOptions::complete`] says that `core` cannot hold it.
+/// `shredded` and the applicable validity masks when [`VariantPackOptions::complete`] says
+/// that `core` cannot hold it.
 #[derive(Clone)]
 pub struct VariantPack;
 
@@ -64,33 +61,13 @@ impl VariantPack {
             [core, shredded],
         )
     }
-
-    /// Creates a lazy Variant over `core` and a `shredded` struct whose validity is `validity`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `core` is not Variant data, `shredded` is not a struct that is not
-    /// nullable, `validity` is not a boolean array that is not nullable, or they differ in
-    /// length.
-    pub fn try_new_with_validity(
-        core: ArrayRef,
-        shredded: ArrayRef,
-        validity: ArrayRef,
-        complete: bool,
-    ) -> VortexResult<ScalarFnArray> {
-        let options = VariantPackOptions {
-            complete,
-            shredded_validity: true,
-        };
-        ScalarFnArray::try_new(VariantPack.bind(options), [core, shredded, validity])
-    }
 }
 
 /// Options for [`VariantPack`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VariantPackOptions {
     complete: bool,
-    shredded_validity: bool,
+    shredded_is_masked: bool,
 }
 
 impl VariantPackOptions {
@@ -98,22 +75,19 @@ impl VariantPackOptions {
     pub fn new(complete: bool) -> Self {
         Self {
             complete,
-            shredded_validity: false,
+            shredded_is_masked: false,
         }
     }
 
-    /// Creates options for a shredded struct that is `complete` or not, whose validity is a
-    /// third child.
-    pub fn with_shredded_validity(complete: bool) -> Self {
-        Self {
-            complete,
-            shredded_validity: true,
-        }
+    /// Allows typed reads to use the shredded child's validity directly.
+    /// The caller must ensure every SQL-null core row is also null in that child.
+    pub fn with_masked_shredded(mut self) -> Self {
+        self.shredded_is_masked = true;
+        self
     }
 
-    /// Whether the validity of the shredded struct is a third child.
-    pub fn shredded_validity(&self) -> bool {
-        self.shredded_validity
+    pub(crate) fn shredded_is_masked(&self) -> bool {
+        self.shredded_is_masked
     }
 
     /// Whether the shredded child holds every value it could hold.
@@ -129,11 +103,7 @@ impl VariantPackOptions {
 
 impl Display for VariantPackOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", if self.complete { "complete" } else { "partial" })?;
-        if self.shredded_validity {
-            write!(f, ", validity")?;
-        }
-        Ok(())
+        f.write_str(if self.complete { "complete" } else { "partial" })
     }
 }
 
@@ -149,7 +119,7 @@ impl ScalarFnVTable for VariantPack {
         Ok(Some(
             pb::VariantPackOpts {
                 complete: options.complete,
-                shredded_validity: options.shredded_validity,
+                shredded_is_masked: options.shredded_is_masked,
             }
             .encode_to_vec(),
         ))
@@ -164,64 +134,48 @@ impl ScalarFnVTable for VariantPack {
 
         Ok(VariantPackOptions {
             complete: opts.complete,
-            shredded_validity: opts.shredded_validity,
+            shredded_is_masked: opts.shredded_is_masked,
         })
     }
 
-    fn arity(&self, options: &Self::Options) -> Arity {
-        Arity::Exact(if options.shredded_validity { 3 } else { 2 })
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(2)
     }
 
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("core"),
             1 => ChildName::from("shredded"),
-            2 => ChildName::from("validity"),
             _ => unreachable!("Invalid child index {child_idx} for VariantPack expression"),
         }
     }
 
-    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_ensure!(
             arg_dtypes[0].is_variant(),
             "VariantPack core storage must be a Variant, found {}",
             arg_dtypes[0]
         );
-        if options.shredded_validity {
-            vortex_ensure!(
-                arg_dtypes[1].is_struct() && !arg_dtypes[1].is_nullable(),
-                "VariantPack takes the validity of a struct that is not nullable, found {}",
-                arg_dtypes[1]
-            );
-            vortex_ensure_eq!(
-                arg_dtypes[2],
-                DType::Bool(Nullability::NonNullable),
-                "VariantPack validity must be a non-nullable boolean array"
-            );
-        }
         Ok(arg_dtypes[0].clone())
+    }
+
+    fn validity<T: ReduceNode>(
+        &self,
+        _options: &Self::Options,
+        node: &T,
+    ) -> VortexResult<ReduceNodeValidity<T>> {
+        Ok(ReduceNodeValidity::Reduced(is_not_null_node(
+            &node.child(0),
+        )?))
     }
 
     fn execute(
         &self,
-        options: &Self::Options,
+        _options: &Self::Options,
         args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let shredded = args.get(1)?;
-        let shredded = if options.shredded_validity {
-            let fields = shredded.execute::<StructArray>(ctx)?;
-            StructArray::try_new(
-                fields.names().clone(),
-                fields.iter_unmasked_fields().cloned().collect::<Vec<_>>(),
-                fields.len(),
-                Validity::Array(args.get(2)?),
-            )?
-            .into_array()
-        } else {
-            shredded
-        };
-        Ok(VariantArray::try_new(args.get(0)?, Some(shredded))?.into_array())
+        Ok(VariantArray::try_new(args.get(0)?, Some(args.get(1)?))?.into_array())
     }
 }
 
@@ -238,11 +192,11 @@ mod tests {
     #[rstest]
     fn options_round_trip(
         #[values(false, true)] complete: bool,
-        #[values(false, true)] shredded_validity: bool,
+        #[values(false, true)] shredded_is_masked: bool,
     ) -> VortexResult<()> {
         let options = VariantPackOptions {
             complete,
-            shredded_validity,
+            shredded_is_masked,
         };
         let metadata = VariantPack.serialize(&options)?.unwrap_or_default();
 

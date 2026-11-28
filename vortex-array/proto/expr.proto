@@ -57,7 +57,10 @@ message VariantGetOpts {
 // Options for `vortex.variant_pack`
 message VariantPackOpts {
   bool complete = 1;
-  bool shredded_validity = 2;
+  reserved 2;
+  reserved "shredded_validity";
+  // Every SQL-null core row is also null in the shredded child.
+  bool shredded_is_masked = 3;
 }
 
 message VariantPathElement {

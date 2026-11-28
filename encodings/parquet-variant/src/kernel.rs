@@ -452,6 +452,7 @@ mod tests {
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::arrays::variant::VariantArraySlotsExt;
+    use vortex_array::arrays::variant::decode_unshredded_storage;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -1563,6 +1564,70 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         test_filter_conformance(&array, &mut ctx);
         test_take_conformance(&array, &mut ctx);
+        Ok(())
+    }
+
+    /// Decoding the storage once leaves a storage array whose children need no more decoding,
+    /// whether or not the Variant was filtered first, and extracts the same values.
+    #[rstest]
+    #[case::whole(false)]
+    #[case::filtered(true)]
+    fn test_decode_unshredded_storage(#[case] filtered: bool) -> VortexResult<()> {
+        let rows = vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#), Some(r#"{"a":3}"#)];
+        let array = make_unshredded_json_array(rows)?;
+        let (array, expected) = if filtered {
+            (
+                array.filter(Mask::from_iter([true, false, true]))?,
+                [Some(1i64), Some(3)].as_slice(),
+            )
+        } else {
+            (array, [Some(1i64), Some(2), Some(3)].as_slice())
+        };
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let decoded = decode_unshredded_storage(array, &mut ctx)?;
+
+        let variant = decoded.as_::<Variant>();
+        let storage = variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+        assert!(storage.metadata().is_canonical());
+        assert!(storage.value().is_some_and(|value| value.is_canonical()));
+        assert_arrays_eq!(
+            execute_variant_get(
+                decoded,
+                "$.a",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter(expected.iter().copied()),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A shredded Variant is left alone: its extractions read the shredded children.
+    #[test]
+    fn test_decode_unshredded_storage_keeps_shredded() -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let decoded = decode_unshredded_storage(events.clone(), &mut ctx)?;
+
+        assert!(decoded.as_::<Variant>().shredded().is_some());
+        assert_arrays_eq!(
+            execute_variant_get(
+                decoded,
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            execute_variant_get(
+                events,
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            &mut ctx
+        );
         Ok(())
     }
 

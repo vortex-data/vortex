@@ -41,17 +41,20 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use super::Columns;
 use crate::ArrayFuture;
 use crate::BoundaryMode;
+use crate::Layout;
 use crate::LayoutReader;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::VTable;
 use crate::analysis::make_bound_free_field_annotator;
 use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
-use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -78,30 +81,38 @@ impl From<Item> for FieldName {
     }
 }
 
-pub struct StructReader {
-    layout: StructLayout,
+/// The logical root expressed over the reader's stored columns.
+enum ColumnRoot {
+    /// The named fields packed into a struct, including its validity.
+    Struct(BoundExpression),
+    /// A logical value computed from the stored fields.
+    Projected(BoundExpression),
+}
+
+pub(in crate::layouts) struct ColumnarReader {
+    storage_dtype: DType,
+    row_count: u64,
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
     session: VortexSession,
 
-    /// For a non-nullable struct, pack(f: $.f, ...) for every f in struct
-    /// fields. For a nullable struct, mask(pack(f: $.f, ...), is_not_null($))
-    /// for every f in fields.
-    expanded_root_expr: BoundExpression,
+    root: ColumnRoot,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: WeakExprCache<Arc<OnceLock<Partitioned>>>,
 }
 
-impl StructReader {
-    pub(super) fn try_new(
-        layout: StructLayout,
+impl ColumnarReader {
+    pub(in crate::layouts) fn try_new<V: VTable>(
+        layout: &Layout<V>,
+        storage_dtype: &DType,
+        projection: Option<BoundExpression>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        session: VortexSession,
-        ctx: crate::LayoutReaderContext,
+        session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let struct_dt = layout.struct_fields();
+        let struct_dt = storage_dtype.as_struct_fields();
 
         // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
         let field_lookup = (struct_dt.nfields() > 80).then(|| {
@@ -113,7 +124,7 @@ impl StructReader {
                 .collect()
         });
 
-        let nullable = layout.dtype().is_nullable();
+        let nullable = storage_dtype.is_nullable();
         let extra = nullable as usize;
 
         let mut dtypes: Vec<DType> = Vec::with_capacity(struct_dt.nfields() + extra);
@@ -129,21 +140,22 @@ impl StructReader {
             Arc::clone(layout.children()),
             dtypes,
             names,
-            Arc::clone(&segment_source),
+            segment_source,
             session.clone(),
-            ctx,
+            ctx.clone(),
         );
 
-        // Create an expanded root expression that contains all fields of the struct.
-        let expanded_root_expr = expanded_struct_root(layout.dtype(), struct_dt)?;
-
-        // This is where we need to do some complex things with the scan in order to split it into
-        // different scans for different fields.
+        let packed = expanded_struct_root(storage_dtype, struct_dt)?;
+        let root = match projection {
+            Some(expr) => ColumnRoot::Projected(expand_struct_root(expr, &packed, struct_dt)?),
+            None => ColumnRoot::Struct(packed),
+        };
         Ok(Self {
-            layout,
+            storage_dtype: storage_dtype.clone(),
+            row_count: layout.row_count(),
             name,
-            session,
-            expanded_root_expr,
+            session: session.clone(),
+            root,
             lazy_children,
             field_lookup,
             partitioned_expr_cache: WeakExprCache::with_shard_amount(8),
@@ -152,7 +164,11 @@ impl StructReader {
 
     /// Return the [`StructFields`] of this layout.
     fn struct_fields(&self) -> &StructFields {
-        self.layout.struct_fields()
+        self.storage_dtype.as_struct_fields()
+    }
+
+    fn columns(&self) -> Columns<'_> {
+        Columns::of(&self.storage_dtype)
     }
 
     /// Return the child reader for the struct coordinate.
@@ -179,7 +195,7 @@ impl StructReader {
         // Field `idx` always occupies slot `idx + 1`; the layout maps that to a dense child index,
         // accounting for the validity slot when the struct is nullable.
         let child_index = self
-            .layout
+            .columns()
             .slot_to_child(idx + 1)
             .vortex_expect("struct field slot is always present");
         self.lazy_children.get(child_index)
@@ -187,7 +203,7 @@ impl StructReader {
 
     /// Return the reader for the struct validity, if present
     fn validity(&self) -> VortexResult<Option<&LayoutReaderRef>> {
-        self.layout
+        self.columns()
             .slot_to_child(0)
             .map(|child_index| self.lazy_children.get(child_index))
             .transpose()
@@ -213,13 +229,29 @@ impl StructReader {
     }
 
     fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        let expanded =
-            expand_struct_root(expr.clone(), &self.expanded_root_expr, self.struct_fields())?;
+        let expanded = match &self.root {
+            ColumnRoot::Struct(packed) => {
+                expand_struct_root(expr.clone(), packed, self.struct_fields())?
+            }
+            ColumnRoot::Projected(projection) => expr
+                .clone()
+                .transform_down(|node| {
+                    if node.is_root() {
+                        Ok(Transformed {
+                            value: projection.clone(),
+                            order: TraversalOrder::Skip,
+                            changed: true,
+                        })
+                    } else {
+                        Ok(Transformed::no(node))
+                    }
+                })?
+                .into_inner(),
+        };
 
-        // Expansion can turn `$.a.b` into `mask($.a, is_not_null($)).b`. Optimizing moves the
-        // field read below the mask so the partition reads only `a.b`. The scan has already
-        // declared its dtype, so keep the expanded expression if optimization changes its dtype.
-        let expr = if self.dtype().is_nullable()
+        // Fold field extractions through the projection and field reads through nullable struct
+        // masks. The scan has already declared the result dtype, including its nullability.
+        let expr = if (matches!(self.root, ColumnRoot::Projected(_)) || self.dtype().is_nullable())
             && let Some(optimized) = expanded.try_optimize_recursive()?
             && optimized.dtype() == expanded.dtype()
         {
@@ -230,10 +262,7 @@ impl StructReader {
 
         // Partition the expression into expressions that can be evaluated
         // over individual coordinates.
-        let fields = self
-            .dtype()
-            .as_struct_fields_opt()
-            .vortex_expect("struct dtype");
+        let fields = self.struct_fields();
         let mut partitioned = partition_bound(expr.clone(), make_struct_item_annotator(fields))?;
 
         if partitioned.partitions.len() == 1 {
@@ -455,17 +484,20 @@ impl Deref for CachedPartitioned {
     }
 }
 
-impl LayoutReader for StructReader {
+impl LayoutReader for ColumnarReader {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
 
     fn dtype(&self) -> &DType {
-        self.layout.dtype()
+        match &self.root {
+            ColumnRoot::Struct(_) => &self.storage_dtype,
+            ColumnRoot::Projected(expr) => expr.dtype(),
+        }
     }
 
     fn row_count(&self) -> u64 {
-        self.layout.row_count()
+        self.row_count
     }
 
     fn register_splits(
@@ -474,11 +506,19 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
+        // A field of a projected value can depend on any stored field.
+        let all = [FieldMask::All];
+        let field_mask: &[FieldMask] = if matches!(self.root, ColumnRoot::Projected(_)) {
+            &all
+        } else {
+            field_mask
+        };
+
         if splits.mode() == BoundaryMode::PositionsOnly {
             if let Some(validity_ref) = self.validity()? {
                 validity_ref.register_splits(field_mask, split_range, splits)?;
             }
-            self.layout.matching_fields(field_mask, |mask, idx| {
+            self.columns().matching_fields(field_mask, |mask, idx| {
                 self.field_reader_by_index(idx)?
                     .register_splits(&[mask], split_range, splits)
             })?;
@@ -490,7 +530,7 @@ impl LayoutReader for StructReader {
         let end = split_range.root_row_range().end;
         let validity = self.validity()?;
         let mut fields = Vec::new();
-        self.layout.matching_fields(field_mask, |mask, idx| {
+        self.columns().matching_fields(field_mask, |mask, idx| {
             fields.push((mask, idx));
             Ok(())
         })?;
@@ -742,8 +782,8 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::registry::ReadContext;
 
+    use super::ColumnarReader;
     use super::Partitioned;
-    use super::StructReader;
     use crate::BoundaryMode;
     use crate::LayoutReaderRef;
     use crate::LayoutRef;
@@ -1726,8 +1766,8 @@ mod tests {
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
         let struct_reader = reader
             .as_any()
-            .downcast_ref::<StructReader>()
-            .vortex_expect("root reader is StructReader");
+            .downcast_ref::<ColumnarReader>()
+            .vortex_expect("root reader is ColumnarReader");
 
         let live = pack([("x", lit(1))], false.into()).bind(reader.dtype())?;
         drop(struct_reader.partition_expr(&live)?);

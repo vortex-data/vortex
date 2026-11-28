@@ -64,8 +64,9 @@ pub struct VariantGetOpts {
 pub struct VariantPackOpts {
     #[prost(bool, tag = "1")]
     pub complete: bool,
-    #[prost(bool, tag = "2")]
-    pub shredded_validity: bool,
+    /// Every SQL-null core row is also null in the shredded child.
+    #[prost(bool, tag = "3")]
+    pub shredded_is_masked: bool,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct VariantPathElement {

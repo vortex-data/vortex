@@ -143,6 +143,20 @@ impl Layout<Chunked> {
         .into_typed()
     }
 
+    /// Concatenates child layouts in row order, eliding the wrapper for a single child.
+    pub(crate) fn from_chunks(dtype: DType, mut children: Vec<LayoutRef>) -> LayoutRef {
+        if children.len() == 1 {
+            return children.pop().vortex_expect("one child");
+        }
+        let row_count = children.iter().map(|child| child.row_count()).sum();
+        Self::new(
+            row_count,
+            dtype,
+            OwnedLayoutChildren::layout_children(children),
+        )
+        .into_layout()
+    }
+
     /// Rebuild this layout with owned children.
     pub fn with_children(&self, children: Vec<LayoutRef>) -> Self {
         Self::new(

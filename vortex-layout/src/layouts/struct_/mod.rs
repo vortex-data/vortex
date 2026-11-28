@@ -1,24 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod reader;
 pub mod writer;
 
 use std::sync::Arc;
 
-use reader::StructReader;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 pub use writer::StructStrategy;
@@ -33,8 +27,9 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
-use crate::lowering::slots_from_layout;
-use crate::plan::physical::PackPlan;
+use crate::layouts::columnar::ColumnarReader;
+use crate::layouts::columnar::Columns;
+use crate::layouts::columnar::validate_child_rows;
 use crate::plan::physical::PlanRef;
 use crate::segments::SegmentSource;
 
@@ -67,48 +62,23 @@ impl VTable for Struct {
         _metadata: &EmptyMetadata,
     ) -> VortexResult<Self::LayoutData> {
         Layout::<Struct>::validate_children(args.dtype, args.children.nchildren())?;
-
-        for idx in 0..args.children.nchildren() {
-            let child_row_count = args.children.child_row_count(idx);
-            vortex_ensure_eq!(
-                child_row_count,
-                args.row_count,
-                "Struct child {idx} row count does not match parent"
-            );
-        }
-        Ok(())
+        validate_child_rows(args, args.children.nchildren())
     }
 
     fn nslots(layout: &Layout<Self>) -> usize {
-        // Slot 0 is always reserved for validity (present only when nullable); the remaining
-        // slots are the struct fields, so field `i` always occupies slot `i + 1`.
-        layout.struct_fields().nfields() + 1
+        layout.columns().nslots()
     }
 
     fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
-        let nullable = layout.dtype().is_nullable();
-        match slot {
-            0 => nullable.then_some(0),
-            _ => Some(slot - 1 + usize::from(nullable)),
-        }
+        layout.columns().slot_to_child(slot)
     }
 
     fn child_dtype(layout: &Layout<Self>, slot: usize) -> VortexResult<DType> {
-        StructLayout::slot_dtype(layout.dtype(), slot)
+        layout.columns().child_dtype(slot)
     }
 
     fn child_type(layout: &Layout<Self>, slot: usize) -> LayoutChildType {
-        if slot == 0 {
-            LayoutChildType::Auxiliary("validity".into())
-        } else {
-            LayoutChildType::Field(
-                layout
-                    .struct_fields()
-                    .field_name(slot - 1)
-                    .vortex_expect("Field index out of bounds")
-                    .clone(),
-            )
-        }
+        layout.columns().child_type(slot)
     }
 
     fn new_reader(
@@ -118,28 +88,19 @@ impl VTable for Struct {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(StructReader::try_new(
-            layout.clone(),
+        Ok(Arc::new(ColumnarReader::try_new(
+            layout,
+            layout.dtype(),
+            None,
             name,
             segment_source,
-            session.session(),
-            ctx.clone(),
+            session,
+            ctx,
         )?))
     }
 
     fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
-        // SAFETY: Struct layout construction validates child count and row counts. Its slots are
-        // validity then one per field, which are the Pack slots, and its logical slot schema
-        // defines every field dtype plus the optional non-nullable boolean validity dtype.
-        let plan = unsafe {
-            PackPlan::from_slots_unchecked(
-                layout.struct_fields().clone(),
-                layout.dtype().nullability(),
-                layout.row_count(),
-                slots_from_layout(&layout.to_layout()),
-            )
-        };
-        Ok(plan.into_plan())
+        Ok(layout.columns().pack_plan(&layout.to_layout()))
     }
 }
 
@@ -165,32 +126,16 @@ impl Layout<Struct> {
             .vortex_expect("Struct layout dtype must be a struct")
     }
 
+    fn columns(&self) -> Columns<'_> {
+        Columns::of(self.dtype())
+    }
+
     /// Invokes `per_child` for fields selected by `field_mask`.
-    pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>
+    pub fn matching_fields<F>(&self, field_mask: &[FieldMask], per_child: F) -> VortexResult<()>
     where
         F: FnMut(FieldMask, usize) -> VortexResult<()>,
     {
-        if field_mask.iter().any(|mask| mask.matches_all()) {
-            for idx in 0..self.struct_fields().nfields() {
-                per_child(FieldMask::All, idx)?;
-            }
-            return Ok(());
-        }
-
-        for path in field_mask {
-            let Some(field) = path.starting_field()? else {
-                continue;
-            };
-            let Field::Name(field_name) = field else {
-                vortex_bail!("Expected field name, got {field:?}");
-            };
-            let idx = self
-                .struct_fields()
-                .find(field_name)
-                .ok_or_else(|| vortex_err!("Field not found: {field_name}"))?;
-            per_child(path.clone().step_into()?, idx)?;
-        }
-        Ok(())
+        self.columns().matching_fields(field_mask, per_child)
     }
 
     fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
@@ -201,24 +146,12 @@ impl Layout<Struct> {
         vortex_ensure_eq!(nchildren, expected);
         Ok(())
     }
-
-    /// Returns the dtype of the child in logical `slot`: slot 0 is the non-nullable validity
-    /// bitmap, and slot `i + 1` is struct field `i`.
-    fn slot_dtype(dtype: &DType, slot: usize) -> VortexResult<DType> {
-        if slot == 0 {
-            Ok(DType::Bool(Nullability::NonNullable))
-        } else {
-            dtype
-                .as_struct_fields_opt()
-                .and_then(|fields| fields.field_by_index(slot - 1))
-                .ok_or_else(|| vortex_err!("Missing field {}", slot - 1))
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_session::registry::ReadContext;
 

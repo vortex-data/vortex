@@ -5,9 +5,8 @@
 //!
 //! [`TableStrategy`] is a *dispatcher*: it inspects the dtype of the stream it is handed and
 //! routes struct columns to [`StructStrategy`], list columns to [`ListLayoutStrategy`], and
-//! everything else to the configured leaf strategy. Because it hands *itself* (suitably descended)
-//! to those structural writers as the strategy for their children, arbitrarily nested struct/list
-//! trees are written with no manual wiring.
+//! Variant columns to [`VariantStrategy`]. Other columns use the configured leaf strategy.
+//! The structural writers dispatch their children through the same strategy.
 //!
 //! The dispatcher also owns field-path overrides, letting callers force a specific leaf field —
 //! at any depth — onto a custom strategy.
@@ -28,6 +27,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
+use crate::layouts::variant::VariantStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -45,6 +45,8 @@ type ListLayoutFactory = Arc<dyn Fn(ListLayoutStrategy) -> Arc<dyn LayoutStrateg
 ///   strategies. Gated: only when list decomposition is enabled via
 ///   [`with_list_layout`][Self::with_list_layout] (off by default); otherwise a list falls through
 ///   to the leaf strategy.
+/// - **Variant** → [`VariantStrategy`], which splits shredded chunks when the write permits
+///   the Variant layout and otherwise uses the leaf strategy.
 /// - **anything else** → the leaf strategy.
 ///
 /// [`write_stream`]: LayoutStrategy::write_stream
@@ -305,6 +307,15 @@ impl LayoutStrategy for TableStrategy {
                 .await;
         }
 
+        if dtype.is_variant() {
+            // The stored struct goes back through a clean dispatcher, so that its shredded
+            // child is split into columns, and a Variant in it is split in turn.
+            let storage = self.descend_clean();
+            return VariantStrategy::new(Arc::new(storage), Arc::clone(&self.leaf))
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
         // Leaf: hand off to the leaf strategy.
         self.leaf
             .write_stream(ctx, segment_sink, stream, eof, session)
@@ -324,6 +335,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -333,6 +345,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::field_path;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -593,6 +606,25 @@ mod tests {
         let primitive = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let layout = write(&flat_table(), primitive).await?;
         insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment: 0");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unshredded_variant_chunks_share_a_row_block() -> VortexResult<()> {
+        let batch = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 2).into_array();
+        let input = ChunkedArray::try_new(vec![batch.clone(); 4], batch.dtype().clone())?;
+        let strategy = flat_table().with_default_strategy(Arc::new(RepartitionStrategy::new(
+            FlatLayoutStrategy::default(),
+            RepartitionWriterOptions {
+                block_size_minimum: 0,
+                block_len_multiple: 8,
+                block_size_target: None,
+                canonicalize: false,
+            },
+        )));
+        let layout = write(&strategy, input.into_array()).await?;
+        assert!(layout.is::<Flat>());
+        assert_eq!(layout.row_count(), 8);
         Ok(())
     }
 
