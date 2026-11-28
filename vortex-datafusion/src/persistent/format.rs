@@ -741,6 +741,7 @@ impl FileFormat for VortexFormat {
             .ok_or_else(|| internal_datafusion_err!("Expected VortexSource"))?;
 
         source = source
+            .with_file_reordering(&file_scan_config.file_groups)
             .with_file_metadata_cache(state.runtime_env().cache_manager.get_file_metadata_cache());
 
         let conf = FileScanConfigBuilder::from(file_scan_config)
