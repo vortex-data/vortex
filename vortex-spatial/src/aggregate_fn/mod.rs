@@ -5,4 +5,6 @@
 
 mod aabb;
 
-pub use aabb::*;
+pub use aabb::AabbPartial;
+pub use aabb::GeometryAabb;
+pub(crate) use aabb::aabb_of_array;

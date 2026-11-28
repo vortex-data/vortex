@@ -126,7 +126,7 @@ impl ChunkedExporter {
             dict.write_codes(piece.chunk_offset, &mut codes[target])?;
         }
 
-        vector.reuse_dictionary(dicts[0].values(), &sel_vec, len);
+        vector.reuse_dictionary(dicts[0].values(), &sel_vec, len)?;
         Ok(true)
     }
 }

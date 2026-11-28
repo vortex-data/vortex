@@ -140,15 +140,8 @@ impl ScanBuilder {
             .filter
             .map(|filter| -> VortexResult<_> {
                 let skip = self.skip_unselective_dynamic;
-                match cache.filter_plans(&filter) {
-                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
-                    // A scan whose skipping differs from the cached plans' plans its own.
-                    Some(_) => Ok(Arc::new(FilterPlans::new(
-                        filter,
-                        &root,
-                        &self.session,
-                        skip,
-                    )?)),
+                match cache.filter_plans(&filter, skip) {
+                    Some(plans) => Ok(plans),
                     None => {
                         let plans = Arc::new(FilterPlans::new(
                             filter.clone(),

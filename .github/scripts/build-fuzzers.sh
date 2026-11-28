@@ -56,7 +56,7 @@ copy_fuzzer() {
   install -m 755 "$binary" "fuzz-binaries/$output_name"
 }
 
-TARGETS=(array_ops arrow_roundtrip compress_roundtrip file_corruption file_io file_session fsst_like row_encode wire_safety)
+TARGETS=(array_ops arrow_roundtrip compress_roundtrip file_corruption file_io file_session fsst_like row_encode variant_file wire_safety)
 if [ -n "${FUZZ_TARGET:-}" ]; then
   TARGETS=("$FUZZ_TARGET")
 fi

@@ -226,6 +226,15 @@ impl FoR {
         FoRData::encode(array, ctx)
     }
 
+    /// Encode a primitive array using Frame of Reference encoding with an explicit reference.
+    pub fn encode_with_reference(
+        array: PrimitiveArray,
+        reference: Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<FoRArray> {
+        FoRData::encode_with_reference(array, reference, ctx)
+    }
+
     /// Encode a primitive array with one Frame of Reference per 1024-element chunk.
     pub fn encode_chunked(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         FoRData::encode_chunked(array, ctx)

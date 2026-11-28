@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../../setup.slt.no
+
+let FILE_FORMAT
+SELECT 'parquet';
+
+include ./create.slt.no
+
+# Most queries return the genotype lists of every variant, so results larger
+# than this many values are compared by hash.
+hash-threshold 100
+
+include ../results/*.slt.no
+
+hash-threshold 0
+
+include ./drop.slt.no
