@@ -26,7 +26,6 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
@@ -514,5 +513,22 @@ mod tests {
         #[case] vtable: impl ExtVTable,
     ) -> VortexResult<()> {
         check_seeded_round_trip(kind, vtable)
+    }
+
+    /// Regression for <https://github.com/vortex-data/vortex/issues/11668>: generated time storage
+    /// exceeded one day, so the single-run slice of the run-end container failed scalar validation.
+    #[test]
+    fn time_storage_stays_within_one_day() -> VortexResult<()> {
+        let bytes = [
+            0x5f, 0x65, 0x65, 0x55, 0x55, 0x06, 0x55, 0x55, 0x55, 0x55, 0x00, 0x00, 0x55, 0x55,
+            0x56, 0x00, 0x55,
+        ];
+        let input = ArrowRoundTrip::arbitrary(&mut Unstructured::new(&bytes))
+            .map_err(|e| vortex_err!("failed to generate crash input: {e}"))?;
+
+        assert_eq!(input.array.dtype().as_extension().id(), Time.id());
+        input.check();
+
+        Ok(())
     }
 }
