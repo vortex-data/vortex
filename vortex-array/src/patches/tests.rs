@@ -887,6 +887,7 @@ fn test_from_metadata_short_slice(#[case] range: Range<usize>) -> VortexResult<(
         Some(buffer![0u32, 1024, 2048].into_array()),
         &mut ctx,
     )?;
+    let slice_start = range.start;
     let sliced = patches
         .slice(range, &mut ctx)?
         .vortex_expect("slice has patches");
@@ -901,7 +902,17 @@ fn test_from_metadata_short_slice(#[case] range: Range<usize>) -> VortexResult<(
     )?;
 
     assert_eq!(read.offset_within_chunk(), sliced.offset_within_chunk());
-    assert_eq!(read.search_index(0, &mut ctx)?, SearchResult::Found(0));
+    let mut probe_rows = BTreeSet::from([0, sliced.array_len() - 1]);
+    for boundary in [PATCH_CHUNK_SIZE, 2 * PATCH_CHUNK_SIZE] {
+        if let Some(rel) = boundary.checked_sub(slice_start)
+            && rel < sliced.array_len()
+        {
+            probe_rows.insert(rel);
+        }
+    }
+    for row in probe_rows {
+        assert_eq!(read.search_index(row, &mut ctx)?, SearchResult::Found(row));
+    }
     assert_arrays_eq!(read.values(), sliced.values(), &mut ctx);
     Ok(())
 }
