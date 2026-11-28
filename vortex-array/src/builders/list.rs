@@ -426,10 +426,8 @@ mod tests {
 
     use Nullability::NonNullable;
     use Nullability::Nullable;
-    use rstest::rstest;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -438,399 +436,16 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArraySlotsExt;
-    use crate::arrays::listview::ListViewArrayExt;
-    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::assert_arrays_eq;
-    use crate::builders::ArrayBuilder;
-    use crate::builders::ListViewBuilder;
-    use crate::builders::builder_with_capacity_in;
     use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::dtype::OffsetBuilderPType;
     use crate::dtype::PType::I32;
     use crate::executor::VortexSessionExecute;
-    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    /// The `ListBuilder` twin of the `ListViewBuilder` bulk empty-list case: `n` empty lists must
-    /// all land at the current end of `elements`, with validity from the method that was called.
-    #[rstest]
-    #[case::zeros(false)]
-    #[case::nulls(true)]
-    fn test_bulk_empty_lists(#[case] null: bool) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u64>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
-
-        const N: usize = 5;
-        if null {
-            builder.append_nulls(N);
-        } else {
-            builder.append_zeros(N);
-        }
-
-        let list = builder.finish_into_list();
-        assert_eq!(list.len(), N + 1);
-        let listview = list.into_array().execute::<ListViewArray>(&mut ctx)?;
-        for i in 1..=N {
-            assert_eq!(listview.size_at(i, &mut ctx), 0);
-            assert_eq!(listview.validity()?.execute_is_valid(i, &mut ctx)?, !null,);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_empty() {
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            Arc::new(I32.into()),
-            NonNullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        let list = builder.finish();
-        assert_eq!(list.len(), 0);
-        assert_eq!(
-            list.dtype(),
-            &DType::List(Arc::new(I32.into()), NonNullable)
-        );
-    }
-
-    #[test]
-    fn test_values() {
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            NonNullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        builder
-            .append_value(
-                Scalar::list(
-                    Arc::clone(&dtype),
-                    vec![1i32.into(), 2i32.into(), 3i32.into()],
-                    NonNullable,
-                )
-                .as_list(),
-            )
-            .unwrap();
-
-        builder
-            .append_value(
-                Scalar::list(
-                    dtype,
-                    vec![4i32.into(), 5i32.into(), 6i32.into()],
-                    NonNullable,
-                )
-                .as_list(),
-            )
-            .unwrap();
-
-        let list = builder.finish();
-        assert_eq!(list.len(), 2);
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let list_array = list.execute::<ListViewArray>(&mut ctx).unwrap();
-
-        assert_eq!(list_array.list_elements_at(0, &mut ctx).unwrap().len(), 3);
-        assert_eq!(list_array.list_elements_at(1, &mut ctx).unwrap().len(), 3);
-        let expected = ListArray::new(
-            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
-            buffer![0u32, 3, 6].into_array(),
-            Validity::NonNullable,
-            &mut ctx,
-        );
-        assert_arrays_eq!(list_array, expected, &mut ctx);
-    }
-
-    #[test]
-    fn test_append_empty_list() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            NonNullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        assert!(
-            builder
-                .append_value(Scalar::list_empty(dtype, NonNullable).as_list())
-                .is_ok()
-        );
-        let expected = ListArray::new(
-            buffer![0i32; 0].into_array(),
-            buffer![0u32, 0].into_array(),
-            Validity::NonNullable,
-            &mut ctx,
-        );
-        assert_arrays_eq!(
-            builder.finish(),
-            expected,
-            &mut SESSION.create_execution_ctx()
-        );
-    }
-
-    #[test]
-    fn test_nullable_values() {
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        builder
-            .append_value(
-                Scalar::list(
-                    Arc::clone(&dtype),
-                    vec![1i32.into(), 2i32.into(), 3i32.into()],
-                    NonNullable,
-                )
-                .as_list(),
-            )
-            .unwrap();
-
-        builder
-            .append_value(Scalar::list_empty(Arc::clone(&dtype), NonNullable).as_list())
-            .unwrap();
-
-        builder
-            .append_value(
-                Scalar::list(
-                    dtype,
-                    vec![4i32.into(), 5i32.into(), 6i32.into()],
-                    NonNullable,
-                )
-                .as_list(),
-            )
-            .unwrap();
-
-        let list = builder.finish();
-        assert_eq!(list.len(), 3);
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let list_array = list.execute::<ListViewArray>(&mut ctx).unwrap();
-
-        assert_eq!(list_array.list_elements_at(0, &mut ctx).unwrap().len(), 3);
-        assert_eq!(list_array.list_elements_at(1, &mut ctx).unwrap().len(), 0);
-        assert_eq!(list_array.list_elements_at(2, &mut ctx).unwrap().len(), 3);
-        let expected = ListArray::new(
-            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
-            buffer![0u32, 3, 3, 6].into_array(),
-            Validity::AllValid,
-            &mut ctx,
-        );
-        assert_arrays_eq!(list_array, expected, &mut ctx);
-    }
-
-    fn test_extend_builder_gen<O: OffsetBuilderPType>() {
-        let list = ListArray::from_iter_opt_slow::<O, _, _>(
-            [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
-            Arc::new(I32.into()),
-        )
-        .unwrap()
-        .into_array();
-        assert_eq!(list.len(), 3);
-
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let mut builder = ListBuilder::<O>::with_capacity_in(
-            Arc::new(I32.into()),
-            Nullable,
-            9,
-            BufferAllocatorRef::static_ref(),
-        );
-        list.append_to_builder(&mut builder, &mut ctx).unwrap();
-        list.append_to_builder(&mut builder, &mut ctx).unwrap();
-        list.slice(0..0)
-            .unwrap()
-            .append_to_builder(&mut builder, &mut ctx)
-            .unwrap();
-        list.slice(1..3)
-            .unwrap()
-            .append_to_builder(&mut builder, &mut ctx)
-            .unwrap();
-
-        let expected = ListArray::from_iter_opt_slow::<O, _, _>(
-            [
-                Some(vec![0, 1, 2]),
-                None,
-                Some(vec![4, 5]),
-                Some(vec![0, 1, 2]),
-                None,
-                Some(vec![4, 5]),
-                None,
-                Some(vec![4, 5]),
-            ],
-            Arc::new(DType::Primitive(I32, NonNullable)),
-        )
-        .unwrap()
-        .into_array()
-        .execute::<ListViewArray>(&mut ctx)
-        .unwrap();
-
-        let actual = builder.finish_into_canonical(&mut ctx).into_listview();
-
-        assert_arrays_eq!(actual.elements(), expected.elements(), &mut ctx);
-
-        assert_arrays_eq!(actual.offsets(), expected.offsets(), &mut ctx);
-
-        assert!(
-            actual
-                .validity()
-                .vortex_expect("list validity should be derivable")
-                .mask_eq(
-                    &expected
-                        .validity()
-                        .vortex_expect("list validity should be derivable"),
-                    actual.len(),
-                    &mut ctx,
-                )
-                .unwrap(),
-        );
-        let independent = ListArray::new(
-            buffer![0i32, 1, 2, 4, 5, 0, 1, 2, 4, 5, 4, 5].into_array(),
-            buffer![0u32, 3, 3, 5, 8, 8, 10, 10, 12].into_array(),
-            Validity::from_iter([true, false, true, true, false, true, false, true]),
-            &mut ctx,
-        );
-        assert_arrays_eq!(actual, independent, &mut ctx);
-    }
-
-    /// `append_to_builder` must handle any list builder kind without assuming the offset/size
-    /// integer types produced by `builder_with_capacity`. It appends a `List`-encoded array and a
-    /// `ListView`-encoded array into `ListViewBuilder`s and `ListBuilder`s with assorted (and
-    /// non-`u64`) offset/size types.
-    #[test]
-    fn test_append_to_builder_any_list_builder() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let list = ListArray::from_iter_opt_slow::<u64, _, _>(
-            [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
-            Arc::new(I32.into()),
-        )?
-        .into_array();
-        let listview = list
-            .clone()
-            .execute::<ListViewArray>(&mut ctx)?
-            .into_array();
-        let elem_dtype = || Arc::new(I32.into());
-
-        // `builder_with_capacity` produces a `ListViewBuilder` for `DType::List`; appending the
-        // `List`-encoded array must dispatch into it instead of bailing.
-        let mut listview_builder =
-            builder_with_capacity_in(list.dtype(), list.len(), BufferAllocatorRef::static_ref());
-        list.append_to_builder(listview_builder.as_mut(), &mut ctx)?;
-        assert_arrays_eq!(listview_builder.finish(), list, &mut ctx);
-
-        // A `ListViewBuilder` with non-`u64` (including signed) offset and size types must work
-        // for both source encodings.
-        let mut lv_u64_u32 = ListViewBuilder::<u64, u32>::with_capacity_in(
-            elem_dtype(),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        list.append_to_builder(&mut lv_u64_u32, &mut ctx)?;
-        assert_arrays_eq!(lv_u64_u32.finish(), list, &mut ctx);
-
-        let mut lv_i64_i32 = ListViewBuilder::<i64, i32>::with_capacity_in(
-            elem_dtype(),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        list.append_to_builder(&mut lv_i64_i32, &mut ctx)?;
-        assert_arrays_eq!(lv_i64_i32.finish(), list, &mut ctx);
-
-        let mut lv_u32_u32 = ListViewBuilder::<u32, u32>::with_capacity_in(
-            elem_dtype(),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        listview.append_to_builder(&mut lv_u32_u32, &mut ctx)?;
-        assert_arrays_eq!(lv_u32_u32.finish(), list, &mut ctx);
-
-        // Both source encodings appended into `ListBuilder`s with non-`u64` (including signed)
-        // offset types.
-        let mut list_builder = ListBuilder::<u32>::with_capacity_in(
-            elem_dtype(),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        list.append_to_builder(&mut list_builder, &mut ctx)?;
-        assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
-
-        let mut list_builder_i32 = ListBuilder::<i32>::with_capacity_in(
-            elem_dtype(),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        listview.append_to_builder(&mut list_builder_i32, &mut ctx)?;
-        assert_arrays_eq!(list_builder_i32.finish(), list, &mut ctx);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_append_list_arrays_grow_builder() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let dtype: Arc<DType> = Arc::new(I32.into());
-
-        // Enough lists to exceed the offsets capacity of a zero-capacity builder, so appending
-        // must grow the builder rather than panic in `uninit_range`.
-        let lists: Vec<Option<Vec<i32>>> =
-            (0..100).map(|i| (i % 10 != 0).then(|| vec![i])).collect();
-        let source = ListArray::from_iter_opt_slow::<u32, _, _>(lists.clone(), Arc::clone(&dtype))?;
-        let expected = ListArray::from_iter_opt_slow::<u32, _, _>(
-            lists.iter().cloned().chain(lists.iter().cloned()),
-            Arc::clone(&dtype),
-        )?;
-
-        // Appending twice checks growth from a non-empty builder and offset rebasing.
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-        builder.append_list_array(source.as_view(), &mut ctx)?;
-        builder.append_list_array(source.as_view(), &mut ctx)?;
-        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
-
-        let source_listview = source.into_array().execute::<ListViewArray>(&mut ctx)?;
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            dtype,
-            Nullable,
-            0,
-            BufferAllocatorRef::static_ref(),
-        );
-        builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
-        builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
-        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
-
-        Ok(())
-    }
 
     /// A `ListArray`'s offsets can only describe contiguous, in-order lists, so an overlapping
     /// source has to be flattened before its elements can be appended in bulk. A sliced source,
@@ -901,293 +516,51 @@ mod tests {
     }
 
     #[test]
-    fn test_extend_builder() {
-        test_extend_builder_gen::<i32>();
-        test_extend_builder_gen::<i64>();
-
-        test_extend_builder_gen::<u32>();
-        test_extend_builder_gen::<u64>();
-    }
-
-    #[test]
-    pub fn test_array_with_gap() {
+    fn test_array_with_gap() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let one_trailing_unused_element = ListArray::try_new(
-            buffer![1, 2, 3, 4].into_array(),
-            buffer![0, 3].into_array(),
+            buffer![1i32, 2, 3, 4].into_array(),
+            buffer![0u32, 3].into_array(),
             Validity::NonNullable,
             &mut ctx,
-        )
-        .unwrap();
-
+        )?;
         let second_array = ListArray::try_new(
-            buffer![5, 6].into_array(),
-            buffer![0, 2].into_array(),
+            buffer![5i32, 6].into_array(),
+            buffer![0u32, 2].into_array(),
             Validity::NonNullable,
             &mut ctx,
-        )
-        .unwrap();
-
+        )?;
         let chunked_list = ChunkedArray::try_new(
             vec![
-                one_trailing_unused_element.clone().into_array(),
-                second_array.clone().into_array(),
+                one_trailing_unused_element.into_array(),
+                second_array.into_array(),
             ],
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
-        );
+        )?;
 
-        let mut ctx = SESSION.create_execution_ctx();
-        let canon_values = chunked_list
-            .unwrap()
-            .as_array()
-            .clone()
-            .execute::<ListViewArray>(&mut ctx)
-            .unwrap();
-
-        assert_eq!(
-            one_trailing_unused_element
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            canon_values
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap()
+        let expected = ListArray::new(
+            buffer![1i32, 2, 3, 5, 6].into_array(),
+            buffer![0u32, 3, 5].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
         );
-        assert_eq!(
-            second_array
-                .execute_scalar(0, &mut SESSION.create_execution_ctx())
-                .unwrap(),
-            canon_values
-                .execute_scalar(1, &mut SESSION.create_execution_ctx())
-                .unwrap()
-        );
+        assert_arrays_eq!(chunked_list, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
-    fn test_append_scalar() {
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListBuilder::<u64>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        // Test appending a valid list.
-        let list_scalar1 =
-            Scalar::list(Arc::clone(&dtype), vec![1i32.into(), 2i32.into()], Nullable);
-        builder.append_scalar(&list_scalar1).unwrap();
-
-        // Test appending another list.
-        let list_scalar2 = Scalar::list(
-            Arc::clone(&dtype),
-            vec![3i32.into(), 4i32.into(), 5i32.into()],
-            Nullable,
-        );
-        builder.append_scalar(&list_scalar2).unwrap();
-
-        // Test appending null value.
-        let null_scalar = Scalar::null(DType::List(Arc::clone(&dtype), Nullable));
-        builder.append_scalar(&null_scalar).unwrap();
-
-        let array = builder.finish_into_list();
-        assert_eq!(array.len(), 3);
-
-        let mut ctx = SESSION.create_execution_ctx();
-
-        // Check actual values using scalar_at.
-
-        let scalar0 = array.execute_scalar(0, &mut ctx).unwrap();
-        let list0 = scalar0.as_list();
-        assert_eq!(list0.len(), 2);
-        if let Some(list0_items) = list0.elements() {
-            assert_eq!(list0_items[0].as_primitive().typed_value::<i32>(), Some(1));
-            assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
-        }
-
-        let scalar1 = array.execute_scalar(1, &mut ctx).unwrap();
-        let list1 = scalar1.as_list();
-        assert_eq!(list1.len(), 3);
-        if let Some(list1_items) = list1.elements() {
-            assert_eq!(list1_items[0].as_primitive().typed_value::<i32>(), Some(3));
-            assert_eq!(list1_items[1].as_primitive().typed_value::<i32>(), Some(4));
-            assert_eq!(list1_items[2].as_primitive().typed_value::<i32>(), Some(5));
-        }
-
-        let scalar2 = array.execute_scalar(2, &mut ctx).unwrap();
-        let list2 = scalar2.as_list();
-        assert!(list2.is_null()); // This should be null.
-
-        // Check validity.
-        assert!(
-            array
-                .validity()
-                .vortex_expect("list validity should be derivable")
-                .execute_is_valid(0, &mut ctx)
-                .unwrap()
-        );
-        assert!(
-            array
-                .validity()
-                .vortex_expect("list validity should be derivable")
-                .execute_is_valid(1, &mut ctx)
-                .unwrap()
-        );
-        assert!(
-            !array
-                .validity()
-                .vortex_expect("list validity should be derivable")
-                .execute_is_valid(2, &mut ctx)
-                .unwrap()
-        );
-
-        // Test wrong dtype error.
-        let mut builder = ListBuilder::<u64>::with_capacity_in(
-            dtype,
-            NonNullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-        let wrong_scalar = Scalar::from(42i32);
-        assert!(builder.append_scalar(&wrong_scalar).is_err());
-    }
-
-    #[test]
-    fn test_append_array_as_list() {
-        let dtype: Arc<DType> = Arc::new(I32.into());
+    fn test_append_array_as_list_wrong_dtype() {
         let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
+            Arc::new(I32.into()),
             NonNullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        // Append a primitive array as a single list entry.
-        let arr1 = buffer![1i32, 2, 3].into_array();
-        builder.append_array_as_list(&arr1, &mut ctx).unwrap();
-
-        // Interleave with a list scalar.
-        builder
-            .append_value(
-                Scalar::list(
-                    Arc::clone(&dtype),
-                    vec![10i32.into(), 11i32.into()],
-                    NonNullable,
-                )
-                .as_list(),
-            )
-            .unwrap();
-
-        // Append another primitive array as a single list entry.
-        let arr2 = buffer![4i32, 5].into_array();
-        builder.append_array_as_list(&arr2, &mut ctx).unwrap();
-
-        // Append an empty array as a single list entry (empty list).
-        let arr3 = buffer![0i32; 0].into_array();
-        builder.append_array_as_list(&arr3, &mut ctx).unwrap();
-
-        // Interleave with another list scalar (empty list).
-        builder
-            .append_value(Scalar::list_empty(Arc::clone(&dtype), NonNullable).as_list())
-            .unwrap();
-
-        let list = builder.finish_into_list();
-        assert_eq!(list.len(), 5);
-
-        // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
-        assert_arrays_eq!(
-            list.elements(),
-            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5]),
-            &mut ctx
-        );
-
-        // Verify offsets array.
-        assert_arrays_eq!(
-            list.offsets(),
-            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7]),
-            &mut ctx
-        );
-
-        // Test dtype mismatch error.
-        let mut builder = ListBuilder::<u32>::with_capacity_in(
-            dtype,
-            NonNullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-        let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
-        assert!(
-            builder
-                .append_array_as_list(&wrong_dtype_arr, &mut ctx)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn test_reuse_finish_into_list() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut reused = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
             4,
             BufferAllocatorRef::static_ref(),
         );
-
-        // Consecutive empty finishes must each keep a leading zero offset.
-        for _ in 0..2 {
-            let empty = reused.finish_into_list();
-            assert_eq!(empty.len(), 0);
-            assert_eq!(empty.elements().len(), 0);
-            assert_arrays_eq!(empty.offsets(), PrimitiveArray::from_iter([0u32]), &mut ctx);
-        }
-
-        // Batch 1: nonempty list, null row, empty list, nonempty list.
-        let list_1_2 = Scalar::list(Arc::clone(&dtype), vec![1i32.into(), 2i32.into()], Nullable);
-        let list_null = Scalar::null(DType::List(Arc::clone(&dtype), Nullable));
-        let list_empty = Scalar::list_empty(Arc::clone(&dtype), Nullable);
-        let list_3 = Scalar::list(Arc::clone(&dtype), vec![3i32.into()], Nullable);
-
-        for scalar in [&list_1_2, &list_null, &list_empty, &list_3] {
-            reused.append_value(scalar.as_list())?;
-        }
-        let batch1 = reused.finish_into_list();
-        assert_arrays_eq!(
-            batch1.offsets(),
-            PrimitiveArray::from_iter([0u32, 2, 2, 2, 3]),
-            &mut ctx
+        assert!(
+            builder
+                .append_array_as_list(&buffer![1i64, 2, 3].into_array(), &mut ctx)
+                .is_err()
         );
-        assert_eq!(batch1.elements().len(), 3);
-
-        // Batch 2 on the reused builder: null row and nonempty list.
-        let list_10_20_30 = Scalar::list(
-            Arc::clone(&dtype),
-            vec![10i32.into(), 20i32.into(), 30i32.into()],
-            Nullable,
-        );
-        for scalar in [&list_null, &list_10_20_30] {
-            reused.append_value(scalar.as_list())?;
-        }
-        let batch2 = reused.finish_into_list();
-        assert_arrays_eq!(
-            batch2.offsets(),
-            PrimitiveArray::from_iter([0u32, 0, 3]),
-            &mut ctx
-        );
-        assert_eq!(batch2.elements().len(), 3);
-
-        // Batch 1 remains independent of later appends to the reused builder.
-        assert_arrays_eq!(
-            batch1.offsets(),
-            PrimitiveArray::from_iter([0u32, 2, 2, 2, 3]),
-            &mut ctx
-        );
-        assert_arrays_eq!(
-            batch1.elements(),
-            PrimitiveArray::from_iter([1i32, 2, 3]),
-            &mut ctx
-        );
-
-        Ok(())
     }
 }

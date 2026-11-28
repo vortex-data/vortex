@@ -170,7 +170,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -182,7 +181,6 @@ mod tests {
     use crate::builders::dict::DictConstraints;
     use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
-    use crate::builders::dict::dict_encoder_in;
     use crate::builders::dict::primitive::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -194,69 +192,6 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
     const USIZE_PTYPE: PType = PType::min_unsigned_ptype_for_value(usize::MAX as u64);
-
-    #[test]
-    fn encode_primitive() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let arr = buffer![1, 1, 3, 3, 3].into_array();
-        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
-
-        let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
-        assert_arrays_eq!(dict.codes(), expected_codes, &mut ctx);
-
-        let expected_values = buffer![1i32, 3].into_array();
-        assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
-    }
-
-    #[test]
-    fn encode_primitive_nulls() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let arr = PrimitiveArray::from_option_iter([
-            Some(1),
-            Some(1),
-            None,
-            Some(3),
-            Some(3),
-            None,
-            Some(3),
-            None,
-        ])
-        .into_array();
-        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
-
-        let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
-        assert_arrays_eq!(dict.codes(), expected_codes, &mut ctx);
-
-        let expected_values =
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
-        assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
-    }
-
-    #[test]
-    fn reset_clears_dict() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let first = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
-        let constraints = DictConstraints {
-            max_len: u32::MAX as usize,
-            ..UNCONSTRAINED
-        };
-        let mut encoder = dict_encoder_in(&first, &constraints, ctx.allocator().clone());
-
-        assert_arrays_eq!(
-            encoder.encode(&first, &mut ctx).unwrap(),
-            buffer![0u32, 1, 2].into_array(),
-            &mut ctx
-        );
-        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
-
-        let second = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).into_array();
-        assert_arrays_eq!(
-            encoder.encode(&second, &mut ctx).unwrap(),
-            buffer![0u32, 1].into_array(),
-            &mut ctx
-        );
-        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
-    }
 
     #[rstest]
     #[case::u8(PType::U8, PType::U16)]

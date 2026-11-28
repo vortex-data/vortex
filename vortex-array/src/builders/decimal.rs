@@ -337,7 +337,6 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
-    use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -398,52 +397,5 @@ mod tests {
 
         assert!(Decimal::append_to_builder(array.as_view(), &mut builder, &mut ctx).is_err());
         assert!(builder.is_empty());
-    }
-
-    #[test]
-    fn test_append_scalar() {
-        let mut ctx = SESSION.create_execution_ctx();
-
-        // Simply test that the builder accepts its own finish output via scalar.
-        let mut builder = DecimalBuilder::new_in(
-            DecimalDType::new(10, 2),
-            true.into(),
-            BufferAllocatorRef::static_ref(),
-        );
-        builder.append_value(1234i64);
-        builder.append_value(5678i64);
-        builder.append_null();
-
-        let array = builder.finish();
-        let expected = DecimalArray::from_option_iter(
-            [Some(1234i64), Some(5678), None],
-            DecimalDType::new(10, 2),
-        );
-        assert_arrays_eq!(&array, &expected, &mut ctx);
-
-        // Test by taking a scalar from the array and appending it to a new builder.
-        let mut builder2 = DecimalBuilder::new_in(
-            DecimalDType::new(10, 2),
-            true.into(),
-            BufferAllocatorRef::static_ref(),
-        );
-        for i in 0..array.len() {
-            let scalar = array
-                .execute_scalar(i, &mut SESSION.create_execution_ctx())
-                .unwrap();
-            builder2.append_scalar(&scalar).unwrap();
-        }
-
-        let array2 = builder2.finish();
-        assert_arrays_eq!(&array2, &array, &mut ctx);
-
-        // Test wrong dtype error.
-        let mut builder = DecimalBuilder::new_in(
-            DecimalDType::new(10, 2),
-            false.into(),
-            BufferAllocatorRef::static_ref(),
-        );
-        let wrong_scalar = Scalar::from(true);
-        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

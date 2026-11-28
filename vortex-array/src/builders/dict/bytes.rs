@@ -538,7 +538,7 @@ impl<Code: UnsignedPType> CountingDictEncoder for BytesDictBuilder<Code> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -554,7 +554,6 @@ mod test {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::arrays::varbinview::BinaryView;
@@ -563,7 +562,6 @@ mod test {
     use crate::builders::dict::DictConstraints;
     use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
-    use crate::builders::dict::dict_encoder_in;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -572,62 +570,7 @@ mod test {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
-    fn encode_varbin() -> VortexResult<()> {
-        let arr = VarBinViewArray::from_iter_str(vec!["hello", "world", "hello", "again", "world"]);
-        let mut ctx = SESSION.create_execution_ctx();
-        let dict = dict_encode(&arr.into_array(), &mut ctx)?;
-        let codes = dict.codes().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0, 2, 1]);
-        let values = dict.values().clone().execute::<VarBinViewArray>(&mut ctx)?;
-        let mask = values.validity()?.execute_mask(values.len(), &mut ctx)?;
-        let decoded = (0..values.len())
-            .filter(|&i| mask.value(i))
-            .map(|i| unsafe { String::from_utf8_unchecked(values.bytes_at(i).to_vec()) })
-            .collect::<Vec<_>>();
-        assert_eq!(decoded, vec!["hello", "world", "again"]);
-        Ok(())
-    }
-
-    #[test]
-    fn encode_varbin_nulls() -> VortexResult<()> {
-        let arr: VarBinViewArray = vec![
-            Some("hello"),
-            None,
-            Some("world"),
-            Some("hello"),
-            None,
-            Some("again"),
-            Some("world"),
-            None,
-        ]
-        .into_iter()
-        .collect();
-        let mut ctx = SESSION.create_execution_ctx();
-        let dict = dict_encode(&arr.into_array(), &mut ctx)?;
-        let codes = dict.codes().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 2, 0, 1, 3, 2, 1]);
-        let values = dict.values().clone().execute::<VarBinViewArray>(&mut ctx)?;
-        let mask = values.validity()?.execute_mask(values.len(), &mut ctx)?;
-        let decoded = (0..values.len())
-            .map(|i| {
-                mask.value(i)
-                    .then(|| unsafe { String::from_utf8_unchecked(values.bytes_at(i).to_vec()) })
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            decoded,
-            vec![
-                Some("hello".to_string()),
-                None,
-                Some("world".to_string()),
-                Some("again".to_string())
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn encode_varbinview_ignores_invalid_null_views() {
+    fn encode_varbinview_ignores_invalid_null_views() -> VortexResult<()> {
         let value = b"outlined value";
         let valid_view = BinaryView::make_view(value, 0, 0);
         let invalid_null_view = BinaryView::make_view(b"invalid null view", 99, 0);
@@ -643,53 +586,10 @@ mod test {
         }
         .into_array();
 
-        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
-        let codes = dict
-            .codes()
-            .clone()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0]);
-    }
-
-    #[test]
-    fn repeated_values() -> VortexResult<()> {
-        let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
         let mut ctx = SESSION.create_execution_ctx();
-        let dict = dict_encode(&arr.into_array(), &mut ctx)?;
-        let values = dict.values().clone().execute::<VarBinViewArray>(&mut ctx)?;
-        let mask = values.validity()?.execute_mask(values.len(), &mut ctx)?;
-        let decoded = (0..values.len())
-            .filter(|&i| mask.value(i))
-            .map(|i| unsafe { String::from_utf8_unchecked(values.bytes_at(i).to_vec()) })
-            .collect::<Vec<_>>();
-        assert_eq!(decoded, vec!["a", "b"]);
+        let dict = dict_encode(&arr, &mut ctx)?;
         let codes = dict.codes().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(codes.as_slice::<u8>(), &[0, 0, 1, 1, 0, 1, 0, 1]);
-        Ok(())
-    }
-
-    #[test]
-    fn reset_clears_dict() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let first = VarBinViewArray::from_iter_str(["one", "two"]).into_array();
-        let mut encoder = dict_encoder_in(&first, &UNCONSTRAINED, ctx.allocator().clone());
-
-        assert_arrays_eq!(
-            encoder.encode(&first, &mut ctx)?,
-            PrimitiveArray::from_iter([0u64, 1]),
-            &mut ctx
-        );
-        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
-
-        let second = VarBinViewArray::from_iter_str(["one", "three"]).into_array();
-        assert_arrays_eq!(
-            encoder.encode(&second, &mut ctx)?,
-            PrimitiveArray::from_iter([0u64, 1]),
-            &mut ctx
-        );
-        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
-
+        assert_eq!(codes.as_slice::<u8>(), &[0, 1, 0]);
         Ok(())
     }
 

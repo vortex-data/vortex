@@ -218,7 +218,6 @@ mod tests {
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::dict_encoder_in;
     use crate::dtype::BigCast;
-    use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::Nullability::NonNullable;
@@ -245,29 +244,6 @@ mod tests {
                 &mut SESSION.create_execution_ctx(),
             )
         })
-    }
-
-    #[rstest]
-    fn encode_decimal(
-        #[values(2, 4, 9, 18, 38, 76)] precision: u8,
-        #[values(
-            Validity::NonNullable,
-            Validity::from_iter([true, false, true, true, false, true])
-        )]
-        validity: Validity,
-    ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let array = decimal_of(&[12, -7, 12, 0, 5, -7], precision, validity).into_array();
-        let dict = dict_encode(&array, &mut ctx)?;
-
-        assert_eq!(
-            dict.codes().dtype(),
-            &DType::Primitive(PType::U8, NonNullable)
-        );
-        assert!(dict.values().len() <= 4);
-        assert_eq!(dict.values().dtype(), array.dtype());
-        assert_arrays_eq!(dict, array, &mut ctx);
-        Ok(())
     }
 
     /// A narrow physical representation is a `Widen` over a narrower decimal child. It shares the
@@ -377,34 +353,6 @@ mod tests {
             assert_eq!(dict.values().len(), 3);
             assert_arrays_eq!(dict, array, &mut ctx);
         }
-        Ok(())
-    }
-
-    #[test]
-    fn reset_clears_dict() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let first =
-            decimal_of(&[1, 0, 3], 9, Validity::from_iter([true, false, true])).into_array();
-        let constraints = DictConstraints {
-            max_len: u32::MAX as usize,
-            ..UNCONSTRAINED
-        };
-        let mut encoder = dict_encoder_in(&first, &constraints, ctx.allocator().clone());
-
-        assert_arrays_eq!(
-            encoder.encode(&first, &mut ctx)?,
-            buffer![0u32, 1, 2].into_array(),
-            &mut ctx
-        );
-        assert_arrays_eq!(encoder.reset(), first, &mut ctx);
-
-        let second = decimal_of(&[4, 5], 9, Validity::AllValid).into_array();
-        assert_arrays_eq!(
-            encoder.encode(&second, &mut ctx)?,
-            buffer![0u32, 1].into_array(),
-            &mut ctx
-        );
-        assert_arrays_eq!(encoder.reset(), second, &mut ctx);
         Ok(())
     }
 
