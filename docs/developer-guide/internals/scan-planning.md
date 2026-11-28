@@ -18,6 +18,9 @@ each of its lazy child slots can own hidden source state used to materialize tha
 | `ListPack` | assemble a list from elements, offsets, and an optional validity slot |
 | `Eval` | apply an expression to its child |
 | `RowIdx` | offset row numbers into the file's row domain |
+| `Filter` | keep only the rows of the selection it is executed with |
+| `Zoned` | read data alongside the zone statistics that summarise it, and prune zones |
+| `Share` | produce its child's value once per split for later reads to reuse |
 
 Naming operators for what they compute is what lets one rule cover every case. `Concat` of
 `Concat` flattens on shape alone, and `Take` over `SegmentScan` is the dictionary pushdown,
@@ -35,10 +38,11 @@ positions of the other children never depend on which are present. A non-nullabl
 empty validity slot 0 and its fields from slot 1; a pruning `Zoned` plan has an empty data slot and
 its zones in slot 1.
 
-Lowering maps a layout's slots to plan slots in one place, and most operators use the layout's
-own slot positions. Compiling a plan into a pipeline is the one place slots become children:
-pipelines have no absent inputs, so a plan that joins its children compiles its present slots in
-slot order, and inlet `i` of its source reads the `i`-th present slot.
+Each layout builds its initial plan in `VTable::new_plan`, which maps the layout's slots to plan
+slots; most operators use the layout's own slot positions. Compiling a plan into a pipeline is the
+one place slots become children: pipelines have no absent inputs, so a plan that joins its children
+compiles its present slots in slot order, and inlet `i` of its source reads the `i`-th present
+slot.
 
 ## Optimization
 
@@ -67,9 +71,13 @@ ID, dtype, row count, and lazy child slots. Only the unsized tail containing the
 already serialize their metadata; the ones holding a read context or a bound expression return
 `None` until those codecs exist.
 
+## Execution
+
+An optimized plan is compiled into push-based pipelines and run by planners. See
+[Scan execution](scan-execution.md).
+
 ## Future work
 
-Plans currently stop at construction and optimization. Still to come: a plan registry and foreign
-operator placeholder so third-party operators survive a round trip, a serialization envelope, and
-an execution stage that walks an optimized plan, reads the referenced segments, and returns the
-query result.
+Still to come: a plan registry and a placeholder for foreign operators, so third-party operators
+survive a round trip, and a serialization envelope for plans. Progress is tracked in
+[#9062](https://github.com/vortex-data/vortex/issues/9062).
