@@ -77,6 +77,55 @@ pub unsafe fn free_host(pointer: *mut c_void) -> Result<(), DriverError> {
     unsafe { sys::cuMemFreeHost(pointer) }.result()
 }
 
+/// A pinned host buffer of [`Self::CAPACITY`] bytes for one device-to-host copy, returned to its
+/// context's pool on drop.
+///
+/// Dropping it while a copy may still write it is a use-after-free: wait for the copy first.
+pub struct ReadbackBuffer {
+    context: Arc<CudaContext>,
+    pointer: *mut u8,
+}
+
+// SAFETY: The buffer is uniquely owned and only accessed through `&self`/`&mut self`.
+unsafe impl Send for ReadbackBuffer {}
+// SAFETY: As above.
+unsafe impl Sync for ReadbackBuffer {}
+
+impl ReadbackBuffer {
+    /// The size of every readback buffer. Covers status words, offset totals and small
+    /// dictionaries; larger copies are bulk transfers rather than readbacks.
+    pub const CAPACITY: usize = 64 * 1024;
+
+    pub(crate) fn new(context: Arc<CudaContext>, pointer: *mut u8) -> Self {
+        Self { context, pointer }
+    }
+
+    /// The buffer's start, the destination for a copy of at most [`Self::CAPACITY`] bytes.
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.pointer
+    }
+
+    /// The first `len` bytes.
+    ///
+    /// # Safety
+    ///
+    /// A completed copy must have initialized them, and no copy may still write them.
+    pub unsafe fn as_slice(&self, len: usize) -> &[u8] {
+        assert!(
+            len <= Self::CAPACITY,
+            "readback of {len} bytes exceeds the buffer"
+        );
+        // SAFETY: The allocation holds `CAPACITY` bytes; the caller guarantees initialization.
+        unsafe { std::slice::from_raw_parts(self.pointer, len) }
+    }
+}
+
+impl Drop for ReadbackBuffer {
+    fn drop(&mut self) {
+        self.context.give_readback_buffer(self.pointer.cast());
+    }
+}
+
 /// Synchronously copies `target.len()` elements from device memory at `source`.
 ///
 /// # Safety

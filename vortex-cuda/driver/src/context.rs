@@ -5,6 +5,7 @@
 
 use std::ffi::CStr;
 use std::ffi::c_char;
+use std::ffi::c_void;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -14,6 +15,8 @@ use crate::device;
 use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::mem_pool;
+use crate::memory;
+use crate::memory::ReadbackBuffer;
 use crate::module::CudaModule;
 use crate::stream::CudaStream;
 use crate::sys;
@@ -35,7 +38,13 @@ pub struct CudaContext {
     /// Timing-disabled events returned by finished accesses, reused to avoid creating and
     /// destroying an event per access.
     events: Mutex<Vec<sys::CUevent>>,
+    /// Pinned host buffers of [`ReadbackBuffer::CAPACITY`] bytes returned by finished readbacks,
+    /// reused to avoid a `cuMemHostAlloc` per readback.
+    readback_buffers: Mutex<Vec<*mut c_void>>,
 }
+
+/// Pinned readback buffers kept for reuse. More may be live; the excess is freed on return.
+const READBACK_BUFFERS_MAX: usize = 64;
 
 // SAFETY: The handles are driver handles usable from any thread; the pool is synchronized.
 unsafe impl Send for CudaContext {}
@@ -67,6 +76,12 @@ impl Drop for CudaContext {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
             if let Err(error) = unsafe { sys::cuEventDestroy_v2(event) }.result() {
                 log_error("destroying cached CUDA event", error);
+            }
+        }
+        for buffer in std::mem::take(self.readback_buffers.get_mut()) {
+            // SAFETY: Pooled buffers came from `malloc_host` and no copy writes them anymore.
+            if let Err(error) = unsafe { memory::free_host(buffer) } {
+                log_error("freeing cached pinned readback buffer", error);
             }
         }
         if !self.mem_pool.is_null() {
@@ -151,6 +166,7 @@ impl CudaContext {
             mem_pool,
             primary,
             events: Mutex::new(Vec::new()),
+            readback_buffers: Mutex::new(Vec::new()),
         });
         // On failure, dropping the context releases or destroys it.
         context.bind_to_thread()?;
@@ -351,6 +367,46 @@ impl CudaContext {
     /// Waits already enqueued on it are unaffected by later records.
     pub(crate) fn give_event(&self, event: sys::CUevent) {
         self.events.lock().push(event);
+    }
+
+    /// A pinned host buffer for a device-to-host copy of at most [`ReadbackBuffer::CAPACITY`]
+    /// bytes, from the pool or newly allocated.
+    ///
+    /// A copy into pageable memory returns only once it has completed, so it blocks the calling
+    /// thread until all earlier work on its stream has finished. A copy into pinned memory does
+    /// not, which lets the thread keep submitting work while it waits.
+    pub fn take_readback_buffer(self: &Arc<Self>) -> Result<ReadbackBuffer, DriverError> {
+        let pooled = self.readback_buffers.lock().pop();
+        let pointer = match pooled {
+            Some(pointer) => pointer,
+            None => {
+                self.bind_to_thread()?;
+                // SAFETY: The context is current; the buffer is only written by copies.
+                unsafe { memory::malloc_host(ReadbackBuffer::CAPACITY, 0) }?
+            }
+        };
+        assert!(
+            !pointer.is_null(),
+            "CUDA returned a null pinned readback buffer"
+        );
+        Ok(ReadbackBuffer::new(Arc::clone(self), pointer.cast()))
+    }
+
+    /// Returns a readback buffer to the pool once no copy writes it anymore.
+    pub(crate) fn give_readback_buffer(&self, pointer: *mut c_void) {
+        let mut buffers = self.readback_buffers.lock();
+        if buffers.len() < READBACK_BUFFERS_MAX {
+            buffers.push(pointer);
+            return;
+        }
+        drop(buffers);
+        if let Err(error) = self.bind_to_thread() {
+            log_error("binding context to free a pinned readback buffer", error);
+        }
+        // SAFETY: The buffer came from `malloc_host` and no copy writes it anymore.
+        if let Err(error) = unsafe { memory::free_host(pointer) } {
+            log_error("freeing a pinned readback buffer", error);
+        }
     }
 
     /// The number of events waiting in the pool.

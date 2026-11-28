@@ -43,6 +43,7 @@ pub use memory::DevicePtr;
 pub use memory::DevicePtrMut;
 pub use memory::DeviceSlice;
 pub use memory::HostSlice;
+pub use memory::ReadbackBuffer;
 pub use memory::SyncOnDrop;
 pub use module::CudaFunction;
 pub use module::CudaModule;
