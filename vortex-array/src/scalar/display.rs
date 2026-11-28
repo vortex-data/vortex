@@ -6,21 +6,18 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_error::vortex_panic;
-
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => write!(f, "null"),
             DType::Bool(_) => write!(f, "{}", self.as_bool()),
             DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
             DType::Decimal(..) => write!(f, "{}", self.as_decimal()),
             DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
-            DType::Binary(_) => write!(f, "{}", self.as_binary()),
+            DType::Binary(_) | DType::FixedSizeBinary(..) => write!(f, "{}", self.as_binary()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
             DType::Map(..) => write!(f, "{}", self.as_map()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),

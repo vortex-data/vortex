@@ -54,13 +54,13 @@ impl ScalarValue {
     /// Returns the non-null zero value for `dtype`, or [`None`] if no such value exists.
     pub(super) fn try_zero_value(dtype: &DType) -> Option<Self> {
         Some(match dtype {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => return None,
             DType::Bool(_) => Self::Bool(false),
             DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(ptype)),
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
+            DType::FixedSizeBinary(size, _) => Self::Binary(ByteBuffer::zeroed(*size as usize)),
             DType::List(..) => Self::Tuple(vec![]),
             DType::Map(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
@@ -107,13 +107,13 @@ impl ScalarValue {
         }
 
         let value = match dtype {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => return Some(None),
             DType::Bool(_) => Self::Bool(false),
             DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(ptype)),
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
+            DType::FixedSizeBinary(size, _) => Self::Binary(ByteBuffer::zeroed(*size as usize)),
             DType::List(..) => Self::Tuple(vec![]),
             DType::Map(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {

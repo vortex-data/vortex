@@ -51,6 +51,9 @@ impl Scalar {
             (DType::Primitive(ptype, _), ScalarValue::Primitive(pvalue)) => {
                 pvalue.ptype() == *ptype
             }
+            (DType::FixedSizeBinary(size, _), ScalarValue::Binary(bytes)) => {
+                bytes.len() == *size as usize
+            }
             _ => Self::is_compatible_nested(dtype, value),
         }
     }
@@ -136,7 +139,6 @@ impl Scalar {
 
         // From here onwards, we know that the value is not null.
         match dtype {
-            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => {
                 vortex_bail!("null dtype cannot hold a non-null value {value}");
             }
@@ -166,6 +168,17 @@ impl Scalar {
                 vortex_ensure!(
                     matches!(value, ScalarValue::Binary(_)),
                     "binary dtype expected Binary value, got {value}",
+                );
+            }
+            DType::FixedSizeBinary(size, _) => {
+                let ScalarValue::Binary(bytes) = value else {
+                    vortex_bail!("fixed-size binary dtype expected Binary value, got {value}");
+                };
+
+                vortex_ensure_eq!(
+                    bytes.len(),
+                    *size as usize,
+                    "fixed-size binary scalar has the wrong number of bytes",
                 );
             }
             DType::Decimal(dec_dtype, _) => {

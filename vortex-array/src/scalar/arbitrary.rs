@@ -14,7 +14,6 @@ use arbitrary::Unstructured;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -40,7 +39,6 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     }
 
     Ok(match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Scalar::null(dtype.clone()),
         DType::Bool(_) => Scalar::try_new(dtype.clone(), Some(ScalarValue::Bool(u.arbitrary()?)))
             .vortex_expect("unable to construct random `Scalar`_"),
@@ -64,6 +62,13 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             dtype.clone(),
             Some(ScalarValue::Binary(ByteBuffer::from(
                 u.arbitrary::<Vec<u8>>()?,
+            ))),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::FixedSizeBinary(size, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Binary(ByteBuffer::from(
+                u.bytes(*size as usize)?.to_vec(),
             ))),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
