@@ -23,12 +23,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::WidenArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalType;
-use vortex_array::dtype::PType;
 use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::Stat;
-use vortex_array::stats::StatsProvider;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -106,21 +104,16 @@ fn sum_partial(
     let decimal_dtype = *dtype
         .as_decimal_opt()
         .vortex_expect("the Sum state dtype of a decimal input is a decimal");
-    // An i64 MSP implies decimal precision >= 10, so its sum state is at least i128.
-    // Accumulate flat host values directly in i128 to avoid a second scan on i64 overflow.
-    let total = if msp.dtype().as_ptype() == PType::I64 && msp.is_canonical() && msp.is_host() {
-        msp.statistics().get(Stat::Sum).as_exact()
-    } else {
-        Some(sum(msp, ctx)?)
-    };
-    let value = match total {
-        Some(total) if !total.is_null() => DecimalValue::from(i64::try_from(&total)?),
+    let total = sum(msp, ctx)?;
+    let value = if total.is_null() {
         // A decimal state at i64 width also overflows at this point. Retrying in a wider
         // accumulator could hide that overflow when later values cancel it.
-        _ if decimal_dtype.canonical_values_type() == DecimalType::I64 => {
+        if decimal_dtype.canonical_values_type() == DecimalType::I64 {
             return Ok(Some(Scalar::null(dtype)));
         }
-        _ => DecimalValue::from(sum_msp_i128(msp, ctx)?),
+        DecimalValue::from(sum_msp_i128(msp, ctx)?)
+    } else {
+        DecimalValue::from(i64::try_from(&total)?)
     };
     let partial = if value.fits_in_precision(decimal_dtype) {
         Scalar::try_decimal(value, decimal_dtype, dtype.nullability())?
@@ -131,7 +124,7 @@ fn sum_partial(
     Ok(Some(partial))
 }
 
-/// Sums the stored integers in a wide accumulator without allocating a decimal array.
+/// Retries an overflowing integer sum without allocating a decimal or widening the MSP.
 fn sum_msp_i128(msp: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<i128> {
     let msp = WidenArray::to_stored_integer(msp).execute::<PrimitiveArray>(ctx)?;
     let mask = msp.validity()?.execute_mask(msp.len(), ctx)?;

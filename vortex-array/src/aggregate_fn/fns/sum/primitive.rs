@@ -294,7 +294,15 @@ where
     };
     // for_len uses the next power of two strictly above len, so its bound covers the initial
     // accumulator as well as all len inputs.
-    let initial = (*acc, bound.evidence(*acc));
+    let acc_evidence = bound.evidence(*acc);
+    // If the first row already rules out the bound, start checked addition immediately so an
+    // early overflow doesn't cost a full scan.
+    if !bound.holds(acc_evidence | bound.evidence(values[0].as_()))
+        && valid.is_none_or(|mask| mask.value(0))
+    {
+        return sum_checked(acc, values, valid);
+    }
+    let initial = (*acc, acc_evidence);
     let (sum, evidence) = match valid {
         None => values.iter().fold(initial, |acc, &v| add(acc, v)),
         Some(valid) => values.fold_masked(valid, T::zero(), initial, add),
