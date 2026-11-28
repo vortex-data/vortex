@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.function.Function;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -162,6 +163,26 @@ public final class VortexFooterReader {
         return OptionalLong.of(total);
     }
 
+    static boolean withinFileBudget(int count, VortexOptions options) {
+        int max = options.getInt(MAX_FILES_OPTION, DEFAULT_MAX_FILES);
+        return max <= 0 || count <= max;
+    }
+
+    static OptionalLong sumExactRowCounts(List<VortexFile> files, VortexIo io, VortexOptions options) {
+        if (!withinFileBudget(files.size(), options)) {
+            return OptionalLong.empty();
+        }
+        long total = 0;
+        for (OptionalLong count : mapFooters(files, io, options, source ->
+                source.rowCount() instanceof RowCount.Exact exact ? OptionalLong.of(exact.value()) : OptionalLong.empty())) {
+            if (count.isEmpty() || count.getAsLong() > Long.MAX_VALUE - total) {
+                return OptionalLong.empty();
+            }
+            total += count.getAsLong();
+        }
+        return OptionalLong.of(total);
+    }
+
     /**
      * Merges two schemas of the same dataset.
      *
@@ -268,19 +289,26 @@ public final class VortexFooterReader {
     /** Applies {@code function} to every file's footer in a bounded pool, returning results in listing order. */
     private static <T> List<T> mapFooters(
             List<VortexFile> files, VortexIo io, VortexOptions options, DataSourceFunction<T> function) {
+        return mapInParallel(files, options, file -> withDataSource(file, io, options, function));
+    }
+
+    static <A, T> List<T> mapInParallel(List<A> items, VortexOptions options, Function<A, T> function) {
         int configured = options.getInt(FOOTER_PARALLELISM_OPTION, DEFAULT_FOOTER_PARALLELISM);
         if (configured < 1) {
             throw new IllegalArgumentException(FOOTER_PARALLELISM_OPTION + " must be at least 1, got " + configured);
         }
+        if (items.isEmpty()) {
+            return List.of();
+        }
 
-        ExecutorService executor = Executors.newFixedThreadPool(Math.min(configured, files.size()));
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(configured, items.size()));
         try {
-            List<Future<T>> futures = new ArrayList<>(files.size());
-            for (VortexFile file : files) {
-                futures.add(executor.submit(() -> withDataSource(file, io, options, function)));
+            List<Future<T>> futures = new ArrayList<>(items.size());
+            for (A item : items) {
+                futures.add(executor.submit(() -> function.apply(item)));
             }
 
-            List<T> results = new ArrayList<>(files.size());
+            List<T> results = new ArrayList<>(items.size());
             for (Future<T> future : futures) {
                 results.add(future.get());
             }

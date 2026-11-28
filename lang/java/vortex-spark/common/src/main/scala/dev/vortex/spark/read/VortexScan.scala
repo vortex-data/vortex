@@ -10,12 +10,14 @@ import scala.collection.JavaConverters._
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.FileSourceOptions
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.connector.expressions.aggregate.Aggregation
 import org.apache.spark.sql.connector.read.{PartitionReaderFactory, Statistics}
 import org.apache.spark.sql.execution.datasources.{
   AggregatePushDownUtils,
+  PartitionedFile,
   PartitioningAwareFileIndex
 }
 import org.apache.spark.sql.execution.datasources.v2.FileScan
@@ -83,9 +85,12 @@ final class VortexScan(
           fileOptions,
           executorIo,
           options,
+          dataSchema,
           readDataSchema,
           readPartitionSchema,
-          aggregation
+          aggregation,
+          caseSensitive,
+          exactSums
         )
       case None =>
         new VortexPartitionReaderFactory(
@@ -124,6 +129,56 @@ final class VortexScan(
       override def numRows(): OptionalLong = rows
     }
   }
+
+  private[read] def exactInputRows(): OptionalLong = {
+    val files = fileIndex.listFiles(partitionFilters, Seq.empty).flatMap(_.files)
+      .filter(file => VortexFile.hasVortexExtension(file.getPath.getName))
+      .map(file => new VortexFile(file.getPath.toString, file.getLen))
+    VortexFooterReader.sumExactRowCounts(files.asJava, io, options)
+  }
+
+  /** Whether pushed sums follow ANSI rules, which fail on overflow. */
+  private def exactSums: Boolean = sparkSession.sessionState.conf.ansiEnabled
+
+  /** The final rows of the pushed aggregation, when every file's footer states
+    * its partial exactly, or None. Nothing is computed from data.
+    */
+  private[read] def footerAggregateRows(): Option[Array[InternalRow]] =
+    pushedAggregation.flatMap { aggregation =>
+      val factory = new VortexAggregateReaderFactory(
+        new FileSourceOptions(caseSensitiveOptions),
+        io,
+        options,
+        dataSchema,
+        readDataSchema,
+        readPartitionSchema,
+        aggregation,
+        caseSensitive,
+        exactSums
+      )
+      // An aggregate scan does not split files, so each file is listed once.
+      val files = partitions.flatMap(_.files).asJava
+      if (!VortexFooterReader.withinFileBudget(files.size(), options)) return None
+      val answers = VortexFooterReader
+        .mapInParallel(
+          files,
+          options,
+          (file: PartitionedFile) => factory.footerRows(file)
+        )
+        .asScala
+      if (answers.exists(_.isEmpty)) {
+        None
+      } else {
+        Some(
+          CompleteAggregation.merge(
+            aggregation,
+            readDataSchema,
+            answers.flatMap(_.get.asScala).toSeq,
+            exactSums
+          )
+        )
+      }
+    }
 
   /** The listed files that belong to the dataset. The readers skip the others.
     */
