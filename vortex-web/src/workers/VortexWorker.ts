@@ -42,6 +42,10 @@ export class VortexWorker {
       worker ?? new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent) => {
       const { type, id, data, error } = e.data;
+      if (type === 'fatal') {
+        this.failAllPending(new Error(`Worker error: ${error ?? 'Worker crashed'}`));
+        return;
+      }
       const req = this.pending.get(id);
       if (!req) return;
       this.pending.delete(id);
@@ -55,6 +59,10 @@ export class VortexWorker {
       const detail = e.message || 'Worker crashed';
       this.failAllPending(new Error(`Worker error: ${detail}`));
     };
+  }
+
+  get isClosed(): boolean {
+    return this.closedError !== null;
   }
 
   private failAllPending(err: Error): void {
@@ -75,7 +83,12 @@ export class VortexWorker {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ ...payload, id });
+      try {
+        this.worker.postMessage({ ...payload, id });
+      } catch (err) {
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -123,6 +136,7 @@ export class VortexWorker {
   }
 
   closeFile(): void {
+    if (this.closedError) return;
     this.worker.postMessage({ type: 'close' });
   }
 

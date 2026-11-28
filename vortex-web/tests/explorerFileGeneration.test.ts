@@ -57,15 +57,20 @@ function makeHandle(
 
 type WorkerReply =
   | { type: 'result'; id: number; data: unknown }
-  | { type: 'error'; id: number; error: string };
+  | { type: 'error'; id: number; error: string }
+  | { type: 'fatal'; id?: never; error: string };
 
 const replies: WorkerReply[] = [];
+let closedCount = 0;
 let openHandler: (file: File) => Promise<FakeHandle> = async () => makeHandle('default');
 
 const fakeSelf = {
   onmessage: null as ((e: MessageEvent) => Promise<void>) | null,
   postMessage(msg: WorkerReply) {
     replies.push(msg);
+  },
+  close() {
+    closedCount++;
   },
 };
 
@@ -85,6 +90,7 @@ async function send(data: Record<string, unknown>): Promise<void> {
 afterEach(async () => {
   await send({ type: 'close' });
   replies.length = 0;
+  closedCount = 0;
 });
 
 describe('vortex.worker handle lifecycle', () => {
@@ -181,5 +187,19 @@ describe('vortex.worker handle lifecycle', () => {
 
     await send({ type: 'fetchEncodingTree', id: 4, nodeId: 'layout-0' });
     expect(replies.find((r) => r.id === 4)).toMatchObject({ type: 'error', id: 4 });
+  });
+
+  test('posts fatal and closes worker on WebAssembly.RuntimeError without freeing handle', async () => {
+    const handle = makeHandle('trap');
+    handle.file_structure = () => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    };
+    openHandler = async () => handle;
+
+    await send({ type: 'open', id: 1, file: new File(['bad'], 'trap.vortex') });
+
+    expect(handle.freeCount).toBe(0);
+    expect(closedCount).toBe(1);
+    expect(replies).toEqual([{ type: 'fatal', error: 'RuntimeError: unreachable' }]);
   });
 });

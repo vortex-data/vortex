@@ -31,6 +31,7 @@ describe('VortexWorker request settlement', () => {
   test('rejects all pending requests and future requests on worker error and terminates the worker', async () => {
     const fake = new FakeWorker();
     const client = new VortexWorker(fake);
+    expect(client.isClosed).toBe(false);
 
     const pA = client.fetchEncodingTree('node-a');
     const pB = client.previewData('node-b', 10);
@@ -40,6 +41,7 @@ describe('VortexWorker request settlement', () => {
 
     fake.emitError('WASM unreachable');
     expect(fake.terminated).toBe(true);
+    expect(client.isClosed).toBe(true);
     // Late replies and duplicate errors after terminal failure must be ignored.
     fake.emitMessage({ type: 'result', id: idA, data: {} });
     fake.emitMessage({ type: 'error', id: idB, error: 'late' });
@@ -48,6 +50,50 @@ describe('VortexWorker request settlement', () => {
     await expect(pA).rejects.toThrow('WASM unreachable');
     await expect(pB).rejects.toThrow('WASM unreachable');
     await expect(client.previewData('node-c', 5)).rejects.toThrow('WASM unreachable');
+  });
+
+  test('rejects all pending requests and terminates worker on fatal message', async () => {
+    const fake = new FakeWorker();
+    const client = new VortexWorker(fake);
+
+    const pA = client.fetchEncodingTree('node-a');
+    fake.emitMessage({ type: 'fatal', error: 'RuntimeError: unreachable' });
+
+    expect(fake.terminated).toBe(true);
+    expect(client.isClosed).toBe(true);
+    await expect(pA).rejects.toThrow('Worker error: RuntimeError: unreachable');
+    await expect(client.previewData('node-b', 5)).rejects.toThrow(
+      'Worker error: RuntimeError: unreachable',
+    );
+  });
+
+  test('closeFile posts only while open and is a no-op once closed or terminated', () => {
+    const fake1 = new FakeWorker();
+    const client1 = new VortexWorker(fake1);
+    client1.closeFile();
+    expect(fake1.posted).toEqual([{ type: 'close' }]);
+
+    fake1.emitError('fatal crash');
+    client1.closeFile();
+    expect(fake1.posted).toEqual([{ type: 'close' }]);
+
+    const fake2 = new FakeWorker();
+    const client2 = new VortexWorker(fake2);
+    client2.terminate();
+    expect(client2.isClosed).toBe(true);
+    client2.closeFile();
+    expect(fake2.posted).toEqual([]);
+  });
+
+  test('rejects cleanly if postMessage throws synchronously', async () => {
+    const fake = new FakeWorker();
+    fake.postMessage = () => {
+      throw new Error('Clone failed');
+    };
+    const client = new VortexWorker(fake);
+
+    await expect(client.fetchEncodingTree('node-a')).rejects.toThrow('Clone failed');
+    expect(client.isClosed).toBe(false);
   });
 
   test('rejects all pending requests on terminate and ignores late replies', async () => {

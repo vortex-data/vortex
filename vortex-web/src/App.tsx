@@ -25,51 +25,86 @@ function App() {
   const openGenRef = useRef(0);
   const activeGenRef = useRef(0);
 
-  useEffect(() => {
-    workerRef.current = new VortexWorker();
-    return () => workerRef.current?.terminate();
+  const getWorker = useCallback((): VortexWorker => {
+    const existing = workerRef.current;
+    if (existing && !existing.isClosed) {
+      return existing;
+    }
+    existing?.terminate();
+    const next = new VortexWorker();
+    workerRef.current = next;
+    return next;
   }, []);
 
-  const openFile = useCallback(async (file: File) => {
-    const gen = ++openGenRef.current;
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await workerRef.current!.openFile(file);
-      if (openGenRef.current !== gen) return;
-      activeGenRef.current = gen;
-      setFileGen(gen);
-      setFileState({
-        fileName: file.name,
-        fileSize: file.size,
-        rowCount: result.rowCount,
-        version: result.fileStructure.version,
-        dtype: result.dtype,
-        layoutTree: result.layoutTree,
-        segments: result.segments,
-        fileStructure: result.fileStructure,
-      });
-    } catch (e) {
-      if (openGenRef.current !== gen) return;
-      activeGenRef.current = 0;
-      workerRef.current?.closeFile();
-      setError(e instanceof Error ? e.message : String(e));
-      setFileState(null);
-    } finally {
-      if (openGenRef.current === gen) {
-        setLoading(false);
-      }
+  const withWorker = useCallback(<T,>(fn: (worker: VortexWorker) => Promise<T>): Promise<T> => {
+    const worker = workerRef.current;
+    if (!worker) {
+      return Promise.reject(new Error('Worker is not running'));
     }
+    return fn(worker);
   }, []);
+
+  useEffect(() => {
+    getWorker();
+    return () => {
+      openGenRef.current++;
+      activeGenRef.current = 0;
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+  }, [getWorker]);
+
+  const openFile = useCallback(
+    async (file: File) => {
+      const gen = ++openGenRef.current;
+      setError(null);
+      setLoading(true);
+      let worker: VortexWorker | null = null;
+      try {
+        worker = getWorker();
+        const result = await worker.openFile(file);
+        if (openGenRef.current !== gen) return;
+        activeGenRef.current = gen;
+        setFileGen(gen);
+        setFileState({
+          fileName: file.name,
+          fileSize: file.size,
+          rowCount: result.rowCount,
+          version: result.fileStructure.version,
+          dtype: result.dtype,
+          layoutTree: result.layoutTree,
+          segments: result.segments,
+          fileStructure: result.fileStructure,
+        });
+      } catch (e) {
+        if (worker?.isClosed && workerRef.current === worker) {
+          workerRef.current = null;
+        }
+        if (openGenRef.current !== gen) return;
+        activeGenRef.current = 0;
+        if (worker && !worker.isClosed) {
+          worker.closeFile();
+        }
+        setError(e instanceof Error ? e.message : String(e));
+        setFileState(null);
+      } finally {
+        if (openGenRef.current === gen) {
+          setLoading(false);
+        }
+      }
+    },
+    [getWorker],
+  );
 
   const fetchEncodingTree = useCallback(
-    (nodeId: string) => workerRef.current!.fetchEncodingTree(nodeId),
-    [],
+    (nodeId: string) => withWorker((worker) => worker.fetchEncodingTree(nodeId)),
+    [withWorker],
   );
 
   const previewData = useCallback(
-    (nodeId: string, rowLimit: number) => workerRef.current!.previewData(nodeId, rowLimit),
-    [],
+    (nodeId: string, rowLimit: number) =>
+      withWorker((worker) => worker.previewData(nodeId, rowLimit)),
+    [withWorker],
   );
 
   /** Clone a tree, replacing the node at targetId with a modified version. */
@@ -92,8 +127,9 @@ function App() {
   const expandArrayTree = useCallback(
     async (nodeId: string) => {
       const gen = activeGenRef.current;
+      if (gen === 0) return;
       // Fetch the encoding tree (may be async).
-      const arrayTree = await workerRef.current!.fetchEncodingTree(nodeId);
+      const arrayTree = await withWorker((worker) => worker.fetchEncodingTree(nodeId));
       if (!arrayTree || activeGenRef.current !== gen) return;
 
       setFileState((prev) => {
@@ -111,19 +147,19 @@ function App() {
         return { ...prev, layoutTree: newTree };
       });
     },
-    [cloneTreeWithUpdate],
+    [cloneTreeWithUpdate, withWorker],
   );
 
   const fetchArrayBuffer = useCallback(
     (layoutNodeId: string, arrayPath: string[], bufferIndex: number) =>
-      workerRef.current!.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex),
-    [],
+      withWorker((worker) => worker.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex)),
+    [withWorker],
   );
 
   const previewArrayData = useCallback(
     (layoutNodeId: string, arrayPath: string[], rowLimit: number) =>
-      workerRef.current!.previewArrayData(layoutNodeId, arrayPath, rowLimit),
-    [],
+      withWorker((worker) => worker.previewArrayData(layoutNodeId, arrayPath, rowLimit)),
+    [withWorker],
   );
 
   const fileContextValue = useMemo<VortexFileContextValue | null>(
@@ -154,7 +190,13 @@ function App() {
     setFileState(null);
     setError(null);
     setLoading(false);
-    workerRef.current?.closeFile();
+    const worker = workerRef.current;
+    if (!worker) return;
+    if (worker.isClosed) {
+      workerRef.current = null;
+    } else {
+      worker.closeFile();
+    }
   }, []);
 
   const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
