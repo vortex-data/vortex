@@ -542,7 +542,7 @@ mod tests {
             .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
-        assert_arrays_eq!(fsst_array, host_result, &mut ctx);
+        assert_arrays_eq!(host_result, fsst_array, &mut ctx);
         Ok(())
     }
 
