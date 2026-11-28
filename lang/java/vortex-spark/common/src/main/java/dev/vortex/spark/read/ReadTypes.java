@@ -214,7 +214,7 @@ final class ReadTypes {
     }
 
     /** Whether the file stores {@code read} values as the native scan compares filter literals of that type. */
-    private static boolean literalType(Field file, DataType read) {
+    static boolean literalType(Field file, DataType read) {
         // The scan won't compare an extension type, such as WKB geometry, with literals of the type it exports as.
         if (isExtension(file) || !read.equals(leafType(file))) {
             return false;

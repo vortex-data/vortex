@@ -7,7 +7,10 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.connector.expressions.{
   Expression,
-  NamedReference
+  NamedReference,
+  NullOrdering,
+  SortDirection,
+  SortOrder
 }
 import org.apache.spark.sql.connector.expressions.aggregate.{
   AggregateFunc,
@@ -18,7 +21,14 @@ import org.apache.spark.sql.connector.expressions.aggregate.{
   Min,
   Sum
 }
-import org.apache.spark.sql.connector.read.{Scan, SupportsPushDownAggregates}
+import org.apache.spark.sql.connector.read.{
+  Scan,
+  SupportsPushDownAggregates,
+  SupportsPushDownLimit,
+  SupportsPushDownOffset,
+  SupportsPushDownTableSample,
+  SupportsPushDownTopN
+}
 import org.apache.spark.sql.execution.datasources.{
   AggregatePushDownUtils,
   PartitioningAwareFileIndex
@@ -39,6 +49,26 @@ object VortexScanBuilder {
     */
   val CompleteAggregatePushdownOption = "vortex.completeAggregatePushdown"
 
+  /** Option turning LIMIT pushdown off. */
+  val LimitPushdownOption = "vortex.limitPushdown"
+
+  // Each task retains up to limit sort keys. Larger limits use Spark’s external sort.
+  private[read] val MaxTopNKeys = 65536
+
+  /** Option turning ORDER BY ... LIMIT pushdown off. */
+  val TopNPushdownOption = "vortex.topNPushdown"
+
+  /** Option turning OFFSET pushdown off. */
+  val OffsetPushdownOption = "vortex.offsetPushdown"
+
+  /** Option turning TABLESAMPLE pushdown off. */
+  val SamplePushdownOption = "vortex.samplePushdown"
+
+  /** Option turning off the pushdown of predicates without a V1 form, such as
+    * `LIKE` patterns and comparisons between columns.
+    */
+  val PredicatePushdownOption = "vortex.predicatePushdown"
+
   /** Whether the reader answers MIN and MAX over a data column of `dataType`.
     *
     * Vortex orders these types as Spark does. A collated string orders by its
@@ -55,15 +85,22 @@ object VortexScanBuilder {
     }
 }
 
-/** Builds Vortex file scans with projection, filter, and aggregate pushdown. */
+/** Builds Vortex file scans with projection, nested column, filter, LIMIT,
+  * ORDER BY ... LIMIT, OFFSET, TABLESAMPLE, and aggregate pushdown.
+  *
+  * Builds for later Spark lines extend it with the pushdowns those lines add.
+  */
 class VortexScanBuilder(
     sparkSession: SparkSession,
     fileIndex: PartitioningAwareFileIndex,
-    schema: StructType,
     dataSchema: StructType,
     options: VortexOptions
 ) extends FileScanBuilder(sparkSession, fileIndex, dataSchema)
-    with SupportsPushDownAggregates {
+    with SupportsPushDownAggregates
+    with SupportsPushDownLimit
+    with SupportsPushDownOffset
+    with SupportsPushDownTableSample
+    with SupportsPushDownTopN {
 
   private val partitionSchema = fileIndex.partitionSchema
   private val caseSensitive =
@@ -75,14 +112,119 @@ class VortexScanBuilder(
   /** The last aggregation asked about, and its final rows from the footers. */
   private var footerAnswer =
     Option.empty[(Aggregation, Option[Array[InternalRow]])]
+  private var pushedLimit = Option.empty[Int]
+  private var pushedTopN = Option.empty[VortexTopN]
+  private var pushedSample = Option.empty[VortexSample]
+  private var pushedOffset = Option.empty[Int]
+
+  /** For each top-level variant column with pushed extractions, the struct of
+    * the values extracted from it.
+    */
+  protected var variantColumns = Map.empty[String, StructType]
+
+  /** Whether an aggregate is pushed, which leaves no rows to extract from. */
+  protected def aggregationPushed: Boolean = pushedAggregation.nonEmpty
+
   override protected def pushDataFilters(
       filters: Array[Filter]
   ): Array[Filter] =
     filters.filter(SparkFilterToVortexExpression.isPushable(_, dataSchema))
 
+  override def pushLimit(limit: Int): Boolean = {
+    // Spark only offers a LIMIT that no filter above the scan has to see first, and keeps applying it itself, so
+    // each file can stop reading after `limit` rows.
+    if (
+      limit <= 0 || dataFilters.nonEmpty || pushedDataFilters.nonEmpty || !options.getBoolean(
+        VortexScanBuilder.LimitPushdownOption,
+        true
+      )
+    ) {
+      return false
+    }
+    pushedLimit = Some(limit)
+    true
+  }
+
+  override def pushOffset(offset: Int): Boolean = {
+    // Spark drops its own OFFSET once pushed, so the scan must skip exactly `offset` rows. Footer row counts say
+    // which rows those are, unless a sample, an aggregate, or a top-N changes the rows the scan returns.
+    if (
+      offset <= 0 || dataFilters.nonEmpty || pushedDataFilters.nonEmpty || pushedSample.nonEmpty || pushedAggregation.nonEmpty ||
+      pushedTopN.nonEmpty || !options.getBoolean(
+        VortexScanBuilder.OffsetPushdownOption,
+        true
+      )
+    ) {
+      return false
+    }
+    pushedOffset = Some(offset)
+    true
+  }
+
+  override def pushTableSample(
+      lowerBound: Double,
+      upperBound: Double,
+      withReplacement: Boolean,
+      seed: Long
+  ): Boolean =
+    pushSample(lowerBound, upperBound, withReplacement, seed, blocks = false)
+
+  /** Pushes a sample of rows, or with `blocks` of whole chunks of rows. */
+  protected def pushSample(
+      lowerBound: Double,
+      upperBound: Double,
+      withReplacement: Boolean,
+      seed: Long,
+      blocks: Boolean
+  ): Boolean = {
+    // A sample with replacement repeats rows, which a row selection cannot express.
+    if (
+      withReplacement || pushedAggregation.nonEmpty || pushedOffset.nonEmpty || pushedTopN.nonEmpty || !options.getBoolean(
+        VortexScanBuilder.SamplePushdownOption,
+        true
+      )
+    ) {
+      return false
+    }
+    pushedSample = Some(new VortexSample(lowerBound, upperBound, seed, blocks))
+    true
+  }
+
+  // Both a LIMIT and a top-N bound each reader's work only, so Spark always applies them again.
+  override def isPartiallyPushed(): Boolean = true
+
+  override def pushTopN(orders: Array[SortOrder], limit: Int): Boolean = {
+    // Spark keeps sorting and limiting what the scan returns, so readers only drop rows that cannot reach the
+    // result. That needs the first sort key to be a data column whose values Vortex orders as Spark does.
+    if (
+      limit <= 0 || limit > VortexScanBuilder.MaxTopNKeys || orders.isEmpty || pushedAggregation.nonEmpty ||
+      pushedSample.nonEmpty || dataFilters.nonEmpty || pushedDataFilters.nonEmpty ||
+      !options.getBoolean(VortexScanBuilder.TopNPushdownOption, true)
+    ) {
+      return false
+    }
+    val first = orders.head
+    val pushed = columnName(first.expression())
+      .filter(findField(partitionSchema, _).isEmpty)
+      .flatMap(findField(dataSchema, _))
+      .filter(field => TopNThreshold.supports(field.dataType))
+      .map { field =>
+        new VortexTopN(
+          field.name,
+          first.direction() == SortDirection.DESCENDING,
+          first.nullOrdering() == NullOrdering.NULLS_FIRST,
+          orders.length == 1,
+          limit,
+          null
+        )
+      }
+    pushedTopN = pushed
+    pushed.nonEmpty
+  }
+
   override def pushAggregation(aggregation: Aggregation): Boolean = {
     // Footer statistics describe every row, not a sample of them.
-    if (!aggregatePushdownEnabled) {
+    if (!aggregatePushdownEnabled || pushedSample.nonEmpty) {
       return false
     }
     pushedAggregationSchema(aggregation) match {
@@ -118,7 +260,7 @@ class VortexScanBuilder(
       case _ =>
         val rows =
           if (
-            !aggregatePushdownEnabled || !options
+            !aggregatePushdownEnabled || pushedSample.nonEmpty || !options
               .getBoolean(
                 VortexScanBuilder.CompleteAggregatePushdownOption,
                 true
@@ -162,7 +304,7 @@ class VortexScanBuilder(
       schema: StructType,
       aggregation: Option[Aggregation]
   ): VortexScan =
-    new VortexScan(
+    newScan(
       sparkSession,
       fileIndex,
       dataSchema,
@@ -171,6 +313,12 @@ class VortexScanBuilder(
       options,
       pushedDataFilters,
       aggregation,
+      if (aggregation.isEmpty) pushedLimit else None,
+      if (aggregation.isEmpty) pushedTopN else None,
+      pushedSample,
+      catalystPredicates,
+      pushedOffset,
+      if (aggregation.isEmpty) variantColumns else Map.empty,
       partitionFilters,
       dataFilters
     )
@@ -192,6 +340,65 @@ class VortexScanBuilder(
       }
     })
   }
+
+  /** Creates the scan. A later Spark line returns a scan extended with what it
+    * adds.
+    */
+  protected def newScan(
+      sparkSession: SparkSession,
+      fileIndex: PartitioningAwareFileIndex,
+      dataSchema: StructType,
+      readDataSchema: StructType,
+      readPartitionSchema: StructType,
+      options: VortexOptions,
+      pushedFilters: Array[Filter],
+      pushedAggregation: Option[Aggregation],
+      pushedLimit: Option[Int],
+      pushedTopN: Option[VortexTopN],
+      pushedSample: Option[VortexSample],
+      pushedCatalystPredicates: Seq[
+        org.apache.spark.sql.catalyst.expressions.Expression
+      ],
+      pushedOffset: Option[Int],
+      variantColumns: Map[String, StructType],
+      partitionFilters: Seq[
+        org.apache.spark.sql.catalyst.expressions.Expression
+      ],
+      dataFilters: Seq[org.apache.spark.sql.catalyst.expressions.Expression]
+  ): VortexScan =
+    new VortexScan(
+      sparkSession,
+      fileIndex,
+      dataSchema,
+      readDataSchema,
+      readPartitionSchema,
+      options,
+      pushedFilters,
+      pushedAggregation,
+      pushedLimit,
+      pushedTopN,
+      pushedSample,
+      pushedCatalystPredicates,
+      pushedOffset,
+      variantColumns,
+      partitionFilters,
+      dataFilters
+    )
+
+  /** Data filters without a V1 form, such as `LIKE` patterns and comparisons
+    * between columns, that the reader still converts natively.
+    */
+  private def catalystPredicates: Seq[
+    org.apache.spark.sql.catalyst.expressions.Expression
+  ] =
+    if (!options.getBoolean(VortexScanBuilder.PredicatePushdownOption, true)) {
+      Seq.empty
+    } else {
+      dataFilters.filter(filter =>
+        !CatalystPredicates.hasV1Form(filter) &&
+          CatalystPredicates.isPushable(filter, dataSchema)
+      )
+    }
 
   /** Escape hatch matching `spark.sql.parquet.aggregatePushdown`, for when a
     * footer statistic must not be trusted.

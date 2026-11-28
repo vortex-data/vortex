@@ -3,10 +3,10 @@
 
 package dev.vortex.spark.read;
 
-import dev.vortex.api.Expression;
 import dev.vortex.api.Expression.BinaryOp;
 import dev.vortex.api.Expression.FloatOrder;
 import dev.vortex.api.Expression.TimeUnit;
+import dev.vortex.api.Expression;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Date;
@@ -18,6 +18,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.apache.spark.sql.sources.AlwaysFalse;
@@ -42,6 +43,7 @@ import org.apache.spark.sql.types.BinaryType;
 import org.apache.spark.sql.types.BooleanType;
 import org.apache.spark.sql.types.ByteType;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DateType;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.DecimalType;
@@ -50,7 +52,6 @@ import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.sql.types.IntegerType;
 import org.apache.spark.sql.types.LongType;
 import org.apache.spark.sql.types.ShortType;
-import org.apache.spark.sql.types.StringType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.types.TimestampNTZType;
@@ -163,6 +164,11 @@ public final class SparkFilterToVortexExpression {
         DataType dataType = column.get().dataType();
         Expression field = column.get().expression();
 
+        Optional<Expression> bulk = bulkIn(field, dataType, in.values());
+        if (bulk.isPresent()) {
+            return bulk;
+        }
+
         List<Expression> elements = new ArrayList<>(in.values().length);
         boolean holdsNull = false;
         for (Object value : in.values()) {
@@ -220,7 +226,7 @@ public final class SparkFilterToVortexExpression {
             boolean leadingWildcard,
             boolean trailingWildcard) {
         Optional<ResolvedColumn> column = resolveColumn(filter, attribute, dataSchema);
-        if (column.isEmpty() || !(column.get().dataType() instanceof StringType)) {
+        if (column.isEmpty() || !DataTypes.StringType.equals(column.get().dataType())) {
             return Optional.empty();
         }
         return Optional.of(Expression.like(
@@ -281,7 +287,11 @@ public final class SparkFilterToVortexExpression {
         return null;
     }
 
-    private static Optional<Expression> literal(Object value, DataType dataType) {
+    /**
+     * The Vortex literal of {@code value} as a value of the Spark type {@code dataType}, or a typed null for a null
+     * {@code value}. Accepts external Java values and Catalyst's internal ones alike.
+     */
+    static Optional<Expression> literal(Object value, DataType dataType) {
         if (dataType instanceof BooleanType) {
             return value == null
                     ? Optional.of(Expression.nullLiteralBool())
@@ -308,7 +318,7 @@ public final class SparkFilterToVortexExpression {
         if (dataType instanceof DoubleType) {
             return numericLiteral(value, Expression.DType.F64, number -> Expression.literal(number.doubleValue()));
         }
-        if (dataType instanceof StringType) {
+        if (DataTypes.StringType.equals(dataType)) {
             if (value == null) {
                 return Optional.of(Expression.nullLiteral(Expression.DType.UTF8));
             }
@@ -364,6 +374,56 @@ public final class SparkFilterToVortexExpression {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * The IN test of {@code values} on an integer or string column, built in one native call. A runtime join filter
+     * holds thousands of values, and each task converts it, so a Java expression per value costs much more than the
+     * scan reads. Other types, and lists with fewer than two values, use the general path.
+     */
+    private static Optional<Expression> bulkIn(Expression field, DataType dataType, Object[] values) {
+        if (values.length < 2) {
+            return Optional.empty();
+        }
+
+        boolean integral = dataType instanceof ByteType
+                || dataType instanceof ShortType
+                || dataType instanceof IntegerType
+                || dataType instanceof LongType;
+        if (!integral && !DataTypes.StringType.equals(dataType)) {
+            return Optional.empty();
+        }
+
+        long[] longs = integral ? new long[values.length] : null;
+        String[] strings = integral ? null : new String[values.length];
+        int count = 0;
+        boolean holdsNull = false;
+        for (Object value : values) {
+            if (value == null) {
+                holdsNull = true;
+            } else if (integral
+                    && (value instanceof Byte
+                            || value instanceof Short
+                            || value instanceof Integer
+                            || value instanceof Long)) {
+                longs[count++] = ((Number) value).longValue();
+            } else if (!integral && (value instanceof CharSequence || value instanceof UTF8String)) {
+                strings[count++] = value.toString();
+            } else {
+                return Optional.empty();
+            }
+        }
+
+        Optional<Expression> elementType = literal(null, dataType);
+        if (count == 0 || elementType.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // A null element keeps SQL's three-valued IN, so a non-match beneath NOT stays null rather than true.
+        Expression list = integral
+                ? Expression.literalLongList(elementType.get(), holdsNull, Arrays.copyOf(longs, count))
+                : Expression.literalStringList(elementType.get(), holdsNull, Arrays.copyOf(strings, count));
+        return Optional.of(Expression.in(field, list));
     }
 
     private static Optional<Expression> numericLiteral(

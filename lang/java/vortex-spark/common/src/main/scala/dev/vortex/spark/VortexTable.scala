@@ -41,7 +41,6 @@ final class VortexTable(
     new VortexScanBuilder(
       sparkSession,
       fileIndex,
-      schema,
       dataSchema,
       VortexOptions.of(mergeOptions(operationOptions).asCaseSensitiveMap)
     )

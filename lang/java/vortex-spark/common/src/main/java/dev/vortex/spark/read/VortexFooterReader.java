@@ -3,11 +3,17 @@
 
 package dev.vortex.spark.read;
 
-import dev.vortex.api.DataSource;
 import dev.vortex.api.DataSource.RowCount;
+import dev.vortex.api.DataSource;
+import dev.vortex.api.FileAggregate;
+import dev.vortex.api.FileAggregateResult;
 import dev.vortex.api.Session;
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.io.NativeReadable;
+import dev.vortex.jni.NativeFiles;
+import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
+import dev.vortex.relocated.org.apache.arrow.vector.BigIntVector;
+import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import dev.vortex.spark.ArrowUtils;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
@@ -21,19 +27,31 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.function.Function;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.Function;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.spark.sql.types.ArrayType;
+import org.apache.spark.sql.types.BooleanType;
+import org.apache.spark.sql.types.ByteType;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.DecimalType;
+import org.apache.spark.sql.types.DoubleType;
+import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.sql.types.IntegerType;
+import org.apache.spark.sql.types.LongType;
 import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.ShortType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.TimestampNTZType;
+import org.apache.spark.sql.types.TimestampType;
 
 /** Reads schema and row-count metadata from Vortex file footers. */
 public final class VortexFooterReader {
@@ -137,6 +155,33 @@ public final class VortexFooterReader {
     }
 
     /**
+     * Returns every file's exact footer row count, in listing order, read in a bounded pool.
+     *
+     * @throws IllegalStateException if a footer states no exact row count
+     */
+    public static List<Long> exactRowCounts(List<VortexFile> files, VortexIo io, VortexOptions options) {
+        if (files.isEmpty()) {
+            return List.of();
+        }
+        List<Long> counts = new ArrayList<>(files.size());
+        List<OptionalLong> exact = mapFooters(
+                files,
+                io,
+                options,
+                source -> source.rowCount() instanceof RowCount.Exact count
+                        ? OptionalLong.of(count.value())
+                        : OptionalLong.empty());
+        for (int i = 0; i < exact.size(); i++) {
+            if (exact.get(i).isEmpty()) {
+                throw new IllegalStateException("Vortex footer states no exact row count for "
+                        + files.get(i).path());
+            }
+            counts.add(exact.get(i).getAsLong());
+        }
+        return counts;
+    }
+
+    /**
      * Sums footer row counts in a bounded pool.
      *
      * <p>Returns empty if any footer has no count at all, or if the dataset holds more files than
@@ -181,6 +226,106 @@ public final class VortexFooterReader {
             total += count.getAsLong();
         }
         return OptionalLong.of(total);
+    }
+
+    /**
+     * A starting threshold for an {@code ORDER BY column ... LIMIT limit} from footer statistics alone, or empty.
+     *
+     * <p>A file holding at least {@code limit} non-null values of {@code column} proves that the result's last value is
+     * at least that file's minimum when sorting descending, or at most its maximum when ascending. The best such bound
+     * over every file lets each reader skip files and chunks before it has read a row. Rows equal to the bound may
+     * still belong to the result. Like {@link #sumRowCounts}, this reads nothing for more than
+     * {@value #MAX_FILES_OPTION} files.
+     */
+    public static Optional<Object> topNSeed(
+            List<VortexFile> files,
+            VortexIo io,
+            VortexOptions options,
+            StructField column,
+            boolean descending,
+            int limit,
+            boolean caseSensitive) {
+        int maxFiles = options.getInt(MAX_FILES_OPTION, DEFAULT_MAX_FILES);
+        if (files.isEmpty() || (maxFiles > 0 && files.size() > maxFiles)) {
+            return Optional.empty();
+        }
+
+        List<Optional<Object>> bounds =
+                mapFiles(files, io, options, footer -> fileTopNBound(footer, column, descending, limit, caseSensitive));
+        Comparable<Object> best = null;
+        for (Optional<Object> bound : bounds) {
+            if (bound.isEmpty()) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Comparable<Object> candidate = (Comparable<Object>) bound.get();
+            if (best == null || (descending ? candidate.compareTo(best) > 0 : candidate.compareTo(best) < 0)) {
+                best = candidate;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private static Optional<Object> fileTopNBound(
+            OpenFooter footer, StructField column, boolean descending, int limit, boolean caseSensitive) {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        String physical = null;
+        for (Field field : footer.source().arrowSchema(allocator).getFields()) {
+            if ((caseSensitive ? field.getName().equals(column.name()) : field.getName().equalsIgnoreCase(column.name()))
+                    && ReadTypes.literalType(field, column.dataType())) {
+                physical = field.getName();
+                break;
+            }
+        }
+        if (physical == null) {
+            return Optional.empty();
+        }
+
+        List<FileAggregate> requests = List.of(
+                FileAggregate.count(physical), descending ? FileAggregate.min(physical) : FileAggregate.max(physical));
+        try (FileAggregateResult result =
+                NativeFiles.aggregate(footer.session(), footer.readable(), requests, false, allocator)) {
+            if (!result.answered(0) || ((BigIntVector) result.vector(0)).get(0) < limit) {
+                return Optional.empty();
+            }
+            return catalystValue(result, 1).filter(value -> value != NO_VALUES);
+        }
+    }
+
+    /** Marks the extrema of a file without values in a column, which leave the dataset's extrema as they are. */
+    private static final Object NO_VALUES = new Object();
+
+    /** The one value of aggregate {@code index} in its Catalyst form, or empty when it was left unanswered. */
+    private static Optional<Object> catalystValue(FileAggregateResult result, int index) {
+        if (!result.answered(index)) {
+            return Optional.empty();
+        }
+        VortexArrowColumnVector vector = new VortexArrowColumnVector(result.vector(index));
+        if (vector.isNullAt(0)) {
+            return Optional.of(NO_VALUES);
+        }
+        DataType type = vector.dataType();
+        Object value;
+        if (type instanceof BooleanType) {
+            value = vector.getBoolean(0);
+        } else if (type instanceof ByteType) {
+            value = vector.getByte(0);
+        } else if (type instanceof ShortType) {
+            value = vector.getShort(0);
+        } else if (type instanceof IntegerType || type instanceof DateType) {
+            value = vector.getInt(0);
+        } else if (type instanceof LongType || type instanceof TimestampType || type instanceof TimestampNTZType) {
+            value = vector.getLong(0);
+        } else if (type instanceof FloatType) {
+            value = vector.getFloat(0);
+        } else if (type instanceof DoubleType) {
+            value = vector.getDouble(0);
+        } else if (type instanceof DecimalType decimal) {
+            value = vector.getDecimal(0, decimal.precision(), decimal.scale());
+        } else {
+            return Optional.empty();
+        }
+        return Optional.of(value);
     }
 
     /**
@@ -289,9 +434,19 @@ public final class VortexFooterReader {
     /** Applies {@code function} to every file's footer in a bounded pool, returning results in listing order. */
     private static <T> List<T> mapFooters(
             List<VortexFile> files, VortexIo io, VortexOptions options, DataSourceFunction<T> function) {
-        return mapInParallel(files, options, file -> withDataSource(file, io, options, function));
+        return mapFiles(files, io, options, footer -> function.apply(footer.source()));
     }
 
+    /** Applies {@code function} to every open file in a bounded pool, returning results in listing order. */
+    private static <T> List<T> mapFiles(
+            List<VortexFile> files, VortexIo io, VortexOptions options, FooterFunction<T> function) {
+        return mapInParallel(files, options, file -> withFooter(file, io, options, function));
+    }
+
+    /**
+     * Applies {@code function} to every item in a pool bounded by {@value #FOOTER_PARALLELISM_OPTION}, returning
+     * results in the order of {@code items}.
+     */
     static <A, T> List<T> mapInParallel(List<A> items, VortexOptions options, Function<A, T> function) {
         int configured = options.getInt(FOOTER_PARALLELISM_OPTION, DEFAULT_FOOTER_PARALLELISM);
         if (configured < 1) {
@@ -332,10 +487,14 @@ public final class VortexFooterReader {
 
     private static <T> T withDataSource(
             VortexFile file, VortexIo io, VortexOptions options, DataSourceFunction<T> function) {
+        return withFooter(file, io, options, footer -> function.apply(footer.source()));
+    }
+
+    private static <T> T withFooter(VortexFile file, VortexIo io, VortexOptions options, FooterFunction<T> function) {
         Session session = VortexSparkSession.get(options);
         try (NativeReadable readable = io.openReadable(file);
                 DataSource source = DataSource.open(session, List.of(readable), io.readConcurrency())) {
-            return function.apply(source);
+            return function.apply(new OpenFooter(session, readable, source));
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to close footer readable for " + file.path(), e);
         }
@@ -344,5 +503,13 @@ public final class VortexFooterReader {
     @FunctionalInterface
     private interface DataSourceFunction<T> {
         T apply(DataSource source);
+    }
+
+    /** A file whose footer is open, with the readable it was opened through. */
+    private record OpenFooter(Session session, NativeReadable readable, DataSource source) {}
+
+    @FunctionalInterface
+    private interface FooterFunction<T> {
+        T apply(OpenFooter footer);
     }
 }

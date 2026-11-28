@@ -6,20 +6,15 @@ package dev.vortex.spark.read
 import java.util.OptionalLong
 
 import scala.collection.JavaConverters._
-
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.FileSourceOptions
+import org.apache.spark.sql.catalyst.{FileSourceOptions, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.connector.expressions.aggregate.Aggregation
-import org.apache.spark.sql.connector.read.{PartitionReaderFactory, Statistics}
-import org.apache.spark.sql.execution.datasources.{
-  AggregatePushDownUtils,
-  PartitionedFile,
-  PartitioningAwareFileIndex
-}
+import org.apache.spark.sql.connector.metric.CustomMetric
+import org.apache.spark.sql.connector.read.{PartitionReaderFactory, Scan, Statistics}
+import org.apache.spark.sql.execution.datasources.{AggregatePushDownUtils, FilePartition, PartitionedFile, PartitioningAwareFileIndex}
 import org.apache.spark.sql.execution.datasources.v2.FileScan
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.StructType
@@ -32,7 +27,7 @@ object VortexScan {
   /** Option turning footer-backed row-count statistics off. */
   val RowCountStatisticsOption = "vortex.stats.rowCount"
 
-  /** Option turning splitting of large files into row ranges off. */
+  /** Option turning file splitting off, so each file is read by one task. */
   val SplitFilesOption = "vortex.splitFiles"
 
   /** Whether Spark may split `path` into byte ranges, which the reader maps to
@@ -41,10 +36,11 @@ object VortexScan {
   def isSplitable(options: VortexOptions, path: Path): Boolean =
     options.getBoolean(SplitFilesOption, true) &&
       VortexFile.hasVortexExtension(path.getName)
+
 }
 
-/** A Vortex scan planned by Spark's file source framework. */
-final class VortexScan(
+/** A Vortex scan planned by Spark’s file source. */
+class VortexScan(
     override val sparkSession: SparkSession,
     override val fileIndex: PartitioningAwareFileIndex,
     override val dataSchema: StructType,
@@ -53,9 +49,16 @@ final class VortexScan(
     val options: VortexOptions,
     val pushedFilters: Array[Filter],
     val pushedAggregation: Option[Aggregation],
+    val pushedLimit: Option[Int],
+    val pushedTopN: Option[VortexTopN],
+    val pushedSample: Option[VortexSample],
+    val pushedCatalystPredicates: Seq[Expression],
+    val pushedOffset: Option[Int],
+    val variantColumns: Map[String, StructType],
     override val partitionFilters: Seq[Expression],
     override val dataFilters: Seq[Expression]
 ) extends FileScan {
+  import VortexScan._
 
   private val caseSensitiveOptions = options.asCaseSensitiveMap.asScala.toMap
   private val hadoopConf =
@@ -70,12 +73,50 @@ final class VortexScan(
   private val caseSensitive =
     sparkSession.sessionState.conf.caseSensitiveAnalysis
 
-  // A pushed COUNT(*) reads only the footer, so splitting would just open it once per split.
+  override def supportedCustomMetrics(): Array[CustomMetric] =
+    VortexScanMetrics.supported()
+
+  // Every Vortex reader is columnar, so Spark need not plan the input
+  // partitions to ask each one.
+  override def columnarSupportMode(): Scan.ColumnarSupportMode =
+    Scan.ColumnarSupportMode.SUPPORTED
+
   override def isSplitable(path: Path): Boolean =
-    pushedAggregation.isEmpty && VortexScan.isSplitable(options, path)
+    // An aggregate row stands for a whole file, so a pushed aggregate reads each file in one piece, and an offset
+    // skips rows of whole files.
+    pushedAggregation.isEmpty && pushedOffset.isEmpty &&
+      VortexScan.isSplitable(options, path)
+
+  override def getFileUnSplittableReason(path: Path): String =
+    if (pushedAggregation.nonEmpty) {
+      "a pushed aggregate is answered once per file"
+    } else if (pushedOffset.nonEmpty) {
+      "a pushed offset skips rows of whole files"
+    } else if (!VortexFile.hasVortexExtension(path.getName)) {
+      "the file has no Vortex extension"
+    } else {
+      s"the $SplitFilesOption option is false"
+    }
 
   override def readSchema(): StructType =
-    if (pushedAggregation.nonEmpty) readDataSchema else super.readSchema()
+    if (pushedAggregation.nonEmpty) readDataSchema
+    else
+      StructType(effectiveReadDataSchema.fields ++ readPartitionSchema.fields)
+
+  /** The data columns the readers return: variant columns with pushed
+    * extractions become the struct of the values extracted from them.
+    */
+  private lazy val effectiveReadDataSchema: StructType =
+    if (variantColumns.isEmpty) {
+      readDataSchema
+    } else {
+      StructType(readDataSchema.fields.map { field =>
+        variantColumns
+          .get(field.name)
+          .map(extracted => field.copy(dataType = extracted))
+          .getOrElse(field)
+      })
+    }
 
   override def createReaderFactory(): PartitionReaderFactory = {
     val fileOptions = new FileSourceOptions(caseSensitiveOptions)
@@ -98,11 +139,86 @@ final class VortexScan(
           executorIo,
           options,
           dataSchema,
-          readDataSchema,
+          effectiveReadDataSchema,
           readPartitionSchema,
           pushedFilters,
-          caseSensitive
+          caseSensitive,
+          pushedLimit.map(_.toLong).getOrElse(0L),
+          seededTopN.orNull,
+          pushedSample.orNull,
+          pushedCatalystPredicates.toArray,
+          offsetPlan.firstRows.asJava,
+          false
         )
+    }
+  }
+
+  /** The pushed top-N, starting from the best bound the footers prove, so
+    * readers skip files before reading a row.
+    */
+  private lazy val seededTopN: Option[VortexTopN] = pushedTopN.map { topN =>
+    val files = vortexFiles
+      .map(file => new VortexFile(file.toPath.toString, file.fileSize))
+      .asJava
+    val seed = VortexFooterReader.topNSeed(
+      files,
+      io,
+      options,
+      dataSchema(topN.column),
+      topN.descending,
+      topN.limit,
+      caseSensitive
+    )
+    topN.withSeed(seed.orElse(null))
+  }
+
+  /** Which files a pushed offset skips whole, and where it ends in the next. */
+  private case class OffsetPlan(
+      skippedFiles: Set[String],
+      firstRows: Map[String, java.lang.Long]
+  )
+
+  /** The offset skips rows in the order the files are planned. Without an ORDER
+    * BY, Spark leaves the rows an offset skips unspecified, and footer row
+    * counts let whole files go unread.
+    */
+  private lazy val offsetPlan: OffsetPlan = pushedOffset match {
+    case None         => OffsetPlan(Set.empty, Map.empty)
+    case Some(offset) =>
+      val files = super.partitions
+        .flatMap(_.files)
+        .filter(file => VortexFile.hasVortexExtension(file.toPath.getName))
+      val counts = VortexFooterReader
+        .exactRowCounts(
+          files
+            .map(file => new VortexFile(file.toPath.toString, file.fileSize))
+            .asJava,
+          io,
+          options
+        )
+        .asScala
+      var remaining = offset.toLong
+      val skipped = Set.newBuilder[String]
+      val firstRows = Map.newBuilder[String, java.lang.Long]
+      files.zip(counts).foreach { case (file, count) =>
+        val path = file.toPath.toString
+        if (remaining >= count) {
+          skipped += path
+          remaining -= count
+        } else if (remaining > 0) {
+          firstRows += path -> java.lang.Long.valueOf(remaining)
+          remaining = 0
+        }
+      }
+      OffsetPlan(skipped.result(), firstRows.result())
+  }
+
+  override protected def partitions: Seq[FilePartition] = {
+    val skipped = offsetPlan.skippedFiles
+    if (skipped.isEmpty) super.partitions
+    else super.partitions.flatMap { partition =>
+      val remaining = partition.files.filterNot(file => skipped.contains(file.toPath.toString))
+      if (remaining.isEmpty) None else Some(FilePartition(partition.index, remaining))
     }
   }
 
@@ -203,7 +319,13 @@ final class VortexScan(
         scan
       ) && dataSchema == scan.dataSchema && options == scan.options &&
       caseSensitive == scan.caseSensitive &&
-      equivalentFilters(pushedFilters, scan.pushedFilters) && aggregationsEqual
+      equivalentFilters(pushedFilters, scan.pushedFilters) &&
+      aggregationsEqual && pushedLimit == scan.pushedLimit &&
+      pushedTopN == scan.pushedTopN && pushedSample == scan.pushedSample &&
+      variantColumns == scan.variantColumns &&
+      pushedCatalystPredicates.map(_.canonicalized) ==
+        scan.pushedCatalystPredicates.map(_.canonicalized) &&
+        pushedOffset == scan.pushedOffset
     case _ => false
   }
 
@@ -218,8 +340,29 @@ final class VortexScan(
       .getOrElse("[]")
     super.getMetaData() ++ Map(
       "PushedFilters" -> seqToString(pushedFilters.toSeq),
+      "PushedPredicates" -> seqToString(pushedCatalystPredicates),
       "PushedAggregation" -> aggregation,
       "PushedGroupBy" -> groupBy
-    )
+    ) ++ pushedLimit.map(limit => "PushedLimit" -> s"LIMIT $limit") ++
+      pushedOffset.map(offset => "PushedOffset" -> s"OFFSET $offset") ++
+      (if (variantColumns.isEmpty) None
+       else
+         Some(
+           "PushedVariants" -> variantColumns.toSeq
+             .sortBy(_._1)
+             .map { case (column, extracted) =>
+               s"$column: ${extracted.catalogString}"
+             }
+             .mkString("[", ", ", "]")
+         )) ++
+      pushedTopN.map { topN =>
+        val direction = if (topN.descending) "DESC" else "ASC"
+        val nulls = if (topN.nullsFirst) "NULLS FIRST" else "NULLS LAST"
+        "PushedTopN" -> s"ORDER BY ${topN.column} $direction $nulls LIMIT ${topN.limit}"
+      } ++
+      pushedSample.map { sample =>
+        val method = if (sample.blocks) "SYSTEM " else ""
+        "PushedSample" -> s"SAMPLE $method[${sample.lowerBound}, ${sample.upperBound}) SEED ${sample.seed}"
+      }
   }
 }
