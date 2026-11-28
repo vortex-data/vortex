@@ -23,6 +23,7 @@ use crate::assert_arrays_eq;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
@@ -46,7 +47,8 @@ fn runend_array() -> VortexResult<ArrayRef> {
 fn trace_compare_on_runend() -> VortexResult<()> {
     let runend = runend_array()?;
     let rhs = ConstantArray::new(Scalar::from(2i32), runend.len()).into_array();
-    let compared = Compare::try_new(runend, rhs, CompareOperator::Eq)?.into_array();
+    let compared =
+        Compare::try_new(runend, rhs, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?.into_array();
 
     let traced = trace_op(|| compared.optimize_ctx(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"

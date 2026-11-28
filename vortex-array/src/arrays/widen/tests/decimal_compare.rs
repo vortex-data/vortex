@@ -31,6 +31,7 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::compare::CompareKernel;
 use crate::scalar_fn::builtin::fill_null::FillNullReduce;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Returns a `Widen` of the `parent` dtype over `values`, with the nullability of `values`.
@@ -107,7 +108,7 @@ fn test_compare_constant(
     let constant = ConstantArray::new(constant, array.len()).into_array();
 
     let compared = array
-        .compare(constant.clone(), operator)?
+        .compare(constant.clone(), operator, CompareMode::TOTAL_ORDER)?
         .execute::<ArrayRef>(&mut ctx)?;
     assert_eq!(compared.dtype(), &DType::Bool(Nullability::Nullable));
     assert_eq!(compared.len(), array.len());

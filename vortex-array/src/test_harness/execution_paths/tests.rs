@@ -24,6 +24,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -69,7 +70,13 @@ fn test_binary_paths() {
             buffer![1i32, 3, 2].into_array(),
             buffer![2i32, 1, 2].into_array(),
         ],
-        |inputs| inputs[0].compare(inputs[1].clone(), CompareOperator::Lt),
+        |inputs| {
+            inputs[0].compare(
+                inputs[1].clone(),
+                CompareOperator::Lt,
+                CompareMode::TOTAL_ORDER,
+            )
+        },
         ExpectedOutcome::Array(BoolArray::from_iter([true, false, false]).into_array()),
         &mut SESSION.create_execution_ctx(),
     );

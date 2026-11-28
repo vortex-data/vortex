@@ -205,6 +205,7 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -232,7 +233,10 @@ mod tests {
         let values = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4, 5, 3]);
         let packed = BitPackedData::encode(&values.into_array(), 3, &mut ctx).unwrap();
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();
-        let result = packed.into_array().compare(rhs, op).unwrap();
+        let result = packed
+            .into_array()
+            .compare(rhs, op, CompareMode::TOTAL_ORDER)
+            .unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
     }
 
@@ -268,7 +272,7 @@ mod tests {
                         let want = prim
                             .clone()
                             .into_array()
-                            .compare(rhs.clone(), op)?;
+                            .compare(rhs.clone(), op, CompareMode::TOTAL_ORDER)?;
                         assert_arrays_eq!(got, want, &mut SESSION.create_execution_ctx());
                     }
                 }
@@ -315,7 +319,10 @@ mod tests {
         ] {
             let got = <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs, op, &mut ctx)?
                 .expect("bit-packed compare kernel must engage");
-            let want = prim.clone().into_array().compare(rhs.clone(), op)?;
+            let want =
+                prim.clone()
+                    .into_array()
+                    .compare(rhs.clone(), op, CompareMode::TOTAL_ORDER)?;
             assert_arrays_eq!(got, want, &mut SESSION.create_execution_ctx());
         }
         Ok(())
@@ -334,10 +341,15 @@ mod tests {
         let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
         assert!(packed.patches().is_some(), "test setup expects patches");
         let rhs = ConstantArray::new(50i32, prim.len()).into_array();
-        let expected = prim
-            .into_array()
-            .compare(rhs.clone(), CompareOperator::Eq)?;
-        let actual = packed.into_array().compare(rhs, CompareOperator::Eq)?;
+        let expected = prim.into_array().compare(
+            rhs.clone(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
+        let actual =
+            packed
+                .into_array()
+                .compare(rhs, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
@@ -382,7 +394,7 @@ mod tests {
                 .clone()
                 .into_array()
                 .slice(start..start + slice_len)?
-                .compare(rhs.clone(), op)?;
+                .compare(rhs.clone(), op, CompareMode::TOTAL_ORDER)?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
@@ -414,10 +426,11 @@ mod tests {
             &mut ctx,
         )?
         .expect("fused compare kernel must engage for sliced arrays with patches");
-        let want = prim
-            .into_array()
-            .slice(start..end)?
-            .compare(rhs, CompareOperator::Eq)?;
+        let want = prim.into_array().slice(start..end)?.compare(
+            rhs,
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
         assert_arrays_eq!(got, want, &mut ctx);
         Ok(())
     }
@@ -429,10 +442,14 @@ mod tests {
         let prim = PrimitiveArray::from_option_iter([Some(1u32), None, Some(3), Some(4), None]);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 3, &mut ctx)?;
         let rhs = ConstantArray::new(3u32, packed.len()).into_array();
-        let actual = packed
-            .into_array()
-            .compare(rhs.clone(), CompareOperator::Eq)?;
-        let expected = prim.into_array().compare(rhs, CompareOperator::Eq)?;
+        let actual = packed.into_array().compare(
+            rhs.clone(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
+        let expected =
+            prim.into_array()
+                .compare(rhs, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
@@ -482,7 +499,11 @@ mod tests {
             if !patched && !nullable {
                 assert_eq!(got.as_constant().is_some(), decided, "{op:?} {rhs}");
             }
-            let want = prim.clone().into_array().compare(rhs_array.clone(), op)?;
+            let want = prim.clone().into_array().compare(
+                rhs_array.clone(),
+                op,
+                CompareMode::TOTAL_ORDER,
+            )?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
@@ -503,7 +524,11 @@ mod tests {
                 got.as_constant().is_some(),
                 "{op:?} {rhs} should stay constant"
             );
-            let want = prim.clone().into_array().compare(rhs_array.clone(), op)?;
+            let want = prim.clone().into_array().compare(
+                rhs_array.clone(),
+                op,
+                CompareMode::TOTAL_ORDER,
+            )?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
@@ -528,7 +553,11 @@ mod tests {
             let got =
                 <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs_array, op, &mut ctx)?
                     .expect("compare kernel must engage");
-            let want = prim.clone().into_array().compare(rhs_array.clone(), op)?;
+            let want = prim.clone().into_array().compare(
+                rhs_array.clone(),
+                op,
+                CompareMode::TOTAL_ORDER,
+            )?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())

@@ -27,6 +27,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -126,8 +127,13 @@ pub(super) fn encoded_range<I: PrimInt + NativePType + Into<PValue>>(
     let scalar =
         |i: I| ConstantArray::new(Scalar::primitive(i, nullability), array.len()).into_array();
     let ints = array.encoded();
-    let compare =
-        |i, op: CompareOperator| ints.compare(scalar(i), if negate { op.inverse() } else { op });
+    let compare = |i, op: CompareOperator| {
+        ints.compare(
+            scalar(i),
+            if negate { op.inverse() } else { op },
+            CompareMode::TOTAL_ORDER,
+        )
+    };
     match end {
         Some(end) if end <= start => constant_predicate(array, negate, nullability),
         Some(end) if end == start + I::one() => compare(start, CompareOperator::Eq),

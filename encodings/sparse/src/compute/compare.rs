@@ -9,6 +9,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::compare::scalar_cmp;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 
@@ -42,6 +43,7 @@ impl CompareKernel for Sparse {
             values.compare(
                 ConstantArray::new(rhs_scalar.clone(), len).into_array(),
                 operator,
+                CompareMode::TOTAL_ORDER,
             )
         })?;
 
@@ -63,6 +65,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -98,13 +101,21 @@ mod tests {
 
         // Kernel path: compare pushes through the Sparse encoding.
         let kernel_bool = arr
-            .compare(ConstantArray::new(rhs.clone(), len).into_array(), op)
+            .compare(
+                ConstantArray::new(rhs.clone(), len).into_array(),
+                op,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
 
         // Baseline: canonicalize first, then compare on the PrimitiveArray.
         let canonical_input = arr.execute::<Canonical>(&mut ctx).unwrap().into_array();
         let canonical_bool = canonical_input
-            .compare(ConstantArray::new(rhs, len).into_array(), op)
+            .compare(
+                ConstantArray::new(rhs, len).into_array(),
+                op,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
 
         assert_arrays_eq!(kernel_bool, canonical_bool, &mut ctx);

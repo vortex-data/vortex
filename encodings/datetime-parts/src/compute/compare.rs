@@ -20,6 +20,7 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -269,7 +270,11 @@ fn compare_dtp(
 ) -> VortexResult<ArrayRef> {
     // Since nullability is stripped from RHS and carried forward through nullability argument we want to incorporate it into lhs.dtype() that we cast rhs into
     match Scalar::from(rhs).cast(&lhs.dtype().with_nullability(nullability)) {
-        Ok(casted) => lhs.compare(ConstantArray::new(casted, lhs.len()).into_array(), operator),
+        Ok(casted) => lhs.compare(
+            ConstantArray::new(casted, lhs.len()).into_array(),
+            operator,
+            CompareMode::TOTAL_ORDER,
+        ),
         // The narrowing cast failed, so rhs is either > or < every value in lhs.
         // rhs positive => > all lhs
         // rhs negative => < all lhs
@@ -379,14 +384,22 @@ mod tests {
         let comparison = lhs
             .clone()
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
 
         let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 00:00:00 UTC
         let comparison = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 0);
     }
@@ -403,14 +416,22 @@ mod tests {
         let comparison = lhs
             .clone()
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::NotEq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::NotEq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
 
         let rhs = dtp_array_from_timestamp(86400i64, rhs_validity); // January 2, 1970, 00:00:00 UTC
         let comparison = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::NotEq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::NotEq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 0);
     }
@@ -427,7 +448,11 @@ mod tests {
 
         let comparison = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Lt)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Lt,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
     }
@@ -444,7 +469,11 @@ mod tests {
 
         let comparison = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Gt)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Gt,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
     }
@@ -479,27 +508,43 @@ mod tests {
         let comparison = lhs
             .clone()
             .into_array()
-            .compare(rhs.clone().into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.clone().into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 0);
 
         let comparison = lhs
             .clone()
             .into_array()
-            .compare(rhs.clone().into_array(), CompareOperator::NotEq)
+            .compare(
+                rhs.clone().into_array(),
+                CompareOperator::NotEq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
 
         let comparison = lhs
             .clone()
             .into_array()
-            .compare(rhs.clone().into_array(), CompareOperator::Lt)
+            .compare(
+                rhs.clone().into_array(),
+                CompareOperator::Lt,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
 
         let comparison = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Lte)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Lte,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         assert_eq!(true_count(&comparison, &mut ctx), 1);
 
@@ -565,7 +610,9 @@ mod tests {
             buffer![0u16].into_array(),
         )?;
 
-        let comparison = lhs.into_array().compare(rhs, CompareOperator::Eq)?;
+        let comparison =
+            lhs.into_array()
+                .compare(rhs, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
 
         assert_eq!(true_count(&comparison, &mut ctx), 0);
         Ok(())
@@ -598,10 +645,10 @@ mod tests {
         )?
         .into_array();
 
-        let lt = lhs.compare(rhs.clone(), CompareOperator::Lt)?;
+        let lt = lhs.compare(rhs.clone(), CompareOperator::Lt, CompareMode::TOTAL_ORDER)?;
         assert_eq!(true_count(&lt, &mut ctx), 0);
 
-        let gt = lhs.compare(rhs, CompareOperator::Gt)?;
+        let gt = lhs.compare(rhs, CompareOperator::Gt, CompareMode::TOTAL_ORDER)?;
         assert_eq!(true_count(&gt, &mut ctx), 1);
         Ok(())
     }
@@ -635,7 +682,7 @@ mod tests {
         )?
         .into_array();
 
-        let gt = lhs.compare(rhs, CompareOperator::Gt)?;
+        let gt = lhs.compare(rhs, CompareOperator::Gt, CompareMode::TOTAL_ORDER)?;
         assert_arrays_eq!(gt, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -687,10 +734,11 @@ mod tests {
                     &mut ctx,
                 )?
                 .unwrap_or_else(|| panic!("datetime-parts compare must engage for {operator:?}"));
-                let expected = temporal
-                    .clone()
-                    .into_array()
-                    .compare(rhs.clone(), operator)?;
+                let expected = temporal.clone().into_array().compare(
+                    rhs.clone(),
+                    operator,
+                    CompareMode::TOTAL_ORDER,
+                )?;
                 assert_arrays_eq!(actual, expected, &mut ctx);
             }
         }

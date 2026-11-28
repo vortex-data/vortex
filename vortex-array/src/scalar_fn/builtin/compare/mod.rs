@@ -129,24 +129,11 @@ impl Display for CompareOptions {
 }
 
 impl Compare {
-    /// Creates a lazy comparison of `lhs` and `rhs`.
+    /// Creates a lazy comparison of `lhs` with `rhs` that orders values in `compare_mode`.
     ///
     /// The operands must have the same logical dtype, ignoring nullability, even when they are
     /// empty or null. Extension dtypes must match, including their metadata; storage dtypes are
     /// distinct.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the children have different lengths or incompatible dtypes.
-    pub fn try_new(
-        lhs: ArrayRef,
-        rhs: ArrayRef,
-        operator: CompareOperator,
-    ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(Compare.bind(operator.into()), [lhs, rhs])
-    }
-
-    /// Creates a lazy comparison of `lhs` with `rhs` that orders values in `compare_mode`.
     ///
     /// Use [`CompareMode::TOTAL_ORDER`] when the comparison must keep `-0.0` and `+0.0` distinct,
     /// as compression must.
@@ -154,7 +141,7 @@ impl Compare {
     /// # Errors
     ///
     /// Returns an error if the children have different lengths or incompatible dtypes.
-    pub fn try_new_with_mode(
+    pub fn try_new(
         lhs: ArrayRef,
         rhs: ArrayRef,
         operator: CompareOperator,

@@ -28,6 +28,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
@@ -221,7 +222,9 @@ fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
 
     // Equality compare drives CodesWindow over the u64 codes_offsets.
     let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
-    let eq = wide.into_array().compare(needle, CompareOperator::Eq)?;
+    let eq = wide
+        .into_array()
+        .compare(needle, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
     assert_arrays_eq!(
         &eq,
         &BoolArray::from_iter([true, false, false, false, true]),

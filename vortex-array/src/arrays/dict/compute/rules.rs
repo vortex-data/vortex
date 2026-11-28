@@ -343,6 +343,7 @@ mod tests {
     use crate::scalar_fn::builtin::not::Not;
     use crate::scalar_fn::builtin::numeric::Numeric;
     use crate::scalar_fn::builtin::operators::BooleanOperator;
+    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -488,7 +489,7 @@ mod tests {
     #[rstest]
     #[case::infallible(
         false,
-        |lhs, rhs| Compare::try_new(lhs, rhs, CompareOperator::Eq),
+        |lhs, rhs| Compare::try_new(lhs, rhs, CompareOperator::Eq, CompareMode::TOTAL_ORDER),
         BoolArray::from_iter([false, true, false, true]).into_array()
     )]
     #[case::all_values_referenced(

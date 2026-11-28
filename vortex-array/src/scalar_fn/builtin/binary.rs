@@ -138,6 +138,7 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::scalar::NumericOperator;
     use crate::scalar_fn::builtin::operators::BooleanOperator;
+    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -152,10 +153,12 @@ mod tests {
         let sum = a.numeric(b.clone(), NumericOperator::Add)?;
         let difference = a.numeric(b, NumericOperator::Sub)?;
         let ten = ConstantArray::new(10i32, 4).into_array();
-        let result = sum.compare(ten.clone(), CompareOperator::Gt)?.boolean(
-            difference.compare(ten, CompareOperator::Lt)?,
-            BooleanOperator::And,
-        )?;
+        let result = sum
+            .compare(ten.clone(), CompareOperator::Gt, CompareMode::TOTAL_ORDER)?
+            .boolean(
+                difference.compare(ten, CompareOperator::Lt, CompareMode::TOTAL_ORDER)?,
+                BooleanOperator::And,
+            )?;
 
         assert_arrays_eq!(
             result,

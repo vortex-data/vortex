@@ -55,6 +55,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::TraceOptions;
@@ -681,7 +682,8 @@ fn trace_compare_on_dict() -> VortexResult<()> {
     .into_array();
     let rhs = ConstantArray::new(Scalar::from(20i32), dict.len()).into_array();
 
-    let compared = Compare::try_new(dict, rhs, CompareOperator::Eq)?.into_array();
+    let compared =
+        Compare::try_new(dict, rhs, CompareOperator::Eq, CompareMode::TOTAL_ORDER)?.into_array();
 
     let traced = trace_op(|| compared.optimize_ctx(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"

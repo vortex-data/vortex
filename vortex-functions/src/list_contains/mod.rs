@@ -579,7 +579,7 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements = Compare::try_new_with_mode(
+    let matching_elements = Compare::try_new(
         elems.clone(),
         rhs.into_array(),
         CompareOperator::Eq,
@@ -689,7 +689,7 @@ fn lists_contain_needles(
 
     // `any_null` is only read under SQL null semantics.
     let comparisons =
-        Compare::try_new_with_mode(elements, needles, CompareOperator::Eq, options.compare_mode)?
+        Compare::try_new(elements, needles, CompareOperator::Eq, options.compare_mode)?
             .into_array();
     let (any_true, any_null) = match comparisons.execute::<Columnar>(ctx)? {
         // One answer for every comparison decides each row from whether it compared anything.

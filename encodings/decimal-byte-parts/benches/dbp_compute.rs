@@ -39,6 +39,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -279,7 +280,11 @@ fn bench_compare(bencher: Bencher, case: Case, value: DecimalValue) {
 
     bench_case(bencher, case, |array, ctx| {
         array
-            .compare(constant.clone(), CompareOperator::Gte)
+            .compare(
+                constant.clone(),
+                CompareOperator::Gte,
+                CompareMode::TOTAL_ORDER,
+            )
             .vortex_expect("compare DecimalByteParts")
             .execute::<BoolArray>(ctx)
             .vortex_expect("execute the comparison")

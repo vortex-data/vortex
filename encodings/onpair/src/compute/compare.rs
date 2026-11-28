@@ -12,6 +12,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
@@ -58,6 +59,7 @@ impl CompareKernel for OnPair {
                         ConstantArray::new(Scalar::zero_value(lengths.dtype()), lengths.len())
                             .into_array(),
                         operator,
+                        CompareMode::TOTAL_ORDER,
                     )?
                     .execute(ctx)?,
             }
@@ -104,6 +106,7 @@ mod tests {
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -138,7 +141,11 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let arr = onpair_compress(input.as_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
 
-        let result = arr.compare(ConstantArray::new("", input.len()).into_array(), op)?;
+        let result = arr.compare(
+            ConstantArray::new("", input.len()).into_array(),
+            op,
+            CompareMode::TOTAL_ORDER,
+        )?;
         assert_arrays_eq!(&result, &BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -156,6 +163,7 @@ mod tests {
         let eq_empty = arr.clone().compare(
             ConstantArray::new("", arr.len()).into_array(),
             CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
         )?;
         assert_arrays_eq!(
             &eq_empty,
@@ -165,7 +173,11 @@ mod tests {
 
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), arr.len());
-        let eq_null = arr.compare(null_rhs.into_array(), CompareOperator::Eq)?;
+        let eq_null = arr.compare(
+            null_rhs.into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?;
         assert_arrays_eq!(
             &eq_null,
             &BoolArray::from_iter([None::<bool>, None, None]),
@@ -185,14 +197,14 @@ mod tests {
         let arr = onpair_compress(input.as_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
         let rhs = ConstantArray::new("hello", arr.len()).into_array();
 
-        let eq = arr.compare(rhs.clone(), CompareOperator::Eq)?;
+        let eq = arr.compare(rhs.clone(), CompareOperator::Eq, CompareMode::TOTAL_ORDER)?;
         assert_arrays_eq!(
             &eq,
             &BoolArray::from_iter([Some(true), None, Some(false), Some(true)]),
             &mut ctx
         );
 
-        let neq = arr.compare(rhs, CompareOperator::NotEq)?;
+        let neq = arr.compare(rhs, CompareOperator::NotEq, CompareMode::TOTAL_ORDER)?;
         assert_arrays_eq!(
             &neq,
             &BoolArray::from_iter([Some(false), None, Some(true), Some(false)]),

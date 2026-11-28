@@ -16,6 +16,7 @@ use crate::arrays::runend::array::RunEndArraySlotsExt;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for RunEnd {
@@ -30,6 +31,7 @@ impl CompareKernel for RunEnd {
             let values = lhs.values().compare(
                 ConstantArray::new(const_scalar.clone(), lhs.values().len()).into_array(),
                 operator,
+                CompareMode::TOTAL_ORDER,
             )?;
             return runend_decode_bools(
                 lhs.ends().clone().execute::<PrimitiveArray>(ctx)?,
@@ -62,6 +64,7 @@ mod test {
     use crate::arrays::runend::RunEndArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::scalar_fn::builtin::operators::CompareMode;
     use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -80,7 +83,11 @@ mod test {
         let arr = ree_array(&mut ctx);
         let res = arr
             .into_array()
-            .compare(ConstantArray::new(5, 12).into_array(), CompareOperator::Eq)
+            .compare(
+                ConstantArray::new(5, 12).into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
         let expected = BoolArray::from_iter([
             false, false, false, false, false, false, false, false, true, true, true, true,

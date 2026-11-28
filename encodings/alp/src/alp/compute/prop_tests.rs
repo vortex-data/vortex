@@ -25,6 +25,7 @@ use vortex_array::patches::Patches;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -285,10 +286,11 @@ fn check_compare<F: BoundaryFloat>(tc: &TestCase) -> VortexResult<()> {
     for operator in ALL_OPERATORS {
         let actual = <ALP as CompareKernel>::compare(alp.as_view(), &rhs, operator, &mut ctx)?
             .vortex_expect("ALP compare kernel must engage");
-        let expected = canonical
-            .clone()
-            .into_array()
-            .compare(rhs.clone(), operator)?;
+        let expected = canonical.clone().into_array().compare(
+            rhs.clone(),
+            operator,
+            CompareMode::TOTAL_ORDER,
+        )?;
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
     Ok(())

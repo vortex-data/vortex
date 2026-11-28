@@ -26,6 +26,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
@@ -111,6 +112,7 @@ fn smoke_100k_rows() -> vortex_error::VortexResult<()> {
     let eq = arr_ref.compare(
         ConstantArray::new(needle.as_str(), n).into_array(),
         CompareOperator::Eq,
+        CompareMode::TOTAL_ORDER,
     )?;
     let eq_count = sum(&eq, &mut ctx)?.as_primitive().as_::<usize>().unwrap();
     assert_eq!(eq_count, want_eq);

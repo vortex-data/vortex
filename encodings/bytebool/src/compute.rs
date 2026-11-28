@@ -222,6 +222,7 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -265,7 +266,11 @@ mod tests {
 
         let arr = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
 
         let expected = bb(vec![true; 5]);
@@ -283,7 +288,11 @@ mod tests {
 
         let arr = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
 
         let expected = bb(vec![false; 5]);
@@ -301,7 +310,11 @@ mod tests {
 
         let arr = lhs
             .into_array()
-            .compare(rhs.into_array(), CompareOperator::Eq)
+            .compare(
+                rhs.into_array(),
+                CompareOperator::Eq,
+                CompareMode::TOTAL_ORDER,
+            )
             .unwrap();
 
         let expected = bb_opt(vec![Some(true), Some(true), Some(true), Some(false), None]);

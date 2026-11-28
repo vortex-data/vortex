@@ -32,6 +32,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -74,7 +75,8 @@ fn test_operations() -> VortexResult<()> {
     assert_arrays_eq!(
         array.compare(
             ConstantArray::new(Scalar::from(3u64), 4).into_array(),
-            CompareOperator::Lt
+            CompareOperator::Lt,
+            CompareMode::TOTAL_ORDER
         )?,
         BoolArray::from_iter([true, true, false, false]),
         &mut ctx

@@ -24,6 +24,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
@@ -111,7 +112,7 @@ fn fast_eq_out_of_range(bencher: Bencher) {
     bencher.bench_local(|| {
         array
             .clone()
-            .compare(rhs.clone(), CompareOperator::Eq)
+            .compare(rhs.clone(), CompareOperator::Eq, CompareMode::TOTAL_ORDER)
             .unwrap()
             .execute::<BoolArray>(&mut ctx)
             .unwrap()
@@ -124,7 +125,7 @@ fn fast_lt_out_of_range(bencher: Bencher) {
     bencher.bench_local(|| {
         array
             .clone()
-            .compare(rhs.clone(), CompareOperator::Lt)
+            .compare(rhs.clone(), CompareOperator::Lt, CompareMode::TOTAL_ORDER)
             .unwrap()
             .execute::<BoolArray>(&mut ctx)
             .unwrap()

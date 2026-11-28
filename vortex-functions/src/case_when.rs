@@ -501,6 +501,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::VecExecutionArgs;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -759,6 +760,7 @@ mod tests {
             .compare(
                 ConstantArray::new(0i32, 4).into_array(),
                 CompareOperator::Gt,
+                CompareMode::TOTAL_ORDER,
             )?;
         let result = CaseWhen.execute(
             &CaseWhenOptions {

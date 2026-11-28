@@ -36,6 +36,7 @@ use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::NumericOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -201,7 +202,12 @@ fn compare_in_range(bencher: Bencher) {
     bench_case(
         bencher,
         || (values.widen(), constant(0)),
-        |(array, zero), ctx| execute_canonical(array.compare(zero, CompareOperator::Lt), ctx),
+        |(array, zero), ctx| {
+            execute_canonical(
+                array.compare(zero, CompareOperator::Lt, CompareMode::TOTAL_ORDER),
+                ctx,
+            )
+        },
     );
 }
 

@@ -34,6 +34,7 @@ use crate::dtype::i256;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Compute the arithmetic mean of an array.
@@ -113,6 +114,7 @@ impl BinaryCombined for Mean {
             .compare(
                 ConstantArray::new(Scalar::zero_value(&target), count.len()).into_array(),
                 CompareOperator::NotEq,
+                CompareMode::TOTAL_ORDER,
             )?
             .fill_null(false)?;
         // if count is 0, dividing by 0 below produces NaN, and we need Null.
