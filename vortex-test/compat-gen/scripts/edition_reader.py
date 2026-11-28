@@ -28,6 +28,8 @@ import pyarrow.ipc as ipc
 
 import vortex
 
+MISSING_EXPECTED_IPC_PREFIX = "expected Arrow IPC missing: "
+
 
 def _values_equal(a: object, b: object) -> bool:
     if isinstance(a, float) and isinstance(b, float):
@@ -359,11 +361,12 @@ def cmd_verify(src_dir: Path, expected_dir: Path) -> None:
         path = src_dir / name
         exp_path = expected_dir / f"{name}.arrow"
         if not exp_path.exists():
+            msg = f"{MISSING_EXPECTED_IPC_PREFIX}{exp_path.name}"
             failed.append(
                 {
                     "name": name,
-                    "error": f"expected Arrow IPC missing: {exp_path.name}",
-                    "causes": [f"expected Arrow IPC missing: {exp_path.name}"],
+                    "error": msg,
+                    "causes": [msg],
                 }
             )
             continue

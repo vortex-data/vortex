@@ -655,7 +655,10 @@ def test_edition_reader_probe_column_causes_isolates_corrupt_expected_ipc(editio
             edition_reader._run_isolated(lambda e=exc_type: (_ for _ in ()).throw(e()))
 
 
-def test_cmd_check_editions_partial_dump_expected_preserves_accepted_and_reports(compat, monkeypatch, tmp_path):
+def test_cmd_check_editions_partial_dump_expected_preserves_accepted_and_reports(
+    compat, edition_reader, monkeypatch, tmp_path
+):
+    assert compat.MISSING_EXPECTED_IPC_PREFIX == edition_reader.MISSING_EXPECTED_IPC_PREFIX
     accepted_path = tmp_path / "accepted.json"
     accepted_path.write_text(
         json.dumps(
@@ -710,8 +713,8 @@ def test_cmd_check_editions_partial_dump_expected_preserves_accepted_and_reports
             "failed": [
                 {
                     "name": "datetime.vortex",
-                    "error": "missing expected Arrow IPC: datetime.vortex.arrow",
-                    "causes": ["missing expected Arrow IPC: datetime.vortex.arrow"],
+                    "error": f"{edition_reader.MISSING_EXPECTED_IPC_PREFIX}datetime.vortex.arrow",
+                    "causes": [f"{edition_reader.MISSING_EXPECTED_IPC_PREFIX}datetime.vortex.arrow"],
                 }
             ],
         },

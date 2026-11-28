@@ -52,6 +52,8 @@ COMPAT_GEN_DIR = SCRIPTS_DIR.parent
 EDITION_READER_SCRIPT = SCRIPTS_DIR / "edition_reader.py"
 DEFAULT_ACCEPTED_EDITION_FAILURES = COMPAT_GEN_DIR / "accepted-edition-failures.json"
 DEFAULT_EDITION_PYTHON = "3.12"
+# Must match `MISSING_EXPECTED_IPC_PREFIX` in `edition_reader.py` (checked by `test_compat.py`).
+MISSING_EXPECTED_IPC_PREFIX = "expected Arrow IPC missing: "
 
 EPILOG = """\
 environment variables:
@@ -1035,7 +1037,7 @@ def _evaluate_edition_results(
         if not reported_causes and failure.get("error"):
             reported_causes = [str(failure["error"])]
 
-        if any(c.startswith("missing expected Arrow IPC:") for c in reported_causes):
+        if any(c.startswith(MISSING_EXPECTED_IPC_PREFIX) for c in reported_causes):
             unexpected_failures.append(failure)
             continue
 
