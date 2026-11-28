@@ -220,13 +220,16 @@ where
     let slice = buffer.as_slice();
 
     // Fast path when all values are valid and distinct counts are not requested:
-    // avoids per-chunk closure/mask dispatch so LLVM emits a tight vectorized loop.
+    // avoids per-chunk closure/mask dispatch and keeps loads 16-byte aligned.
     if !count_distinct_values && matches!(validity.bit_buffer(), AllOr::All) {
+        let mut prev = slice[0];
         let mut equal_pairs: u64 = 0;
-        for (&a, &b) in slice.iter().zip(&slice[1..]) {
-            equal_pairs += u64::from(a.is_eq(b));
+        for &value in slice {
+            equal_pairs += u64::from(value.is_eq(prev));
+            prev = value;
         }
-        let runs = u32::try_from(slice.len() as u64 - equal_pairs)?;
+        // `slice[0].is_eq(slice[0])` is always true, so subtract 1.
+        let runs = u32::try_from(slice.len() as u64 + 1 - equal_pairs)?;
         return Ok(FloatStats {
             null_count,
             value_count,
