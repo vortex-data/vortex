@@ -134,6 +134,11 @@ impl MapDType {
             .vortex_expect("map value dtype must be valid")
     }
 
+    /// Returns the key and value dtypes as stored, without parsing lazy views.
+    pub(crate) fn raw_key_value(&self) -> (&FieldDType, &FieldDType) {
+        (&self.0.key, &self.0.value)
+    }
+
     /// Returns whether producers assert that keys are sorted within every map value.
     pub fn keys_sorted(&self) -> bool {
         self.0.keys_sorted
