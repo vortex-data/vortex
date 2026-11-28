@@ -167,6 +167,8 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     ///
     /// Each rule says: "when I cascade through child Y, do not use scheme X anywhere in that
     /// subtree." Only meaningful for schemes that register children with [`Child::new`].
+    /// Structural container boundaries (such as structs, lists, list views, and maps) start a
+    /// fresh root context for their children and metadata, so exclusions do not cross them.
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         Vec::new()
     }

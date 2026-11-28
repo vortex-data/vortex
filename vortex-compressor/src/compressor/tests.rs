@@ -1322,8 +1322,8 @@ mod nested_list_cascade_ctx {
     }
 
     #[test]
-    fn nested_list_listview_and_map_do_not_panic_when_cascade_depth_exhausted() -> VortexResult<()>
-    {
+    fn test_nested_list_listview_and_map_do_not_panic_when_cascade_depth_exhausted()
+    -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let comp = compressor();
         let outer = SchemeId {
@@ -1360,7 +1360,7 @@ mod nested_list_cascade_ctx {
     }
 
     #[test]
-    fn nested_list_offsets_respect_root_exclusions() -> VortexResult<()> {
+    fn test_nested_list_offsets_respect_root_exclusions() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let comp = CascadingCompressor::new(vec![&IntDictScheme]);
         let outer = SchemeId {
@@ -1402,22 +1402,67 @@ mod nested_list_cascade_ctx {
     }
 
     #[test]
-    fn nested_list_offsets_and_sizes_preserve_is_sample() -> VortexResult<()> {
+    fn test_nested_list_offsets_and_sizes_preserve_is_sample() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let comp = CascadingCompressor::new(Vec::new());
         let sample_ctx = CompressorContext::new().with_sampling();
 
-        // Constant sizes (all 1s) must not collapse to ConstantArray while compressing a sample.
-        let list_view =
-            non_zctl_list_view_with_dict_compressible_offsets(&mut exec_ctx)?.into_array();
+        // Constant List offsets (all 0s for empty lists) must not collapse to ConstantArray while
+        // compressing a sample.
+        let empty_list = ListArray::try_new(
+            PrimitiveArray::from_iter(iter::empty::<i32>()).into_array(),
+            PrimitiveArray::new(
+                iter::repeat_n(0u32, 1025).collect::<Buffer<u32>>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            Validity::NonNullable,
+            &mut exec_ctx,
+        )?
+        .into_array();
+        let empty_list_canonical = empty_list.clone().execute::<Canonical>(&mut exec_ctx)?;
+        let compressed_list =
+            comp.compress_canonical(empty_list_canonical, sample_ctx.clone(), &mut exec_ctx)?;
+        let list_offsets = compressed_list
+            .as_opt::<List>()
+            .ok_or_else(|| vortex_err!("expected List, got {}", compressed_list.encoding_id()))?
+            .offsets();
+        assert!(
+            !list_offsets.is::<Constant>(),
+            "sample context must be preserved when compressing List offsets"
+        );
+        assert_arrays_eq!(&compressed_list, &empty_list, &mut exec_ctx);
+
+        // Constant ListView offsets (all 0s) and sizes (all 1s) must not collapse to ConstantArray
+        // while compressing a sample. Repeated offset 0 with size 1 is non-zero-copy-to-list, so
+        // this exercises `compress_list_view_array`.
+        let list_view = ListViewArray::try_new(
+            PrimitiveArray::from_iter([42i32]).into_array(),
+            PrimitiveArray::new(
+                iter::repeat_n(0u32, 1024).collect::<Buffer<u32>>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            PrimitiveArray::new(
+                iter::repeat_n(1u32, 1024).collect::<Buffer<u32>>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            Validity::NonNullable,
+            &mut exec_ctx,
+        )?
+        .into_array();
         let list_view_canonical = list_view.clone().execute::<Canonical>(&mut exec_ctx)?;
         let compressed = comp.compress_canonical(list_view_canonical, sample_ctx, &mut exec_ctx)?;
-        let sizes = compressed
+        let lv = compressed
             .as_opt::<ListView>()
-            .ok_or_else(|| vortex_err!("expected ListView, got {}", compressed.encoding_id()))?
-            .sizes();
+            .ok_or_else(|| vortex_err!("expected ListView, got {}", compressed.encoding_id()))?;
         assert!(
-            !sizes.is::<Constant>(),
+            !lv.offsets().is::<Constant>(),
+            "sample context must be preserved when compressing ListView offsets"
+        );
+        assert!(
+            !lv.sizes().is::<Constant>(),
             "sample context must be preserved when compressing ListView sizes"
         );
         assert_arrays_eq!(&compressed, &list_view, &mut exec_ctx);
