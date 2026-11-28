@@ -3,8 +3,6 @@
 
 use std::ops::Not;
 
-use bitvec::view::BitView;
-
 use crate::BitBuffer;
 use crate::BufferAllocatorRef;
 use crate::BufferMut;
@@ -16,6 +14,112 @@ use crate::bit::pack::collect_bool_words_multiversioned;
 use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
+
+/// Overwrites the `len` bits of `dst` from bit `dst_bit` with the `len` bits of `src` from bit
+/// `src_bit`, least significant bit first, leaving every other bit of `dst` as it is.
+///
+/// Once the destination is byte-aligned, 64 bits move per step: a word read from `src` at its bit
+/// offset is stored as 8 whole bytes. A head up to the first destination byte boundary, and a tail
+/// shorter than a word, move as masked partial words.
+pub(crate) fn copy_bits(src: &[u8], src_bit: usize, dst: &mut [u8], dst_bit: usize, len: usize) {
+    assert!(src_bit + len <= src.len() * 8, "source bits out of range");
+    assert!(
+        dst_bit + len <= dst.len() * 8,
+        "destination bits out of range"
+    );
+    if len <= PARTIAL_STEP {
+        copy_partial(src, src_bit, dst, dst_bit, len);
+        return;
+    }
+    let head = (8 - dst_bit % 8) % 8;
+    copy_partial(src, src_bit, dst, dst_bit, head);
+    let mut done = head;
+    while len - done >= 64 {
+        let Some(word) = read_word(src, src_bit + done) else {
+            break;
+        };
+        let at = (dst_bit + done) / 8;
+        dst[at..at + 8].copy_from_slice(&word.to_le_bytes());
+        done += 64;
+    }
+    copy_partial(src, src_bit + done, dst, dst_bit + done, len - done);
+}
+
+/// The most bits one partial step moves: a read or write at any bit offset then fits in a `u64`.
+const PARTIAL_STEP: usize = 56;
+
+/// [`copy_bits`] through masked partial words, for the head, the tail and the end of `src`.
+fn copy_partial(src: &[u8], src_bit: usize, dst: &mut [u8], dst_bit: usize, len: usize) {
+    let mut done = 0;
+    while done < len {
+        let take = (len - done).min(PARTIAL_STEP);
+        let bits = read_bits(src, src_bit + done, take);
+        write_bits(dst, dst_bit + done, take, bits);
+        done += take;
+    }
+}
+
+/// The 64 bits of `bytes` from bit `bit`, if `bytes` has a byte past them to shift in.
+fn read_word(bytes: &[u8], bit: usize) -> Option<u64> {
+    let (byte, shift) = (bit / 8, bit % 8);
+    let (word, next) = bytes.get(byte..byte + 9)?.split_first_chunk::<8>()?;
+    let word = u64::from_le_bytes(*word);
+    Some(if shift == 0 {
+        word
+    } else {
+        (word >> shift) | (u64::from(next[0]) << (64 - shift))
+    })
+}
+
+/// The byte at which the 8-byte window holding bits `bit..bit + take <= PARTIAL_STEP` of `bytes`
+/// starts, and `bit`'s position within it: the window from `bit`'s byte, or the last 8 bytes when
+/// fewer remain, so one load covers the bits either way. `None` if `bytes` is shorter than 8.
+#[inline]
+fn window(bytes: &[u8], bit: usize) -> Option<(usize, usize)> {
+    let start = (bit / 8).min(bytes.len().checked_sub(8)?);
+    Some((start, bit - start * 8))
+}
+
+/// The `take <= PARTIAL_STEP` bits of `bytes` from bit `bit`, in the low bits of the result.
+#[inline]
+fn read_bits(bytes: &[u8], bit: usize, take: usize) -> u64 {
+    if let Some((start, shift)) = window(bytes, bit)
+        && let Some(word) = bytes[start..].first_chunk::<8>()
+    {
+        return (u64::from_le_bytes(*word) >> shift) & low_bits(take);
+    }
+    // Fewer than 8 bytes in all: read the ones there are.
+    let mut word = [0u8; 8];
+    for (to, from) in word.iter_mut().zip(bytes) {
+        *to = *from;
+    }
+    (u64::from_le_bytes(word) >> bit) & low_bits(take)
+}
+
+/// Overwrites the `take <= PARTIAL_STEP` bits of `bytes` from bit `bit` with the low bits of
+/// `bits`.
+#[inline]
+fn write_bits(bytes: &mut [u8], bit: usize, take: usize, bits: u64) {
+    let merge = |word: u64, shift: usize| {
+        let mask = low_bits(take) << shift;
+        (word & !mask) | ((bits << shift) & mask)
+    };
+    if let Some((start, shift)) = window(bytes, bit)
+        && let Some(word) = bytes[start..].first_chunk_mut::<8>()
+    {
+        *word = merge(u64::from_le_bytes(*word), shift).to_le_bytes();
+        return;
+    }
+    // Fewer than 8 bytes in all: write back only the ones there are.
+    let mut word = [0u8; 8];
+    for (to, from) in word.iter_mut().zip(bytes.iter()) {
+        *to = *from;
+    }
+    let word = merge(u64::from_le_bytes(word), bit).to_le_bytes();
+    for (to, from) in bytes.iter_mut().zip(word) {
+        *to = from;
+    }
+}
 
 /// Sets all bits in the bit-range `[start_bit, end_bit)` of `slice` to `value`.
 ///
@@ -177,15 +281,19 @@ impl BitBufferMut {
     #[inline]
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
-            len.saturating_add(offset) <= buffer.len().saturating_mul(8),
+            offset
+                .checked_add(len)
+                .is_some_and(|end| end.div_ceil(8) <= buffer.len()),
             "Buffer len {} is too short for offset {offset} and length {len}",
             buffer.len()
         );
-        Self {
+        let mut this = Self {
             buffer,
             offset,
             len,
-        }
+        };
+        this.clear_trailing_bits();
+        this
     }
 
     /// Creates a `BitBufferMut` from a [`BitBuffer`] by copying all of the data over.
@@ -195,11 +303,13 @@ impl BitBufferMut {
 
     /// Copies a bit buffer with the provided allocator.
     pub fn copy_from_in(bit_buffer: &BitBuffer, allocator: BufferAllocatorRef) -> Self {
-        Self {
+        let mut this = Self {
             buffer: ByteBufferMut::copy_from_in(bit_buffer.inner(), allocator),
             offset: bit_buffer.offset(),
             len: bit_buffer.len(),
-        }
+        };
+        this.clear_trailing_bits();
+        this
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
@@ -219,10 +329,15 @@ impl BitBufferMut {
     }
 
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
-    #[inline]
     pub fn new_set(len: usize) -> Self {
+        let mut buffer = buffer_mut![0xFF; len.div_ceil(8)];
+        if !len.is_multiple_of(8)
+            && let Some(last) = buffer.as_mut_slice().last_mut()
+        {
+            *last = (1u8 << (len % 8)) - 1;
+        }
         Self {
-            buffer: buffer_mut![0xFF; len.div_ceil(8)],
+            buffer,
             offset: 0,
             len,
         }
@@ -325,8 +440,9 @@ impl BitBufferMut {
         })
     }
 
+    /// Allocates the zeroed words of `len` bits and lets `fill` write them.
     #[inline]
-    fn collect_words_in(
+    pub(crate) fn collect_words_in(
         len: usize,
         allocator: BufferAllocatorRef,
         fill: impl FnOnce(&mut [u64]),
@@ -445,7 +561,8 @@ impl BitBufferMut {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    /// The caller must ensure that `index < self.len()`. Setting a bit at or past `self.len()`
+    /// violates the invariant that all bits past `offset + len` are zero.
     #[inline]
     pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
         if value {
@@ -485,7 +602,8 @@ impl BitBufferMut {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    /// The caller must ensure that `index < self.len()`. Setting a bit at or past `self.len()`
+    /// violates the invariant that all bits past `offset + len` are zero.
     #[inline]
     pub unsafe fn set_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
@@ -498,19 +616,20 @@ impl BitBufferMut {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    /// The caller must ensure that `index < self.len()`.
     #[inline]
     pub unsafe fn unset_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { unset_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
     }
 
-    /// Foces the length of the `BitBufferMut` to `new_len`.
+    /// Forces the length of the `BitBufferMut` to `new_len`.
     ///
     /// # Safety
     ///
     /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
     /// - The elements at `old_len..new_len` must be initialized
+    /// - All unused trailing bits at or past `offset + new_len` in the final byte must be zero
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub unsafe fn set_len(&mut self, new_len: usize) {
@@ -526,6 +645,20 @@ impl BitBufferMut {
         self.len = new_len;
     }
 
+    /// Truncates excess trailing bytes and zeroes unused high bits in the final partial byte so
+    /// the "bits beyond `offset + len` are zero" invariant holds.
+    #[inline]
+    fn clear_trailing_bits(&mut self) {
+        let end_bit = self.offset + self.len;
+        let needed_bytes = end_bit.div_ceil(8);
+        self.buffer.truncate(needed_bytes);
+        if !end_bit.is_multiple_of(8)
+            && let Some(last) = self.buffer.as_mut_slice().last_mut()
+        {
+            *last &= (1u8 << (end_bit % 8)) - 1;
+        }
+    }
+
     /// Truncate the buffer to the given length.
     ///
     /// If the given length is greater than the current length, this is a no-op.
@@ -539,17 +672,11 @@ impl BitBufferMut {
             self.offset <= usize::MAX - len,
             "Truncate on BitBufferMut overflowed"
         );
-        let end_bit = self.offset + len;
-        let new_len_bytes = end_bit.div_ceil(8);
-        self.buffer.truncate(new_len_bytes);
         self.len = len;
 
         // Clear stale bits in the final partial byte so the "bits beyond len are zero" invariant
         // holds. `append_false` (and `append_buffer`) rely on it to avoid a read-modify-write.
-        if !end_bit.is_multiple_of(8) {
-            let keep = (1u8 << (end_bit % 8)) - 1;
-            self.buffer.as_mut_slice()[new_len_bytes - 1] &= keep;
-        }
+        self.clear_trailing_bits();
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
@@ -589,6 +716,7 @@ impl BitBufferMut {
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
         }
+        debug_assert_eq!(self.buffer.as_slice()[byte_pos] & (1 << (bit_pos % 8)), 0);
 
         // The bit is guaranteed to be 0: new bytes are zero-initialized, and
         // existing bytes have this bit unset (it's beyond the current length).
@@ -671,39 +799,18 @@ impl BitBufferMut {
         let end_bit_pos = start_bit_pos + bit_len;
         let required_bytes = end_bit_pos.div_ceil(8);
 
-        // Ensure buffer has enough bytes, zero-initialized for OR-based writes.
+        // Ensure the buffer holds the appended bits; `copy_bits` overwrites them.
         if required_bytes > self.buffer.len() {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        let dst_bit_offset = start_bit_pos % 8;
-        let src_bit_offset = buffer.offset();
-
-        if dst_bit_offset == 0 && src_bit_offset == 0 {
-            // Both byte-aligned: use memcpy for full bytes, then mask the tail.
-            let dst_byte = start_bit_pos / 8;
-            let src_bytes = buffer.inner().as_slice();
-            let full_bytes = bit_len / 8;
-            self.buffer.as_mut_slice()[dst_byte..dst_byte + full_bytes]
-                .copy_from_slice(&src_bytes[..full_bytes]);
-            let rem = bit_len % 8;
-            if rem != 0 {
-                let mask = (1u8 << rem) - 1;
-                self.buffer.as_mut_slice()[dst_byte + full_bytes] |= src_bytes[full_bytes] & mask;
-            }
-        } else {
-            // Use bitvec for unaligned bit copying.
-            let self_slice = self
-                .buffer
-                .as_mut_slice()
-                .view_bits_mut::<bitvec::prelude::Lsb0>();
-            let other_slice = buffer
-                .inner()
-                .as_slice()
-                .view_bits::<bitvec::prelude::Lsb0>();
-            let source_range = src_bit_offset..src_bit_offset + bit_len;
-            self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
-        }
+        copy_bits(
+            buffer.inner().as_slice(),
+            buffer.offset(),
+            self.buffer.as_mut_slice(),
+            start_bit_pos,
+            bit_len,
+        );
 
         self.len += bit_len;
     }
@@ -740,6 +847,7 @@ impl Not for BitBufferMut {
     #[inline]
     fn not(mut self) -> Self::Output {
         ops::bitwise_unary_op_mut(&mut self, |b| !b);
+        self.clear_trailing_bits();
         self
     }
 }
@@ -792,8 +900,8 @@ impl FromIterator<bool> for BitBufferMut {
         let ptr = buf.buffer.as_mut_ptr();
         for i in 0..lower_bound {
             let Some(v) = iter.next() else {
-                // SAFETY: We are definitely under the capacity and all values are already
-                // initialized from `new_unset`.
+                // SAFETY: `i <= lower_bound <= capacity()`, all bits are initialized from
+                // `new_unset`, and only bits `< i` were set, so bits `>= i` remain zero.
                 unsafe { buf.set_len(i) };
                 return buf;
             };
@@ -822,10 +930,40 @@ mod tests {
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
+    use crate::bit::buf_mut::copy_bits;
     use crate::bit::buf_mut::fill_bits;
     use crate::bitbuffer;
     use crate::bitbuffer_mut;
     use crate::buffer_mut;
+
+    /// Checks copies at every pairing of source and destination bit offset, shorter and longer
+    /// than a word and running to the end of the source and of the destination, against a bit-by-bit copy that leaves the
+    /// destination's other bits alone.
+    #[rstest]
+    fn copy_bits_matches_bitwise_copy(
+        #[values(0, 1, 7, 8, 13)] src_bit: usize,
+        #[values(0, 3, 8, 61)] dst_bit: usize,
+        #[values(0, 1, 9, 63, 64, 65, 200)] len: usize,
+        #[values(0, 3)] dst_slack: usize,
+    ) {
+        let bit = |bytes: &[u8], i: usize| bytes[i / 8] & (1 << (i % 8)) != 0;
+        // The source ends exactly at the copy, so the last words take the partial path.
+        let src: Vec<u8> = (0u8..)
+            .take((src_bit + len).div_ceil(8).max(1))
+            .map(|i| i.wrapping_mul(0x5B) ^ 0xA6)
+            .collect();
+        let before = vec![0b1010_0101u8; (dst_bit + len).div_ceil(8).max(1) + dst_slack];
+        let mut actual = before.clone();
+        copy_bits(&src, src_bit, &mut actual, dst_bit, len);
+        for i in 0..actual.len() * 8 {
+            let expected = if (dst_bit..dst_bit + len).contains(&i) {
+                bit(&src, src_bit + i - dst_bit)
+            } else {
+                bit(&before, i)
+            };
+            assert_eq!(bit(&actual, i), expected, "bit {i}");
+        }
+    }
 
     /// Checks every range of slices that end on and off a word boundary against a bit-by-bit
     /// fill, starting from a pattern so that bits outside the range must be preserved.
@@ -1145,7 +1283,6 @@ mod tests {
         assert!(frozen.value(7));
     }
 
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn append_after_clear_reads_back_false() {
         // `clear` must not leave stale set bits behind: `append_false` and `append_buffer`
@@ -1160,7 +1297,6 @@ mod tests {
         assert_eq!(bools.true_count(), 0);
     }
 
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_after_truncate() {
         // Truncating leaves stale set bits in the last partial byte; an append after that
@@ -1185,7 +1321,6 @@ mod tests {
     #[case::src_unaligned(0, 5)]
     #[case::mismatched(3, 5)]
     #[case::equal_nonzero(5, 5)]
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     fn test_append_buffer_long(#[case] dst_prefix: usize, #[case] src_start: usize) {
         // Exercise every alignment combination across many words.
         let source = crate::BitBuffer::from_iter((0..301).map(|i| i % 3 == 0));
@@ -1204,7 +1339,6 @@ mod tests {
         }
     }
 
-    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
     #[test]
     fn test_append_buffer_with_offsets() {
         // Create source buffer with offset
@@ -1458,5 +1592,52 @@ mod tests {
     #[should_panic(expected = "is too short for offset")]
     fn from_buffer_does_not_wrap_on_a_huge_offset() {
         BitBufferMut::from_buffer(buffer_mut![0u8; 1], usize::MAX, 8);
+    }
+
+    #[test]
+    fn test_append_false_clears_dirty_trailing_bits() {
+        let mut from_new_set = BitBufferMut::new_set(5);
+        from_new_set.append_false();
+        from_new_set.append_true();
+        from_new_set.append_false();
+        assert_eq!(
+            from_new_set.freeze(),
+            bitbuffer![true, true, true, true, true, false, true, false]
+        );
+
+        let mut from_not = !BitBufferMut::new_unset(5);
+        from_not.append_false();
+        assert_eq!(
+            from_not.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+
+        let mut from_buf_unaligned = BitBufferMut::from_buffer(buffer_mut![0xFF, 0xFF], 0, 5);
+        from_buf_unaligned.append_false();
+        assert_eq!(
+            from_buf_unaligned.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+
+        let mut from_buf_aligned = BitBufferMut::from_buffer(buffer_mut![0xFF, 0xFF], 0, 8);
+        from_buf_aligned.append_false();
+        assert_eq!(
+            from_buf_aligned.freeze(),
+            bitbuffer![true, true, true, true, true, true, true, true, false]
+        );
+
+        let mut from_try_into_mut = crate::BitBuffer::new_set(5).try_into_mut().unwrap();
+        from_try_into_mut.append_false();
+        assert_eq!(
+            from_try_into_mut.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+
+        let mut from_copy_from = BitBufferMut::copy_from(&crate::BitBuffer::new_set(5));
+        from_copy_from.append_false();
+        assert_eq!(
+            from_copy_from.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
     }
 }

@@ -1,34 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod decimal;
+mod lazy;
 mod variant;
+
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builders::VariantBuilder;
 use vortex_array::builders::builder_with_capacity_in;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::proto::expr as pb;
 use vortex_array::proto::expr::variant_path_element;
+use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::mask::Mask;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
@@ -38,9 +45,13 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
 
-/// Registers [`VariantGet`] and its kernel for canonical variant arrays.
+use self::decimal::parse_decimal;
+use crate::variant_pack::VariantPack;
+
+/// Registers [`VariantGet`] and its kernels.
 pub(crate) fn initialize(session: &VortexSession) {
     session.scalar_fns().register(VariantGet);
+    lazy::initialize(session);
     variant::initialize(session);
 }
 
@@ -152,15 +163,15 @@ impl ScalarFnVTable for VariantGet {
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
-        // A mask only nulls rows out, so it commutes with extraction.
-        if let Some(masked) = input.as_opt::<ScalarFn>()
-            && masked.scalar_fn().id() == Mask.id()
-        {
-            return VariantGet::try_new(masked.child_at(0).clone(), options.clone())?
-                .into_array()
-                .execute::<ArrayRef>(ctx)?
-                .mask(masked.child_at(1).clone())?
-                .execute::<ArrayRef>(ctx);
+        // Canonicalize other lazy inputs, such as a filter over a slice, one layer at a time until
+        // a kernel applies.
+        if !input.is::<Variant>() {
+            let canonical = input.clone().execute::<VariantArray>(ctx)?;
+            if !wraps_input(&canonical, &input) {
+                return VariantGet::try_new(canonical.into_array(), options.clone())?
+                    .into_array()
+                    .execute::<ArrayRef>(ctx);
+            }
         }
 
         if !dtype.is_variant() {
@@ -182,9 +193,78 @@ impl ScalarFnVTable for VariantGet {
         builder.finish_into_variant().map(IntoArray::into_array)
     }
 
+    /// Reads a shredded path from the shredded child of a [`VariantPack`] input, leaving its
+    /// core storage unread.
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        let input = node.child(0);
+        let Some(pack) = input
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<VariantPack>())
+        else {
+            return Ok(None);
+        };
+        let core = input.child(0);
+        let mut current = input.child(1);
+        let mut path = options.path().elements();
+        // Whether `current` is below the shredded child itself. Only the shredded child can
+        // have left values in the core storage, so only reading it needs it to be complete.
+        let mut descended = false;
+
+        loop {
+            let dtype = current.node_dtype()?;
+            match (&dtype, path.split_first()) {
+                // A shredded Variant holds the rest of the path itself.
+                (DType::Variant(_), _) if descended => {
+                    let rest = VariantGetOptions::new(
+                        VariantPath::new(path.iter().cloned()),
+                        options.dtype().cloned(),
+                    );
+                    return node.new_node(VariantGet.bind(rest), &[current]).map(Some);
+                }
+                (DType::Struct(fields, _), Some((VariantPathElement::Field(name), rest))) => {
+                    if fields.find(name.as_ref()).is_none() {
+                        // A field that was not shredded is only in the core storage.
+                        return if descended {
+                            Ok(None)
+                        } else {
+                            node.new_node(VariantGet.bind(options.clone()), &[core])
+                                .map(Some)
+                        };
+                    }
+                    if !descended && !pack.complete() {
+                        return Ok(None);
+                    }
+                    current = current.new_node(GetItem.bind(name.clone()), &[current.clone()])?;
+                    path = rest;
+                    descended = true;
+                }
+                // The end of the path at a typed value of the requested dtype. Only the top-level
+                // nullability can be different. A nested field or element that the requested
+                // dtype makes non-nullable turns a null value into a null row in `variant_get`,
+                // but makes a cast fail.
+                (dtype, None)
+                    if options.dtype().is_some_and(|requested| {
+                        !requested.is_variant() && dtype.as_nullable() == requested.as_nullable()
+                    }) && (descended || (pack.complete() && !pack.shredded_validity())) =>
+                {
+                    return node
+                        .new_node(Cast.bind(node.node_dtype()?), &[current])
+                        .map(Some);
+                }
+                _ => return Ok(None),
+            }
+        }
+    }
+
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
+}
+
+/// Returns whether `canonical` only wraps `input` again, as a constant canonicalizes to a Variant
+/// array over itself. Extracting from it would build the same extraction again.
+fn wraps_input(canonical: &VariantArray, input: &ArrayRef) -> bool {
+    canonical.shredded().is_none() && ArrayRef::ptr_eq(canonical.core_storage(), input)
 }
 
 fn variant_get_scalar(
@@ -204,9 +284,211 @@ fn variant_get_scalar(
         return Ok(Scalar::null(output_dtype.clone()));
     }
 
-    value
+    Ok(cast_variant_scalar(value, output_dtype)?
+        .unwrap_or_else(|| Scalar::null(output_dtype.clone())))
+}
+
+fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Option<Scalar>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    if output_dtype.is_variant() {
+        let variant = if value.dtype().is_variant() {
+            value
+        } else {
+            Scalar::variant(value)
+        };
+        return variant.cast(output_dtype).map(Some);
+    }
+
+    let Some(value) = variant_payload(value) else {
+        return Ok(None);
+    };
+
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    if let DType::Struct(target_fields, _) = output_dtype {
+        let Some(struct_scalar) = value.as_struct_opt() else {
+            return Ok(None);
+        };
+        if struct_scalar.is_null() {
+            return Ok(None);
+        }
+        let mut fields = Vec::with_capacity(target_fields.nfields());
+        for (name, field_dtype) in target_fields.names().iter().zip(target_fields.fields()) {
+            let field = match struct_scalar.field(name.as_ref()) {
+                Some(field) => match cast_variant_scalar(field, &field_dtype)? {
+                    Some(cast_field) => cast_field,
+                    None if field_dtype.is_nullable() => Scalar::null(field_dtype),
+                    None => return Ok(None),
+                },
+                None if field_dtype.is_nullable() => Scalar::null(field_dtype),
+                None => return Ok(None),
+            };
+            fields.push(field);
+        }
+        return Ok(Some(Scalar::struct_(output_dtype.clone(), fields)));
+    }
+
+    if let DType::List(elem_dtype, _) = output_dtype {
+        let Some(list_scalar) = value.as_list_opt() else {
+            return Ok(None);
+        };
+        let Some(elements) = list_scalar.elements() else {
+            return Ok(None);
+        };
+        let mut cast_elements = Vec::with_capacity(elements.len());
+        for element in elements {
+            let cast_element = match cast_variant_scalar(element, elem_dtype)? {
+                Some(cast_element) => cast_element,
+                None if elem_dtype.is_nullable() => Scalar::null(elem_dtype.as_ref().clone()),
+                None => return Ok(None),
+            };
+            cast_elements.push(cast_element);
+        }
+        return Ok(Some(Scalar::list(
+            Arc::clone(elem_dtype),
+            cast_elements,
+            output_dtype.nullability(),
+        )));
+    }
+
+    if let DType::FixedSizeList(elem_dtype, size, _) = output_dtype {
+        let Some(list_scalar) = value.as_list_opt() else {
+            return Ok(None);
+        };
+        let Some(elements) = list_scalar.elements() else {
+            return Ok(None);
+        };
+        if elements.len() != *size as usize {
+            return Ok(None);
+        }
+        let mut cast_elements = Vec::with_capacity(elements.len());
+        for element in elements {
+            let cast_element = match cast_variant_scalar(element, elem_dtype)? {
+                Some(cast_element) => cast_element,
+                None if elem_dtype.is_nullable() => Scalar::null(elem_dtype.as_ref().clone()),
+                None => return Ok(None),
+            };
+            cast_elements.push(cast_element);
+        }
+        return Ok(Some(Scalar::fixed_size_list(
+            Arc::clone(elem_dtype),
+            cast_elements,
+            output_dtype.nullability(),
+        )));
+    }
+
+    Ok(value
         .cast(output_dtype)
-        .or_else(|_| Ok(Scalar::null(output_dtype.clone())))
+        .ok()
+        .or_else(|| convert_to_bool(&value, output_dtype))
+        .or_else(|| convert_to_decimal(&value, output_dtype)))
+}
+
+/// Converts a number or a string to a Boolean as Arrow's Variant conversion does: zero is false,
+/// and a string converts as [`string_as_bool`] reads it.
+pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+    if !dtype.is_boolean() {
+        return None;
+    }
+
+    let value = if scalar.dtype().is_variant() {
+        scalar.as_variant().value()?
+    } else {
+        scalar
+    };
+
+    let boolean = match value.dtype() {
+        DType::Primitive(..) => !value.is_zero()?,
+        DType::Utf8(_) => string_as_bool(value.as_utf8().value()?.as_str())?,
+        _ => return None,
+    };
+    Some(Scalar::bool(boolean, dtype.nullability()))
+}
+
+/// Converts a number or a string to a decimal as Arrow's Variant conversion does, rounding half
+/// away from zero. Returns `None` if the result does not fit.
+pub(super) fn convert_to_decimal(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+    let DType::Decimal(target, nullability) = dtype else {
+        return None;
+    };
+
+    let value = if scalar.dtype().is_variant() {
+        scalar.as_variant().value()?
+    } else {
+        scalar
+    };
+
+    let unscaled = match value.dtype() {
+        DType::Primitive(ptype, _) if ptype.is_float() => {
+            let float = value.as_primitive().as_::<f64>()?;
+            let scaled = (10f64.powi(i32::from(target.scale())) * float).round();
+            i128_from_f64(scaled)?
+        }
+        DType::Primitive(..) => {
+            let primitive = value.as_primitive();
+            let integer = primitive
+                .as_::<i64>()
+                .map(i128::from)
+                .or_else(|| primitive.as_::<u64>().map(i128::from))?;
+            round_to_scale(integer, 0, target.scale())?
+        }
+        DType::Decimal(source, _) => round_to_scale(
+            value.as_decimal().decimal_value()?.cast::<i128>()?,
+            source.scale(),
+            target.scale(),
+        )?,
+        DType::Utf8(_) => parse_decimal(
+            value.as_utf8().value()?.as_str(),
+            target.precision(),
+            target.scale(),
+        )?,
+        _ => return None,
+    };
+
+    Scalar::try_decimal(DecimalValue::I128(unscaled), *target, *nullability).ok()
+}
+
+/// Rounds the unscaled value `unscaled` of `scale` half away from zero to the smaller scale
+/// `target`. Returns `None` if `target` is not smaller.
+fn round_to_scale(unscaled: i128, scale: i8, target: i8) -> Option<i128> {
+    let dropped_digits = u32::try_from(i16::from(scale) - i16::from(target)).ok()?;
+
+    // Dropping more digits than an `i128` holds rounds every value to zero.
+    let Some(divisor) = 10i128.checked_pow(dropped_digits) else {
+        return Some(0);
+    };
+
+    let mut rounded = unscaled / divisor;
+    if (unscaled % divisor).unsigned_abs() * 2 >= divisor.unsigned_abs() {
+        rounded += unscaled.signum();
+    }
+    Some(rounded)
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the value is checked to be in range"
+)]
+fn i128_from_f64(float: f64) -> Option<i128> {
+    // `i128::MAX as f64` rounds up to 2^127, so the upper bound is exclusive.
+    (float >= i128::MIN as f64 && float < i128::MAX as f64).then_some(float as i128)
+}
+
+/// Reads a string as a Boolean with the spellings that Arrow's string cast accepts, ignoring case
+/// and the whitespace around the string. Returns `None` for any other string.
+fn string_as_bool(string: &str) -> Option<bool> {
+    match string.trim().to_ascii_lowercase().as_str() {
+        // spellchecker:off
+        "t" | "tr" | "tru" | "true" | "y" | "ye" | "yes" | "on" | "1" => Some(true),
+        "f" | "fa" | "fal" | "fals" | "false" | "n" | "no" | "of" | "off" | "0" => Some(false),
+        // spellchecker:on
+        _ => None,
+    }
 }
 
 fn variant_path_scalar(
@@ -422,537 +704,4 @@ impl From<u64> for VariantPathElement {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::LazyLock;
-
-    use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Chunked;
-    use vortex_array::arrays::ChunkedArray;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::VariantArray;
-    use vortex_array::arrays::variant::VariantArraySlotsExt;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::assert_nth_scalar_is_null;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldName;
-    use vortex_array::dtype::FieldNames;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::dtype::StructFields;
-    use vortex_array::optimizer::ArrayOptimizer;
-    use vortex_array::scalar::Scalar;
-    use vortex_array::scalar::ScalarValue;
-    use vortex_array::scalar_fn::ScalarFnVTable;
-    use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
-    use vortex_error::vortex_ensure;
-    use vortex_error::vortex_err;
-    use vortex_expr::ArrayExprExt;
-    use vortex_expr::Expression;
-    use vortex_expr::proto::ExprSerializeProtoExt;
-    use vortex_expr::root;
-    use vortex_session::VortexSession;
-
-    use crate::expr::variant_get;
-    use crate::variant_get::VariantGet;
-    use crate::variant_get::VariantGetOptions;
-    use crate::variant_get::VariantPath;
-    use crate::variant_get::VariantPathElement;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-
-        vortex_array::initialize(&session);
-
-        crate::initialize(&session);
-
-        session
-    });
-
-    fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
-        let fields = fields.into_iter().collect::<Vec<_>>();
-        let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
-        let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
-        let values = fields
-            .into_iter()
-            .map(|(_, value)| Scalar::variant(value).into_value())
-            .collect();
-        Scalar::try_new(
-            DType::Struct(StructFields::new(names, dtypes), Nullability::NonNullable),
-            Some(ScalarValue::Tuple(values)),
-        )
-        .unwrap()
-    }
-
-    fn variant_rows(rows: impl IntoIterator<Item = Scalar>) -> VortexResult<ArrayRef> {
-        let dtype = DType::Variant(Nullability::Nullable);
-        let chunks = rows
-            .into_iter()
-            .map(|row| ConstantArray::new(row.cast(&dtype).unwrap(), 1).into_array());
-        ChunkedArray::try_new(chunks, dtype.clone()).map(|array| array.into_array())
-    }
-
-    /// Test-only syntax for keeping `variant_get` cases compact without committing
-    /// to a public string grammar yet.
-    fn parse_path(path: &str) -> VortexResult<VariantPath> {
-        if path.is_empty() || path == "$" {
-            return Ok(VariantPath::root());
-        }
-
-        let mut elements = Vec::new();
-        let mut pos = usize::from(path.as_bytes().first() == Some(&b'$'));
-        if pos == 1
-            && path
-                .as_bytes()
-                .get(pos)
-                .is_some_and(|byte| !matches!(byte, b'.' | b'['))
-        {
-            vortex_bail!("Invalid Variant path {path:?}: expected '.' or '[' after '$'");
-        }
-
-        while pos < path.len() {
-            match path.as_bytes()[pos] {
-                b'.' => {
-                    pos += 1;
-                    let (field, next_pos) = parse_field(path, pos)?;
-                    elements.push(VariantPathElement::field(field));
-                    pos = next_pos;
-                }
-                b'[' => {
-                    let (index, next_pos) = parse_index(path, pos + 1)?;
-                    elements.push(VariantPathElement::index(index));
-                    pos = next_pos;
-                }
-                _ if pos == 0 => {
-                    let (field, next_pos) = parse_field(path, pos)?;
-                    elements.push(VariantPathElement::field(field));
-                    pos = next_pos;
-                }
-                _ => {
-                    vortex_bail!("Invalid Variant path {path:?}: expected '.', '[', or end of path")
-                }
-            }
-        }
-
-        Ok(VariantPath::new(elements))
-    }
-
-    fn parse_field(path: &str, start: usize) -> VortexResult<(&str, usize)> {
-        let mut pos = start;
-        while path
-            .as_bytes()
-            .get(pos)
-            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-        {
-            pos += 1;
-        }
-        vortex_ensure!(
-            pos > start,
-            "Invalid Variant path {path:?}: expected field name"
-        );
-        Ok((&path[start..pos], pos))
-    }
-
-    fn parse_index(path: &str, start: usize) -> VortexResult<(u64, usize)> {
-        let mut pos = start;
-        while path
-            .as_bytes()
-            .get(pos)
-            .is_some_and(|byte| byte.is_ascii_digit())
-        {
-            pos += 1;
-        }
-        vortex_ensure!(
-            pos > start,
-            "Invalid Variant path {path:?}: expected list index"
-        );
-        vortex_ensure!(
-            path.as_bytes().get(pos) == Some(&b']'),
-            "Invalid Variant path {path:?}: expected closing ']'"
-        );
-        let index = path[start..pos]
-            .parse()
-            .map_err(|_| vortex_err!("Invalid Variant path {path:?}: list index is too large"))?;
-        Ok((index, pos + 1))
-    }
-
-    fn execute_variant_get(
-        array: ArrayRef,
-        path: &str,
-        dtype: Option<DType>,
-    ) -> VortexResult<ArrayRef> {
-        let expr = variant_get(root(), parse_path(path)?, dtype);
-        array
-            .apply(&expr)?
-            .optimize_ctx(&SESSION)?
-            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
-    }
-
-    #[test]
-    fn variant_get_path_parse_and_display() {
-        let path = parse_path("$.data[1].a").unwrap();
-        assert_eq!(
-            path.elements(),
-            &[
-                VariantPathElement::field("data"),
-                VariantPathElement::index(1),
-                VariantPathElement::field("a")
-            ]
-        );
-        assert_eq!(path.to_string(), "$.data[1].a");
-
-        let bare_path = parse_path("data[2]").unwrap();
-        assert_eq!(bare_path.to_string(), "$.data[2]");
-    }
-
-    #[test]
-    fn variant_get_return_dtype_is_nullable_variant_without_requested_dtype() {
-        let expr = variant_get(root(), VariantPath::field("data"), None);
-        let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
-            .unwrap();
-
-        assert_eq!(dtype, DType::Variant(Nullability::Nullable));
-    }
-
-    #[test]
-    fn variant_get_return_dtype_makes_requested_dtype_nullable() {
-        let requested = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let expr = variant_get(root(), VariantPath::field("data"), Some(requested));
-        let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
-            .unwrap();
-
-        assert_eq!(dtype, DType::Primitive(PType::I64, Nullability::Nullable));
-    }
-
-    #[test]
-    fn variant_get_rejects_non_variant_input() {
-        let expr = variant_get(root(), VariantPath::field("data"), None);
-        let err = expr
-            .return_dtype(&DType::Utf8(Nullability::NonNullable))
-            .unwrap_err();
-
-        assert!(err.to_string().contains("VariantGet input must be Variant"));
-    }
-
-    #[test]
-    fn variant_get_formats_sql() {
-        let expr = variant_get(
-            root(),
-            parse_path("$.data[1].a").unwrap(),
-            Some(DType::Utf8(Nullability::NonNullable)),
-        );
-
-        assert_eq!(expr.to_string(), "variant_get($, \"$.data[1].a\", utf8)");
-    }
-
-    #[test]
-    fn variant_get_options_roundtrip_serialization() {
-        let options = VariantGetOptions::new(
-            VariantPath::new([
-                VariantPathElement::field("data"),
-                VariantPathElement::index(1),
-                VariantPathElement::field("a"),
-            ]),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-        let metadata = VariantGet.serialize(&options).unwrap().unwrap();
-        let actual = VariantGet.deserialize(&metadata, &SESSION).unwrap();
-
-        assert_eq!(actual, options);
-    }
-
-    #[test]
-    fn variant_get_expression_roundtrip_serialization() {
-        let expr: Expression = variant_get(
-            root(),
-            parse_path("$.data[1].a").unwrap(),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-        let proto = expr.serialize_proto().unwrap();
-        let actual = Expression::from_proto(&proto, &SESSION).unwrap();
-
-        assert_eq!(actual, expr);
-    }
-
-    #[test]
-    fn variant_get_generic_fallback_extracts_field_and_list_index() -> VortexResult<()> {
-        let items = Scalar::list(
-            DType::Variant(Nullability::NonNullable),
-            vec![
-                Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
-                Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
-            ],
-            Nullability::NonNullable,
-        );
-        let array = variant_rows([
-            Scalar::variant(variant_object([("items", items)])),
-            Scalar::variant(variant_object([(
-                "items",
-                Scalar::list_empty(
-                    DType::Variant(Nullability::NonNullable).into(),
-                    Nullability::NonNullable,
-                ),
-            )])),
-            Scalar::variant(variant_object([(
-                "items",
-                Scalar::list(
-                    DType::Variant(Nullability::NonNullable),
-                    vec![
-                        Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
-                        Scalar::variant(Scalar::utf8("wrong", Nullability::NonNullable)),
-                    ],
-                    Nullability::NonNullable,
-                ),
-            )])),
-        ])?;
-
-        let result = execute_variant_get(
-            array,
-            "$.items[1]",
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        )?;
-        let mut ctx = SESSION.create_execution_ctx();
-
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(20i32), None, None]),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn variant_get_reads_chunked_variant_input() -> VortexResult<()> {
-        let array = variant_rows([
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::primitive(10i32, Nullability::NonNullable),
-            )])),
-            Scalar::variant(variant_object([(
-                "b",
-                Scalar::primitive(20i32, Nullability::NonNullable),
-            )])),
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::primitive(30i32, Nullability::NonNullable),
-            )])),
-            Scalar::null(DType::Variant(Nullability::Nullable)),
-        ])?;
-        assert!(array.is::<Chunked>());
-
-        let result = execute_variant_get(
-            array,
-            "$.a",
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        )?;
-        let mut ctx = SESSION.create_execution_ctx();
-
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None]),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn variant_get_fallback_typed_output_is_contiguous() -> VortexResult<()> {
-        let array = variant_rows([
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::primitive(10i32, Nullability::NonNullable),
-            )])),
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::primitive(20i32, Nullability::NonNullable),
-            )])),
-            Scalar::variant(variant_object([(
-                "b",
-                Scalar::primitive(30i32, Nullability::NonNullable),
-            )])),
-        ])?;
-
-        let result = execute_variant_get(
-            array,
-            "$.a",
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        )?;
-
-        assert!(!result.is::<Chunked>());
-        let mut ctx = SESSION.create_execution_ctx();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn variant_get_generic_fallback_preserves_variant_null() -> VortexResult<()> {
-        let array = variant_rows([
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::utf8("ok", Nullability::NonNullable),
-            )])),
-            Scalar::null(DType::Variant(Nullability::Nullable)),
-            Scalar::variant(variant_object([("a", Scalar::null(DType::Null))])),
-            Scalar::variant(variant_object([(
-                "b",
-                Scalar::primitive(2i32, Nullability::NonNullable),
-            )])),
-        ])?;
-
-        let result = execute_variant_get(array, "$.a", None)?;
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let row0 = result.execute_scalar(0, &mut ctx)?;
-        assert_eq!(
-            row0.as_variant()
-                .value()
-                .and_then(|value| value.as_utf8().value())
-                .map(|value| value.as_str()),
-            Some("ok")
-        );
-        assert_nth_scalar_is_null!(result, 1, &mut ctx);
-        assert_eq!(
-            result
-                .execute_scalar(2, &mut ctx)?
-                .as_variant()
-                .is_variant_null(),
-            Some(true)
-        );
-        assert_nth_scalar_is_null!(result, 3, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
-    fn variant_get_fallback_variant_output_canonicalizes() -> VortexResult<()> {
-        let array = variant_rows([
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::primitive(10i32, Nullability::NonNullable),
-            )])),
-            Scalar::variant(variant_object([(
-                "a",
-                Scalar::primitive(20i32, Nullability::NonNullable),
-            )])),
-        ])?;
-
-        let result = execute_variant_get(array, "$.a", None)?;
-        let variant = result
-            .clone()
-            .execute::<VariantArray>(&mut SESSION.create_execution_ctx())?;
-        let canonical = result.execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
-        let Canonical::Variant(canonical_variant) = canonical else {
-            vortex_bail!("expected Variant canonical array");
-        };
-
-        assert_eq!(variant.len(), 2);
-        assert_eq!(canonical_variant.len(), 2);
-        assert_eq!(variant.core_storage().dtype(), variant.dtype());
-        assert_eq!(variant.core_storage().len(), variant.len());
-
-        let mut ctx = SESSION.create_execution_ctx();
-        for array in [variant, canonical_variant] {
-            assert_eq!(array.dtype(), &DType::Variant(Nullability::Nullable));
-            for (idx, expected) in [10i32, 20].into_iter().enumerate() {
-                let scalar = array.execute_scalar(idx, &mut ctx)?;
-                let actual = scalar
-                    .as_variant()
-                    .value()
-                    .and_then(|value| value.as_primitive().as_::<i32>());
-                assert_eq!(actual, Some(expected), "row {idx}");
-            }
-        }
-        Ok(())
-    }
-
-    fn row_storage(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
-        Ok(ChunkedArray::try_new(
-            values.into_iter().map(|value| {
-                ConstantArray::new(
-                    Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)),
-                    1,
-                )
-                .into_array()
-            }),
-            DType::Variant(Nullability::NonNullable),
-        )?
-        .into_array())
-    }
-
-    #[test]
-    fn variant_get_keeps_valid_shredded_rows_for_matching_dtype() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let core_storage = row_storage([1, 2, 3])?;
-        let shredded = StructArray::try_from_iter([(
-            "a",
-            PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
-        )])?;
-        let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
-        let expr = variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-
-        let result = variant.into_array().apply(&expr)?;
-
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn variant_get_treats_value_and_typed_value_as_logical_field_names() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let core_storage = row_storage([1, 2, 3])?;
-        let shredded = StructArray::try_from_iter([
-            (
-                "value",
-                PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
-            ),
-            (
-                "typed_value",
-                PrimitiveArray::from_iter([40i32, 50, 60]).into_array(),
-            ),
-        ])?;
-        let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
-
-        let value_expr = variant_get(
-            root(),
-            VariantPath::field("value"),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-        let value_result = variant.clone().into_array().apply(&value_expr)?;
-        assert_arrays_eq!(
-            value_result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
-            &mut ctx
-        );
-
-        let typed_value_expr = variant_get(
-            root(),
-            VariantPath::field("typed_value"),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-        let typed_value_result = variant.into_array().apply(&typed_value_expr)?;
-        assert_arrays_eq!(
-            typed_value_result,
-            PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),
-            &mut ctx
-        );
-        Ok(())
-    }
-}
+mod tests;

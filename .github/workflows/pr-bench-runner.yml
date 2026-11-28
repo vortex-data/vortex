@@ -34,6 +34,14 @@ on:
         required: false
         type: string
         default: ""
+      nvme_region:
+        description: >-
+          Run the benchmark in the first region of the BENCH_NVME_REGIONS repository variable,
+          where develop-bench.yml runs its baseline. Only for a benchmark that reads no data
+          from S3.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -112,7 +120,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region={3}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '', inputs.nvme_region && fromJSON(vars.BENCH_NVME_REGIONS || '["us-east-1"]')[0] || 'us-east-1')
           || 'ubuntu-latest' }}
     steps:
       - parallel:

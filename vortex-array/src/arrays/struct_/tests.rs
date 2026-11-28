@@ -361,3 +361,40 @@ fn test_push_validity_into_children_no_nulls() -> VortexResult<()> {
     assert_arrays_eq!(preserved, struct_array, &mut ctx);
     Ok(())
 }
+
+#[test]
+fn test_try_concat_duplicate_field_names_different_dtypes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let chunk1 = StructArray::try_new(
+        FieldNames::from(["x", "x"]),
+        vec![
+            buffer![1i32, 2].into_array(),
+            buffer![10u64, 20].into_array(),
+        ],
+        2,
+        Validity::NonNullable,
+    )?;
+    let chunk2 = StructArray::try_new(
+        FieldNames::from(["x", "x"]),
+        vec![
+            buffer![3i32, 4].into_array(),
+            buffer![30u64, 40].into_array(),
+        ],
+        2,
+        Validity::NonNullable,
+    )?;
+
+    let concat = StructArray::try_concat([chunk1, chunk2])?;
+    assert_eq!(concat.len(), 4);
+    assert_arrays_eq!(
+        concat.unmasked_field(0),
+        PrimitiveArray::from_iter([1i32, 2, 3, 4]),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        concat.unmasked_field(1),
+        PrimitiveArray::from_iter([10u64, 20, 30, 40]),
+        &mut ctx
+    );
+    Ok(())
+}

@@ -37,6 +37,8 @@ mod options;
 mod size;
 
 #[cfg(test)]
+mod property_tests;
+#[cfg(test)]
 mod tests;
 
 pub use encode::RowEncode;

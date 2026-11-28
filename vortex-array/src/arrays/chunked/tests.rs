@@ -12,6 +12,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
@@ -356,6 +357,44 @@ fn swizzle_empty_list_rows() -> VortexResult<()> {
     )?;
     assert!(output.elements().is_empty());
     assert_arrays_eq!(output, expected, &mut ctx);
+    Ok(())
+}
+
+/// Single steps can return a list chunk before it is a `List` or `ListView`.
+#[test]
+fn single_step_swizzle_list_revisits_unfinished_chunk() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = ListArray::try_new(
+        buffer![1i32, 2, 3].into_array(),
+        buffer![0u32, 1, 3].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let chunked = |chunks: Vec<ArrayRef>| {
+        VortexResult::Ok(ChunkedArray::try_new(chunks, values.dtype().clone())?.into_array())
+    };
+    // One single step only executes the innermost array, leaving `inner` chunked.
+    let inner = chunked(vec![
+        chunked(vec![values.clone(), values.clone()])?,
+        values.clone(),
+    ])?;
+    let mut array = chunked(vec![inner, values.clone()])?;
+
+    for _ in 0..16 {
+        if array.is::<AnyCanonical>() {
+            break;
+        }
+        array = array.execute::<ArrayRef>(&mut ctx)?;
+    }
+
+    let expected = ListArray::try_new(
+        buffer![1i32, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3].into_array(),
+        buffer![0u32, 1, 3, 4, 6, 7, 9, 10, 12].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+    assert_arrays_eq!(array, expected, &mut ctx);
     Ok(())
 }
 

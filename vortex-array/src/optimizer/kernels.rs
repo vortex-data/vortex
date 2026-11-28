@@ -521,6 +521,24 @@ impl Deref for KernelSession {
     }
 }
 
+#[cfg(any(test, feature = "_test-harness"))]
+impl KernelSession {
+    pub fn retain(&self, mut keep: impl FnMut(&dyn Debug) -> bool) -> Self {
+        let mut reduce_parent = ParentReduceKernels::clone(&self.kernels.reduce_parent.load());
+        for kernels in reduce_parent.kernels.values_mut() {
+            *kernels = kernels.iter().filter(|k| keep(k)).copied().collect();
+        }
+        let mut execute_parent = ParentExecutionKernels::clone(&self.kernels.execute_parent.load());
+        for kernels in execute_parent.values_mut() {
+            *kernels = kernels.iter().filter(|k| keep(k)).cloned().collect();
+        }
+        let this = Self::empty();
+        this.kernels.reduce_parent.store(Arc::new(reduce_parent));
+        this.kernels.execute_parent.store(Arc::new(execute_parent));
+        this
+    }
+}
+
 impl Default for KernelSession {
     fn default() -> Self {
         // The built-in parent-reduce rules and execute-parent kernels are registered by the

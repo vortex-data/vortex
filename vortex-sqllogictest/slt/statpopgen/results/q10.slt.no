@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# DuckDB quotes the string elements of the `vep` annotation lists and
+# DataFusion does not, so each engine has its own expected hash.
+onlyif datafusion
+query TIT??R rowsort
+SELECT *
+  FROM (SELECT "CHROM", "POS", "REF", "ALT", "GT",
+               1.0 - CAST(LIST_SUM("GT") AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL))) AS reference_allele_frequency
+          FROM statpopgen)
+ WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;
+----
+5670 values hashing to aeb8a68ae49d3ee21ef228119ea46693
+
+onlyif duckdb
+query TIT??R rowsort
+SELECT *
+  FROM (SELECT "CHROM", "POS", "REF", "ALT", "GT",
+               1.0 - CAST(LIST_SUM("GT") AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL))) AS reference_allele_frequency
+          FROM statpopgen)
+ WHERE reference_allele_frequency > 0.9 OR reference_allele_frequency < 0.1;
+----
+5670 values hashing to aeb8a68ae49d3ee21ef228119ea46693

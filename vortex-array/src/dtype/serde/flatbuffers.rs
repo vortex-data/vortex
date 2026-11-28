@@ -1,24 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::BuildHasher;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
+use flatbuffers::UOffsetT;
+use flatbuffers::UnionWIPOffset;
 use flatbuffers::WIPOffset;
-use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_map::HashTable;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldDType;
 use crate::dtype::FieldNames;
 use crate::dtype::MapDType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
@@ -30,6 +38,8 @@ use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::FlatBufferRoot;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::dtype as fbd;
+
+mod verify;
 
 /// A lazily evaluated DType, parsed on access from an underlying flatbuffer.
 #[derive(Debug, Clone)]
@@ -166,11 +176,13 @@ impl MapDType {
 
 impl DType {
     /// Create a [`DType`] from a flatbuffer buffer.
+    ///
+    /// The whole buffer is verified up front, so lazily parsed fields never fail to parse.
     pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
-        let fb_loc = {
-            let fb_dtype = root::<fbd::DType>(&buffer)?;
-            fb_dtype._tab.loc()
-        };
+        verify::verify_dtype(&buffer, session)
+            .map_err(|e| e.with_context("invalid DType flatbuffer"))?;
+        // SAFETY: `verify_dtype` ran the flatbuffers verifier on `buffer`.
+        let fb_loc = unsafe { root_unchecked::<fbd::DType>(&buffer) }._tab.loc();
         let view = ViewedDType::from_fb_loc(fb_loc, buffer, session.clone());
         Self::try_from(view)
     }
@@ -219,6 +231,15 @@ impl TryFrom<ViewedDType> for DType {
                     .nullable()
                     .into(),
             )),
+            fb::Type::FixedSizeBinary => {
+                let fb_fsb = fb.type__as_fixed_size_binary().ok_or_else(|| {
+                    vortex_err!("failed to parse fixed-size binary from flatbuffer")
+                })?;
+                Ok(Self::FixedSizeBinary(
+                    fb_fsb.size(),
+                    fb_fsb.nullable().into(),
+                ))
+            }
             fb::Type::List => {
                 let fb_list = fb
                     .type__as_list()
@@ -336,189 +357,356 @@ impl WriteFlatBuffer for DType {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
-        let dtype_union = match self {
-            Self::Null => fb::Null::create(fbb, &fb::NullArgs {}).as_union_value(),
-            Self::Bool(n) => fb::Bool::create(
-                fbb,
-                &fb::BoolArgs {
-                    nullable: (*n).into(),
-                },
-            )
-            .as_union_value(),
-            Self::Primitive(ptype, n) => fb::Primitive::create(
+        Interner::default().write_dtype(fbb, self)
+    }
+}
+
+/// A `DType` table, identified by the offsets of its already interned children.
+#[derive(PartialEq, Eq, Hash)]
+enum DTypeKey {
+    Null,
+    Bool(Nullability),
+    Primitive(PType, Nullability),
+    Decimal(DecimalDType, Nullability),
+    Utf8(Nullability),
+    Binary(Nullability),
+    FixedSizeBinary(u32, Nullability),
+    List(UOffsetT, Nullability),
+    FixedSizeList(UOffsetT, u32, Nullability),
+    Map(UOffsetT, UOffsetT, bool, Nullability),
+    Struct(UOffsetT, UOffsetT, Nullability),
+    Union(UOffsetT, UOffsetT, UOffsetT, Nullability),
+    Variant(Nullability),
+    Extension(UOffsetT, UOffsetT, UOffsetT),
+}
+
+/// Writes every distinct `DType` table, string and vector once per builder.
+///
+/// Children are interned before their parent, so equal subtrees have equal offsets and each key
+/// hashes in time proportional to its own fan-out.
+///
+/// Strings and offset vectors are keyed only by their offset and compared against the bytes
+/// already in the builder, so the tables hold 4 bytes per entry instead of an owned copy.
+/// A hash collision costs one extra comparison: entries are reused only on byte equality, so the
+/// output never depends on hash values or the random seed.
+#[derive(Default)]
+struct Interner {
+    dtypes: HashMap<DTypeKey, UOffsetT>,
+    hasher: DefaultHashBuilder,
+    strings: HashTable<UOffsetT>,
+    offset_vectors: HashTable<UOffsetT>,
+    byte_vectors: HashMap<Vec<u8>, UOffsetT>,
+}
+
+impl Interner {
+    fn write_dtype<'fb>(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        dtype: &DType,
+    ) -> VortexResult<WIPOffset<fb::DType<'fb>>> {
+        let key = match dtype {
+            DType::Null => DTypeKey::Null,
+            DType::Bool(n) => DTypeKey::Bool(*n),
+            DType::Primitive(ptype, n) => DTypeKey::Primitive(*ptype, *n),
+            DType::Decimal(dt, n) => DTypeKey::Decimal(*dt, *n),
+            DType::Utf8(n) => DTypeKey::Utf8(*n),
+            DType::Binary(n) => DTypeKey::Binary(*n),
+            DType::FixedSizeBinary(size, n) => DTypeKey::FixedSizeBinary(*size, *n),
+            DType::Variant(n) => DTypeKey::Variant(*n),
+            DType::List(edt, n) => DTypeKey::List(self.write_dtype(fbb, edt)?.value(), *n),
+            DType::FixedSizeList(edt, size, n) => {
+                DTypeKey::FixedSizeList(self.write_dtype(fbb, edt)?.value(), *size, *n)
+            }
+            DType::Map(map, n) => DTypeKey::Map(
+                self.write_dtype(fbb, &map.key_dtype())?.value(),
+                self.write_dtype(fbb, &map.value_dtype())?.value(),
+                map.keys_sorted(),
+                *n,
+            ),
+            DType::Struct(st, n) => DTypeKey::Struct(
+                self.write_names(fbb, st.names()),
+                self.write_dtypes(fbb, st.fields())?,
+                *n,
+            ),
+            DType::Union(uv, n) => {
+                // The FlatBuffers schema retains its original signed byte wire type for backwards
+                // compatibility. Reinterpreting the bits preserves the full u8 tag range.
+                DTypeKey::Union(
+                    self.write_names(fbb, uv.names()),
+                    self.write_dtypes(fbb, uv.variants())?,
+                    self.write_bytes(fbb, uv.type_ids()),
+                    *n,
+                )
+            }
+            DType::Extension(ext) => DTypeKey::Extension(
+                self.write_string(fbb, ext.id().as_ref()),
+                self.write_dtype(fbb, ext.storage_dtype())?.value(),
+                self.write_bytes(fbb, &ext.serialize_metadata()?),
+            ),
+        };
+
+        if let Some(&offset) = self.dtypes.get(&key) {
+            return Ok(WIPOffset::new(offset));
+        }
+        let offset = write_dtype_table(fbb, &key);
+        self.dtypes.insert(key, offset.value());
+        Ok(offset)
+    }
+
+    fn write_dtypes<'fb>(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        dtypes: impl Iterator<Item = DType>,
+    ) -> VortexResult<UOffsetT> {
+        let offsets = dtypes
+            .map(|dtype| Ok(self.write_dtype(fbb, &dtype)?.value()))
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(self.write_offsets(fbb, offsets))
+    }
+
+    fn write_names(&mut self, fbb: &mut FlatBufferBuilder<'_>, names: &FieldNames) -> UOffsetT {
+        let offsets = names
+            .iter()
+            .map(|name| self.write_string(fbb, name.as_ref()))
+            .collect_vec();
+        self.write_offsets(fbb, offsets)
+    }
+
+    fn write_string(&mut self, fbb: &mut FlatBufferBuilder<'_>, s: &str) -> UOffsetT {
+        let hash = self.hasher.hash_one(s.as_bytes());
+        let written = fbb.unfinished_data();
+        if let Some(&offset) = self
+            .strings
+            .find(hash, |&o| written_string(written, o) == s.as_bytes())
+        {
+            return offset;
+        }
+        let offset = fbb.create_string(s).value();
+        let written = fbb.unfinished_data();
+        let hasher = &self.hasher;
+        self.strings.insert_unique(hash, offset, |&o| {
+            hasher.hash_one(written_string(written, o))
+        });
+        offset
+    }
+
+    fn write_offsets(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'_>,
+        offsets: Vec<UOffsetT>,
+    ) -> UOffsetT {
+        let hash = hash_offsets(&self.hasher, offsets.iter().copied());
+        let written = fbb.unfinished_data();
+        if let Some(&offset) = self.offset_vectors.find(hash, |&o| {
+            written_offsets(written, o).eq(offsets.iter().copied())
+        }) {
+            return offset;
+        }
+        // The wire format of an offset vector does not depend on the type it points to.
+        let typed = offsets
+            .iter()
+            .map(|&o| WIPOffset::<UnionWIPOffset>::new(o))
+            .collect_vec();
+        let offset = fbb.create_vector(&typed).value();
+        let written = fbb.unfinished_data();
+        let hasher = &self.hasher;
+        self.offset_vectors.insert_unique(hash, offset, |&o| {
+            hash_offsets(hasher, written_offsets(written, o))
+        });
+        offset
+    }
+
+    fn write_bytes(&mut self, fbb: &mut FlatBufferBuilder<'_>, bytes: &[u8]) -> UOffsetT {
+        if let Some(&offset) = self.byte_vectors.get(bytes) {
+            return offset;
+        }
+        let offset = fbb.create_vector(bytes).value();
+        self.byte_vectors.insert(bytes.to_vec(), offset);
+        offset
+    }
+}
+
+fn hash_offsets(hasher: &DefaultHashBuilder, offsets: impl Iterator<Item = UOffsetT>) -> u64 {
+    let mut state = hasher.build_hasher();
+    let mut len = 0usize;
+    for offset in offsets {
+        state.write_u32(offset);
+        len += 1;
+    }
+    state.write_usize(len);
+    state.finish()
+}
+
+// The helpers below read what the builder already wrote. They rely on:
+// - the FlatBuffers wire format: strings and vectors are a little-endian u32 length followed by
+//   the data, and vector elements are u32 offsets relative to their own position;
+// - `WIPOffset::value` counting back from the end of the in-progress buffer, as documented;
+// - `unfinished_data` ending at the end of that buffer (public API, but an implementation detail).
+fn read_uoffset(written: &[u8], at: usize) -> UOffsetT {
+    UOffsetT::from_le_bytes([
+        written[at],
+        written[at + 1],
+        written[at + 2],
+        written[at + 3],
+    ])
+}
+
+/// `offset` counts back from the end of the builder, as `WIPOffset::value` does.
+fn written_string(written: &[u8], offset: UOffsetT) -> &[u8] {
+    let at = written.len() - offset as usize;
+    let len = read_uoffset(written, at) as usize;
+    &written[at + 4..at + 4 + len]
+}
+
+/// Yields the targets of a written offset vector as `WIPOffset::value`s.
+fn written_offsets(written: &[u8], offset: UOffsetT) -> impl Iterator<Item = UOffsetT> + '_ {
+    let at = written.len() - offset as usize;
+    (0..read_uoffset(written, at)).map(move |i| {
+        let element = 4 + 4 * i;
+        offset - element - read_uoffset(written, at + element as usize)
+    })
+}
+
+fn write_dtype_table<'fb>(
+    fbb: &mut FlatBufferBuilder<'fb>,
+    key: &DTypeKey,
+) -> WIPOffset<fb::DType<'fb>> {
+    let (type_type, type_) = match *key {
+        DTypeKey::Null => (
+            fb::Type::Null,
+            fb::Null::create(fbb, &fb::NullArgs {}).as_union_value(),
+        ),
+        DTypeKey::Bool(n) => (
+            fb::Type::Bool,
+            fb::Bool::create(fbb, &fb::BoolArgs { nullable: n.into() }).as_union_value(),
+        ),
+        DTypeKey::Primitive(ptype, n) => (
+            fb::Type::Primitive,
+            fb::Primitive::create(
                 fbb,
                 &fb::PrimitiveArgs {
-                    ptype: (*ptype).into(),
-                    nullable: (*n).into(),
+                    ptype: ptype.into(),
+                    nullable: n.into(),
                 },
             )
             .as_union_value(),
-            Self::Decimal(dt, n) => fb::Decimal::create(
+        ),
+        DTypeKey::Decimal(dt, n) => (
+            fb::Type::Decimal,
+            fb::Decimal::create(
                 fbb,
                 &fb::DecimalArgs {
                     precision: dt.precision(),
                     scale: dt.scale(),
-                    nullable: (*n).into(),
+                    nullable: n.into(),
                 },
             )
             .as_union_value(),
-            Self::Utf8(n) => fb::Utf8::create(
+        ),
+        DTypeKey::Utf8(n) => (
+            fb::Type::Utf8,
+            fb::Utf8::create(fbb, &fb::Utf8Args { nullable: n.into() }).as_union_value(),
+        ),
+        DTypeKey::Binary(n) => (
+            fb::Type::Binary,
+            fb::Binary::create(fbb, &fb::BinaryArgs { nullable: n.into() }).as_union_value(),
+        ),
+        DTypeKey::FixedSizeBinary(size, n) => (
+            fb::Type::FixedSizeBinary,
+            fb::FixedSizeBinary::create(
                 fbb,
-                &fb::Utf8Args {
-                    nullable: (*n).into(),
+                &fb::FixedSizeBinaryArgs {
+                    size,
+                    nullable: n.into(),
                 },
             )
             .as_union_value(),
-            Self::Binary(n) => fb::Binary::create(
+        ),
+        DTypeKey::Variant(n) => (
+            fb::Type::Variant,
+            fb::Variant::create(fbb, &fb::VariantArgs { nullable: n.into() }).as_union_value(),
+        ),
+        DTypeKey::List(element_type, n) => (
+            fb::Type::List,
+            fb::List::create(
                 fbb,
-                &fb::BinaryArgs {
-                    nullable: (*n).into(),
+                &fb::ListArgs {
+                    element_type: Some(WIPOffset::new(element_type)),
+                    nullable: n.into(),
                 },
             )
             .as_union_value(),
-            Self::List(edt, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
-                fb::List::create(
-                    fbb,
-                    &fb::ListArgs {
-                        element_type,
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
-            Self::FixedSizeList(edt, size, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
-                fb::FixedSizeList::create(
-                    fbb,
-                    &fb::FixedSizeListArgs {
-                        element_type,
-                        size: *size,
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
-            Self::Map(map, n) => {
-                let key_type = Some(map.key_dtype().write_flatbuffer(fbb)?);
-                let value_type = Some(map.value_dtype().write_flatbuffer(fbb)?);
-                fb::Map::create(
-                    fbb,
-                    &fb::MapArgs {
-                        key_type,
-                        value_type,
-                        keys_sorted: map.keys_sorted(),
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
-            Self::Struct(st, n) => {
-                let names = st
-                    .names()
-                    .iter()
-                    .map(|n| fbb.create_string(n.as_ref()))
-                    .collect_vec();
-                let names = Some(fbb.create_vector(&names));
-
-                let dtypes = st
-                    .fields()
-                    .map(|dtype| dtype.write_flatbuffer(fbb))
-                    .collect::<VortexResult<Vec<_>>>()?;
-                let dtypes = Some(fbb.create_vector(&dtypes));
-
-                fb::Struct_::create(
-                    fbb,
-                    &fb::Struct_Args {
-                        names,
-                        dtypes,
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
-            Self::Union(uv, n) => {
-                let names = uv
-                    .names()
-                    .iter()
-                    .map(|name| fbb.create_string(name.as_ref()))
-                    .collect_vec();
-                let names = Some(fbb.create_vector(&names));
-
-                let dtypes = uv
-                    .variants()
-                    .map(|dtype| dtype.write_flatbuffer(fbb))
-                    .collect::<VortexResult<Vec<_>>>()?;
-                let dtypes = Some(fbb.create_vector(&dtypes));
-
-                // The FlatBuffers schema retains its original signed byte wire type for backwards
-                // compatibility. Reinterpreting the bits preserves the full u8 tag range.
-                let type_ids = uv
-                    .type_ids()
-                    .iter()
-                    .copied()
-                    .map(u8::cast_signed)
-                    .collect_vec();
-                let type_ids = Some(fbb.create_vector(&type_ids));
-
-                fb::Union::create(
-                    fbb,
-                    &fb::UnionArgs {
-                        names,
-                        dtypes,
-                        type_ids,
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
-            Self::Variant(n) => fb::Variant::create(
+        ),
+        DTypeKey::FixedSizeList(element_type, size, n) => (
+            fb::Type::FixedSizeList,
+            fb::FixedSizeList::create(
                 fbb,
-                &fb::VariantArgs {
-                    nullable: (*n).into(),
+                &fb::FixedSizeListArgs {
+                    element_type: Some(WIPOffset::new(element_type)),
+                    size,
+                    nullable: n.into(),
                 },
             )
             .as_union_value(),
-            Self::Extension(ext) => {
-                let id = Some(fbb.create_string(ext.id().as_ref()));
-                let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
-                let metadata = Some(fbb.create_vector(&ext.serialize_metadata()?));
-                fb::Extension::create(
-                    fbb,
-                    &fb::ExtensionArgs {
-                        id,
-                        storage_dtype,
-                        metadata,
-                    },
-                )
-                .as_union_value()
-            }
-        };
-
-        let dtype_type = match self {
-            Self::Null => fb::Type::Null,
-            Self::Bool(_) => fb::Type::Bool,
-            Self::Primitive(..) => fb::Type::Primitive,
-            Self::Decimal(..) => fb::Type::Decimal,
-            Self::Utf8(_) => fb::Type::Utf8,
-            Self::Binary(_) => fb::Type::Binary,
-            Self::List(..) => fb::Type::List,
-            Self::FixedSizeList(..) => fb::Type::FixedSizeList,
-            Self::Map(..) => fb::Type::Map,
-            Self::Struct(..) => fb::Type::Struct_,
-            Self::Union(..) => fb::Type::Union,
-            Self::Variant(_) => fb::Type::Variant,
-            Self::Extension { .. } => fb::Type::Extension,
-        };
-
-        Ok(fb::DType::create(
-            fbb,
-            &fb::DTypeArgs {
-                type_type: dtype_type,
-                type_: Some(dtype_union),
-            },
-        ))
-    }
+        ),
+        DTypeKey::Map(key_type, value_type, keys_sorted, n) => (
+            fb::Type::Map,
+            fb::Map::create(
+                fbb,
+                &fb::MapArgs {
+                    key_type: Some(WIPOffset::new(key_type)),
+                    value_type: Some(WIPOffset::new(value_type)),
+                    keys_sorted,
+                    nullable: n.into(),
+                },
+            )
+            .as_union_value(),
+        ),
+        DTypeKey::Struct(names, dtypes, n) => (
+            fb::Type::Struct_,
+            fb::Struct_::create(
+                fbb,
+                &fb::Struct_Args {
+                    names: Some(WIPOffset::new(names)),
+                    dtypes: Some(WIPOffset::new(dtypes)),
+                    nullable: n.into(),
+                },
+            )
+            .as_union_value(),
+        ),
+        DTypeKey::Union(names, dtypes, type_ids, n) => (
+            fb::Type::Union,
+            fb::Union::create(
+                fbb,
+                &fb::UnionArgs {
+                    names: Some(WIPOffset::new(names)),
+                    dtypes: Some(WIPOffset::new(dtypes)),
+                    type_ids: Some(WIPOffset::new(type_ids)),
+                    nullable: n.into(),
+                },
+            )
+            .as_union_value(),
+        ),
+        DTypeKey::Extension(id, storage_dtype, metadata) => (
+            fb::Type::Extension,
+            fb::Extension::create(
+                fbb,
+                &fb::ExtensionArgs {
+                    id: Some(WIPOffset::new(id)),
+                    storage_dtype: Some(WIPOffset::new(storage_dtype)),
+                    metadata: Some(WIPOffset::new(metadata)),
+                },
+            )
+            .as_union_value(),
+        ),
+    };
+    fb::DType::create(
+        fbb,
+        &fb::DTypeArgs {
+            type_type,
+            type_: Some(type_),
+        },
+    )
 }
 
 impl From<PType> for fb::PType {
@@ -568,14 +756,22 @@ mod test {
     use std::sync::Arc;
 
     use flatbuffers::FlatBufferBuilder;
+    use flatbuffers::WIPOffset;
     use flatbuffers::root;
+    use hegel::TestCase;
+    use hegel::generators as gs;
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::dtype::DType;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::dtype::UnionVariants;
     use crate::dtype::flatbuffers as fb;
+    use crate::dtype::generate::draw_dtype;
     use crate::dtype::nullability::Nullability;
     use crate::dtype::serde::flatbuffers::ViewedDType;
     use crate::dtype::test::SESSION;
@@ -612,6 +808,8 @@ mod test {
         roundtrip_dtype(DType::Primitive(PType::F32, Nullability::NonNullable));
         roundtrip_dtype(DType::Primitive(PType::F64, Nullability::NonNullable));
         roundtrip_dtype(DType::Binary(Nullability::NonNullable));
+        roundtrip_dtype(DType::FixedSizeBinary(16, Nullability::NonNullable));
+        roundtrip_dtype(DType::FixedSizeBinary(0, Nullability::Nullable));
         roundtrip_dtype(DType::Utf8(Nullability::NonNullable));
         roundtrip_dtype(DType::List(
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),
@@ -648,6 +846,88 @@ mod test {
         .unwrap();
         roundtrip_dtype(DType::struct_([("map", map)], Nullability::NonNullable));
         roundtrip_dtype(DType::Variant(Nullability::Nullable));
+    }
+
+    #[test]
+    fn equal_subtrees_are_written_once() -> VortexResult<()> {
+        let leaf = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let inner: DType = DType::Struct(
+            (0..100).map(|i| (format!("f{i}"), leaf.clone())).collect(),
+            Nullability::NonNullable,
+        );
+        let outer = DType::Struct(
+            (0..1000)
+                .map(|i| (format!("c{i}"), inner.clone()))
+                .collect(),
+            Nullability::Nullable,
+        );
+
+        let inner_len = inner.write_flatbuffer_bytes()?.len();
+        let bytes = outer.write_flatbuffer_bytes()?;
+        // Each repeated field costs only its name and offsets, not another copy of `inner`.
+        assert!(
+            bytes.len() < inner_len + 1000 * 32,
+            "outer {} bytes, inner {inner_len} bytes",
+            bytes.len()
+        );
+
+        let fb_struct = root::<fb::DType>(&bytes)?
+            .type__as_struct_()
+            .ok_or_else(|| vortex_err!("expected struct"))?;
+        let locs = fb_struct
+            .dtypes()
+            .ok_or_else(|| vortex_err!("expected dtypes"))?
+            .iter()
+            .map(|dt| dt._tab.loc())
+            .collect::<HashSet<_>>();
+        assert_eq!(locs.len(), 1);
+
+        assert_eq!(
+            DType::from_flatbuffer(FlatBuffer::from(bytes), &SESSION)?,
+            outer
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn equal_subtrees_are_shared_across_depths() -> VortexResult<()> {
+        let common = DType::struct_(
+            [
+                ("x", DType::Utf8(Nullability::Nullable)),
+                ("y", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ],
+            Nullability::Nullable,
+        );
+        let depth = 20;
+        let mut dtype = DType::struct_([("b", common.clone())], Nullability::NonNullable);
+        for _ in 0..depth {
+            dtype = DType::struct_(
+                [("a", dtype), ("b", common.clone())],
+                Nullability::NonNullable,
+            );
+        }
+
+        let bytes = dtype.write_flatbuffer_bytes()?;
+        let mut node = root::<fb::DType>(&bytes)?;
+        let mut common_locs = HashSet::new();
+        loop {
+            let fields = node
+                .type__as_struct_()
+                .and_then(|st| st.dtypes())
+                .ok_or_else(|| vortex_err!("expected struct"))?;
+            common_locs.insert(fields.get(fields.len() - 1)._tab.loc());
+            if fields.len() == 1 {
+                break;
+            }
+            node = fields.get(0);
+        }
+        assert_eq!(common_locs.len(), 1);
+
+        assert_eq!(
+            DType::from_flatbuffer(FlatBuffer::from(bytes), &SESSION)?,
+            dtype
+        );
+        Ok(())
     }
 
     fn make_basic_union() -> DType {
@@ -759,7 +1039,7 @@ mod test {
     #[test]
     fn test_struct_malformed_flatbuffer() {
         let mut fbb = FlatBufferBuilder::new();
-        let names = fbb.create_vector::<flatbuffers::WIPOffset<&str>>(&[]);
+        let names = fbb.create_vector::<WIPOffset<&str>>(&[]);
         let dtype_offsets = (0..3)
             .map(|_| {
                 DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -852,6 +1132,304 @@ mod test {
         let result = DType::try_from(view);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("length mismatch"));
+    }
+
+    fn finish(mut fbb: FlatBufferBuilder<'_>, root: WIPOffset<fb::DType<'_>>) -> FlatBuffer {
+        fbb.finish_minimal(root);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end))
+    }
+
+    fn dtype_table<'fb>(
+        fbb: &mut FlatBufferBuilder<'fb>,
+        type_type: fb::Type,
+        type_: WIPOffset<flatbuffers::UnionWIPOffset>,
+    ) -> WIPOffset<fb::DType<'fb>> {
+        fb::DType::create(
+            fbb,
+            &fb::DTypeArgs {
+                type_type,
+                type_: Some(type_),
+            },
+        )
+    }
+
+    fn bad_ptype<'fb>(fbb: &mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>> {
+        let primitive = fb::Primitive::create(
+            fbb,
+            &fb::PrimitiveArgs {
+                ptype: fb::PType(200),
+                nullable: false,
+            },
+        );
+        dtype_table(fbb, fb::Type::Primitive, primitive.as_union_value())
+    }
+
+    fn bad_decimal<'fb>(fbb: &mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>> {
+        let decimal = fb::Decimal::create(
+            fbb,
+            &fb::DecimalArgs {
+                precision: 0,
+                scale: 0,
+                nullable: false,
+            },
+        );
+        dtype_table(fbb, fb::Type::Decimal, decimal.as_union_value())
+    }
+
+    fn unknown_variant<'fb>(fbb: &mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>> {
+        let null = fb::Null::create(fbb, &fb::NullArgs {});
+        dtype_table(fbb, fb::Type(200), null.as_union_value())
+    }
+
+    fn missing_list_element<'fb>(fbb: &mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>> {
+        let list = fb::List::create(
+            fbb,
+            &fb::ListArgs {
+                element_type: None,
+                nullable: false,
+            },
+        );
+        dtype_table(fbb, fb::Type::List, list.as_union_value())
+    }
+
+    fn nullable_map_key<'fb>(fbb: &mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>> {
+        let key = DType::Utf8(Nullability::Nullable)
+            .write_flatbuffer(fbb)
+            .unwrap();
+        let value = DType::Utf8(Nullability::Nullable)
+            .write_flatbuffer(fbb)
+            .unwrap();
+        let map = fb::Map::create(
+            fbb,
+            &fb::MapArgs {
+                key_type: Some(key),
+                value_type: Some(value),
+                keys_sorted: false,
+                nullable: false,
+            },
+        );
+        dtype_table(fbb, fb::Type::Map, map.as_union_value())
+    }
+
+    fn duplicate_union_type_ids<'fb>(
+        fbb: &mut FlatBufferBuilder<'fb>,
+    ) -> WIPOffset<fb::DType<'fb>> {
+        let name_a = fbb.create_string("a");
+        let name_b = fbb.create_string("b");
+        let names = fbb.create_vector(&[name_a, name_b]);
+        let dtype_a = DType::Bool(Nullability::Nullable)
+            .write_flatbuffer(fbb)
+            .unwrap();
+        let dtype_b = DType::Utf8(Nullability::Nullable)
+            .write_flatbuffer(fbb)
+            .unwrap();
+        let dtypes = fbb.create_vector(&[dtype_a, dtype_b]);
+        let type_ids = fbb.create_vector::<i8>(&[3, 3]);
+        let union = fb::Union::create(
+            fbb,
+            &fb::UnionArgs {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                type_ids: Some(type_ids),
+                nullable: false,
+            },
+        );
+        dtype_table(fbb, fb::Type::Union, union.as_union_value())
+    }
+
+    fn unknown_extension<'fb>(fbb: &mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>> {
+        let id = fbb.create_string("vortex.test.unregistered");
+        let storage = DType::Primitive(PType::I64, Nullability::Nullable)
+            .write_flatbuffer(fbb)
+            .unwrap();
+        let metadata = fbb.create_vector::<u8>(&[]);
+        let ext = fb::Extension::create(
+            fbb,
+            &fb::ExtensionArgs {
+                id: Some(id),
+                storage_dtype: Some(storage),
+                metadata: Some(metadata),
+            },
+        );
+        dtype_table(fbb, fb::Type::Extension, ext.as_union_value())
+    }
+
+    type Corrupt = for<'fb> fn(&mut FlatBufferBuilder<'fb>) -> WIPOffset<fb::DType<'fb>>;
+
+    const CORRUPTIONS: [(Corrupt, &str); 7] = [
+        (bad_ptype, "must be a known PType"),
+        (bad_decimal, "decimal precision"),
+        (unknown_variant, "Unknown DType variant"),
+        (missing_list_element, "list element type"),
+        (nullable_map_key, "map key dtype must be non-nullable"),
+        (duplicate_union_type_ids, "type_ids must be distinct"),
+        (unknown_extension, "No such DType extension ID"),
+    ];
+
+    type OffsetVector<'fb, T> =
+        WIPOffset<flatbuffers::Vector<'fb, flatbuffers::ForwardsUOffset<T>>>;
+
+    /// Writes `inner` at a random position among `dtypes` valid siblings, with names `{prefix}{i}`.
+    fn with_siblings<'fb>(
+        tc: &TestCase,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        inner: WIPOffset<fb::DType<'fb>>,
+        prefix: &str,
+    ) -> (
+        OffsetVector<'fb, &'fb str>,
+        OffsetVector<'fb, fb::DType<'fb>>,
+        usize,
+    ) {
+        let nsiblings = tc.draw(gs::integers::<usize>().max_value(2));
+        let mut dtypes: Vec<_> = (0..nsiblings)
+            .map(|_| {
+                draw_dtype(tc, 1)
+                    .write_flatbuffer(fbb)
+                    .vortex_expect("serialize dtype")
+            })
+            .collect();
+        dtypes.insert(tc.draw(gs::integers::<usize>().max_value(nsiblings)), inner);
+        let names: Vec<_> = (0..dtypes.len())
+            .map(|i| fbb.create_string(&format!("{prefix}{i}")))
+            .collect();
+        (
+            fbb.create_vector(&names),
+            fbb.create_vector(&dtypes),
+            dtypes.len(),
+        )
+    }
+
+    /// Wraps `inner` in a random valid container.
+    fn wrap<'fb>(
+        tc: &TestCase,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        inner: WIPOffset<fb::DType<'fb>>,
+    ) -> WIPOffset<fb::DType<'fb>> {
+        let nullable = tc.draw(gs::booleans());
+        match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => {
+                let (names, dtypes, _) = with_siblings(tc, fbb, inner, "f");
+                let struct_ = fb::Struct_::create(
+                    fbb,
+                    &fb::Struct_Args {
+                        names: Some(names),
+                        dtypes: Some(dtypes),
+                        nullable,
+                    },
+                );
+                dtype_table(fbb, fb::Type::Struct_, struct_.as_union_value())
+            }
+            1 => {
+                let (names, dtypes, n) = with_siblings(tc, fbb, inner, "v");
+                let ids: Vec<i8> = (0..n)
+                    .map(|i| i8::try_from(i).vortex_expect("few variants"))
+                    .collect();
+                let type_ids = fbb.create_vector(&ids);
+                let union = fb::Union::create(
+                    fbb,
+                    &fb::UnionArgs {
+                        names: Some(names),
+                        dtypes: Some(dtypes),
+                        type_ids: Some(type_ids),
+                        nullable,
+                    },
+                );
+                dtype_table(fbb, fb::Type::Union, union.as_union_value())
+            }
+            2 => {
+                let list = fb::List::create(
+                    fbb,
+                    &fb::ListArgs {
+                        element_type: Some(inner),
+                        nullable,
+                    },
+                );
+                dtype_table(fbb, fb::Type::List, list.as_union_value())
+            }
+            3 => {
+                let list = fb::FixedSizeList::create(
+                    fbb,
+                    &fb::FixedSizeListArgs {
+                        element_type: Some(inner),
+                        size: tc.draw(gs::integers::<u32>()),
+                        nullable,
+                    },
+                );
+                dtype_table(fbb, fb::Type::FixedSizeList, list.as_union_value())
+            }
+            _ => {
+                let key = DType::Primitive(PType::I32, Nullability::NonNullable)
+                    .write_flatbuffer(fbb)
+                    .vortex_expect("serialize dtype");
+                let map = fb::Map::create(
+                    fbb,
+                    &fb::MapArgs {
+                        key_type: Some(key),
+                        value_type: Some(inner),
+                        keys_sorted: tc.draw(gs::booleans()),
+                        nullable,
+                    },
+                );
+                dtype_table(fbb, fb::Type::Map, map.as_union_value())
+            }
+        }
+    }
+
+    /// A corrupt dtype nested in random valid containers must fail `from_flatbuffer`, including
+    /// below lazily parsed fields.
+    #[hegel::test(test_cases = 500)]
+    fn nested_corruption_fails_up_front(tc: TestCase) {
+        let (corrupt, message) =
+            CORRUPTIONS[tc.draw(gs::integers::<usize>().max_value(CORRUPTIONS.len() - 1))];
+        let mut fbb = FlatBufferBuilder::new();
+        let mut dtype = corrupt(&mut fbb);
+        for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+            dtype = wrap(&tc, &mut fbb, dtype);
+        }
+
+        let err = DType::from_flatbuffer(finish(fbb, dtype), &SESSION).unwrap_err();
+        assert!(err.to_string().contains(message), "{err}");
+    }
+
+    fn parse_all(dtype: &DType) {
+        match dtype {
+            DType::Struct(fields, _) => fields.fields().for_each(|field| parse_all(&field)),
+            DType::Union(variants, _) => variants.variants().for_each(|v| parse_all(&v)),
+            DType::Map(map, _) => {
+                parse_all(&map.key_dtype());
+                parse_all(&map.value_dtype());
+            }
+            DType::List(element, _) | DType::FixedSizeList(element, ..) => parse_all(element),
+            DType::Extension(ext) => parse_all(ext.storage_dtype()),
+            _ => {}
+        }
+    }
+
+    /// Every bit flip of a serialized struct dtype that `from_flatbuffer` accepts must parse
+    /// completely, including its lazily parsed fields.
+    #[hegel::test(test_cases = 1000)]
+    fn accepted_corruptions_parse_completely(tc: TestCase) {
+        let nfields = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+        let dtype = DType::struct_(
+            (0..nfields).map(|i| (format!("f{i}"), draw_dtype(&tc, 2))),
+            Nullability::NonNullable,
+        );
+        let mut bytes = dtype
+            .write_flatbuffer_bytes()
+            .vortex_expect("serialize dtype")
+            .as_ref()
+            .to_vec();
+        for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+            let pos = tc.draw(gs::integers::<usize>().max_value(bytes.len() - 1));
+            bytes[pos] ^= 1 << tc.draw(gs::integers::<u8>().max_value(7));
+        }
+
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(bytes));
+        if let Ok(parsed) = DType::from_flatbuffer(buffer, &SESSION) {
+            parse_all(&parsed);
+        }
     }
 
     #[test]

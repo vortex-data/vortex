@@ -20,3 +20,24 @@ where
 pub fn get_global_labels() -> Vec<(&'static str, String)> {
     LABELS.read().clone()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::get_global_labels;
+    use super::set_global_labels;
+
+    #[test]
+    fn global_labels_set_get_overwrite_and_clear() {
+        set_global_labels([("env", "test".to_owned()), ("service", "vortex".to_owned())]);
+        assert_eq!(
+            get_global_labels(),
+            vec![("env", "test".to_owned()), ("service", "vortex".to_owned())]
+        );
+
+        set_global_labels([("env", "prod".to_owned())]);
+        assert_eq!(get_global_labels(), vec![("env", "prod".to_owned())]);
+
+        set_global_labels(std::iter::empty());
+        assert!(get_global_labels().is_empty());
+    }
+}

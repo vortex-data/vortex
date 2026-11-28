@@ -2,7 +2,7 @@ name: Fuzz compress_gpu
 
 on:
   schedule:
-    - cron: "0 */3 * * *"  # every 3 hours
+    - cron: "0 */3 * * *"  # every 3 hours; keep in sync with cycle_hours below
   workflow_dispatch: { }
 
 jobs:
@@ -24,5 +24,11 @@ jobs:
       # OOM-style error. protect_shadow_gap=0 frees that VA range for CUDA.
       extra_env: "ASAN_OPTIONS=protect_shadow_gap=0"
       jobs: 1
-      report: false
+      max_time: 9000
+      cycle_hours: 3
+      # CUDA driver/device mappings exceed a 2 GiB process RSS cap.
+      rss_limit_mb: 0
+      report: true
+      # fuzzer-fix-automation runs on ubuntu-latest without a GPU and cannot reproduce CUDA crashes.
+      attempt_fix: false
     secrets: inherit

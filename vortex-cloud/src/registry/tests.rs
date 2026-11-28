@@ -410,3 +410,123 @@ fn test_cos_cold_lookup_validates_url_path() -> Result<(), Box<dyn std::error::E
     assert_eq!(path, Path::from("a/b"));
     Ok(())
 }
+
+/// Empty path segments (`//`) must be rejected on both cold and warm cache lookups.
+#[rstest::rstest]
+#[case("s3://my-bucket/a//b", "s3://my-bucket/x")]
+#[case("https://example.com/a//b", "https://example.com/x")]
+#[case(
+    "https://acct.blob.core.windows.net/container-a/dir//file.vortex",
+    "https://acct.blob.core.windows.net/container-a/other.vortex"
+)]
+#[cfg_attr(feature = "cos", case("cos://bucket/a//b", "cos://bucket/x"))]
+#[cfg_attr(
+    feature = "hf",
+    case("hf://datasets/org/name/a//b", "hf://datasets/org/name/x")
+)]
+fn test_double_slash_rejected_on_cold_and_warm(
+    #[case] double_slash_url: &str,
+    #[case] warm_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let vars = [
+        ("AWS_REGION".to_string(), "us-east-3".to_string()),
+        (
+            "AZURE_STORAGE_SKIP_SIGNATURE".to_string(),
+            "true".to_string(),
+        ),
+        (
+            "COS_ENDPOINT".to_string(),
+            "https://cos.ap-guangzhou.myqcloud.com".to_string(),
+        ),
+    ];
+    let ds_url = Url::parse(double_slash_url)?;
+    let warm = Url::parse(warm_url)?;
+
+    let cold_reg = Registry::with_vars(vars.clone());
+    assert!(
+        cold_reg.resolve(&ds_url).is_err(),
+        "cold lookup must reject empty segment in {double_slash_url}"
+    );
+
+    let warm_reg = Registry::with_vars(vars);
+    warm_reg.resolve(&warm)?;
+    assert!(
+        warm_reg.resolve(&ds_url).is_err(),
+        "warm lookup must reject empty segment in {double_slash_url}"
+    );
+    Ok(())
+}
+
+/// Empty path segments inside a registered mount prefix (e.g. `https://h//prefix/a` against a
+/// store mounted at `https://h/prefix`) must also be rejected.
+#[test]
+fn test_double_slash_in_mount_prefix_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    let reg = registry();
+    let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+    reg.register(Url::parse("https://h/prefix")?, store);
+
+    let (_, path) = reg.resolve(&Url::parse("https://h/prefix/a")?)?;
+    assert_eq!(path, Path::from("a"));
+    assert!(
+        reg.resolve(&Url::parse("https://h//prefix/a")?).is_err(),
+        "empty segment inside mount prefix must be rejected"
+    );
+    Ok(())
+}
+
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+#[test]
+fn test_lookup_env_case_insensitive() {
+    let vars = || {
+        vec![
+            (
+                std::ffi::OsString::from("HF_TOKEN"),
+                std::ffi::OsString::from("upper"),
+            ),
+            (
+                std::ffi::OsString::from("OTHER"),
+                std::ffi::OsString::from("ignored"),
+            ),
+        ]
+    };
+
+    // Exact match wins without calling the fallback scanner.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Ok("exact".to_string()), || {
+            panic!("exact match must not scan the environment");
+            #[allow(unreachable_code)]
+            vars()
+        })
+        .as_deref(),
+        Some("exact")
+    );
+
+    // Missing exact key falls back to case-insensitive scan.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Err(std::env::VarError::NotPresent), vars)
+            .as_deref(),
+        Some("upper")
+    );
+
+    // Non-Unicode exact match returns None without scanning.
+    assert_eq!(
+        super::lookup_env_case_insensitive(
+            "hf_token",
+            Err(std::env::VarError::NotUnicode(std::ffi::OsString::from(
+                "bad"
+            ))),
+            || {
+                panic!("NotUnicode must not scan the environment");
+                #[allow(unreachable_code)]
+                vars()
+            },
+        ),
+        None
+    );
+
+    // Absent key returns None.
+    assert_eq!(
+        super::lookup_env_case_insensitive("missing", Err(std::env::VarError::NotPresent), vars),
+        None
+    );
+}

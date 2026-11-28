@@ -17,12 +17,13 @@ mod test_harness;
 
 pub use contains::SpatialContainsPrune;
 pub use distance::SpatialDistancePrune;
-use geo::BoundingRect;
 use geo::Rect as SpatialRect;
 pub use intersects::SpatialIntersectsPrune;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
@@ -43,8 +44,8 @@ use vortex_functions::expr::bound::ext_storage;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;
+use crate::aggregate_fn::aabb_of_array;
 use crate::extension::is_native_geometry;
-use crate::extension::single_geometry;
 
 /// Splits a two-operand spatial predicate into the geometry column and the constant operand's scalar.
 ///
@@ -80,23 +81,31 @@ fn is_column(mut expr: &BoundExpression) -> bool {
     expr.is_root()
 }
 
-/// The 2D bounding box of a constant geometry of any type, or `None` for one without an extent
-/// (e.g. an empty geometry).
+/// The finite 2D bounding box of a constant geometry of any native type, or `None` when the
+/// constant is null, empty, or contains any non-finite (`NaN` / `±Inf`) coordinate.
 ///
 /// Prove claims against this box rather than the constant itself: the constant lies inside it,
-/// so whatever holds for the box holds for the geometry.
+/// so whatever holds for the box holds for the geometry. Declining on non-finite coordinates keeps
+/// `NaN` and `±Inf` out of pruning expressions where Vortex's total-order comparisons could
+/// otherwise falsely prune zones.
 fn query_aabb(
     constant: &Scalar,
     session: &VortexSession,
 ) -> VortexResult<Option<SpatialRect<f64>>> {
-    // A null geometry literal has no extent to prove against, so it can never prune.
-    if constant.is_null() {
+    // A null or non-native geometry literal has no extent to prove against, so it can never prune.
+    if constant.is_null() || !is_native_geometry(constant.dtype()) {
         return Ok(None);
     }
-    // Decoding the constant into a concrete geometry runs through the compute stack, which needs
-    // an execution context.
     let mut exec = session.create_execution_ctx();
-    Ok(single_geometry(constant, &mut exec)?.bounding_rect())
+    let single = ConstantArray::new(constant.clone(), 1).into_array();
+    // `aabb_of_array` widens any `NaN` ordinate to `(-inf, -inf)..(inf, inf)`, so requiring finite
+    // corners rejects both `NaN` (including `POINT EMPTY`) and infinite query coordinates.
+    Ok(aabb_of_array(&single, &mut exec)?.filter(|rect| {
+        rect.min().x.is_finite()
+            && rect.min().y.is_finite()
+            && rect.max().x.is_finite()
+            && rect.max().y.is_finite()
+    }))
 }
 
 /// The scope's AABB statistic, as the storage struct with `xmin`/`ymin`/`xmax`/`ymax` fields.

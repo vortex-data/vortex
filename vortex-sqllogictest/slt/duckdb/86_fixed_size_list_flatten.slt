@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# FixedSizeList with > 2048 child elements (2048 * 4 = 8192) and an all-null constant child.
+# Varying outer validity keeps the outer column as a FixedSizeListArray rather than ConstantArray.
+statement ok
+COPY (
+    SELECT CASE WHEN i = 0 THEN NULL ELSE [NULL, NULL, NULL, NULL]::INTEGER[4] END AS a
+    FROM range(2048) t(i)
+) TO '${WORK_DIR}/fsl_all_null_child.vortex';
+
+query IIIIT
+SELECT
+    count(*),
+    count(a),
+    count(*) FILTER (WHERE a IS NOT NULL AND a[1] IS NULL AND a[4] IS NULL),
+    count(*) FILTER (WHERE a IS NULL),
+    typeof(first(a))
+FROM '${WORK_DIR}/fsl_all_null_child.vortex';
+----
+2048 2047 2047 1 INTEGER[4]
+
+# FixedSizeList with > 2048 child elements (2048 * 4 = 8192) and a non-null constant child.
+statement ok
+COPY (
+    SELECT CASE WHEN i = 0 THEN NULL ELSE [7, 7, 7, 7]::INTEGER[4] END AS a
+    FROM range(2048) t(i)
+) TO '${WORK_DIR}/fsl_const_child.vortex';
+
+query IIIT
+SELECT
+    count(*),
+    count(*) FILTER (WHERE a = [7, 7, 7, 7]::INTEGER[4]),
+    count(*) FILTER (WHERE a IS NULL),
+    typeof(first(a))
+FROM '${WORK_DIR}/fsl_const_child.vortex';
+----
+2048 2047 1 INTEGER[4]
+
+# FixedSizeList with > 2048 child elements (2048 * 4 = 8192) and a non-null flat primitive child.
+statement ok
+COPY (
+    SELECT [i::INTEGER, (i + 1)::INTEGER, (i + 2)::INTEGER, (i + 3)::INTEGER]::INTEGER[4] AS a
+    FROM range(2048) t(i)
+) TO '${WORK_DIR}/fsl_flat_primitive.vortex';
+
+query IIIIT
+SELECT
+    count(*),
+    min(a[1]),
+    max(a[4]),
+    sum(a[1] + a[2] + a[3] + a[4]),
+    typeof(first(a))
+FROM '${WORK_DIR}/fsl_flat_primitive.vortex';
+----
+2048 0 2050 8396800 INTEGER[4]
+
+# Nested FixedSizeList with > 2048 innermost elements (1024 * 2 * 2 = 4096) and all-null inner child.
+statement ok
+COPY (
+    SELECT CASE WHEN i = 0 THEN NULL ELSE [[NULL, NULL], [NULL, NULL]]::INTEGER[2][2] END AS a
+    FROM range(1024) t(i)
+) TO '${WORK_DIR}/fsl_nested_all_null.vortex';
+
+query IIIT
+SELECT
+    count(*),
+    count(*) FILTER (WHERE a IS NOT NULL AND a[1][1] IS NULL AND a[2][2] IS NULL),
+    count(*) FILTER (WHERE a IS NULL),
+    typeof(first(a))
+FROM '${WORK_DIR}/fsl_nested_all_null.vortex';
+----
+1024 1023 1 INTEGER[2][2]
+
+# FixedSizeList of Struct with constant and non-constant fields across > 2048 elements (2048 * 2 = 4096).
+statement ok
+COPY (
+    SELECT [
+        {'a': NULL::INTEGER, 'b': 'const', 'c': (i % 4)::INTEGER},
+        {'a': NULL::INTEGER, 'b': 'const', 'c': ((i + 1) % 4)::INTEGER}
+    ]::STRUCT(a INTEGER, b VARCHAR, c INTEGER)[2] AS a
+    FROM range(2048) t(i)
+) TO '${WORK_DIR}/fsl_struct_child.vortex';
+
+query IIIIIT
+SELECT
+    count(*),
+    count(*) FILTER (WHERE a[1].a IS NULL AND a[2].a IS NULL),
+    count(*) FILTER (WHERE a[1].b = 'const' AND a[2].b = 'const'),
+    sum(a[1].c + a[2].c),
+    count(*) FILTER (WHERE a[2].c = (a[1].c + 1) % 4),
+    typeof(first(a))
+FROM '${WORK_DIR}/fsl_struct_child.vortex';
+----
+2048 2048 2048 6144 2048 STRUCT(a INTEGER, b VARCHAR, c INTEGER)[2]

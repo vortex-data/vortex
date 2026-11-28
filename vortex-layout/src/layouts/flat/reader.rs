@@ -204,7 +204,7 @@ impl LayoutReader for FlatReader {
             // Wait for the mask first: a chunk without selected rows needs no decode.
             let mask = mask.await?;
             if mask.all_false() {
-                return Ok(Canonical::empty(expr.dtype()).into_array());
+                return Canonical::try_empty(expr.dtype()).map(IntoArray::into_array);
             }
 
             let mut array = array.clone().await?;

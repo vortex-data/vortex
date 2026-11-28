@@ -53,6 +53,7 @@ pub mod strpos;
 pub mod timestamp_to_date;
 pub mod timestamp_to_time;
 pub mod variant_get;
+pub mod variant_pack;
 pub mod zip;
 
 #[cfg(test)]
@@ -84,6 +85,7 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(strpos::Strpos);
     scalar_fns.register(timestamp_to_date::TimestampToDate);
     scalar_fns.register(timestamp_to_time::TimestampToTime);
+    scalar_fns.register(variant_pack::VariantPack);
 }
 
 /// A scalar function has a negative cost if applying it to an array and

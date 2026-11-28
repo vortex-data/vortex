@@ -8,11 +8,16 @@ use vortex_array::ArraySlots;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Bool;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::bool::BoolSlots;
 use vortex_array::arrays::decimal::DecimalSlots;
 use vortex_array::arrays::list::ListArrayExt;
@@ -37,6 +42,22 @@ pub(super) mod root_list_children {
     pub const SIZES: usize = 2;
 }
 
+/// The slot holding the validity of a bool, primitive, decimal or `VarBinView` leaf, or `None`
+/// for any other array.
+pub(crate) fn leaf_validity_slot(array: &ArrayRef) -> Option<usize> {
+    if array.is::<Bool>() {
+        Some(BoolSlots::VALIDITY_CHILD)
+    } else if array.is::<Primitive>() {
+        Some(PrimitiveSlots::VALIDITY_CHILD)
+    } else if array.is::<Decimal>() {
+        Some(DecimalSlots::VALIDITY_CHILD)
+    } else if array.is::<VarBinView>() {
+        Some(VarBinViewSlots::VALIDITY_CHILD)
+    } else {
+        None
+    }
+}
+
 impl CascadingCompressor {
     /// Compresses a validity bitmap with the enabled boolean schemes, returning `None` when the
     /// result's buffers are no smaller than the bitmap's. The comparison is of buffer bytes, so it
@@ -47,7 +68,8 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let compressed = self.compress(bitmap, exec_ctx)?;
-        Ok((compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
+        let must_replace = !self.allow_constant && bitmap.is::<Constant>();
+        Ok((must_replace || compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
     }
 
     /// Compresses an array-backed validity with the enabled boolean schemes, keeping the bitmap
@@ -126,7 +148,9 @@ impl CascadingCompressor {
         };
         let compressed = match null_count {
             // The leaf's statistics already show every row is valid: the bitmap is a constant.
-            Some(0) => self.resolve_all_valid_bitmap(validity.clone(), compress_ctx),
+            Some(0) if self.allow_constant => {
+                self.resolve_all_valid_bitmap(validity.clone(), compress_ctx)
+            }
             _ => self.resolve_bitmap(validity.clone(), compress_ctx, exec_ctx)?,
         };
         if ArrayRef::ptr_eq(&compressed, validity) {
@@ -148,7 +172,8 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         let list_array = list_array.reset_offsets(true, exec_ctx)?;
 
-        let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
+        let compressed_elems =
+            self.compress_with_ctx(list_array.elements(), compress_ctx.fresh_root(), exec_ctx)?;
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
         let offset_ctx = compress_ctx
@@ -168,7 +193,12 @@ impl CascadingCompressor {
         Ok(ListArray::try_new(
             compressed_elems,
             compressed_offsets,
-            self.resolve_validity(list_array.validity()?, &compress_ctx, exec_ctx)?,
+            self.resolve_validity_with_len(
+                list_array.validity()?,
+                list_array.len(),
+                &compress_ctx,
+                exec_ctx,
+            )?,
             exec_ctx,
         )?
         .into_array())
@@ -182,7 +212,8 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compressed_elems = self.compress(list_view.elements(), exec_ctx)?;
+        let compressed_elems =
+            self.compress_with_ctx(list_view.elements(), compress_ctx.fresh_root(), exec_ctx)?;
 
         let offset_ctx = compress_ctx
             .clone()
@@ -216,7 +247,12 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            self.resolve_validity(list_view.validity()?, &compress_ctx, exec_ctx)?,
+            self.resolve_validity_with_len(
+                list_view.validity()?,
+                list_view.len(),
+                &compress_ctx,
+                exec_ctx,
+            )?,
             exec_ctx,
         )?
         .into_array())
@@ -239,7 +275,7 @@ impl CascadingCompressor {
         Ok(MapArray::try_new(data_parts.map_dtype, entries)?.into_array())
     }
 
-    /// Compress very child slot of the array, then re-build it from them.
+    /// Compress every child slot of the array, then re-build it from them.
     pub(super) fn compress_physical_slots(
         &self,
         array: &ArrayRef,

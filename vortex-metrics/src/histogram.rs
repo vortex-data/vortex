@@ -59,3 +59,82 @@ impl Histogram {
         self.0.read().count() == 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Histogram;
+    use crate::assert_panics_with;
+
+    #[test]
+    fn histogram_empty_state() {
+        let histogram = Histogram::new();
+        assert!(histogram.is_empty());
+        assert_eq!(histogram.count(), 0);
+        assert_eq!(histogram.total(), 0.0);
+        assert_eq!(histogram.quantile(0.0), None);
+        assert_eq!(histogram.quantile(0.5), None);
+        assert_eq!(histogram.quantile(1.0), None);
+    }
+
+    #[test]
+    fn histogram_updates_quantiles_and_total() {
+        let histogram = Histogram::new();
+        for value in 1..=100 {
+            histogram.update(f64::from(value));
+        }
+
+        assert!(!histogram.is_empty());
+        assert_eq!(histogram.count(), 100);
+        assert!((histogram.total() - 5050.0).abs() < 1e-6);
+
+        let min = histogram.quantile(0.0).unwrap();
+        let median = histogram.quantile(0.5).unwrap();
+        let max = histogram.quantile(1.0).unwrap();
+        assert!((0.5..=1.5).contains(&min), "unexpected min: {min}");
+        assert!(
+            (45.0..=55.0).contains(&median),
+            "unexpected median: {median}"
+        );
+        assert!((95.0..=105.0).contains(&max), "unexpected max: {max}");
+    }
+
+    #[test]
+    fn histogram_zero_and_extreme_values() {
+        let histogram = Histogram::new();
+        histogram.update(0.0);
+        assert!(!histogram.is_empty());
+        assert_eq!(histogram.count(), 1);
+        assert_eq!(histogram.total(), 0.0);
+        assert_eq!(histogram.quantile(0.5), Some(0.0));
+
+        histogram.update(1e-6);
+        histogram.update(1e9);
+        assert_eq!(histogram.count(), 3);
+        assert!(histogram.quantile(1.0).unwrap() > 1e8);
+    }
+
+    #[test]
+    fn histogram_clone_shares_state() {
+        let histogram = Histogram::new();
+        let cloned = histogram.clone();
+
+        histogram.update(10.0);
+        cloned.update(20.0);
+
+        assert_eq!(histogram.count(), 2);
+        assert_eq!(cloned.count(), 2);
+        assert!((histogram.total() - 30.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn histogram_out_of_range_quantiles_panic() {
+        for invalid in [-0.01, 1.01, f64::NAN] {
+            assert_panics_with(
+                || {
+                    let _ = Histogram::new().quantile(invalid);
+                },
+                "quantile must be between 0.0 and 1.0",
+            );
+        }
+    }
+}

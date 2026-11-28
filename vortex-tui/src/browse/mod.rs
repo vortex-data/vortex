@@ -372,9 +372,7 @@ mod native {
                         event
                     }
                     result = &mut rx => {
-                        if let Ok(result) = result {
-                            app.query_state.apply_query_result(result);
-                        }
+                        app.query_state.apply_pending_result(result);
                         // Re-render immediately to show updated results.
                         continue;
                     }

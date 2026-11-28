@@ -106,12 +106,12 @@ impl ScalarFnPlugin for LegacyBinary {
         let opts = pb::BinaryOpts::decode(metadata)?;
 
         Ok(match BinaryOp::try_from(opts.op)? {
-            BinaryOp::Eq => Compare.bind(CompareOperator::Eq),
-            BinaryOp::NotEq => Compare.bind(CompareOperator::NotEq),
-            BinaryOp::Gt => Compare.bind(CompareOperator::Gt),
-            BinaryOp::Gte => Compare.bind(CompareOperator::Gte),
-            BinaryOp::Lt => Compare.bind(CompareOperator::Lt),
-            BinaryOp::Lte => Compare.bind(CompareOperator::Lte),
+            BinaryOp::Eq => Compare.bind(CompareOperator::Eq.into()),
+            BinaryOp::NotEq => Compare.bind(CompareOperator::NotEq.into()),
+            BinaryOp::Gt => Compare.bind(CompareOperator::Gt.into()),
+            BinaryOp::Gte => Compare.bind(CompareOperator::Gte.into()),
+            BinaryOp::Lt => Compare.bind(CompareOperator::Lt.into()),
+            BinaryOp::Lte => Compare.bind(CompareOperator::Lte.into()),
             BinaryOp::And => Boolean.bind(BooleanOperator::And),
             BinaryOp::Or => Boolean.bind(BooleanOperator::Or),
             BinaryOp::Add => Numeric.bind(NumericOperator::Add),
