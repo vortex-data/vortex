@@ -344,6 +344,7 @@ mod tests {
         let valid_codes = PrimitiveArray::new(buffer![0u32, 0], Validity::AllValid).into_array();
         let dict = DictArray::try_new(valid_codes, values)?.into_array();
         let casted = dict.cast(target)?.optimize_ctx(&session)?;
+        assert!(casted.is::<crate::arrays::Constant>());
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([42i32, 42]), ctx);
         Ok(())
     }
@@ -398,6 +399,10 @@ mod tests {
         let valid_codes = PrimitiveArray::new(buffer![0u64], Validity::AllValid).into_array();
         let dict = DictArray::try_new(valid_codes, values)?.into_array();
         let casted = dict.cast(target)?.optimize_ctx(&session)?;
+        assert_eq!(
+            casted.as_::<Dict>().codes().dtype().nullability(),
+            Nullability::NonNullable
+        );
         assert_arrays_eq!(casted, BoolArray::from_iter([false]), ctx);
         Ok(())
     }
