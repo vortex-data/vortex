@@ -1035,6 +1035,10 @@ def _evaluate_edition_results(
         if not reported_causes and failure.get("error"):
             reported_causes = [str(failure["error"])]
 
+        if any(c.startswith("missing expected Arrow IPC:") for c in reported_causes):
+            unexpected_failures.append(failure)
+            continue
+
         unexpected_causes = [c for c in reported_causes if not any(_cause_matches(c, sub) for sub in expected_causes)]
         stale_causes = [sub for sub in expected_causes if not any(_cause_matches(c, sub) for c in reported_causes)]
 

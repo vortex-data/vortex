@@ -653,3 +653,85 @@ def test_edition_reader_probe_column_causes_isolates_corrupt_expected_ipc(editio
     for exc_type in (KeyboardInterrupt, SystemExit):
         with pytest.raises(exc_type):
             edition_reader._run_isolated(lambda e=exc_type: (_ for _ in ()).throw(e()))
+
+
+def test_cmd_check_editions_partial_dump_expected_preserves_accepted_and_reports(compat, monkeypatch, tmp_path):
+    accepted_path = tmp_path / "accepted.json"
+    accepted_path.write_text(
+        json.dumps(
+            {
+                "expected_skips": {},
+                "failures": [
+                    {
+                        "edition": "core2025.05.0",
+                        "reader_version": "0.36.0",
+                        "fixture": "datetime.vortex",
+                        "expected_causes": ["column ts: Timestamp"],
+                        "reason": "known utc timestamp bug",
+                    }
+                ],
+            }
+        )
+    )
+    json_out = tmp_path / "report.json"
+
+    monkeypatch.setattr(
+        compat,
+        "_run_rust_editions",
+        lambda profile="release": [{"id": "core2025.05.0", "min_library_version": "0.36.0"}],
+    )
+    monkeypatch.setattr(
+        compat,
+        "_run_rust_dump_expected",
+        lambda output, profile="release", exclude=None, check=True: 1,
+    )
+
+    def fake_generate(output, profile="release", edition=None, exclude=None, check=True) -> int:
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "fixtures.json").write_text(
+            json.dumps(
+                {
+                    "edition": edition,
+                    "fixtures": [
+                        {"name": "primitives.vortex", "description": "p", "sha256": "a"},
+                        {"name": "datetime.vortex", "description": "d", "sha256": "b"},
+                    ],
+                }
+            )
+        )
+        return 0
+
+    monkeypatch.setattr(compat, "_run_rust_generate", fake_generate)
+    monkeypatch.setattr(
+        compat,
+        "_run_edition_reader",
+        lambda rv, src_dir, expected_dir, python_version="3.12": {
+            "passed": ["primitives.vortex"],
+            "failed": [
+                {
+                    "name": "datetime.vortex",
+                    "error": "missing expected Arrow IPC: datetime.vortex.arrow",
+                    "causes": ["missing expected Arrow IPC: datetime.vortex.arrow"],
+                }
+            ],
+        },
+    )
+
+    args = argparse.Namespace(
+        profile="release",
+        editions=None,
+        accepted_failures=str(accepted_path),
+        exclude=None,
+        python="3.12",
+        json_output=str(json_out),
+    )
+    with pytest.raises(SystemExit) as exc:
+        compat.cmd_check_editions(args)
+    assert exc.value.code == 1
+
+    report = json.loads(json_out.read_text())
+    ed = next(r for r in report if r["edition"] == "core2025.05.0")
+    assert ed["passed"] == ["primitives.vortex"]
+    assert ed["stale"] == []
+    assert [u["name"] for u in ed["unexpected"]] == ["datetime.vortex"]
+    assert any(r["edition"] == "(dump-expected)" for r in report)

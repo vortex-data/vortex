@@ -164,15 +164,24 @@ pub fn dump_expected(output_dir: &Path, exclude: &[String]) -> VortexResult<()> 
                         .map_err(|e| vortex_err!("failed to build RecordBatch for {name}: {e}"))?
                 };
             let out_path = output_dir.join(format!("{name}.arrow"));
-            let file = File::create(&out_path)?;
-            let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
-                .map_err(|e| vortex_err!("failed to create IPC writer for {name}: {e}"))?;
-            writer
-                .write(&batch)
-                .map_err(|e| vortex_err!("failed to write IPC batch for {name}: {e}"))?;
-            writer
-                .finish()
-                .map_err(|e| vortex_err!("failed to finish IPC file for {name}: {e}"))?;
+            let tmp_path = output_dir.join(format!("{name}.arrow.tmp"));
+            let write_ipc = || -> VortexResult<()> {
+                let file = File::create(&tmp_path)?;
+                let mut writer = ArrowIpcFileWriter::try_new(file, &batch.schema())
+                    .map_err(|e| vortex_err!("failed to create IPC writer for {name}: {e}"))?;
+                writer
+                    .write(&batch)
+                    .map_err(|e| vortex_err!("failed to write IPC batch for {name}: {e}"))?;
+                writer
+                    .finish()
+                    .map_err(|e| vortex_err!("failed to finish IPC file for {name}: {e}"))?;
+                std::fs::rename(&tmp_path, &out_path)?;
+                Ok(())
+            };
+            if let Err(e) = write_ipc() {
+                drop(std::fs::remove_file(&tmp_path));
+                return Err(e);
+            }
             VortexResult::Ok(())
         }));
         match dump_result {
