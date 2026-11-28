@@ -1,0 +1,371 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::future::Future;
+use std::sync::Arc;
+use std::sync::OnceLock;
+
+use arrow_schema::SchemaRef;
+use datafusion_common::Result as DFResult;
+use datafusion_common::pruning::PrunableStatistics;
+use datafusion_datasource::PartitionedFile;
+use datafusion_expr::Operator;
+use datafusion_expr::Volatility;
+use datafusion_physical_expr::DynamicFilterTracking;
+use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::ScalarFunctionExpr;
+use datafusion_physical_expr::expressions::BinaryExpr;
+use datafusion_physical_expr::expressions::CaseExpr;
+use datafusion_physical_expr::expressions::CastExpr;
+use datafusion_physical_expr::expressions::Column;
+use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+use datafusion_physical_expr::expressions::InListExpr;
+use datafusion_physical_expr::expressions::IsNotNullExpr;
+use datafusion_physical_expr::expressions::IsNullExpr;
+use datafusion_physical_expr::expressions::LikeExpr;
+use datafusion_physical_expr::expressions::Literal;
+use datafusion_physical_expr::expressions::NegativeExpr;
+use datafusion_physical_expr::expressions::NotExpr;
+use datafusion_physical_expr::expressions::TryCastExpr;
+use datafusion_physical_expr_common::physical_expr::snapshot_generation;
+use datafusion_physical_plan::joins::HashExpr;
+use datafusion_physical_plan::metrics::Count;
+use datafusion_pruning::PruningPredicate;
+use datafusion_pruning::build_pruning_predicate;
+use parking_lot::RwLock;
+use tokio::sync::OnceCell;
+
+/// One source's file-pruning expression. Compiling it for every file otherwise clones
+/// and drops the same shared expression tree on every opening worker.
+///
+/// Replace this cache whenever the source's predicate changes. Partition literals must not
+/// use it: their expression differs per file. Known dynamic predicates are cached by
+/// generation; custom expressions retain DataFusion's per-file compilation behavior.
+/// Each file retains its own update watcher and statistics.
+/// Runtime filters must refine during execution; resetting them requires a new predicate epoch.
+#[derive(Default)]
+pub(super) struct FilePruningCache {
+    kind: OnceLock<CacheKind>,
+    predicate: OnceLock<CompiledPredicate>,
+    dynamic_predicate: RwLock<Option<Arc<VersionedPredicate>>>,
+}
+
+type CompiledPredicate = Option<Arc<PruningPredicate>>;
+
+struct VersionedPredicate {
+    generation: u64,
+    shareable: bool,
+    predicate: OnceCell<CompiledPredicate>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CacheKind {
+    Static,
+    Dynamic,
+    Uncached,
+}
+
+impl CacheKind {
+    fn classify(expression: &PhysicalExprRef) -> Self {
+        let mut kind = Self::Static;
+        let mut pending = vec![(expression, true)];
+        while let Some((node, positive)) = pending.pop() {
+            if node.is::<DynamicFilterPhysicalExpr>() {
+                if !positive {
+                    return Self::Uncached;
+                }
+                kind = Self::Dynamic;
+            } else if !is_immutable_node(node) {
+                tracing::trace!(expression = %node, "Bypassing shared pruning for opaque expression");
+                return Self::Uncached;
+            }
+            // Only positive Boolean composition preserves the filter's refinement order.
+            let positive_children = positive
+                && node
+                    .downcast_ref::<BinaryExpr>()
+                    .is_some_and(|binary| matches!(binary.op(), Operator::And | Operator::Or));
+            pending.extend(
+                node.children()
+                    .into_iter()
+                    .map(|child| (child, positive_children)),
+            );
+        }
+        kind
+    }
+}
+
+/// A dynamic filter exposes its input columns as children. Its current body can also contain
+/// expressions that change without advancing the filter's generation.
+fn dynamic_bodies_are_static(expression: &PhysicalExprRef) -> bool {
+    let mut pending = vec![expression];
+    while let Some(node) = pending.pop() {
+        if let Some(filter) = node.downcast_ref::<DynamicFilterPhysicalExpr>() {
+            if !filter
+                .current()
+                .is_ok_and(|body| CacheKind::classify(&body) == CacheKind::Static)
+            {
+                return false;
+            }
+        } else {
+            pending.extend(node.children());
+        }
+    }
+    true
+}
+
+fn is_immutable_node(expression: &PhysicalExprRef) -> bool {
+    if let Some(function) = expression.downcast_ref::<ScalarFunctionExpr>() {
+        // Stable functions can change between executions of the same source.
+        return function.fun().signature().volatility == Volatility::Immutable;
+    }
+    // Unknown implementations can expose mutable snapshots even at generation zero.
+    // These nodes have fixed state and expose every expression input through their children.
+    expression.is::<Column>()
+        || expression.is::<Literal>()
+        || expression.is::<HashExpr>()
+        || expression.is::<BinaryExpr>()
+        || expression.is::<CastExpr>()
+        || expression.is::<TryCastExpr>()
+        || expression.is::<NotExpr>()
+        || expression.is::<NegativeExpr>()
+        || expression.is::<IsNullExpr>()
+        || expression.is::<IsNotNullExpr>()
+        || expression.is::<LikeExpr>()
+        || expression.is::<InListExpr>()
+        || expression.is::<CaseExpr>()
+}
+
+impl FilePruningCache {
+    fn static_predicate(
+        &self,
+        expression: PhysicalExprRef,
+        schema: &SchemaRef,
+        errors: &Count,
+    ) -> Option<&PruningPredicate> {
+        if let Some(compiled) = self.predicate.get() {
+            return compiled.as_deref();
+        }
+        // Compile outside the lock so a cold partition cannot block another runtime worker.
+        let compiled = build_pruning_predicate(expression, schema, errors);
+        self.predicate.get_or_init(|| compiled).as_deref()
+    }
+
+    fn dynamic_predicate(
+        &self,
+        expression: &PhysicalExprRef,
+        build: impl FnOnce() -> CompiledPredicate,
+    ) -> CompiledPredicate {
+        let entry = self.dynamic_entry(expression);
+        if !entry.shareable {
+            return build();
+        }
+        if let Some(predicate) = entry.predicate.get() {
+            return predicate.clone();
+        }
+        // Stream polling cannot await another initializer. A competing build remains local.
+        let predicate = build();
+        if snapshot_generation(expression) == entry.generation {
+            drop(entry.predicate.set(predicate.clone()));
+        }
+        predicate
+    }
+
+    async fn initial_dynamic_predicate(
+        &self,
+        expression: &PhysicalExprRef,
+        build: impl Future<Output = CompiledPredicate>,
+    ) -> CompiledPredicate {
+        let entry = self.dynamic_entry(expression);
+        if !entry.shareable {
+            return build.await;
+        }
+        match entry
+            .predicate
+            .get_or_try_init(|| async {
+                // A waiter on an obsolete cell can skip this optional check. Its file watcher
+                // still holds the update, so stream polling will check the new generation.
+                if snapshot_generation(expression) != entry.generation {
+                    return Err(None);
+                }
+                let predicate = build.await;
+                if snapshot_generation(expression) == entry.generation {
+                    Ok(predicate)
+                } else {
+                    Err(predicate)
+                }
+            })
+            .await
+        {
+            Ok(predicate) => predicate.clone(),
+            Err(predicate) => predicate,
+        }
+    }
+
+    fn dynamic_entry(&self, expression: &PhysicalExprRef) -> Arc<VersionedPredicate> {
+        let generation = snapshot_generation(expression);
+        {
+            let cached = self.dynamic_predicate.read();
+            if let Some(cached) = cached.as_ref()
+                && cached.generation == generation
+            {
+                return Arc::clone(cached);
+            }
+        }
+        let entry = Arc::new(VersionedPredicate {
+            generation,
+            shareable: dynamic_bodies_are_static(expression),
+            predicate: OnceCell::new(),
+        });
+        let previous = {
+            let mut cached = self.dynamic_predicate.write();
+            if let Some(cached) = cached.as_ref()
+                && cached.generation == generation
+            {
+                return Arc::clone(cached);
+            }
+            if cached
+                .as_ref()
+                .is_none_or(|cached| cached.generation < generation)
+            {
+                cached.replace(Arc::clone(&entry))
+            } else {
+                None
+            }
+        };
+        // Dropping an old expression tree can be expensive; do it after releasing the lock.
+        drop(previous);
+        entry
+    }
+}
+
+pub(super) enum FilePruner {
+    Static(bool),
+    Shared(SharedFilePruner),
+    DataFusion(datafusion_pruning::FilePruner),
+}
+
+impl FilePruner {
+    pub(super) fn try_new(
+        predicate: PhysicalExprRef,
+        schema: &SchemaRef,
+        file: &PartitionedFile,
+        errors: Count,
+        cache: Option<Arc<FilePruningCache>>,
+    ) -> Option<Self> {
+        let statistics = file.statistics.as_ref()?;
+        if let Some(cache) = cache {
+            let file_statistics =
+                || PrunableStatistics::new(vec![Arc::clone(statistics)], Arc::clone(schema));
+            match cache.kind.get_or_init(|| CacheKind::classify(&predicate)) {
+                CacheKind::Static => {
+                    if !file.has_statistics() {
+                        return None;
+                    }
+                    let compiled = cache.static_predicate(predicate, schema, &errors)?;
+                    let pruned = prune_file(compiled, &file_statistics(), &errors);
+                    return Some(Self::Static(pruned));
+                }
+                CacheKind::Dynamic => {
+                    return Some(Self::Shared(SharedFilePruner {
+                        tracking: DynamicFilterTracking::classify(&predicate),
+                        predicate,
+                        checked_once: false,
+                        schema: Arc::clone(schema),
+                        statistics: file_statistics(),
+                        errors,
+                        cache,
+                    }));
+                }
+                CacheKind::Uncached => {}
+            }
+        }
+        datafusion_pruning::FilePruner::try_new(predicate, schema, file, errors)
+            .map(Self::DataFusion)
+    }
+
+    pub(super) fn is_watching(&self) -> bool {
+        match self {
+            Self::Static(_) => false,
+            Self::Shared(pruner) => matches!(pruner.tracking, DynamicFilterTracking::Watching(_)),
+            Self::DataFusion(pruner) => pruner.is_watching(),
+        }
+    }
+
+    pub(super) fn should_prune(&mut self) -> DFResult<bool> {
+        match self {
+            Self::Static(pruned) => Ok(std::mem::take(pruned)),
+            Self::Shared(pruner) => Ok(pruner.should_prune()),
+            Self::DataFusion(pruner) => pruner.should_prune(),
+        }
+    }
+
+    pub(super) async fn should_prune_initial(&mut self) -> DFResult<bool> {
+        match self {
+            Self::Shared(pruner) => Ok(pruner.should_prune_initial().await),
+            _ => self.should_prune(),
+        }
+    }
+}
+
+pub(super) struct SharedFilePruner {
+    predicate: PhysicalExprRef,
+    tracking: DynamicFilterTracking,
+    checked_once: bool,
+    schema: SchemaRef,
+    statistics: PrunableStatistics,
+    errors: Count,
+    cache: Arc<FilePruningCache>,
+}
+
+impl SharedFilePruner {
+    fn needs_check(&mut self) -> bool {
+        if !self.checked_once {
+            self.checked_once = true;
+            return true;
+        }
+        self.tracking
+            .watcher()
+            .is_some_and(|watcher| watcher.changed())
+    }
+
+    fn compile(&self) -> CompiledPredicate {
+        build_pruning_predicate(Arc::clone(&self.predicate), &self.schema, &self.errors)
+    }
+
+    fn should_prune(&mut self) -> bool {
+        if !self.needs_check() {
+            return false;
+        }
+        self.cache
+            .dynamic_predicate(&self.predicate, || self.compile())
+            .is_some_and(|predicate| prune_file(&predicate, &self.statistics, &self.errors))
+    }
+
+    async fn should_prune_initial(&mut self) -> bool {
+        if !self.needs_check() {
+            return false;
+        }
+        self.cache
+            .initial_dynamic_predicate(&self.predicate, async { self.compile() })
+            .await
+            .is_some_and(|predicate| prune_file(&predicate, &self.statistics, &self.errors))
+    }
+}
+
+fn prune_file(
+    predicate: &PruningPredicate,
+    statistics: &PrunableStatistics,
+    errors: &Count,
+) -> bool {
+    match predicate.prune(statistics) {
+        Ok(keep) => matches!(keep.as_slice(), [false]),
+        Err(error) => {
+            tracing::debug!(%error, "Ignoring file-pruning evaluation error");
+            errors.add(1);
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
