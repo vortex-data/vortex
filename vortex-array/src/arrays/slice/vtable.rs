@@ -130,12 +130,55 @@ impl VTable for Slice {
         let array = require_child!(array, array.child(), SliceSlots::CHILD => AnyCanonical);
 
         debug_assert!(array.child().is_canonical());
-        // TODO(ngates): we should inline canonical slice logic here.
-        array
-            .child()
-            .slice(array.range.clone())?
-            .optimize_ctx(ctx)
-            .map(ExecutionResult::done)
+        let range = array.range.clone();
+        let child = array.child();
+
+        if range.start == 0 && range.end == child.len() {
+            return Ok(ExecutionResult::done(child.clone()));
+        }
+        if range.start == range.end {
+            use crate::IntoArray;
+
+            return Ok(ExecutionResult::done(
+                crate::Canonical::empty(child.dtype()).into_array(),
+            ));
+        }
+
+        let Some(sliced) = slice_canonical(child.as_::<AnyCanonical>(), range)? else {
+            vortex_error::vortex_bail!(
+                "Canonical array {} failed to slice range {:?}",
+                child.encoding_id(),
+                array.range
+            );
+        };
+
+        sliced.optimize_ctx(ctx).map(ExecutionResult::done)
+    }
+}
+
+fn slice_canonical(
+    view: crate::canonical::CanonicalView<'_>,
+    range: Range<usize>,
+) -> VortexResult<Option<ArrayRef>> {
+    use crate::arrays::{
+        Bool, Decimal, Extension, FixedSizeList, ListView, Map, Null, Primitive, Struct, Union,
+        VarBinView, Variant,
+    };
+    use crate::canonical::CanonicalView;
+
+    match view {
+        CanonicalView::Null(a) => <Null as super::SliceReduce>::slice(a, range),
+        CanonicalView::Bool(a) => <Bool as super::SliceReduce>::slice(a, range),
+        CanonicalView::Primitive(a) => <Primitive as super::SliceReduce>::slice(a, range),
+        CanonicalView::Decimal(a) => <Decimal as super::SliceReduce>::slice(a, range),
+        CanonicalView::VarBinView(a) => <VarBinView as super::SliceReduce>::slice(a, range),
+        CanonicalView::List(a) => <ListView as super::SliceReduce>::slice(a, range),
+        CanonicalView::FixedSizeList(a) => <FixedSizeList as super::SliceReduce>::slice(a, range),
+        CanonicalView::Struct(a) => <Struct as super::SliceReduce>::slice(a, range),
+        CanonicalView::Extension(a) => <Extension as super::SliceReduce>::slice(a, range),
+        CanonicalView::Map(a) => <Map as super::SliceReduce>::slice(a, range),
+        CanonicalView::Union(a) => <Union as super::SliceReduce>::slice(a, range),
+        CanonicalView::Variant(a) => <Variant as super::SliceReduce>::slice(a, range),
     }
 }
 impl OperationsVTable<Slice> for Slice {
@@ -200,6 +243,91 @@ mod tests {
         let slice = inner_slice.slice(1..4)?;
 
         assert_arrays_eq!(slice, PrimitiveArray::from_iter([3i32, 4, 5]), &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_execute_without_kernels() -> VortexResult<()> {
+        use crate::arrays::BoolArray;
+        use crate::arrays::NullArray;
+        use crate::arrays::VarBinViewArray;
+        use crate::optimizer::kernels::KernelSession;
+
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let mut ctx = session.create_execution_ctx();
+
+        let prim = PrimitiveArray::from_iter(0i32..10).into_array();
+        assert_arrays_eq!(
+            SliceArray::new(prim.clone(), 2..7).into_array(),
+            PrimitiveArray::from_iter(2i32..7),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            SliceArray::new(prim.clone(), 0..10).into_array(),
+            prim,
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            SliceArray::new(PrimitiveArray::from_iter(0i32..10).into_array(), 3..3,).into_array(),
+            PrimitiveArray::empty::<i32>(crate::dtype::Nullability::NonNullable),
+            &mut ctx
+        );
+
+        let bools = BoolArray::from_iter([true, false, true, true, false]).into_array();
+        assert_arrays_eq!(
+            SliceArray::new(bools, 1..4).into_array(),
+            BoolArray::from_iter([false, true, true]),
+            &mut ctx
+        );
+
+        let nulls = NullArray::new(5).into_array();
+        assert_arrays_eq!(
+            SliceArray::new(nulls, 1..3).into_array(),
+            NullArray::new(2),
+            &mut ctx
+        );
+
+        let strings = VarBinViewArray::from_iter_str(["a", "bb", "ccc", "dddd"]).into_array();
+        assert_arrays_eq!(
+            SliceArray::new(strings, 1..3).into_array(),
+            VarBinViewArray::from_iter_str(["bb", "ccc"]),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_recursive_canonical_without_slice_reduce_kernels() -> VortexResult<()> {
+        use crate::RecursiveCanonical;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::ListArray;
+        use crate::optimizer::kernels::KernelSession;
+        use crate::scalar::Scalar;
+        use crate::validity::Validity;
+
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let mut ctx = session.create_execution_ctx();
+
+        let elements = ConstantArray::new(Scalar::from(""), 3).into_array();
+        let inner = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter([0u8, 3u8]).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let outer = ListArray::try_new(
+            inner,
+            PrimitiveArray::from_iter([0u8, 1u8]).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+
+        let canonical = outer.clone().execute::<RecursiveCanonical>(&mut ctx)?.0;
+        assert_arrays_eq!(canonical.into_array(), outer, &mut ctx);
 
         Ok(())
     }
