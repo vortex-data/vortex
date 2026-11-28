@@ -333,7 +333,7 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
             core = _strip_error_wrapper(cause)
             explained = (
                 cause in causes
-                or core in col_core_msgs
+                or any(col_core and col_core in core for col_core in col_core_msgs)
                 or (
                     cause.startswith("column count mismatch:")
                     and any(c.startswith("column names mismatch:") for c in col_causes)
