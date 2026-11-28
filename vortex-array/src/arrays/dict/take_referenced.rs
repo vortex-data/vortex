@@ -17,7 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::execute::take_canonical;
 use crate::match_each_integer_ptype;
 
-/// Takes from a row-wise encoding by gathering and decoding distinct rows in source order.
+/// Takes from a row-wise encoding by decoding a compact prefix or gathering distinct rows.
 /// `code_count` is the number of compressed codes in the logical source range, when known.
 /// Returns `None` when the caller should use its normal execution path.
 pub fn take_referenced(
@@ -45,8 +45,9 @@ pub fn take_referenced(
         remap_referenced(indices.as_slice::<P>(), &mask, values.len(), limit)
     });
     let (values, indices) = match referenced {
-        Some((referenced, remapped)) => (
-            gather(&referenced.into_array(), ctx)?,
+        Some(ReferencedRows::Prefix(end)) => (values.slice(0..end)?, indices),
+        Some(ReferencedRows::Scattered { rows, remapped }) => (
+            gather(&rows.into_array(), ctx)?,
             PrimitiveArray::new(remapped, validity),
         ),
         None => (values.clone(), indices),
@@ -75,12 +76,20 @@ fn gather_limit(rows: usize, indices: usize, code_count: Option<u64>) -> usize {
     (budget / per_row).min(rows.div_ceil(2))
 }
 
+enum ReferencedRows {
+    Prefix(usize),
+    Scattered {
+        rows: Buffer<u32>,
+        remapped: Buffer<u32>,
+    },
+}
+
 fn remap_referenced<P: AsPrimitive<usize>>(
     indices: &[P],
     validity: &Mask,
     len: usize,
     limit: usize,
-) -> Option<(Buffer<u32>, Buffer<u32>)> {
+) -> Option<ReferencedRows> {
     let mut words = vec![0u64; len.div_ceil(64)];
     let chunk_size = len.div_ceil(2);
     let mut count = 0;
@@ -108,6 +117,15 @@ fn remap_referenced<P: AsPrimitive<usize>>(
         }
     }
 
+    // Frequent values can occupy a nearly full prefix in a frequency-ordered dictionary.
+    // Slicing keeps the original indices and avoids both copying runs and building ranks.
+    let last_block = words.iter().rposition(|&word| word != 0)?;
+    let used_bits = (u64::BITS - words[last_block].leading_zeros()) as usize;
+    let end = (last_block * 64).checked_add(used_bits)?;
+    if end - count <= count / 8 {
+        return Some(ReferencedRows::Prefix(end));
+    }
+
     let mut referenced = BufferMut::with_capacity(count);
     let mut ranks = vec![0u32; len];
     for (block, mut word) in words.into_iter().enumerate() {
@@ -120,7 +138,12 @@ fn remap_referenced<P: AsPrimitive<usize>>(
     }
     // Payloads at null positions can be out of bounds. The output validity masks their ranks.
     let remapped = Buffer::from_trusted_len_iter(
-        indices.iter().map(|idx| ranks.get(idx.as_()).copied().unwrap_or(0)),
+        indices
+            .iter()
+            .map(|idx| ranks.get(idx.as_()).copied().unwrap_or(0)),
     );
-    Some((referenced.freeze(), remapped))
+    Some(ReferencedRows::Scattered {
+        rows: referenced.freeze(),
+        remapped,
+    })
 }

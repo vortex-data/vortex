@@ -240,11 +240,16 @@ mod tests {
     /// gathering compressed rows, decoding the referenced rows, or decoding every row. Null
     /// indices hold out-of-bounds values, which the kernel must ignore.
     #[rstest]
-    #[case::sparse(300, 2_000)]
-    #[case::referenced(1_500, 40)]
-    #[case::every_row(2_000, 2_000)]
-    #[case::many_per_row(8_000, 2_000)]
-    fn test_dict_over_fsst_take(#[case] len: u32, #[case] range: u32) -> VortexResult<()> {
+    #[case::sparse(300, 2_000, 1)]
+    #[case::prefix(1_500, 40, 1)]
+    #[case::scattered(1_500, 40, 47)]
+    #[case::every_row(2_000, 2_000, 1)]
+    #[case::many_per_row(8_000, 2_000, 1)]
+    fn test_dict_over_fsst_take(
+        #[case] len: u32,
+        #[case] range: u32,
+        #[case] stride: u32,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
         let input = VarBinArray::from_iter(
@@ -257,16 +262,18 @@ mod tests {
         let fsst = fsst_compress(&input, &compressor, &mut ctx)?;
 
         let valid = (0..len).map(|i| i % 3 != 0).collect::<Vec<_>>();
-        let values = (0..len)
+        let selected = (0..len).map(|i| (i * 7 % range) * stride);
+        let values = selected
+            .clone()
             .zip(&valid)
-            .map(|(i, &valid)| if valid { i * 7 % range } else { u32::MAX })
+            .map(|(row, &valid)| if valid { row } else { u32::MAX })
             .collect::<Buffer<u32>>();
         let indices = PrimitiveArray::new(values, Validity::from_iter(valid.iter().copied()));
         let dict = DictArray::try_new(indices.into_array(), fsst.into_array())?.into_array();
 
-        let in_bounds = (0..len)
+        let in_bounds = selected
             .zip(&valid)
-            .map(|(i, &valid)| valid.then_some(i * 7 % range));
+            .map(|(row, &valid)| valid.then_some(row));
         let expected = input.take(PrimitiveArray::from_option_iter(in_bounds).into_array())?;
         assert_arrays_eq!(dict, expected, &mut ctx);
         Ok(())
