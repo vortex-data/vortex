@@ -76,8 +76,7 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray, skip_nans:
 /// are skipped to match the scalar `sum` semantics; otherwise any NaN poisons the accumulator to
 /// NaN. Floats cannot overflow the accumulator, so this never reports saturation.
 pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nans: bool) -> bool {
-    sum_float(acc, slice, None, skip_nans);
-    false
+    sum_float(acc, slice, None, skip_nans)
 }
 
 /// Sum the values of a float slice, or only its `valid` values, into an `f64` accumulator.
@@ -95,13 +94,14 @@ fn sum_float<T: NativePType>(
     values: &[T],
     valid: Option<&BitBuffer>,
     skip_nans: bool,
-) {
+) -> bool {
     let sum = fold_float(values, valid, |v| v);
     *acc += if skip_nans && sum.is_nan() {
         fold_float(values, valid, non_nan)
     } else {
         sum
     };
+    false
 }
 
 /// Sum `read` of each value, or of each `valid` value, into [`FLOAT_SUM_LANES`] partial sums.
@@ -202,10 +202,7 @@ fn accumulate_primitive_valid(
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
-            floating: |T| {
-                sum_float(acc, p.as_slice::<T>(), Some(valid), skip_nans);
-                false
-            }
+            floating: |T| { sum_float(acc, p.as_slice::<T>(), Some(valid), skip_nans) }
         ),
         SumState::Decimal(_) => {
             vortex_panic!("decimal sum state with primitive input")
@@ -270,10 +267,9 @@ const NO_SIGN_EXTENSION: bool = cfg!(all(target_arch = "x86_64", not(target_feat
 /// A checked add per element does not vectorize, so the values are added with wrapping, and
 /// evidence of each value's magnitude is ORed together alongside. Both reassociate, so the
 /// compiler vectorizes the fold in lane order with the width and interleave it picks, which beats
-/// independent per-lane partial sums on every target. If every value is small enough that
-/// `values.len()` of them cannot overflow, which holds for most data, the sum is exact. Otherwise the values are summed again in
-/// [`sum_exact`]. Either way the result overflows only if the exact sum does not fit, whatever the
-/// order of the values.
+/// independent per-lane partial sums on every target. If the initial accumulator and every
+/// value meet the bound, every prefix fits. Otherwise replay checked additions in input order
+/// so the first overflowing prefix saturates the sum, including across null runs.
 fn sum_wide<T, S>(acc: &mut S, values: &[T], valid: Option<&BitBuffer>) -> bool
 where
     T: NativePType + AsPrimitive<S>,
@@ -287,44 +283,32 @@ where
         let v = v.as_();
         (sum.wrapping_add(v), evidence | bound.evidence(v))
     };
-    let zero = (S::zero(), S::zero());
-
+    // for_len uses the next power of two strictly above len, so its bound covers the initial
+    // accumulator as well as all len inputs.
+    let initial = (*acc, bound.evidence(*acc));
     let (sum, evidence) = match valid {
-        None => values.iter().fold(zero, |acc, &v| add(acc, v)),
-        Some(valid) => values.fold_masked(valid, T::zero(), zero, add),
+        None => values.iter().fold(initial, |acc, &v| add(acc, v)),
+        Some(valid) => values.fold_masked(valid, T::zero(), initial, add),
     };
 
-    if !bound.holds(evidence) {
-        return sum_exact(acc, values, valid);
+    if bound.holds(evidence) {
+        *acc = sum;
+        return false;
     }
-    S::checked_add_into(acc, sum)
+    sum_checked(acc, values, valid)
 }
 
-/// Sum the values, or only the `valid` ones, into `acc` in 128-bit arithmetic, which no slice of
-/// 64-bit integers can overflow. Returns `true` if the result does not fit `S`.
 #[cold]
-#[inline(never)]
-fn sum_exact<T, S>(acc: &mut S, values: &[T], valid: Option<&BitBuffer>) -> bool
+fn sum_checked<T, S>(acc: &mut S, values: &[T], valid: Option<&BitBuffer>) -> bool
 where
-    T: NativePType,
+    T: NativePType + AsPrimitive<S>,
     S: WrappingSum,
 {
-    let sum: i128 = match valid {
-        None => values.iter().map(|&v| to_i128(v)).sum(),
-        Some(valid) => valid.set_indices().map(|i| to_i128(values[i])).sum(),
-    };
-
-    match S::from(to_i128(*acc) + sum) {
-        Some(total) => {
-            *acc = total;
-            false
-        }
-        None => true,
+    let mut add = |v: T| S::checked_add_into(acc, v.as_());
+    match valid {
+        None => values.iter().copied().any(add),
+        Some(valid) => valid.set_indices().any(|i| add(values[i])),
     }
-}
-
-fn to_i128<T: NativePType>(v: T) -> i128 {
-    v.to_i128().vortex_expect("64-bit integers fit i128")
 }
 
 /// A 64-bit sum accumulator that adds with wrapping, with a bound on its values under which a
@@ -730,12 +714,11 @@ mod tests {
         Ok(())
     }
 
-    /// Values past the magnitude bound take the exact sum, which overflows only if the total does
-    /// not fit, however the values are ordered.
+    /// A wide input can cancel earlier values until a prefix overflows.
     #[test]
-    fn sum_i64_near_the_limits_is_exact() -> VortexResult<()> {
+    fn sum_i64_near_the_limits_checks_each_prefix() -> VortexResult<()> {
         let fits =
-            PrimitiveArray::new(buffer![i64::MAX, 1, i64::MIN, -1, 5], Validity::NonNullable)
+            PrimitiveArray::new(buffer![i64::MAX, i64::MIN, 1, -1, 5], Validity::NonNullable)
                 .into_array();
         let overflows =
             PrimitiveArray::new(buffer![i64::MAX - 1, 1, 1, 0], Validity::NonNullable).into_array();
@@ -753,7 +736,7 @@ mod tests {
     }
 
     /// The null rows hold values that would overflow, in a full 64-row word and in the partial
-    /// word after it, on both the bounded and the exact path.
+    /// word after it, on both the bounded and the checked path.
     #[test]
     fn sum_64_bit_ignores_values_under_nulls() -> VortexResult<()> {
         let validity = || Validity::from_iter((0..100).map(|i| i % 3 != 0));

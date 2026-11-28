@@ -89,17 +89,6 @@ pub trait IndexedFoldExt: IndexedSource + Sized {
         let values = self;
         let len = values.len();
 
-        // Short of one row, such as a small group of a grouped aggregate, an in-order fold into one
-        // accumulator skips the merge of the others, which `init` leaves unchanged.
-        if len < LANES {
-            let mut acc = init;
-            for i in 0..len {
-                // SAFETY: i < len.
-                acc = f(acc, unsafe { values.get_unchecked(i) });
-            }
-            return acc;
-        }
-
         let mut acc = [init; LANES];
         let rows = len / LANES;
         for row in 0..rows {
@@ -390,6 +379,12 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn short_fold_merges_separate_lane_accumulators() {
+        let values = [2, 4, 8];
+        assert_eq!(values[..].fold_lanes::<4, _, _, _>(0, i32::max, |a, b| a + b), 14);
     }
 
     #[test]

@@ -35,9 +35,9 @@ pub(super) fn accumulate_primitive(
     };
 
     let local = match_each_native_ptype!(p.ptype(),
-        integral: |T| { integer_min_max(p.as_slice::<T>(), valid).map(min_max_result) },
+        integral: |T| { integer_min_max(p.as_slice::<T>(), valid) },
         floating: |T| {
-            float_min_max(p.as_slice::<T>(), valid, args.options.skip_nans).map(min_max_result)
+            float_min_max(p.as_slice::<T>(), valid, args.options.skip_nans)
         }
     );
     partial.merge(args, local)
@@ -48,9 +48,10 @@ pub(super) fn accumulate_primitive(
 /// Kept out of line so each integer type gets a function of its own, as the float types do: inlined
 /// into the dispatch over every type, the scalar 64-bit loop of baseline x86-64 ran 40% slower.
 #[inline(never)]
-fn integer_min_max<T>(slice: &[T], valid: Option<&BitBuffer>) -> Option<(T, T)>
+fn integer_min_max<T>(slice: &[T], valid: Option<&BitBuffer>) -> Option<MinMaxResult>
 where
     T: NativePType,
+    PValue: From<T>,
 {
     match valid {
         None => integer_min_max_raw(slice),
@@ -62,6 +63,7 @@ where
             Some(integer_min_max_masked(slice, valid, slice[first]))
         }
     }
+    .map(min_max_result)
 }
 
 /// Min/max of an all-valid integer slice as native values. Autovectorizes to packed min/max.
@@ -121,9 +123,14 @@ where
 ///   value. When it does, [`find_nan`] looks for a valid NaN.
 /// - The total order puts `-0.0` below `0.0`, but the comparisons see them as equal. When an
 ///   extremum is zero, [`has_zero_with_sign`] finds which signs are present.
-fn float_min_max<T>(values: &[T], valid: Option<&BitBuffer>, skip_nans: bool) -> Option<(T, T)>
+fn float_min_max<T>(
+    values: &[T],
+    valid: Option<&BitBuffer>,
+    skip_nans: bool,
+) -> Option<MinMaxResult>
 where
     T: NativePType + Float,
+    PValue: From<T>,
 {
     let mut indices = valid_indices(values.len(), valid);
     let seed = if skip_nans {
@@ -132,7 +139,7 @@ where
         values[indices.next()?]
     };
     if Float::is_nan(seed) {
-        return Some((seed, seed));
+        return Some(min_max_result((seed, seed)));
     }
 
     if !skip_nans {
@@ -144,7 +151,7 @@ where
         if Float::is_nan(non_finite)
             && let Some(nan) = find_nan(values, valid)
         {
-            return Some((nan, nan));
+            return Some(min_max_result((nan, nan)));
         }
     }
 
@@ -161,7 +168,7 @@ where
     } else {
         max
     };
-    Some((min, max))
+    Some(min_max_result((min, max)))
 }
 
 /// Fold the valid float values with [`IndexedFoldExt::fold_lanes`], or its masked form reading null
