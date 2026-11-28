@@ -1,0 +1,668 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT MIN(an1.name) AS actress_pseudonym,
+       MIN(t.title) AS japanese_movie_dubbed
+FROM aka_name AS an1,
+     cast_info AS ci,
+     company_name AS cn,
+     movie_companies AS mc,
+     name AS n1,
+     role_type AS rt,
+     title AS t
+WHERE ci.note ='(voice: English version)'
+  AND cn.country_code ='[jp]'
+  AND mc.note LIKE '%(Japan)%'
+  AND mc.note NOT LIKE '%(USA)%'
+  AND n1.name LIKE '%Yo%'
+  AND n1.name NOT LIKE '%Yu%'
+  AND rt.role ='actress'
+  AND an1.person_id = n1.id
+  AND n1.id = ci.person_id
+  AND ci.movie_id = t.id
+  AND t.id = mc.movie_id
+  AND mc.company_id = cn.id
+  AND ci.role_id = rt.id
+  AND an1.person_id = ci.person_id
+  AND ci.movie_id = mc.movie_id;
+----
+logical_plan [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "AGGREGATE",
+                "children": [
+                    {
+                        "name": "FILTER",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "CROSS_PRODUCT",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "CROSS_PRODUCT",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "id",
+                                                                                        "person_id",
+                                                                                        "name",
+                                                                                        "imdb_index",
+                                                                                        "name_pcode_cf",
+                                                                                        "name_pcode_nf",
+                                                                                        "surname_pcode",
+                                                                                        "md5sum"
+                                                                                    ]
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "id",
+                                                                                        "person_id",
+                                                                                        "movie_id",
+                                                                                        "person_role_id",
+                                                                                        "note",
+                                                                                        "nr_order",
+                                                                                        "role_id"
+                                                                                    ]
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": ""
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "PROJECTION",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "READ_VORTEX",
+                                                                                "children": [],
+                                                                                "extra_info": {
+                                                                                    "Filters": "",
+                                                                                    "Function": "Vortex Scan"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Expressions": [
+                                                                                "id",
+                                                                                "name",
+                                                                                "country_code",
+                                                                                "imdb_id",
+                                                                                "name_pcode_nf",
+                                                                                "name_pcode_sf",
+                                                                                "md5sum"
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": ""
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "id",
+                                                                        "movie_id",
+                                                                        "company_id",
+                                                                        "company_type_id",
+                                                                        "note"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "id",
+                                                                "name",
+                                                                "imdb_index",
+                                                                "imdb_id",
+                                                                "gender",
+                                                                "name_pcode_cf",
+                                                                "name_pcode_nf",
+                                                                "surname_pcode",
+                                                                "md5sum"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "id",
+                                                        "role"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "id",
+                                                "title",
+                                                "imdb_index",
+                                                "kind_id",
+                                                "production_year",
+                                                "imdb_id",
+                                                "phonetic_code",
+                                                "episode_of_id",
+                                                "season_nr",
+                                                "episode_nr",
+                                                "series_years",
+                                                "md5sum"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": ""
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "(note = CAST('(voice: English version)' AS VARCHAR))",
+                                "(country_code = CAST('[jp]' AS VARCHAR))",
+                                "(note ~~ '%(Japan)%')",
+                                "(note !~~ '%(USA)%')",
+                                "(name ~~ '%Yo%')",
+                                "(name !~~ '%Yu%')",
+                                "(role = CAST('actress' AS VARCHAR))",
+                                "(person_id = id)",
+                                "(id = person_id)",
+                                "(movie_id = id)",
+                                "(id = movie_id)",
+                                "(company_id = id)",
+                                "(role_id = id)",
+                                "(person_id = person_id)",
+                                "(movie_id = movie_id)"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "",
+                    "Expressions": [
+                        "min(name)",
+                        "min(title)"
+                    ]
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": [
+                "actress_pseudonym",
+                "japanese_movie_dubbed"
+            ]
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "AGGREGATE",
+                "children": [
+                    {
+                        "name": "COMPARISON_JOIN",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": [
+                                                "($.country_code = \"[jp]\")",
+                                                "($.id <= 2113i32)"
+                                            ],
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "470"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": "id",
+                                    "Estimated Cardinality": "470"
+                                }
+                            },
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "($.person_id <= 45126i32)",
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "9014"
+                                                }
+                                            },
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "$.name like \"%Yo%\"",
+                                                                "vortex.not($.name like \"%Yu%\")",
+                                                                "($.id >= 4i32)"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "8335"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "COMPARISON_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": [
+                                                                        "($.note = \"(voice: English version)\")",
+                                                                        "($.movie_id <= 199991i32)",
+                                                                        "($.person_id <= 45126i32)",
+                                                                        "($.person_id >= 4i32)"
+                                                                    ],
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "72488"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "COMPARISON_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "($.id >= 11i32)",
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "25284"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": [
+                                                                                "$.note like \"%(Japan)%\"",
+                                                                                "vortex.not($.note like \"%(USA)%\")",
+                                                                                "(6i32 <= $.movie_id <= 199991i32)",
+                                                                                "($.movie_id >= 11i32)",
+                                                                                "($.movie_id >= 11i32)",
+                                                                                "($.company_id >= 13i32)"
+                                                                            ],
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "5218"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": "(id = id)",
+                                                                    "Estimated Cardinality": "364"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "INNER",
+                                                            "Conditions": "(movie_id = id)",
+                                                            "Estimated Cardinality": "72"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "(id = id)",
+                                                    "Estimated Cardinality": "11"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(person_id = id)",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": [
+                                                "($.role = \"actress\")",
+                                                "($.id <= 1i32)"
+                                            ],
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "2"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(role_id = id)",
+                                    "Estimated Cardinality": "0"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "(id = company_id)",
+                            "Estimated Cardinality": "0"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "",
+                    "Expressions": [
+                        "min(name)",
+                        "min(title)"
+                    ],
+                    "Estimated Cardinality": "1"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": [
+                "actress_pseudonym",
+                "japanese_movie_dubbed"
+            ],
+            "Estimated Cardinality": "1"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "UNGROUPED_AGGREGATE",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_JOIN",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Filters": [
+                                        "($.country_code = \"[jp]\")",
+                                        "($.id <= 2113i32)"
+                                    ],
+                                    "Projections": "id",
+                                    "Estimated Cardinality": "470"
+                                }
+                            },
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "HASH_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": "($.person_id <= 45126i32)",
+                                                    "Projections": [
+                                                        "person_id",
+                                                        "name"
+                                                    ],
+                                                    "Estimated Cardinality": "9014"
+                                                }
+                                            },
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": [
+                                                                "$.name like \"%Yo%\"",
+                                                                "vortex.not($.name like \"%Yu%\")",
+                                                                "($.id >= 4i32)"
+                                                            ],
+                                                            "Projections": "id",
+                                                            "Estimated Cardinality": "8335"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "HASH_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Function": "Vortex Scan",
+                                                                    "Filters": [
+                                                                        "($.note = \"(voice: English version)\")",
+                                                                        "($.movie_id <= 199991i32)",
+                                                                        "($.person_id <= 45126i32)",
+                                                                        "($.person_id >= 4i32)"
+                                                                    ],
+                                                                    "Projections": [
+                                                                        "person_id",
+                                                                        "movie_id",
+                                                                        "role_id"
+                                                                    ],
+                                                                    "Estimated Cardinality": "72488"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "HASH_JOIN",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Function": "Vortex Scan",
+                                                                            "Filters": "($.id >= 11i32)",
+                                                                            "Projections": [
+                                                                                "id",
+                                                                                "title"
+                                                                            ],
+                                                                            "Estimated Cardinality": "25284"
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Function": "Vortex Scan",
+                                                                            "Filters": [
+                                                                                "$.note like \"%(Japan)%\"",
+                                                                                "vortex.not($.note like \"%(USA)%\")",
+                                                                                "(6i32 <= $.movie_id <= 199991i32)",
+                                                                                "($.movie_id >= 11i32)",
+                                                                                "($.movie_id >= 11i32)",
+                                                                                "($.company_id >= 13i32)"
+                                                                            ],
+                                                                            "Projections": [
+                                                                                "movie_id",
+                                                                                "company_id"
+                                                                            ],
+                                                                            "Estimated Cardinality": "5218"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Join Type": "INNER",
+                                                                    "Conditions": "id = id",
+                                                                    "Estimated Cardinality": "364"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "INNER",
+                                                            "Conditions": "movie_id = id",
+                                                            "Estimated Cardinality": "72"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "id = id",
+                                                    "Estimated Cardinality": "11"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "person_id = id",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": [
+                                                "($.role = \"actress\")",
+                                                "($.id <= 1i32)"
+                                            ],
+                                            "Projections": "id",
+                                            "Estimated Cardinality": "2"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "role_id = id",
+                                    "Estimated Cardinality": "0"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "id = company_id",
+                            "Estimated Cardinality": "0"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": [
+                        "name",
+                        "title"
+                    ],
+                    "Estimated Cardinality": "0"
+                }
+            }
+        ],
+        "extra_info": {
+            "Aggregates": [
+                "min(#0)",
+                "min(#1)"
+            ],
+            "Estimated Cardinality": "1"
+        }
+    }
+]
