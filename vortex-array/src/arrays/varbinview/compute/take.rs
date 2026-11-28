@@ -143,15 +143,12 @@ fn take_views<I: AsPrimitive<usize>>(
             BinaryView::default(),
             indices.len(),
         )),
-        AllOr::Some(buffer) => Buffer::<BinaryView>::from_trusted_len_iter(
-            buffer.iter().zip(indices.iter()).map(|(valid, idx)| {
-                if valid {
-                    views_ref[idx.as_()]
-                } else {
-                    BinaryView::default()
-                }
-            }),
-        ),
+        AllOr::Some(buffer) => {
+            let mut views = BufferMut::full(BinaryView::default(), indices.len());
+            let output = views.as_mut_slice();
+            buffer.for_each_set_index(|i| output[i] = views_ref[indices[i].as_()]);
+            views.freeze()
+        }
     }
 }
 
