@@ -109,6 +109,7 @@ mod tests {
     #[rstest]
     #[case::leading_zero_length_run(vec![0u32, 3, 6], vec![1i32, 5, 5], 0, 6, true)]
     #[case::leading_distinct_run_trimmed(vec![3u32, 6, 10], vec![1i32, 5, 5], 3, 7, true)]
+    #[case::leading_distinct_run_still_active(vec![3u32, 6, 10], vec![1i32, 5, 5], 2, 8, false)]
     #[case::trailing_distinct_run_trimmed_mid_run(vec![3u32, 6, 10], vec![5i32, 5, 9], 0, 5, true)]
     #[case::leading_and_trailing_trimmed_multi_run(
         vec![3u32, 6, 9, 12],
