@@ -22,6 +22,7 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
@@ -437,6 +438,21 @@ impl FileSource for VortexSource {
         self.vortex_predicate.clone()
     }
 
+    /// The conjuncts of the scan predicate that were reported as `PushedDown::Yes`, from which
+    /// DataFusion derives equivalences such as constant columns.
+    ///
+    /// Dynamic filters, which a V2 scan also evaluates, are reported as `PushedDown::No` and are
+    /// left out: their value changes while the query runs.
+    fn exact_filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
+        let predicate = self.vortex_predicate.as_ref()?;
+        let exact: Vec<_> = split_conjunction(predicate)
+            .into_iter()
+            .filter(|conjunct| !DynamicFilterTracking::classify(conjunct).contains_dynamic_filter())
+            .cloned()
+            .collect();
+        (!exact.is_empty()).then(|| conjunction(exact))
+    }
+
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
         &self.df_metrics
     }
@@ -638,6 +654,7 @@ mod tests {
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
+    use datafusion_datasource::source::DataSource;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
     use datafusion_expr::ScalarUDF;
@@ -850,8 +867,9 @@ mod tests {
             .clone();
         assert_eq!(
             updated_source.vortex_predicate.as_ref(),
-            Some(&conjunction([exact, dynamic]))
+            Some(&conjunction([Arc::clone(&exact), dynamic]))
         );
+        assert_eq!(updated_source.exact_filter(), Some(exact));
         Ok(())
     }
 
@@ -885,6 +903,34 @@ mod tests {
         )?;
         assert!(opener.filter.is_none());
         assert!(opener.file_pruning_predicate.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn pushed_down_equality_filter_makes_column_constant() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Eq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))),
+        )) as PhysicalExprRef;
+
+        let result =
+            source.try_pushdown_filters(vec![Arc::clone(&filter)], &ConfigOptions::new())?;
+        assert!(matches!(result.filters.as_slice(), [PushedDown::Yes]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?;
+        assert_eq!(updated_source.exact_filter().as_ref(), Some(&filter));
+
+        let config =
+            FileScanConfigBuilder::new(ObjectStoreUrl::local_filesystem(), updated_source).build();
+        let column_a = Arc::new(Column::new("a", 0)) as PhysicalExprRef;
+        let column_b = Arc::new(Column::new("b", 1)) as PhysicalExprRef;
+        let eq_properties = config.eq_properties();
+        assert!(eq_properties.is_expr_constant(&column_a).is_some());
+        assert!(eq_properties.is_expr_constant(&column_b).is_none());
         Ok(())
     }
 
