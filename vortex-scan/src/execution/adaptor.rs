@@ -195,3 +195,6 @@ impl ScanAdaptor {
             .ok_or_else(|| vortex_err!("segment {id} has no known location"))
     }
 }
+
+#[cfg(test)]
+mod tests;

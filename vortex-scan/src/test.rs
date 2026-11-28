@@ -361,6 +361,15 @@ impl SegmentSource for Store {
     }
 }
 
+/// A segment source that fails any byte request, for tests that must not perform segment IO.
+pub struct NoSegments;
+
+impl SegmentSource for NoSegments {
+    fn request(&self, _id: SegmentId) -> SegmentFuture {
+        Box::pin(async { Err(vortex_err!("an in-memory source must not request bytes")) })
+    }
+}
+
 pub fn concat(row_count: u64, dtype: DType, children: Vec<PlanRef>) -> PlanRef {
     let plan = ConcatPlan::try_new(dtype, children).expect("valid test concatenation");
     assert_eq!(plan.row_count(), row_count);
