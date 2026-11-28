@@ -216,6 +216,12 @@ def test_counts_from_logs_skip_excluded_packages(tmp_path: Path):
     assert shards.counts_from_logs([log]) == {}
 
 
+def test_skipped_targets_are_real_and_not_discovered():
+    manifest_targets = set(shards.manifest_targets())
+    assert shards.SKIPPED_TARGETS <= manifest_targets, "remove skipped targets that no longer exist"
+    assert not shards.SKIPPED_TARGETS & set(shards.discover_targets())
+
+
 def test_counts_from_logs(tmp_path: Path):
     log = tmp_path / "job.txt"
     log.write_text(

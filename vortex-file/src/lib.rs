@@ -104,6 +104,7 @@
 //! are available. [`VortexOpenOptions`] drives this state machine for ordinary file opens.
 
 mod counting;
+pub mod encryption;
 mod file;
 pub mod flatbuffers;
 mod footer;

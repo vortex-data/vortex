@@ -449,6 +449,7 @@ mod tests {
                         offset,
                         length: 64,
                         alignment: Alignment::none(),
+                        encryption: 0,
                     },
                     row_offset: (chunk as u64) * 100,
                     row_count: 100,

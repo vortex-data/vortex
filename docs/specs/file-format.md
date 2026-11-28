@@ -96,6 +96,60 @@ For example, it contains the locations, compression schemes, encryption schemes,
 The footer is separated from the Data Type such that large schemas can be omitted from the file if they can be
 shared or fetched from an external source.
 
+## Encryption
+
+Vortex files support modular encryption, which operates on whole segments: data segments, and the `DType`, layout,
+statistics, footer, and user metadata segments referenced by the postscript. The postscript always remains in plaintext.
+
+- Each `PostscriptSegment` carries its `EncryptionSpec` inline, so the footer can be decrypted without a prior lookup.
+  Segments protected by the same key reference a single `EncryptionSpec` table, so key metadata is stored once per key.
+- Each `SegmentSpec` stores an index into the footer's `encryption_specs`. Index 0 always denotes a plaintext segment,
+  so files written before encryption existed remain valid. Index 1 holds the footer key.
+- The postscript itself is not authenticated, so readers configured for decryption reject an encrypted file whose
+  `DType`, layout, statistics, or footer segment is not encrypted with the footer key's spec, and whose user metadata
+  segment uses a spec the footer does not list. Otherwise an attacker could strip the protection of these segments and
+  forge their content.
+- Keys are never stored in the file. The opaque `key_metadata` of an `EncryptionSpec` identifies the key to the
+  reader, for example by a key management service key id.
+- AES-128, AES-192, and AES-256 are supported, selected by the length of the key.
+
+### Algorithm
+
+`AesGcm` encrypts every segment with AES-GCM, stored as `ciphertext || nonce || tag`, with a random 12-byte nonce and a
+16-byte tag. The ciphertext has the plaintext's length and starts at the segment's offset.
+
+The additional authenticated data (AAD) is the concatenation of these bytes:
+
+1. The length of the AAD prefix, as a little-endian `uint32`.
+2. The AAD prefix.
+3. The spec's random `aad_file_unique` bytes.
+4. One byte that identifies the role of the segment, followed by bytes that are specific to that role:
+
+   | Tag | Segment            | Bytes after the tag                                         |
+   | --- | ------------------ | ----------------------------------------------------------- |
+   | 0   | Data segment       | Its index in the segment map, as a little-endian `uint32`.  |
+   | 1   | `DType` segment    | None.                                                       |
+   | 2   | Layout segment     | None.                                                       |
+   | 3   | Statistics segment | None.                                                       |
+   | 4   | Footer segment     | The postscript binding, as given below.                     |
+   | 5   | Metadata segment   | The UTF-8 bytes of its key, without a length.               |
+
+A segment moved within or between files fails to decrypt.
+
+The postscript binding of the footer segment binds the postscript entries that the footer does not list. It is a byte
+whose bit 0 is set if the postscript has a `DType` segment and whose bit 1 is set if it has a statistics segment,
+followed by the number of metadata segments as a little-endian `uint64` and, for each in postscript order, the length
+of its key as a little-endian `uint64` and the key's UTF-8 bytes. An attacker who drops or reorders postscript entries
+therefore makes the footer fail to decrypt.
+
+The AAD prefix is optional and application-defined, such as the file's path, and binds the file to an identity the
+reader knows, so that it cannot be replaced by another file encrypted with the same key. It is never stored in the
+file: the writer sets `requires_aad_prefix`, and readers must supply the prefix to decrypt the file. Without a prefix,
+its length is 0.
+
+The footer is encrypted with the footer key, which hides the schema, layout, and statistics. Readers need the footer
+key to open the file.
+
 ## Reified File Example
 
 Since Vortex files are largely self-describing, many mainstays of other columnar file formats (e.g., whether or not to

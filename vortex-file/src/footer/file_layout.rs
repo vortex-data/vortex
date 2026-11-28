@@ -16,6 +16,7 @@ use vortex_array::flatbuffers::WriteFlatBuffer;
 use vortex_error::VortexResult;
 use vortex_session::registry::ReadContext;
 
+use crate::encryption::EncryptionSpec;
 use crate::flatbuffers::footer as fb;
 use crate::footer::segment::SegmentSpec;
 
@@ -30,6 +31,8 @@ pub(crate) struct FooterFlatBufferWriter {
     pub(crate) layout_ctx: ReadContext,
     /// Specifications for all segments in the file.
     pub(crate) segment_specs: Arc<[SegmentSpec]>,
+    /// Encryption specs indexed by the segment specs.
+    pub(crate) encryption_specs: Arc<[EncryptionSpec]>,
 }
 
 impl FlatBufferRoot for FooterFlatBufferWriter {}
@@ -66,6 +69,15 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             .collect::<Vec<_>>();
         let layout_specs = fbb.create_vector(layout_specs.as_slice());
 
+        let encryption_specs = (!self.encryption_specs.is_empty()).then(|| {
+            let specs = self
+                .encryption_specs
+                .iter()
+                .map(|spec| spec.write_flatbuffer(fbb))
+                .collect::<Vec<_>>();
+            fbb.create_vector(specs.as_slice())
+        });
+
         Ok(fb::Footer::create(
             fbb,
             &fb::FooterArgs {
@@ -73,7 +85,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
                 array_specs: Some(array_specs),
                 layout_specs: Some(layout_specs),
                 compression_specs: None,
-                encryption_specs: None,
+                encryption_specs,
             },
         ))
     }

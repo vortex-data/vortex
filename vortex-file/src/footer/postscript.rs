@@ -15,6 +15,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use super::MAX_METADATA_KEY_BYTES;
 use super::MAX_METADATA_SEGMENTS;
+use crate::encryption::EncryptionSpec;
 use crate::flatbuffers::footer as fb;
 
 /// The postscript captures the locations and compression for the initial segments required for
@@ -25,6 +26,60 @@ pub(crate) struct Postscript {
     pub(crate) statistics: Option<PostscriptSegment>,
     pub(crate) footer: PostscriptSegment,
     pub(crate) metadata: Vec<PostscriptMetadata>,
+}
+
+impl Postscript {
+    /// The [`postscript_binding`] of this postscript.
+    pub(crate) fn binding(&self) -> Vec<u8> {
+        postscript_binding(
+            self.dtype.is_some(),
+            self.statistics.is_some(),
+            self.metadata.iter().map(|entry| entry.key.as_str()),
+        )
+    }
+}
+
+/// Encode the postscript entries that a protected footer authenticates through its additional
+/// authenticated data: whether the dtype and statistics segments are present, and the keys of
+/// the metadata segments, in order.
+///
+/// The postscript itself is not authenticated, so without this an attacker could drop these
+/// entries unnoticed.
+pub(crate) fn postscript_binding<'a>(
+    has_dtype: bool,
+    has_statistics: bool,
+    metadata_keys: impl Iterator<Item = &'a str>,
+) -> Vec<u8> {
+    let mut binding = vec![u8::from(has_dtype) | (u8::from(has_statistics) << 1)];
+    let mut count = 0u64;
+    let mut keys = Vec::new();
+    for key in metadata_keys {
+        count += 1;
+        keys.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        keys.extend_from_slice(key.as_bytes());
+    }
+    binding.extend_from_slice(&count.to_le_bytes());
+    binding.extend_from_slice(&keys);
+    binding
+}
+
+/// The `EncryptionSpec` tables already written to a postscript, by spec.
+#[derive(Default)]
+struct SharedSpecs<'fb>(Vec<(EncryptionSpec, WIPOffset<fb::EncryptionSpec<'fb>>)>);
+
+impl<'fb> SharedSpecs<'fb> {
+    fn offset(
+        &mut self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+        spec: &EncryptionSpec,
+    ) -> WIPOffset<fb::EncryptionSpec<'fb>> {
+        if let Some((_, offset)) = self.0.iter().find(|(known, _)| known == spec) {
+            return *offset;
+        }
+        let offset = spec.write_flatbuffer(fbb);
+        self.0.push((spec.clone(), offset));
+        offset
+    }
 }
 
 impl FlatBufferRoot for Postscript {}
@@ -46,24 +101,27 @@ impl Postscript {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fb::Postscript<'fb>>> {
+        // Segments protected by the same key share one `EncryptionSpec` table, which the
+        // segments reference by offset, so key metadata is stored once per key.
+        let mut specs = SharedSpecs::default();
         let dtype = self
             .dtype
             .as_ref()
-            .map(|ps| ps.write_flatbuffer(fbb))
+            .map(|ps| ps.write_flatbuffer_shared(fbb, &mut specs))
             .transpose()?;
-        let layout = self.layout.write_flatbuffer(fbb)?;
+        let layout = self.layout.write_flatbuffer_shared(fbb, &mut specs)?;
         let statistics = self
             .statistics
             .as_ref()
-            .map(|ps| ps.write_flatbuffer(fbb))
+            .map(|ps| ps.write_flatbuffer_shared(fbb, &mut specs))
             .transpose()?;
-        let footer = self.footer.write_flatbuffer(fbb)?;
+        let footer = self.footer.write_flatbuffer_shared(fbb, &mut specs)?;
         let metadata = if self.metadata.is_empty() {
             None
         } else {
             let mut metadata = Vec::with_capacity(self.metadata.len());
             for entry in &self.metadata {
-                metadata.push(entry.write_flatbuffer(fbb)?);
+                metadata.push(entry.write_flatbuffer_shared(fbb, &mut specs)?);
             }
             Some(fbb.create_vector(metadata.as_slice()))
         };
@@ -190,17 +248,14 @@ pub(crate) struct PostscriptMetadata {
     pub(crate) segment: PostscriptSegment,
 }
 
-impl FlatBufferRoot for PostscriptMetadata {}
-
-impl WriteFlatBuffer for PostscriptMetadata {
-    type Target<'a> = fb::PostscriptMetadata<'a>;
-
-    fn write_flatbuffer<'fb>(
+impl PostscriptMetadata {
+    fn write_flatbuffer_shared<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        specs: &mut SharedSpecs<'fb>,
+    ) -> VortexResult<WIPOffset<fb::PostscriptMetadata<'fb>>> {
         let key = fbb.create_string(&self.key);
-        let segment = self.segment.write_flatbuffer(fbb)?;
+        let segment = self.segment.write_flatbuffer_shared(fbb, specs)?;
         Ok(fb::PostscriptMetadata::create(
             fbb,
             &fb::PostscriptMetadataArgs {
@@ -231,17 +286,19 @@ pub struct PostscriptSegment {
     pub(crate) offset: u64,
     pub(crate) length: u32,
     pub(crate) alignment: Alignment,
+    pub(crate) encryption: EncryptionSpec,
 }
 
-impl FlatBufferRoot for PostscriptSegment {}
-
-impl WriteFlatBuffer for PostscriptSegment {
-    type Target<'a> = fb::PostscriptSegment<'a>;
-
-    fn write_flatbuffer<'fb>(
+impl PostscriptSegment {
+    fn write_flatbuffer_shared<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        specs: &mut SharedSpecs<'fb>,
+    ) -> VortexResult<WIPOffset<fb::PostscriptSegment<'fb>>> {
+        let encryption = self
+            .encryption
+            .is_encrypted()
+            .then(|| specs.offset(fbb, &self.encryption));
         Ok(fb::PostscriptSegment::create(
             fbb,
             &fb::PostscriptSegmentArgs {
@@ -249,7 +306,7 @@ impl WriteFlatBuffer for PostscriptSegment {
                 length: self.length,
                 alignment_exponent: self.alignment.exponent(),
                 _compression: None,
-                _encryption: None,
+                encryption,
             },
         ))
     }
@@ -268,6 +325,11 @@ impl ReadFlatBuffer for PostscriptSegment {
             // The alignment exponent comes from the file and may be corrupt, so validate it rather
             // than panicking on a too-large shift (see issue #8819).
             alignment: Alignment::try_from_untrusted_exponent(fb.alignment_exponent())?,
+            encryption: fb
+                .encryption()
+                .map(|spec| EncryptionSpec::read_flatbuffer(&spec))
+                .transpose()?
+                .unwrap_or_else(EncryptionSpec::plaintext),
         })
     }
 }
@@ -287,6 +349,7 @@ mod tests {
             offset,
             length: 1,
             alignment: Alignment::none(),
+            encryption: EncryptionSpec::plaintext(),
         }
     }
 
