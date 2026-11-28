@@ -11,6 +11,7 @@ pub mod options;
 pub mod repeated_scan;
 pub mod scan_builder;
 pub mod split_by;
+mod split_queue;
 mod splits;
 mod tasks;
 #[cfg(test)]
