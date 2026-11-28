@@ -236,9 +236,11 @@ format, and reader version.
 
 The `core` editions frozen before these rules were checked have known exceptions. The recorded
 minimum of `core2025.06.0` was corrected once, from `0.40.0` to `0.42.0`. Some files that the
-current writer produces under `core2025.05.0`, `core2025.06.0`, and `core2025.10.0` cannot be read
-by the recorded minimum version. `vortex-test/compat-gen/accepted-edition-failures.json` lists them,
-and the compatibility check fails if a new one appears.
+current writer produces under earlier frozen `core` editions cannot be read identically by the
+recorded minimum version (wire-format incompatibilities under the `core2025.*` editions and
+`keys_sorted` metadata dropped during Arrow export on `0.85.0` for `core2026.08.2`/`core2026.08.3`).
+`vortex-test/compat-gen/accepted-edition-failures.json` lists the grandfathered exceptions, and the
+compatibility check fails if a new one appears or a listed one starts passing.
 
 Together, these rules establish the relationship:
 
