@@ -20,6 +20,7 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
 use crate::ArrayRef;
+use crate::CanonicalView;
 use crate::EqMode;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -30,8 +31,10 @@ use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::slice::SliceArraySlotsExt;
+use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::array::SliceData;
 use crate::arrays::slice::array::SliceSlots;
+use crate::arrays::slice::short_circuit;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
@@ -129,15 +132,56 @@ impl VTable for Slice {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.child(), SliceSlots::CHILD => AnyCanonical);
 
-        debug_assert!(array.child().is_canonical());
-        // TODO(ngates): we should inline canonical slice logic here.
-        array
+        let child = array
             .child()
-            .slice(array.range.clone())?
+            .as_opt::<AnyCanonical>()
+            .vortex_expect("require_child! executed the child to canonical");
+        slice_canonical(child, array.range.clone())?
             .optimize_ctx(ctx)
             .map(ExecutionResult::done)
     }
 }
+
+/// Slices a canonical array with its own [`SliceReduce`] implementation.
+///
+/// Calling it directly, rather than through the registered [`SliceReduceAdaptor`] parent rules,
+/// lets a `Slice` execute in a session that registers none of those rules.
+///
+/// [`SliceReduceAdaptor`]: crate::arrays::slice::SliceReduceAdaptor
+fn slice_canonical(child: CanonicalView<'_>, range: Range<usize>) -> VortexResult<ArrayRef> {
+    vortex_ensure!(
+        range.start <= range.end,
+        "SliceArray range start {} > end {}",
+        range.start,
+        range.end
+    );
+    match child {
+        CanonicalView::Null(a) => slice_reduce(a, range),
+        CanonicalView::Bool(a) => slice_reduce(a, range),
+        CanonicalView::Primitive(a) => slice_reduce(a, range),
+        CanonicalView::Decimal(a) => slice_reduce(a, range),
+        CanonicalView::VarBinView(a) => slice_reduce(a, range),
+        CanonicalView::List(a) => slice_reduce(a, range),
+        CanonicalView::Map(a) => slice_reduce(a, range),
+        CanonicalView::FixedSizeList(a) => slice_reduce(a, range),
+        CanonicalView::Struct(a) => slice_reduce(a, range),
+        CanonicalView::Union(a) => slice_reduce(a, range),
+        CanonicalView::Extension(a) => slice_reduce(a, range),
+        CanonicalView::Variant(a) => slice_reduce(a, range),
+    }
+}
+
+fn slice_reduce<V: SliceReduce>(
+    array: ArrayView<'_, V>,
+    range: Range<usize>,
+) -> VortexResult<ArrayRef> {
+    if let Some(result) = short_circuit(array, &range) {
+        return Ok(result);
+    }
+    let sliced = <V as SliceReduce>::slice(array, range)?;
+    Ok(sliced.vortex_expect("canonical arrays slice without reading buffers"))
+}
+
 impl OperationsVTable<Slice> for Slice {
     type ProbeState = ();
 
@@ -180,14 +224,22 @@ impl Debug for SliceMetadata {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ExecutionConfig;
     use crate::IntoArray;
+    use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
+    use crate::optimizer::kernels::KernelSession;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -201,6 +253,38 @@ mod tests {
 
         assert_arrays_eq!(slice, PrimitiveArray::from_iter([3i32, 4, 5]), &mut ctx);
 
+        Ok(())
+    }
+
+    /// Slice rules are optional optimizations, so a `Slice` of a canonical array must execute
+    /// even when the session registers none of them. Canonicalizing a `List` slices its offsets,
+    /// which once looped until the iteration limit (fuzzer crash #12223).
+    #[test]
+    fn execute_slice_without_slice_rules() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with_some(KernelSession::empty())
+            .with_some(ExecutionConfig {
+                max_iterations: 1 << 16,
+            });
+        let mut ctx = session.create_execution_ctx();
+        let list = ListArray::try_new(
+            ConstantArray::new("", 3).into_array(),
+            buffer![0u8, 3].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+
+        let canonical = list.execute::<RecursiveCanonical>(&mut ctx)?.0.into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = ListArray::try_new(
+            VarBinViewArray::from_iter_str(["", "", ""]).into_array(),
+            buffer![0u8, 3].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(canonical, expected, &mut ctx);
         Ok(())
     }
 }
