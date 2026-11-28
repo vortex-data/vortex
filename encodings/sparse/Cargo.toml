@@ -28,10 +28,11 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+hegeltest = { workspace = true }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-array = { workspace = true, features = ["_test-harness-hegel"] }
 vortex-arrow = { workspace = true }
 
 [[bench]]

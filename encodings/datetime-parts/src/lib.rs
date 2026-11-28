@@ -10,6 +10,8 @@ mod canonical;
 mod compress;
 mod compute;
 mod ops;
+#[cfg(test)]
+mod prop_tests;
 mod timestamp;
 
 use vortex_array::ArrayVTable;

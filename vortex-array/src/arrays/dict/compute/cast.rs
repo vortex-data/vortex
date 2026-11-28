@@ -29,6 +29,13 @@ impl CastReduce for Dict {
             }
         }
 
+        // Do not push a fallible non-nullable cast onto nullable codes: values-side `take`
+        // shortcuts (such as `Constant` or all-true/all-false `Bool`) inspect `codes.validity()`
+        // without executing the lazy cast and would silently swallow null-to-non-null errors.
+        if !dtype.is_nullable() && array.codes().dtype().is_nullable() {
+            return Ok(None);
+        }
+
         // An unused null entry must not make a cast to a non-nullable dtype fail.
         if !dtype.is_nullable() && !array.values().validity()?.definitely_no_nulls() {
             return Ok(None);
@@ -36,19 +43,10 @@ impl CastReduce for Dict {
         // Cast the dictionary values to the target type
         let casted_values = array.values().cast(dtype.clone())?;
 
-        // If the codes are nullable but we are casting to non nullable dtype we have to remove nullability from codes as well
-        let casted_codes = if array.codes().dtype().is_nullable() && !dtype.is_nullable() {
-            array
-                .codes()
-                .cast(array.codes().dtype().with_nullability(dtype.nullability()))?
-        } else {
-            array.codes().clone()
-        };
-
         // SAFETY: casting does not alter invariants of the codes
         Ok(Some(
             unsafe {
-                DictArray::new_unchecked(casted_codes, casted_values)
+                DictArray::new_unchecked(array.codes().clone(), casted_values)
                     .set_all_values_referenced(array.has_all_values_referenced())
             }
             .into_array(),
@@ -70,6 +68,8 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -295,6 +295,99 @@ mod tests {
         assert!(casted.is::<Dict>());
         let error = casted.execute::<Canonical>(ctx).unwrap_err();
         assert!(error.to_string().contains("values exceed target range"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_dict_nullable_codes_with_constant_values_to_nonnullable_fails() -> VortexResult<()>
+    {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        let ctx = &mut session.create_execution_ctx();
+        let values = ConstantArray::new(42i32, 1).into_array();
+        let target = DType::Primitive(PType::I32, Nullability::NonNullable);
+
+        for (codes, expected_err) in [
+            (
+                PrimitiveArray::new(buffer![0u32], Validity::AllInvalid).into_array(),
+                "Cannot cast AllInvalid to NonNullable",
+            ),
+            (
+                PrimitiveArray::new(buffer![0u32, 0], Validity::from_iter([true, false]))
+                    .into_array(),
+                "Cannot cast array with invalid values to non-nullable type",
+            ),
+        ] {
+            let dict = DictArray::try_new(codes, values.clone())?.into_array();
+            let err = dict
+                .cast(target.clone())?
+                .optimize_ctx(&session)?
+                .execute::<Canonical>(ctx)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains(expected_err),
+                "unexpected error: {err}"
+            );
+        }
+
+        let valid_codes = PrimitiveArray::new(buffer![0u32, 0], Validity::AllValid).into_array();
+        let dict = DictArray::try_new(valid_codes, values)?.into_array();
+        let casted = dict.cast(target)?.optimize_ctx(&session)?;
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([42i32, 42]), ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_dict_nullable_codes_with_bool_values_to_nonnullable_fails() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        let ctx = &mut session.create_execution_ctx();
+        let values = BoolArray::from_iter([false]).into_array();
+        let target = DType::Bool(Nullability::NonNullable);
+
+        for (codes, expected_err) in [
+            (
+                PrimitiveArray::new(buffer![0u64], Validity::AllInvalid).into_array(),
+                "Cannot cast AllInvalid to NonNullable",
+            ),
+            (
+                PrimitiveArray::new(buffer![0u64, 0], Validity::from_iter([true, false]))
+                    .into_array(),
+                "Cannot cast array with invalid values to non-nullable type",
+            ),
+        ] {
+            let dict = DictArray::try_new(codes, values.clone())?.into_array();
+            let err = dict
+                .cast(target.clone())?
+                .optimize_ctx(&session)?
+                .execute::<Canonical>(ctx)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains(expected_err),
+                "unexpected error: {err}"
+            );
+        }
+
+        // Chained takes fold into a Dict with nullable codes over all-false Bool values.
+        let chained = values
+            .take(PrimitiveArray::new(buffer![0u64], Validity::AllInvalid).into_array())?
+            .take(buffer![0u64].into_array())?
+            .optimize_ctx(&session)?;
+        let err = chained
+            .cast(target.clone())?
+            .optimize_ctx(&session)?
+            .execute::<Canonical>(ctx)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Cannot cast AllInvalid to NonNullable"),
+            "unexpected error: {err}"
+        );
+
+        let valid_codes = PrimitiveArray::new(buffer![0u64], Validity::AllValid).into_array();
+        let dict = DictArray::try_new(valid_codes, values)?.into_array();
+        let casted = dict.cast(target)?.optimize_ctx(&session)?;
+        assert_arrays_eq!(casted, BoolArray::from_iter([false]), ctx);
         Ok(())
     }
 }

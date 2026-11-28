@@ -95,6 +95,7 @@ serde_test = { workspace = true }
 test-with = { workspace = true }
 vortex-array = { path = ".", features = [
     "_test-harness",
+    "_test-harness-hegel",
     "table-display",
     "unstable_row_fns",
 ] }

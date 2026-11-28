@@ -11365,6 +11365,7 @@ name = "vortex-bytebool"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "mimalloc",
  "num-traits",
  "rstest",
@@ -11591,6 +11592,7 @@ name = "vortex-datetime-parts"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "mimalloc",
  "num-traits",
  "prost 0.14.4",
@@ -12178,6 +12180,7 @@ name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "mimalloc",
  "pco",
  "prost 0.14.4",
@@ -12326,6 +12329,7 @@ name = "vortex-sparse"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -12553,6 +12557,7 @@ dependencies = [
 name = "vortex-zstd"
 version = "0.1.0"
 dependencies = [
+ "hegeltest",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.4",

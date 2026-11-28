@@ -2,8 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![expect(clippy::cast_possible_truncation)]
 
+use std::cmp::Ordering;
 use std::sync::LazyLock;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use prost::Message;
 use rstest::rstest;
 use vortex_array::ArrayContext;
@@ -15,6 +18,7 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
@@ -22,7 +26,13 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::compute::conformance::hegel::EncodingCheckOptions;
+use vortex_array::compute::conformance::hegel::check_encoding_roundtrip_and_ops;
+use vortex_array::compute::conformance::hegel::draw_bool_pattern;
+use vortex_array::compute::conformance::hegel::draw_validity_for;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -30,10 +40,12 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -41,6 +53,7 @@ use vortex_session::registry::ReadContext;
 
 use crate::Zstd;
 use crate::ZstdArray;
+use crate::ZstdBuffers;
 use crate::ZstdData;
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -818,4 +831,214 @@ fn test_zstd_empty_single_frame() -> VortexResult<()> {
     );
 
     Ok(())
+}
+
+fn draw_zstd_ints<T: NativePType + gs::Integer + Ord>(
+    tc: &TestCase,
+    len: usize,
+    validity: Validity,
+    sorted: bool,
+) -> PrimitiveArray {
+    let mut v = tc.draw(gs::vecs(gs::integers::<T>()).min_size(len).max_size(len));
+    if sorted {
+        v.sort_unstable();
+    }
+    PrimitiveArray::new(Buffer::from(v), validity)
+}
+
+fn finish_zstd_floats<T: NativePType>(
+    mut v: Vec<T>,
+    validity: Validity,
+    sorted: bool,
+    cmp: fn(&T, &T) -> Ordering,
+) -> PrimitiveArray {
+    if sorted {
+        v.sort_by(cmp);
+    }
+    PrimitiveArray::new(Buffer::from(v), validity)
+}
+
+fn draw_zstd_primitive(tc: &TestCase) -> PrimitiveArray {
+    let len = if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+        tc.draw(gs::integers::<usize>().min_value(65).max_value(180))
+    } else {
+        tc.draw(gs::integers::<usize>().max_value(64))
+    };
+    let nullability = if tc.draw(gs::booleans()) {
+        Nullability::Nullable
+    } else {
+        Nullability::NonNullable
+    };
+    let validity = draw_validity_for(tc, nullability, len);
+    let sorted = tc.draw(gs::integers::<u8>().max_value(3)) == 0;
+
+    match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => draw_zstd_ints::<u8>(tc, len, validity, sorted),
+        1 => draw_zstd_ints::<i32>(tc, len, validity, sorted),
+        2 => draw_zstd_ints::<u64>(tc, len, validity, sorted),
+        3 => finish_zstd_floats(
+            tc.draw(gs::vecs(gs::floats::<f32>()).min_size(len).max_size(len)),
+            validity,
+            sorted,
+            f32::total_cmp,
+        ),
+        _ => finish_zstd_floats(
+            tc.draw(gs::vecs(gs::floats::<f64>()).min_size(len).max_size(len)),
+            validity,
+            sorted,
+            f64::total_cmp,
+        ),
+    }
+}
+
+fn draw_zstd_varbinview(tc: &TestCase, ctx: &mut ExecutionCtx) -> VarBinViewArray {
+    const SAMPLES: [&str; 6] = [
+        "",
+        "a",
+        "short_inline",
+        "a_longer_string_that_exceeds_inline_limit",
+        "another_very_long_string_with_repeated_content_repeated_content",
+        "utf8_日本語_🚀_long_payload",
+    ];
+    let len = if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+        tc.draw(gs::integers::<usize>().min_value(40).max_value(120))
+    } else {
+        tc.draw(gs::integers::<usize>().max_value(40))
+    };
+    let is_binary = tc.draw(gs::booleans());
+    let nullable = tc.draw(gs::booleans());
+    let validity = draw_validity_for(
+        tc,
+        if nullable {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        },
+        len,
+    );
+    let mask = validity
+        .execute_mask(len, ctx)
+        .vortex_expect("varbinview validity mask");
+
+    let mut values: Vec<&str> = (0..len)
+        .map(|_| tc.draw(gs::sampled_from(&SAMPLES)))
+        .collect();
+    if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
+        values.sort_unstable();
+    }
+
+    if is_binary {
+        if nullable {
+            VarBinViewArray::from_iter_nullable_bin(
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| mask.value(i).then_some(s.as_bytes())),
+            )
+        } else {
+            VarBinViewArray::from_iter_bin(values.iter().map(|s| s.as_bytes()))
+        }
+    } else if nullable {
+        VarBinViewArray::from_iter_nullable_str(
+            values
+                .iter()
+                .enumerate()
+                .map(|(i, s)| mask.value(i).then_some(*s)),
+        )
+    } else {
+        VarBinViewArray::from_iter_str(values)
+    }
+}
+
+#[hegel::test(test_cases = 30, print_blob = true)]
+fn test_zstd_hegel_encoding_harness(tc: TestCase) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values_per_frame = tc.draw(gs::sampled_from(&[0usize, 8, 25]));
+    let with_dict = tc.draw(gs::booleans());
+
+    let (encoded, canonical) = if tc.draw(gs::booleans()) {
+        let prim = draw_zstd_primitive(&tc);
+        let encoded = if with_dict {
+            Zstd::from_primitive(&prim, 0, values_per_frame, &mut ctx)
+        } else {
+            ZstdData::from_primitive_without_dict(&prim, 0, values_per_frame, &mut ctx)
+                .and_then(|data| Zstd::try_new(prim.dtype().clone(), data, prim.validity()?))
+        }
+        .vortex_expect("Zstd::from_primitive")
+        .into_array();
+        (encoded, prim.into_array())
+    } else {
+        let vbv = draw_zstd_varbinview(&tc, &mut ctx);
+        let encoded = if with_dict {
+            Zstd::from_var_bin_view(&vbv, 0, values_per_frame, &mut ctx)
+        } else {
+            Zstd::from_var_bin_view_without_dict(&vbv, 0, values_per_frame, &mut ctx)
+        }
+        .vortex_expect("Zstd::from_var_bin_view")
+        .into_array();
+        (encoded, vbv.into_array())
+    };
+
+    check_encoding_roundtrip_and_ops(
+        &tc,
+        &encoded,
+        &canonical,
+        &EncodingCheckOptions::default(),
+        &mut ctx,
+    )
+    .vortex_expect("Zstd harness check");
+}
+
+#[hegel::test(test_cases = 25, print_blob = true)]
+fn test_zstd_buffers_hegel_encoding_harness(tc: TestCase) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical: ArrayRef = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => draw_zstd_primitive(&tc).into_array(),
+        1 => draw_zstd_varbinview(&tc, &mut ctx).into_array(),
+        2 => {
+            let len = tc.draw(gs::integers::<usize>().max_value(64));
+            let nullability = if tc.draw(gs::booleans()) {
+                Nullability::Nullable
+            } else {
+                Nullability::NonNullable
+            };
+            let validity = draw_validity_for(&tc, nullability, len);
+            let bits = BitBuffer::from_iter(draw_bool_pattern(&tc, len));
+            BoolArray::new(bits, validity).into_array()
+        }
+        _ => {
+            let len = tc.draw(gs::integers::<usize>().max_value(48));
+            let nullability = if tc.draw(gs::booleans()) {
+                Nullability::Nullable
+            } else {
+                Nullability::NonNullable
+            };
+            let validity = draw_validity_for(&tc, nullability, len);
+            let values: Vec<i32> = tc.draw(
+                gs::vecs(gs::integers::<i32>().min_value(-999_999).max_value(999_999))
+                    .min_size(len)
+                    .max_size(len),
+            );
+            DecimalArray::new(
+                Buffer::from(values),
+                DecimalDType::new(9, 2),
+                validity,
+                &mut ctx,
+            )
+            .into_array()
+        }
+    };
+
+    let encoded = ZstdBuffers::compress(&canonical, 0, &SESSION)
+        .vortex_expect("ZstdBuffers::compress")
+        .into_array();
+
+    check_encoding_roundtrip_and_ops(
+        &tc,
+        &encoded,
+        &canonical,
+        &EncodingCheckOptions::default(),
+        &mut ctx,
+    )
+    .vortex_expect("ZstdBuffers harness check");
 }
