@@ -14,12 +14,14 @@ use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
+use vortex_compressor::sample_aligned_chunks;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_fastlanes::FL_CHUNK_SIZE;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
@@ -36,6 +38,9 @@ use crate::CompressorContext;
 use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
+
+/// Number of aligned FastLanes chunks sampled when estimating V1 FoR compression.
+const SAMPLE_CHUNKS: u32 = 4;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum FoRSchemeMode {
@@ -171,8 +176,9 @@ impl Scheme for FoRScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // V1 fuses single-reference FoR with BitPacking directly inside `encode` and needs no
-        // further cascade step; V2 registers per-chunk references as a child to compress.
+        // V1 fuses single-reference FoR with BitPacking directly inside `encode` (a v2 child's
+        // `block_offsets` simply stays uncompressed at leaf depth); V2 registers per-chunk
+        // references as a child to compress.
         if self.mode == FoRSchemeMode::V2 && compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
@@ -216,10 +222,65 @@ impl Scheme for FoRScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Defer to sampling so the estimate reflects what `encode` actually produces: patch-aware
-        // bit widths (`find_best_bit_width`), `BitPackingScheme`'s `MIN_BITS_SAVED` threshold,
-        // FastLanes block padding, and V2 per-chunk references/widths.
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        match self.mode {
+            // V2 uses per-chunk references, so sampling via `encode` directly models per-chunk
+            // references, child compression, padding, and `MIN_BITS_SAVED`.
+            FoRSchemeMode::V2 => CompressionEstimate::Deferred(DeferredEstimate::Sample),
+            // V1 subtracts the full array's global minimum from every row. Biasing the sample
+            // against `global_min` avoids overestimating compression when a sample misses a rare
+            // low outlier, while still measuring patch-aware bit widths, `MIN_BITS_SAVED`, and
+            // FastLanes block padding.
+            FoRSchemeMode::V1 => {
+                let global_min = stats.erased().min_scalar();
+                let full_width = ptype.bit_width() as f64;
+                let bitpacking = self.bitpacking;
+                CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                    move |_compressor, data, _best_so_far, ctx, exec_ctx| {
+                        let sampled = if ctx.is_sample() {
+                            None
+                        } else {
+                            sample_aligned_chunks(data.array(), FL_CHUNK_SIZE, SAMPLE_CHUNKS)
+                        };
+                        let sample_arr = sampled.unwrap_or_else(|| data.array().clone());
+                        if sample_arr.all_invalid(exec_ctx)? {
+                            return Ok(EstimateVerdict::Skip);
+                        }
+
+                        // Measure `nbytes` after materializing the sample into a contiguous
+                        // `PrimitiveArray`; slices in a `ChunkedArray` still reference the full
+                        // parent buffer.
+                        let sample_primitive = sample_arr.execute::<PrimitiveArray>(exec_ctx)?;
+                        let before_nbytes = sample_primitive.nbytes();
+                        if before_nbytes == 0 {
+                            return Ok(EstimateVerdict::Skip);
+                        }
+                        let for_array =
+                            FoR::encode_with_reference(sample_primitive, global_min, exec_ctx)?;
+                        let biased = for_array
+                            .encoded()
+                            .clone()
+                            .execute::<PrimitiveArray>(exec_ctx)?;
+                        let Some(packed) = bitpacking.compress_array(&biased, exec_ctx)? else {
+                            return Ok(EstimateVerdict::Skip);
+                        };
+
+                        let after_nbytes = packed.nbytes();
+                        let ratio = if after_nbytes == 0 {
+                            // Every sampled valid value equaled `global_min` (`bit_width == 0`),
+                            // while the full column is non-constant; fall back to the global-range
+                            // ratio instead of disqualifying FoR with a zero-byte sample.
+                            full_width / for_bitwidth as f64
+                        } else {
+                            before_nbytes as f64 / after_nbytes as f64
+                        };
+                        if ratio <= 1.0 {
+                            return Ok(EstimateVerdict::Skip);
+                        }
+                        Ok(EstimateVerdict::Ratio(ratio))
+                    },
+                )))
+            }
+        }
     }
 
     /// Children: references=0 in v2 mode. The encoded child is bit-packed, and its children are
@@ -486,6 +547,31 @@ mod tests {
         assert!(
             compressed.is::<FoR>(),
             "expected FoR for negative i8 values with sparse outliers, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < input.nbytes());
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_for_v1_does_not_overestimate_with_rare_low_sentinel() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 100,000 i32 rows mostly in 1_000_000..1_000_016 with 10 negative sentinel rows at -5.
+        // A sample that misses the sentinels would see 4-bit residuals (~8x) if biased by the
+        // sample's own minimum, whereas real V1 encode subtracts -5 and packs 20 bits (~1.6x).
+        // Biasing the sample by the global minimum keeps IntDict ahead of FOR_V1.
+        let values: Vec<i32> = (0..100_000i32)
+            .map(|i| if i < 10 { -5 } else { 1_000_000 + (i % 16) })
+            .collect();
+        let input = PrimitiveArray::from_iter(values).into_array();
+
+        let compressor =
+            CascadingCompressor::new(vec![&FOR_V1, &IntDictScheme, &super::super::BITPACKING_V1]);
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            !compressed.is::<FoR>() && !compressed.is_canonical(),
+            "expected IntDict rather than FoR for rare low sentinel column, got {}",
             compressed.encoding_id()
         );
         assert!(compressed.nbytes() < input.nbytes());
