@@ -25,6 +25,7 @@ use crate::compat::Compat;
 /// Adapter type to write data through an [`ObjectStore`] instance.
 ///
 /// Call [`VortexWrite::shutdown`] to publish the object or [`Self::abort`] to discard it.
+/// On native targets, submitted parts upload in the background while the caller keeps writing.
 /// Upload errors preserve the original error and attempt cleanup. Dropping an uncompleted writer
 /// or cancelling a write, flush, or shutdown schedules background cleanup and rejects further writes.
 /// A cancelled shutdown does not report whether the object was published.
@@ -156,11 +157,11 @@ impl ObjectStoreWrite {
         }
         // Independent, fixed-size allocations keep a submitted part from retaining a larger buffer.
         let payload = std::mem::replace(&mut active.buffer, BytesMut::with_capacity(CHUNK_SIZE));
-        active.parts.push(
+        active.parts.push(spawn_part(
             active
                 .upload
                 .put_part(PutPayload::from_bytes(payload.freeze())),
-        );
+        ));
         Ok(())
     }
 
@@ -168,6 +169,33 @@ impl ObjectStoreWrite {
         // Background cleanup logs its own errors; never replace the upload error with one.
         drop(self.abort().await);
         error
+    }
+}
+
+fn spawn_part(part: UploadPart) -> UploadPart {
+    // A current-thread runtime only runs tasks while its caller yields, so it could starve parts.
+    if let Ok(handle) = tokio::runtime::Handle::try_current()
+        && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+    {
+        let task = handle.spawn(part);
+        return Box::pin(async move {
+            task.await.unwrap_or_else(|error| {
+                Err(object_store::Error::Generic {
+                    store: "ObjectStoreWrite",
+                    source: Box::new(error),
+                })
+            })
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Box::pin(smol::spawn(Compat::new(part)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        part
     }
 }
 
