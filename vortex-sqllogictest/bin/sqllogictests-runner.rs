@@ -27,6 +27,11 @@ use vortex::editions::EditionSessionExt;
 use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_filecheck::DumpOptions;
+use vortex_filecheck::FileOutcome;
+use vortex_filecheck::check_tree;
+use vortex_filecheck::format_tree_report;
+use vortex_filecheck::read_check_file;
 use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::duckdb_validator;
 use vortex_sqllogictest::normalize::PathNormalizing;
@@ -35,6 +40,7 @@ use vortex_sqllogictest::scratch::WorkDirGuard;
 use vortex_sqllogictest::scratch::reset_dir;
 use vortex_sqllogictest::scratch::work_dir_for;
 use vortex_sqllogictest::utils::list_files;
+use vortex_sqllogictest::utils::list_files_with_extension;
 
 static SLT_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     let crate_path = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -130,6 +136,45 @@ fn drive_duckdb(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> 
 
         run_or_complete(&mut runner, path, mode, duckdb_validator).await
     })
+}
+
+/// Checks the encoding trees of generated Vortex files against a `vortex-filecheck` file.
+///
+/// The check file names the files it covers with `files: <regex>` lines, matched against
+/// paths relative to `slt/`, such as `tpch/data/lineitem.vortex`.
+fn drive_filecheck(check_path: &Path) -> anyhow::Result<()> {
+    let check = read_check_file(check_path)?;
+    let outcomes = build_runtime()?.block_on(async {
+        // The session must be created inside the runtime, which it captures as its handle.
+        let session = VortexSession::default();
+        check_tree(
+            &session,
+            SLT_ROOT.as_path(),
+            &check,
+            DumpOptions::default(),
+            &[],
+        )
+        .await
+    })?;
+    if outcomes.iter().all(FileOutcome::passed) {
+        return Ok(());
+    }
+    let reproduce: Vec<String> = outcomes
+        .iter()
+        .filter(|outcome| !outcome.passed())
+        .map(|outcome| {
+            format!(
+                "  cargo run -p vortex-tui --bin vx -- filecheck {} {} --explain",
+                outcome.path.display(),
+                check_path.display()
+            )
+        })
+        .collect();
+    anyhow::bail!(
+        "encoding checks failed:\n{}\nReproduce with:\n{}",
+        format_tree_report(&outcomes, false),
+        reproduce.join("\n"),
+    )
 }
 
 /// Either validates `path` or rewrites its expected output, depending on `mode`.
@@ -285,6 +330,25 @@ fn main() -> anyhow::Result<ExitCode> {
                 .with_ignored_flag(ignored),
             );
         }
+    }
+
+    // Encoding checks of generated tables. `--complete` leaves them alone: they
+    // are written by hand, like FileCheck tests.
+    let mut check_files = list_files_with_extension(SLT_ROOT.as_path(), "check")?;
+    check_files.sort();
+    for path in check_files {
+        let ignored = missing_generated_data(&path);
+        let name = path
+            .strip_prefix(SLT_ROOT.as_path())
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        trials.push(
+            Trial::test(format!("slt::filecheck::{name}"), move || {
+                drive_filecheck(&path).map_err(|e| Failed::from(format!("{e:#}")))
+            })
+            .with_ignored_flag(ignored),
+        );
     }
 
     Ok(sqllogictest::harness::run(&args, trials).exit_code())

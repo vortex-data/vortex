@@ -4379,6 +4379,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filecheck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fe00b427b7c4835f8b82170eb7b9a63634376b63d73b9a9093367e82570bbaa"
+dependencies = [
+ "regex",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11838,6 +11848,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-filecheck"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "filecheck",
+ "futures",
+ "regex",
+ "rstest",
+ "tempfile",
+ "tokio",
+ "vortex",
+]
+
+[[package]]
 name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [
@@ -12394,6 +12418,7 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "vortex-duckdb",
+ "vortex-filecheck",
 ]
 
 [[package]]
@@ -12483,6 +12508,7 @@ dependencies = [
  "vortex",
  "vortex-arrow",
  "vortex-datafusion",
+ "vortex-filecheck",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

@@ -45,3 +45,26 @@ cargo test -p vortex-sqllogictest --test sqllogictests -- --complete
 # Regenerate output for a specific test
 cargo test -p vortex-sqllogictest --test sqllogictests -- --complete strings
 ```
+
+## Encoding checks
+
+Each `.check` file under `slt/` (by convention `slt/<suite>/filecheck/<table>.check`) checks
+the array encodings of generated Vortex files with `vortex-filecheck`, so a compressor change that
+re-encodes benchmark data fails here instead of only showing up as a benchmark swing. A check
+file starts with one or more `files: <regex>` lines naming the files it applies to; each regex
+must match a whole path relative to `slt/`, such as `tpch/data/nation\.vortex`. The
+directives match each file's encoding-tree dump partially, like LLVM FileCheck, and
+`units: <glob>` applies the directives that follow it to every matching column chunk. See the
+`vortex-filecheck` crate docs for the format.
+
+```sh
+# Print the dump a check file is matched against
+cargo run -p vortex-tui --bin vx -- filecheck slt/tpch/data/nation.vortex
+# Reproduce a failing check with full match explanations
+cargo run -p vortex-tui --bin vx -- filecheck slt/tpch/data/nation.vortex \
+  slt/tpch/filecheck/nation.check --explain
+# Run only the encoding checks
+cargo nextest run -p vortex-sqllogictest -E 'test(/slt::filecheck::/)'
+```
+
+Check files are written by hand; `--complete` does not rewrite them.
