@@ -174,7 +174,7 @@
     "decode": 9
   },
   "vortex-parquet-variant": {
-    "parquet_variant_extract": 4,
+    "parquet_variant_extract": 6,
     "parquet_variant_probe": 12
   },
   "vortex-pco": {
