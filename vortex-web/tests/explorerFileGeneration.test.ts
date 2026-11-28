@@ -189,13 +189,16 @@ describe('vortex.worker handle lifecycle', () => {
     expect(replies.find((r) => r.id === 4)).toMatchObject({ type: 'error', id: 4 });
   });
 
-  test('posts fatal and closes worker on WebAssembly.RuntimeError', async () => {
-    openHandler = async () => {
+  test('posts fatal and closes worker on WebAssembly.RuntimeError without freeing handle', async () => {
+    const handle = makeHandle('trap');
+    handle.file_structure = () => {
       throw new WebAssembly.RuntimeError('unreachable');
     };
+    openHandler = async () => handle;
 
     await send({ type: 'open', id: 1, file: new File(['bad'], 'trap.vortex') });
 
+    expect(handle.freeCount).toBe(0);
     expect(closedCount).toBe(1);
     expect(replies).toEqual([{ type: 'fatal', error: 'RuntimeError: unreachable' }]);
   });
