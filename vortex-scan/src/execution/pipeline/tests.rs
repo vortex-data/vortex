@@ -21,6 +21,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -31,6 +32,7 @@ use vortex_expr::lit;
 use vortex_expr::root;
 use vortex_mask::Mask;
 
+use crate::arrays::shared::Shared;
 use crate::execution::pipeline::*;
 use crate::plan::ConcatPlan;
 use crate::plan::EvalPlan;
@@ -164,7 +166,12 @@ fn drive(
                 events.push(Event::Delivered(*read.segment_id));
                 scan.deliver(read.id, store.read(read.segment_id))?;
             }
-            Turn::Done => break,
+            Turn::Done => {
+                if !batch.is_empty() {
+                    events.push(Event::Io(std::mem::take(&mut batch)));
+                }
+                break;
+            }
         }
     }
     // Reads left in flight were read ahead for splits that emptied or cancelled with the
@@ -704,6 +711,161 @@ fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexRe
     assert_view(&expected, &(0..4), &mask, result.arrays)
 }
 
+fn varbin_values(len: usize, dtype: DType) -> ArrayRef {
+    VarBinArray::from_iter(
+        (0..len).map(|i| (i != 1).then(|| format!("val-{i}"))),
+        dtype,
+    )
+    .into_array()
+}
+
+#[test]
+fn sparse_dict_threshold_boundaries_and_cache_sharing() -> VortexResult<()> {
+    let cases = [
+        // Below 1024 values threshold: stays Shared even with 1 code.
+        (1023, 1, DType::Utf8(Nullability::Nullable), false),
+        // At 1024 values, codes * 16 == 1024 (not strictly <): stays Shared.
+        (1024, 64, DType::Utf8(Nullability::Nullable), false),
+        // At 1024 values, codes * 16 == 1008 < 1024: unwraps Shared to raw encoded VarBin.
+        (1024, 63, DType::Utf8(Nullability::Nullable), true),
+        (1024, 63, DType::Binary(Nullability::Nullable), true),
+    ];
+
+    for (values_len, codes_len, dtype, expect_unwrapped) in cases {
+        let store = Store::default();
+        let values = varbin_values(values_len, dtype.clone());
+        let code_values = (0..codes_len)
+            .map(|i| Ok((i % 7 != 0).then_some(u32::try_from(i % values_len)?)))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let codes = PrimitiveArray::from_option_iter(code_values).into_array();
+        let plan = dict(store.flat(&values)?, store.flat(&codes)?);
+        let mask = Mask::new_true(codes_len);
+
+        let result = run_with_values(
+            &store,
+            &plan,
+            0..codes_len as u64,
+            mask.clone(),
+            ValueCache::default(),
+            delivery(Delivery::Fifo),
+        )?;
+        assert_eq!(reads(&result.events), 2);
+        assert_eq!(result.arrays.len(), 1);
+
+        let dict_values = result.arrays[0].as_::<Dict>().values();
+        if expect_unwrapped {
+            assert!(dict_values.is::<VarBin>());
+            assert!(!dict_values.is::<Shared>());
+        } else {
+            assert!(dict_values.is::<Shared>());
+        }
+
+        let expected = VarBinArray::from_iter(
+            (0..codes_len).map(|i| {
+                let idx = i % values_len;
+                (i % 7 != 0 && idx != 1).then(|| format!("val-{idx}"))
+            }),
+            dtype,
+        )
+        .into_array();
+        assert_view(&expected, &(0..codes_len as u64), &mask, result.arrays)?;
+    }
+
+    // Primitive dictionaries stay Shared even when sparse.
+    let store = Store::default();
+    let prim_values = PrimitiveArray::from_iter(0..1024i32).into_array();
+    let prim_codes = PrimitiveArray::from_option_iter([Some(1023u32), None, Some(5)]).into_array();
+    let prim_plan = dict(store.flat(&prim_values)?, store.flat(&prim_codes)?);
+    let prim_mask = Mask::new_true(3);
+    let prim_run = run_with_values(
+        &store,
+        &prim_plan,
+        0..3,
+        prim_mask.clone(),
+        ValueCache::default(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert!(prim_run.arrays[0].as_::<Dict>().values().is::<Shared>());
+    let prim_expected =
+        PrimitiveArray::from_option_iter([Some(1023i32), None, Some(5)]).into_array();
+    assert_view(&prim_expected, &(0..3), &prim_mask, prim_run.arrays)?;
+
+    // Mixed sparse and dense chunks reuse cached values while choosing different wrappers.
+    let store = Store::default();
+    let dtype = DType::Utf8(Nullability::Nullable);
+    let values = varbin_values(1024, dtype.clone());
+    let codes = PrimitiveArray::from_option_iter((0..68u32).map(|i| (i != 2).then_some(i % 1024)))
+        .into_array();
+    let plan = dict(store.flat(&values)?, store.chunked(&codes, &[4, 64])?);
+    let cache = ValueCache::default();
+
+    let sparse_run = run_with_values(
+        &store,
+        &plan,
+        0..4,
+        Mask::new_true(4),
+        cache.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&sparse_run.events), 2);
+    assert!(sparse_run.arrays[0].as_::<Dict>().values().is::<VarBin>());
+
+    let dense_run = run_with_values(
+        &store,
+        &plan,
+        4..68,
+        Mask::new_true(64),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&dense_run.events), 1);
+    assert!(dense_run.arrays[0].as_::<Dict>().values().is::<Shared>());
+
+    // Empty selection on a dictionary reads nothing and emits no batches.
+    let empty_run = run_with_values(
+        &store,
+        &plan,
+        0..4,
+        Mask::new_false(4),
+        ValueCache::default(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&empty_run.events), 0);
+    assert!(empty_run.arrays.is_empty());
+
+    let expected = VarBinArray::from_iter(
+        (0..68).map(|i| (i != 1 && i != 2).then(|| format!("val-{i}"))),
+        dtype,
+    )
+    .into_array();
+    let mut combined = sparse_run.arrays;
+    combined.extend(dense_run.arrays);
+    assert_view(&expected, &(0..68), &Mask::new_true(68), combined)
+}
+
+#[test]
+fn take_joins_more_value_chunks_than_default_port_capacity() -> VortexResult<()> {
+    let store = Store::default();
+    let chunks = DEFAULT_CAPACITY + 4;
+    let values = PrimitiveArray::from_iter(0..i32::try_from(chunks)?).into_array();
+    let sizes = vec![1usize; chunks];
+    let codes = PrimitiveArray::from_iter([0u32, u32::try_from(chunks - 1)?]).into_array();
+    let plan = dict(store.chunked(&values, &sizes)?, store.flat(&codes)?);
+    let mask = Mask::new_true(2);
+
+    let result = run_with_values(
+        &store,
+        &plan,
+        0..2,
+        mask.clone(),
+        ValueCache::default(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&result.events), chunks + 1);
+    let expected = PrimitiveArray::from_iter([0i32, i32::try_from(chunks - 1)?]).into_array();
+    assert_view(&expected, &(0..2), &mask, result.arrays)
+}
+
 #[test]
 fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     let store = Store::default();
@@ -741,7 +903,7 @@ fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
         .clone();
     let plan = PackPlan::try_new(
         fields,
-        vortex_array::dtype::Nullability::NonNullable,
+        Nullability::NonNullable,
         ROWS,
         vec![column.clone(), column],
         None,

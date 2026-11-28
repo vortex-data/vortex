@@ -217,3 +217,6 @@ pub(crate) fn filtered_rows_per_chunk(
         FILTERED_ROWS_PER_CHUNK
     })
 }
+
+#[cfg(test)]
+mod tests;

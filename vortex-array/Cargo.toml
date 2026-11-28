@@ -111,10 +111,6 @@ name = "aggregate_max"
 harness = false
 
 [[bench]]
-name = "aggregate_nullable"
-harness = false
-
-[[bench]]
 name = "aggregate_sum"
 harness = false
 

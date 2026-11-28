@@ -16,9 +16,8 @@
   },
   "vortex-array": {
     "aggregate_grouped": 18,
-    "aggregate_max": 17,
-    "aggregate_nullable": 9,
-    "aggregate_sum": 17,
+    "aggregate_max": 15,
+    "aggregate_sum": 15,
     "binary_ops": 7,
     "block_program": 3,
     "cast_decimal": 8,
@@ -177,6 +176,7 @@
     "decode": 9
   },
   "vortex-parquet-variant": {
+    "parquet_variant_extract": 4,
     "parquet_variant_probe": 12
   },
   "vortex-pco": {
