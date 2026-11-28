@@ -110,6 +110,20 @@ fn bench_decimal_min_max<T: NativeDecimalType>(
         .bench_refs(|(array, ctx)| min_max(array, ctx, NumericalAggregateOpts::default()));
 }
 
+#[divan::bench]
+fn min_max_decimal_i64_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(3);
+    let values = (0..N)
+        .map(|_| rng.random_range(-100_000i64..100_000))
+        .collect();
+    bench_decimal_min_max(
+        bencher,
+        values,
+        DecimalDType::new(18, 2),
+        DecimalValidity::ScatteredNulls,
+    );
+}
+
 #[divan::bench(args = DECIMAL_VALIDITIES)]
 fn min_max_decimal_i128(bencher: Bencher, validity: DecimalValidity) {
     let mut rng = StdRng::seed_from_u64(9);
@@ -183,6 +197,36 @@ fn max_i32_nulls_scattered(bencher: Bencher) {
             (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
+}
+
+#[divan::bench]
+fn max_f32(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(6);
+    let data: Vec<f32> = (0..N).map(|_| rng.random::<f32>()).collect();
+    bencher
+        .with_inputs(|| {
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_max::<f32>(ctx));
+}
+
+#[divan::bench]
+fn max_f64_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(7);
+    let data: Vec<Option<f64>> = (0..N)
+        .map(|_| rng.random_bool(0.5).then(|| rng.random::<f64>()))
+        .collect();
+    bencher
+        .with_inputs(|| {
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_max::<f64>(ctx));
 }
 
 // String extrema. Every view carries its value's first four bytes inline, so the shape that

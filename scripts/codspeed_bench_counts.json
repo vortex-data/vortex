@@ -16,8 +16,9 @@
   },
   "vortex-array": {
     "aggregate_grouped": 18,
-    "aggregate_max": 15,
-    "aggregate_sum": 14,
+    "aggregate_max": 18,
+    "aggregate_nullable": 4,
+    "aggregate_sum": 17,
     "binary_ops": 7,
     "block_program": 3,
     "cast_decimal": 8,
