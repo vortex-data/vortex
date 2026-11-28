@@ -10,12 +10,17 @@ use mimalloc::MiMalloc;
 use rand::prelude::*;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::stats::Stat;
 use vortex_array::test_harness::mark_optimized;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -272,50 +277,23 @@ fn sum_v2_i32_nulls_scattered(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn sum_u64(bencher: Bencher) {
+fn sum_decimal_i32_nulls_scattered(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(8);
-    let data: Vec<u64> = (0..N).map(|_| rng.random_range(0..2000)).collect();
+    let values: Buffer<i32> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
+    let validity = Validity::from_iter((0..N).map(|_| rng.random_bool(0.5)));
+
     bencher
         .with_inputs(|| {
-            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            let mut ctx = SESSION.create_execution_ctx();
+            let array = DecimalArray::new(
+                values.clone(),
+                DecimalDType::new(9, 2),
+                validity.clone(),
+                &mut ctx,
+            )
+            .into_array();
             mark_optimized(&array, &SESSION).unwrap();
-
-            (array, SESSION.create_execution_ctx())
+            (array, ctx)
         })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
-}
-
-#[divan::bench]
-fn sum_i64_nulls_scattered(bencher: Bencher) {
-    let mut rng = StdRng::seed_from_u64(9);
-    let data: Vec<Option<i64>> = (0..N)
-        .map(|_| rng.random_bool(0.5).then(|| rng.random_range(-1000..1000)))
-        .collect();
-    bencher
-        .with_inputs(|| {
-            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
-            mark_optimized(&array, &SESSION).unwrap();
-
-            (array, SESSION.create_execution_ctx())
-        })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
-}
-
-#[divan::bench]
-fn sum_f64_nulls_scattered(bencher: Bencher) {
-    let mut rng = StdRng::seed_from_u64(10);
-    let data: Vec<Option<f64>> = (0..N)
-        .map(|_| {
-            rng.random_bool(0.5)
-                .then(|| rng.random_range(-1000.0..1000.0))
-        })
-        .collect();
-    bencher
-        .with_inputs(|| {
-            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
-            mark_optimized(&array, &SESSION).unwrap();
-
-            (array, SESSION.create_execution_ctx())
-        })
-        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+        .bench_refs(|(array, ctx)| sum(array, ctx));
 }
