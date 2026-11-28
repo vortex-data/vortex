@@ -555,6 +555,7 @@ enum HeaderCorruption {
     UnalignedTreeHeader,
     LastBlockLenTooSmall,
     LastBlockLenZero,
+    BlockShiftZero,
     NonEmptyRawWithoutExtraBits,
 }
 
@@ -575,6 +576,7 @@ enum HeaderCorruption {
 #[case::unaligned_tree_hdr(HeaderCorruption::UnalignedTreeHeader)]
 #[case::last_len_small(HeaderCorruption::LastBlockLenTooSmall)]
 #[case::last_len_zero(HeaderCorruption::LastBlockLenZero)]
+#[case::block_shift_zero(HeaderCorruption::BlockShiftZero)]
 #[case::bogus_raw_no_extra(HeaderCorruption::NonEmptyRawWithoutExtraBits)]
 fn rejects_corrupt_metadata_and_headers(#[case] case: HeaderCorruption) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -663,6 +665,7 @@ fn rejects_corrupt_metadata_and_headers(#[case] case: HeaderCorruption) -> Vorte
         }
         HeaderCorruption::LastBlockLenTooSmall => meta.last_block_len -= 1,
         HeaderCorruption::LastBlockLenZero => meta.last_block_len = 0,
+        HeaderCorruption::BlockShiftZero => meta.block_shift = 0,
         HeaderCorruption::NonEmptyRawWithoutExtraBits => {
             let small_arr = PrimitiveArray::from_iter((0..1_200u32).map(|i| i % 5));
             let small_pivco = Pivco::encode_with_options(
