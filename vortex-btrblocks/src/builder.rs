@@ -653,8 +653,9 @@ mod tests {
         assert!(!has(binary::VarBinScheme.id()));
         assert!(has(string::FSSTScheme.id()));
 
-        // Fixed-width random binary values: `binary::VarBinScheme` would halve size by dropping
-        // views and sequence-encoding offsets, while Zstd cannot compress random bytes.
+        // 1,023 fixed-width random binary values fit in one compression sample and yield 1,024
+        // offsets so `DeltaScheme` compresses them during sampling (whereas `SequenceScheme` skips
+        // samples), letting `binary::VarBinScheme` beat Zstd on the positive control.
         let mut rng = StdRng::seed_from_u64(42);
         let values: Vec<[u8; 16]> = (0..1_023)
             .map(|_| {
