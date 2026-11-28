@@ -300,6 +300,7 @@ public final class DataSource implements AutoCloseable {
             return Scan.fromPointer(session, scanPtr);
         } finally {
             Reference.reachabilityFence(options);
+            Reference.reachabilityFence(this);
         }
     }
 
