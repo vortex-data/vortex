@@ -46,22 +46,32 @@ struct FixturesJson {
     failed: Vec<FailedFixture>,
 }
 
+/// Metadata for a single generated `.vortex` fixture file in `fixtures.json`.
 #[derive(Serialize, Deserialize)]
 pub struct FixtureInfo {
+    /// File name relative to the output directory (e.g. `primitives.vortex`).
     pub name: String,
+    /// Short human-readable description of the fixture.
     pub description: String,
+    /// Hex-encoded SHA-256 digest of the generated file.
     pub sha256: String,
 }
 
+/// Record of a fixture intentionally skipped because the target edition lacks a required encoding.
 #[derive(Serialize, Deserialize)]
 pub struct SkippedFixture {
+    /// Fixture file name that was skipped.
     pub name: String,
+    /// Explanation naming the edition and missing required encoding(s).
     pub reason: String,
 }
 
+/// Record of a fixture that failed to generate (returned an error or panicked).
 #[derive(Serialize, Deserialize)]
 pub struct FailedFixture {
+    /// Fixture file name that failed to generate.
     pub name: String,
+    /// Error or panic message captured while writing the fixture.
     pub error: String,
 }
 
@@ -285,8 +295,10 @@ pub fn write_fixtures(
     }
 
     let written_names: BTreeSet<&str> = infos.iter().map(|info| info.name.as_str()).collect();
+    let failed_names: BTreeSet<&str> = failed.iter().map(|f| f.name.as_str()).collect();
     for stale_name in prev_manifest_files {
-        if written_names.contains(stale_name.as_str()) {
+        if written_names.contains(stale_name.as_str()) || failed_names.contains(stale_name.as_str())
+        {
             continue;
         }
         if !stale_name.ends_with(".vortex")

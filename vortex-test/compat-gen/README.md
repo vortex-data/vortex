@@ -141,7 +141,7 @@ profile (default: `release`, e.g. `compat.py --profile ci check`).
 1. Queries `vortex-compat editions` for frozen `core` editions and their `min_library_version`
 2. Generates fixtures at each selected edition with `vortex-compat generate --edition <EDITION>`
 3. Dumps expected Arrow IPC tables directly from HEAD via `vortex-compat dump-expected`, then verifies each edition using its oldest `vortex-data` release wheel
-4. Fails on any generation or read failure not listed in `accepted-edition-failures.json`, any unexpected skip not in `expected_skips`, and any listed failure or skip that is now resolved (shrink-only)
+4. Fails on any generation failure, any reader failure not listed in `accepted-edition-failures.json`, any unexpected skip not in `expected_skips`, and any listed failure or skip that is now resolved (shrink-only)
 
 ### `generate --output <DIR> [--edition <EDITION>] [--git-ref <REF>]`
 

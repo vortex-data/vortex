@@ -977,7 +977,7 @@ def _evaluate_edition_results(
     """Compare reader results for one edition against the accepted-failures and expected-skips lists.
 
     Enforces four invariants:
-      1. Any fixture write failure or reader failure not listed in `accepted_failures` is unexpected.
+      1. Any fixture write failure, and any reader failure not listed in `accepted_failures`, is unexpected.
       2. For a listed failure, every reported cause must match at least one substring in
          `expected_causes`; any unrecognized cause is reported as an unexpected failure.
       3. Any listed entry that now passes (or is no longer in `written_names`), or any
