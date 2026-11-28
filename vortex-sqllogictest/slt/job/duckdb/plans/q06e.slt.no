@@ -1,0 +1,510 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT MIN(k.keyword) AS movie_keyword,
+       MIN(n.name) AS actor_name,
+       MIN(t.title) AS marvel_movie
+FROM cast_info AS ci,
+     keyword AS k,
+     movie_keyword AS mk,
+     name AS n,
+     title AS t
+WHERE k.keyword = 'marvel-cinematic-universe'
+  AND n.name LIKE '%Downey%Robert%'
+  AND t.production_year > 2000
+  AND k.id = mk.keyword_id
+  AND t.id = mk.movie_id
+  AND t.id = ci.movie_id
+  AND ci.movie_id = mk.movie_id
+  AND n.id = ci.person_id;
+----
+logical_plan [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "AGGREGATE",
+                "children": [
+                    {
+                        "name": "FILTER",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "id",
+                                                                        "person_id",
+                                                                        "movie_id",
+                                                                        "person_role_id",
+                                                                        "note",
+                                                                        "nr_order",
+                                                                        "role_id"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "id",
+                                                                        "keyword",
+                                                                        "phonetic_code"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "id",
+                                                                "movie_id",
+                                                                "keyword_id"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "id",
+                                                        "name",
+                                                        "imdb_index",
+                                                        "imdb_id",
+                                                        "gender",
+                                                        "name_pcode_cf",
+                                                        "name_pcode_nf",
+                                                        "surname_pcode",
+                                                        "md5sum"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "id",
+                                                "title",
+                                                "imdb_index",
+                                                "kind_id",
+                                                "production_year",
+                                                "imdb_id",
+                                                "phonetic_code",
+                                                "episode_of_id",
+                                                "season_nr",
+                                                "episode_nr",
+                                                "series_years",
+                                                "md5sum"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": ""
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "(keyword = CAST('marvel-cinematic-universe' AS VARCHAR))",
+                                "(name ~~ '%Downey%Robert%')",
+                                "(production_year > CAST(2000 AS DOUBLE))",
+                                "(id = keyword_id)",
+                                "(id = movie_id)",
+                                "(id = movie_id)",
+                                "(movie_id = movie_id)",
+                                "(id = person_id)"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "",
+                    "Expressions": [
+                        "min(keyword)",
+                        "min(name)",
+                        "min(title)"
+                    ]
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": [
+                "movie_keyword",
+                "actor_name",
+                "marvel_movie"
+            ]
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "AGGREGATE",
+                "children": [
+                    {
+                        "name": "COMPARISON_JOIN",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Filters": "$.name like \"%Downey%Robert%\"",
+                                    "Function": "Vortex Scan",
+                                    "Estimated Cardinality": "8335"
+                                }
+                            },
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": [
+                                                        "($.movie_id <= 119157i32)",
+                                                        "($.person_id <= 45126i32)"
+                                                    ],
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "362444"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "person_id",
+                                                "movie_id"
+                                            ],
+                                            "Estimated Cardinality": "362444"
+                                        }
+                                    },
+                                    {
+                                        "name": "COMPARISON_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "COMPARISON_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "($.movie_id >= 6i32)",
+                                                                "(9i32 <= $.keyword_id <= 9992i32)",
+                                                                "($.movie_id >= 11i32)"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "45240"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "($.production_year > 2000f64)",
+                                                                "($.id <= 119157i32)",
+                                                                "($.id >= 11i32)"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "5056"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "(id = id)",
+                                                    "Estimated Cardinality": "631"
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "($.keyword = \"marvel-cinematic-universe\")",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "268"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "id",
+                                                        "keyword"
+                                                    ],
+                                                    "Estimated Cardinality": "268"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "(keyword_id = id)",
+                                            "Estimated Cardinality": "12"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(movie_id = id)",
+                                    "Estimated Cardinality": "12"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "(id = person_id)",
+                            "Estimated Cardinality": "1"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "",
+                    "Expressions": [
+                        "min(keyword)",
+                        "min(name)",
+                        "min(title)"
+                    ],
+                    "Estimated Cardinality": "1"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": [
+                "movie_keyword",
+                "actor_name",
+                "marvel_movie"
+            ],
+            "Estimated Cardinality": "1"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "UNGROUPED_AGGREGATE",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_JOIN",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Filters": "$.name like \"%Downey%Robert%\"",
+                                    "Projections": [
+                                        "id",
+                                        "name"
+                                    ],
+                                    "Estimated Cardinality": "8335"
+                                }
+                            },
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": [
+                                                "($.movie_id <= 119157i32)",
+                                                "($.person_id <= 45126i32)"
+                                            ],
+                                            "Projections": [
+                                                "person_id",
+                                                "movie_id"
+                                            ],
+                                            "Estimated Cardinality": "362444"
+                                        }
+                                    },
+                                    {
+                                        "name": "HASH_JOIN",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": [
+                                                                "($.movie_id >= 6i32)",
+                                                                "(9i32 <= $.keyword_id <= 9992i32)",
+                                                                "($.movie_id >= 11i32)"
+                                                            ],
+                                                            "Projections": [
+                                                                "movie_id",
+                                                                "keyword_id"
+                                                            ],
+                                                            "Estimated Cardinality": "45240"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": [
+                                                                "($.production_year > 2000f64)",
+                                                                "($.id <= 119157i32)",
+                                                                "($.id >= 11i32)"
+                                                            ],
+                                                            "Projections": [
+                                                                "id",
+                                                                "title"
+                                                            ],
+                                                            "Estimated Cardinality": "5056"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "id = id",
+                                                    "Estimated Cardinality": "631"
+                                                }
+                                            },
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": "($.keyword = \"marvel-cinematic-universe\")",
+                                                    "Projections": [
+                                                        "id",
+                                                        "keyword"
+                                                    ],
+                                                    "Estimated Cardinality": "268"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Join Type": "INNER",
+                                            "Conditions": "keyword_id = id",
+                                            "Estimated Cardinality": "12"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "movie_id = id",
+                                    "Estimated Cardinality": "12"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "id = person_id",
+                            "Estimated Cardinality": "1"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": [
+                        "keyword",
+                        "name",
+                        "title"
+                    ],
+                    "Estimated Cardinality": "1"
+                }
+            }
+        ],
+        "extra_info": {
+            "Aggregates": [
+                "min(#0)",
+                "min(#1)",
+                "min(#2)"
+            ],
+            "Estimated Cardinality": "1"
+        }
+    }
+]

@@ -94,13 +94,23 @@ impl CascadingCompressor {
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_with_ctx(array, CompressorContext::new(), exec_ctx)
+    }
+
+    /// Compresses `array` starting from `compress_ctx`.
+    pub(super) fn compress_with_ctx(
+        &self,
+        array: &ArrayRef,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let before_nbytes = exact_uncompressed_size(array, exec_ctx)?;
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = self.compress_canonical(compact, compress_ctx, exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
@@ -169,7 +179,7 @@ impl CascadingCompressor {
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
-                    .map(|field| self.compress(field, exec_ctx))
+                    .map(|field| self.compress_with_ctx(field, compress_ctx.fresh_root(), exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
@@ -186,10 +196,14 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Union(union_array) => {
-                let type_ids = self.compress(union_array.type_ids(), exec_ctx)?;
+                let type_ids = self.compress_with_ctx(
+                    union_array.type_ids(),
+                    compress_ctx.fresh_root(),
+                    exec_ctx,
+                )?;
                 let children = union_array
                     .iter_children()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .map(|child| self.compress_with_ctx(child, compress_ctx.fresh_root(), exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(
@@ -244,12 +258,8 @@ impl CascadingCompressor {
                 // Also compress the dense list with its elements compressed from a fresh root
                 // context (preserving sampling mode). A list scheme can beat the raw list size
                 // while still losing to ordinary element compression.
-                let elems_ctx = if compress_ctx.is_sample() {
-                    CompressorContext::new().with_sampling()
-                } else {
-                    CompressorContext::new()
-                };
-                let compressed_elems = self.compress_canonical(elements, elems_ctx, exec_ctx)?;
+                let compressed_elems =
+                    self.compress_canonical(elements, compress_ctx.fresh_root(), exec_ctx)?;
                 let dense_compressed = FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
@@ -276,7 +286,7 @@ impl CascadingCompressor {
                 // Try scheme-based compression first.
                 let selection = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
-                    compress_ctx,
+                    compress_ctx.clone(),
                     exec_ctx,
                 )?;
 
@@ -293,7 +303,11 @@ impl CascadingCompressor {
 
                 // Also compress the underlying storage array. Some extension schemes can beat the
                 // extension storage but still lose to ordinary storage compression.
-                let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
+                let compressed_storage = self.compress_with_ctx(
+                    ext_array.storage_array(),
+                    compress_ctx.fresh_root(),
+                    exec_ctx,
+                )?;
                 let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
@@ -334,7 +348,7 @@ impl CascadingCompressor {
                         if arr.is::<Variant>() {
                             self.compress_physical_slots(arr, exec_ctx)
                         } else {
-                            self.compress(arr, exec_ctx)
+                            self.compress_with_ctx(arr, compress_ctx.fresh_root(), exec_ctx)
                         }
                     })
                     .transpose()?;

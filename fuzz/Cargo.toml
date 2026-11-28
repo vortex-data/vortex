@@ -23,6 +23,7 @@ native = [
     "vortex-file",
     "vortex/files",
     "dep:prost",
+    "vortex/parquet-variant",
     "dep:vortex-arrow",
     "dep:parquet-variant",
     "dep:vortex-json",
