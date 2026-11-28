@@ -67,6 +67,7 @@ use crate::ZstdMetadata;
 use crate::decompressor::with_decompressor;
 use crate::validate_frame_content_size;
 
+mod frame_pruning;
 mod plugin;
 mod probe;
 
