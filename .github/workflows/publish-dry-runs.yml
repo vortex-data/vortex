@@ -30,9 +30,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runner: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1' }}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=check-java-publish-build-amd64
+            runner: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1' }}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=check-java-publish-build-amd64
           - target: aarch64-unknown-linux-gnu
-            runner: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1' }}/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=check-java-publish-build-arm64
+            runner: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1' }}/runner=arm64-fuzz/volume=100gb/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=check-java-publish-build-arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - parallel:
