@@ -58,10 +58,14 @@ pub(crate) fn sample_valid_values<T: Copy>(
     }
 
     let num_blocks = (max_sample / block.max(1)).max(1);
-    let stride = true_count / num_blocks;
-    let stride_rem = true_count % num_blocks;
     let base_quota = max_sample / num_blocks;
     let quota_rem = max_sample % num_blocks;
+    let gap_total = true_count - max_sample;
+    let (base_gap, gap_rem) = if num_blocks > 1 {
+        (gap_total / (num_blocks - 1), gap_total % (num_blocks - 1))
+    } else {
+        (0, 0)
+    };
 
     let mut block_idx = 0;
     let mut block_rank_start = 0;
@@ -89,7 +93,7 @@ pub(crate) fn sample_valid_values<T: Copy>(
             if slice_rank_end < block_rank_end {
                 continue 'slices;
             }
-            block_rank_start += stride + usize::from(block_idx < stride_rem);
+            block_rank_start = block_rank_end + base_gap + usize::from(block_idx < gap_rem);
             block_idx += 1;
         }
         break;
@@ -138,12 +142,21 @@ pub fn initialize(session: &VortexSession) {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
+    use crate::ALPArrayExt;
+    use crate::alp_encode;
     use crate::sample_valid_values;
 
     #[test]
-    fn sample_valid_values_fills_budget_when_valid_rows_are_clustered() {
+    fn sample_valid_values_fills_budget_and_reaches_tail_when_clustered() {
         let values: Vec<usize> = (0..1000).collect();
         let mask = Mask::from_iter((0..1000).map(|idx| idx < 200));
         let Mask::Values(mask_values) = mask else {
@@ -152,7 +165,32 @@ mod tests {
 
         let sample = sample_valid_values(&values, &mask_values, 64, 8);
         assert_eq!(sample.len(), 64);
-        assert!(sample.iter().all(|&v| v < 200));
-        assert!(sample.last().copied().unwrap_or_default() >= 175);
+        assert_eq!(sample.first(), Some(&0));
+        assert_eq!(sample.last(), Some(&199));
+    }
+
+    #[test]
+    fn alp_encode_nullable_samples_trailing_fractions() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let len = 8192;
+        let values: Vec<f64> = (0..len)
+            .map(|row| {
+                if row < 7200 {
+                    1.0
+                } else if row % 2 == 0 {
+                    1.25
+                } else {
+                    1.5
+                }
+            })
+            .collect();
+        let validity = Validity::from_iter((0..len).map(|row| row != 100));
+        let array = PrimitiveArray::new(Buffer::from(values), validity);
+
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
+        assert!(encoded.patches().is_none());
+        assert_arrays_eq!(encoded, array, &mut ctx);
+
+        Ok(())
     }
 }
