@@ -717,9 +717,9 @@ fn gather_binary_values(
         let mut ptr_values = Vec::with_capacity(data_buffer_views.len().max(1));
         let mut data_buffer_read_records = Vec::with_capacity(data_buffer_views.len());
         for view in &data_buffer_views {
-            let (ptr, record_read) = view
-                .device_ptr(&stream)
-                .map_err(|err| vortex_err!("Arrow Binary data buffer pointer: {err}"))?;
+            let (ptr, record_read) = view.device_ptr(&stream).map_err(|err| {
+                VortexError::external(err).with_context("Arrow Binary data buffer pointer")
+            })?;
             ptr_values.push(ptr);
             data_buffer_read_records.push(record_read);
         }
@@ -739,8 +739,9 @@ fn gather_binary_values(
                 .arg(&len_u64)
                 .arg(&total_bytes_u64);
         });
-        let finish_result = SyncOnDrop::finish_all(data_buffer_read_records)
-            .map_err(|err| vortex_err!("Arrow Binary data buffer tracking: {err}"));
+        let finish_result = SyncOnDrop::finish_all(data_buffer_read_records).map_err(|err| {
+            VortexError::external(err).with_context("Arrow Binary data buffer tracking")
+        });
         launch_result.inspect_err(|_| {
             if let Err(error) = &finish_result {
                 error!(
