@@ -5,6 +5,7 @@
 
 mod reader;
 
+pub(super) use reader::ColumnarReader;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
@@ -16,7 +17,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
-pub(super) use reader::ColumnarReader;
 use crate::LayoutChildType;
 use crate::LayoutDeserializeArgs;
 use crate::LayoutRef;

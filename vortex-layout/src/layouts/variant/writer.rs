@@ -5,8 +5,10 @@
 
 use std::sync::Arc;
 
+use async_channel::bounded;
 use async_trait::async_trait;
-use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::future::try_join_all;
 use futures::stream;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -17,12 +19,13 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_functions::variant_get::VariantGet;
 use vortex_functions::variant_get::VariantGetOptions;
 use vortex_functions::variant_get::VariantPath;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
 use super::CORE;
@@ -33,7 +36,7 @@ use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::VTable;
-use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -42,8 +45,8 @@ use crate::sequence::SequentialStreamExt;
 
 /// Writes a shredded Variant stream as the struct of its core storage and its shredded child.
 ///
-/// Each chunk keeps its own shredding schema. Unshredded chunks and writes whose editions
-/// exclude the Variant layout use the fallback strategy.
+/// Consecutive chunks with the same shredding schema and completeness share a writer.
+/// Unshredded runs and writes whose editions exclude the Variant layout use the fallback.
 ///
 /// **Note**: this writes an unstable and experimental layout that is expected to change. Using
 /// it may lead to unreadable files in the future.
@@ -69,8 +72,8 @@ impl LayoutStrategy for VariantStrategy {
         &self,
         ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut stream: SendableSequentialStream,
+        mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         if !stream.dtype().is_variant() {
@@ -85,59 +88,94 @@ impl LayoutStrategy for VariantStrategy {
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
-        ChunkedLayoutStrategy::new(VariantChunk(self.clone()))
-            .write_stream(ctx, segment_sink, stream, eof, session)
-            .await
+        let dtype = stream.dtype().clone();
+        let mut writers = Vec::new();
+        let mut active = None;
+        let mut all_sent = true;
+        while let Some((id, chunk)) = stream.try_next().await? {
+            let (shredding, array) = storage_chunk(chunk, &mut session.create_execution_ctx())?;
+            let sender = match &active {
+                Some((previous, sender)) if previous == &shredding => sender,
+                _ => {
+                    let (sender, receiver) = bounded(1);
+                    let input =
+                        SequentialStreamAdapter::new(array.dtype().clone(), receiver).sendable();
+                    let writer = Arc::clone(if shredding.is_some() {
+                        &self.storage
+                    } else {
+                        &self.fallback
+                    });
+                    let ctx = ctx.clone();
+                    let sink = Arc::clone(&segment_sink);
+                    let run_eof = eof.split_off();
+                    let session = session.clone();
+                    let dtype = dtype.clone();
+                    let schema = shredding.clone();
+                    // A run may write statistics at EOF. Keep it running while later runs consume
+                    // their input sequence IDs so an earlier writer can finish.
+                    writers.push(session.handle().spawn_nested(move |_| async move {
+                        let layout = writer
+                            .write_stream(ctx, sink, input, run_eof, &session)
+                            .await?;
+                        match schema {
+                            Some(Shredding {
+                                dtype: shredded,
+                                complete,
+                            }) => Ok(VariantLayout::from_storage(
+                                dtype, shredded, &layout, complete,
+                            )?
+                            .into_layout()),
+                            None => VortexResult::Ok(layout),
+                        }
+                    }));
+                    &active.insert((shredding, sender)).1
+                }
+            };
+            if sender.send(Ok((id, array))).await.is_err() {
+                all_sent = false;
+                break;
+            }
+        }
+        drop(active);
+        drop(stream);
+        if writers.is_empty() {
+            let empty = SequentialStreamAdapter::new(dtype, stream::empty()).sendable();
+            return self
+                .fallback
+                .write_stream(ctx, segment_sink, empty, eof, session)
+                .await;
+        }
+        let layouts = try_join_all(writers).await?;
+        // Preserve a child writer's error if it closed its receiver early.
+        vortex_ensure!(
+            all_sent,
+            "Variant writer finished before all chunks were sent"
+        );
+        Ok(ChunkedLayout::from_chunks(dtype, layouts))
     }
 }
 
-/// Adapts a single Variant chunk to the ordinary struct writer.
-struct VariantChunk(VariantStrategy);
+#[derive(Clone, PartialEq, Eq)]
+struct Shredding {
+    dtype: DType,
+    complete: bool,
+}
 
-#[async_trait]
-impl LayoutStrategy for VariantChunk {
-    async fn write_stream(
-        &self,
-        ctx: LayoutWriterContext,
-        segment_sink: SegmentSinkRef,
-        mut stream: SendableSequentialStream,
-        eof: SequencePointer,
-        session: &VortexSession,
-    ) -> VortexResult<LayoutRef> {
-        let (id, chunk) = stream
-            .next()
-            .await
-            .vortex_expect("chunked writer supplies one chunk")?;
-        let dtype = chunk.dtype().clone();
-        let mut exec = session.create_execution_ctx();
-        let variant = chunk.clone().execute::<VariantArray>(&mut exec)?;
-        let Some(shredded) = variant.shredded() else {
-            let stream = SequentialStreamAdapter::new(dtype, stream::iter([Ok((id, chunk))]));
-            return self
-                .0
-                .fallback
-                .write_stream(ctx, segment_sink, stream.sendable(), eof, session)
-                .await;
-        };
-        let core = variant.core_storage();
-        let complete = is_complete(core, shredded, &mut exec)?;
-        let storage =
-            StructArray::from_fields(&[(CORE, core.clone()), (SHREDDED, shredded.clone())])?
-                .into_array();
-        let stream = SequentialStreamAdapter::new(
-            storage.dtype().clone(),
-            stream::iter([Ok((id, storage))]),
-        );
-        let layout = self
-            .0
-            .storage
-            .write_stream(ctx, segment_sink, stream.sendable(), eof, session)
-            .await?;
-        Ok(
-            VariantLayout::from_storage(dtype, shredded.dtype().clone(), &layout, complete)?
-                .into_layout(),
-        )
-    }
+fn storage_chunk(
+    chunk: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Option<Shredding>, ArrayRef)> {
+    let variant = chunk.clone().execute::<VariantArray>(ctx)?;
+    let Some(shredded) = variant.shredded() else {
+        return Ok((None, chunk));
+    };
+    let core = variant.core_storage();
+    let schema = Shredding {
+        dtype: shredded.dtype().clone(),
+        complete: is_complete(core, shredded, ctx)?,
+    };
+    let storage = StructArray::from_fields(&[(CORE, core.clone()), (SHREDDED, shredded.clone())])?;
+    Ok((Some(schema), storage.into_array()))
 }
 
 /// Prove that a direct typed read cannot miss a residual value. Nested containers may

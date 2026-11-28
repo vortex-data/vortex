@@ -1388,9 +1388,7 @@ fn variant_get_over_variant_pack_reduces(
     let (core, fields) = pack_over_core(complete)?;
     let packed_core = match reduced {
         Reduced::ToShredded => {
-            let core = core
-                .clone()
-                .cast(DType::Variant(Nullability::NonNullable))?;
+            let core = core.cast(DType::Variant(Nullability::NonNullable))?;
             ScalarFnArray::try_new(Unreadable.bind(EmptyOptions), [core])?.into_array()
         }
         Reduced::ToCore | Reduced::No => core.clone(),

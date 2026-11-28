@@ -390,7 +390,7 @@ mod tests {
         let dtype = chunks[0].dtype().clone();
         let chunks = ChunkedArray::try_new(chunks, dtype)?.into_array();
         let leaf = Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
-        let strategy = TableStrategy::new(leaf.clone(), leaf);
+        let strategy = TableStrategy::new(Arc::<ChunkedLayoutStrategy>::clone(&leaf), leaf);
         let mut bytes = ByteBufferMut::empty();
         session
             .write_options()
@@ -401,7 +401,11 @@ mod tests {
         let file = session
             .open_options()
             .open_buffer(bytes)?
-            .with_usage(usage.clone());
+            .with_usage(Arc::clone(&usage));
+        let runs = file.footer().layout().children()?;
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|run| run.is::<VariantLayoutEncoding>()));
+        assert_eq!((runs[0].row_count(), runs[1].row_count()), (768, 256));
         let extract = variant_get(
             root(),
             VariantPath::field("a"),
@@ -420,7 +424,7 @@ mod tests {
         );
         let projected = usage.snapshot().bytes_requested;
         let full = Arc::new(ScanUsage::default());
-        file.with_usage(full.clone())
+        file.with_usage(Arc::clone(&full))
             .scan()?
             .into_array_stream()?
             .read_all()

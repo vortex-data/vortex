@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
@@ -16,7 +15,6 @@ use vortex_session::VortexSession;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
-use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -84,18 +82,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         };
 
         // Poll all of our children concurrently to accumulate their layouts.
-        let mut child_layouts: Vec<LayoutRef> = stream.buffered(usize::MAX).try_collect().await?;
-
-        if child_layouts.len() == 1 {
-            Ok(child_layouts.pop().vortex_expect("must have one child"))
-        } else {
-            let row_count = child_layouts.iter().map(|layout| layout.row_count()).sum();
-            Ok(ChunkedLayout::new(
-                row_count,
-                dtype,
-                OwnedLayoutChildren::layout_children(child_layouts),
-            )
-            .into_layout())
-        }
+        let child_layouts = stream.buffered(usize::MAX).try_collect().await?;
+        Ok(ChunkedLayout::from_chunks(dtype, child_layouts))
     }
 }

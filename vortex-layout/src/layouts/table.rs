@@ -335,6 +335,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -344,6 +345,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_array::field_path;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -604,6 +606,25 @@ mod tests {
         let primitive = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let layout = write(&flat_table(), primitive).await?;
         insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment: 0");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unshredded_variant_chunks_share_a_row_block() -> VortexResult<()> {
+        let batch = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 2).into_array();
+        let input = ChunkedArray::try_new(vec![batch.clone(); 4], batch.dtype().clone())?;
+        let strategy = flat_table().with_default_strategy(Arc::new(RepartitionStrategy::new(
+            FlatLayoutStrategy::default(),
+            RepartitionWriterOptions {
+                block_size_minimum: 0,
+                block_len_multiple: 8,
+                block_size_target: None,
+                canonicalize: false,
+            },
+        )));
+        let layout = write(&strategy, input.into_array()).await?;
+        assert!(layout.is::<Flat>());
+        assert_eq!(layout.row_count(), 8);
         Ok(())
     }
 

@@ -308,7 +308,7 @@ mod test {
             let layout = FlatLayout::new(4, dtype, SegmentId::from(0), ReadContext::new([]));
             let reader = layout.into_layout().new_reader(
                 "".into(),
-                segments.clone(),
+                Arc::<CountingSegmentSource>::clone(&segments),
                 &session,
                 &Default::default(),
             )?;

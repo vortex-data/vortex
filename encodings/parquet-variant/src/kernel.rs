@@ -1567,8 +1567,6 @@ mod tests {
         Ok(())
     }
 
-    /// Events shredded as `kind` and `commit.collection`, canonicalized. Only some events have a
-    /// `commit`, and `commit.rev` stays in the residual value of `commit`.
     /// Decoding the storage once leaves a storage array whose children need no more decoding,
     /// whether or not the Variant was filtered first, and extracts the same values.
     #[rstest]
@@ -1633,6 +1631,8 @@ mod tests {
         Ok(())
     }
 
+    /// Events shredded as `kind` and `commit.collection`, canonicalized. Only some events have a
+    /// `commit`, and `commit.rev` stays in the residual value of `commit`.
     fn make_nested_shredded_events() -> VortexResult<ArrayRef> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
             r#"{"kind":"commit","commit":{"collection":"post","rev":1}}"#,

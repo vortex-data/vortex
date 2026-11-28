@@ -543,7 +543,6 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_functions::variant_pack::VariantPack;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::ExecuteArrowExt;
@@ -551,6 +550,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_functions::variant_pack::VariantPack;
     use vortex_session::VortexSession;
 
     use super::PARQUET_VARIANT_ARROW_EXTENSION_NAME;
@@ -786,11 +786,7 @@ mod tests {
             .into_array())
         };
         let canonical = VariantArray::try_new(a.core_storage().clone(), Some(a_shredded.clone()))?;
-        let lazy = VariantPack::try_new(
-            a.core_storage().clone(),
-            a_shredded,
-            false,
-        )?;
+        let lazy = VariantPack::try_new(a.core_storage().clone(), a_shredded, false)?;
         let expected =
             VariantArray::try_new(core.clone(), Some(shredded(canonical.into_array())?))?;
         let actual = VariantArray::try_new(core, Some(shredded(lazy.into_array())?))?;

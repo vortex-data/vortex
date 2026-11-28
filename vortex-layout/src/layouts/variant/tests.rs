@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -20,6 +21,7 @@ use vortex_session::registry::ReadContext;
 
 use super::Variant;
 use super::VariantLayout;
+use super::VariantLayoutMetadata;
 use super::storage_dtype;
 use crate::LayoutBuildContext;
 use crate::LayoutDeserialization;
@@ -126,7 +128,12 @@ fn struct_and_variant_round_trip_as_distinct_layouts() -> VortexResult<()> {
     children.push(
         FlatLayout::new(0, DType::Null, SegmentId::from(2), ReadContext::new([])).into_layout(),
     );
-    let decoded = read(written.serialized_id, variant.dtype(), &written.metadata, children)?;
+    let decoded = read(
+        written.serialized_id,
+        variant.dtype(),
+        &written.metadata,
+        children,
+    )?;
     assert!(decoded.is::<Variant>());
     assert_eq!(decoded.dtype(), variant.dtype());
     assert_eq!(decoded.new_plan()?.dtype(), variant.dtype());
@@ -139,8 +146,24 @@ fn struct_and_variant_round_trip_as_distinct_layouts() -> VortexResult<()> {
     );
 
     assert!(read(Struct.id(), variant.dtype(), &[], variant.children()?).is_err());
-    assert!(read(Variant.id(), storage.dtype(), &written.metadata, storage.children()?).is_err());
-    assert!(read(Struct.id(), storage.dtype(), &[0x18, 0x01], storage.children()?).is_err());
+    assert!(
+        read(
+            Variant.id(),
+            storage.dtype(),
+            &written.metadata,
+            storage.children()?
+        )
+        .is_err()
+    );
+    assert!(
+        read(
+            Struct.id(),
+            storage.dtype(),
+            &[0x18, 0x01],
+            storage.children()?
+        )
+        .is_err()
+    );
     Ok(())
 }
 
@@ -174,6 +197,28 @@ fn variant_validates_both_required_children() -> VortexResult<()> {
     assert!(
         err.to_string()
             .contains("Column 1 row count does not match parent")
+    );
+    Ok(())
+}
+
+#[test]
+fn variant_rejects_invalid_shredded_dtype() -> VortexResult<()> {
+    let (_, layout) = layouts()?;
+    let layout = layout.into_layout();
+    let metadata = VariantLayoutMetadata {
+        shredded_dtype: vec![0xff],
+        complete: false,
+    };
+    let err = read(
+        Variant.id(),
+        layout.dtype(),
+        &metadata.encode_to_vec(),
+        layout.children()?,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("invalid shredded dtype in Variant layout")
     );
     Ok(())
 }
