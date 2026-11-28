@@ -5,6 +5,7 @@ package dev.vortex.api;
 
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
+import java.lang.ref.Reference;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -55,7 +56,11 @@ public final class Expression {
 
     /** Access a named field from a struct expression. */
     public static Expression getItem(String fieldName, Expression child) {
-        return new Expression(NativeExpression.getItem(fieldName, child.nativePointer()));
+        try {
+            return new Expression(NativeExpression.getItem(fieldName, child.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(child);
+        }
     }
 
     /** Shortcut for {@code getItem(fieldName, root())}. */
@@ -80,12 +85,20 @@ public final class Expression {
 
     /** Project a subset of fields out of a struct expression. */
     public static Expression select(String[] fieldNames, Expression child) {
-        return new Expression(NativeExpression.select(fieldNames, child.nativePointer()));
+        try {
+            return new Expression(NativeExpression.select(fieldNames, child.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(child);
+        }
     }
 
     /** Creates an expression that packs values into a struct with named fields. */
     public static Expression pack(String[] fieldNames, Expression[] expressions, boolean nullable) {
-        return new Expression(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable));
+        try {
+            return new Expression(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable));
+        } finally {
+            Reference.reachabilityFence(expressions);
+        }
     }
 
     /**
@@ -96,7 +109,11 @@ public final class Expression {
      * an earlier one with the same name. Merging zero expressions yields an empty struct.
      */
     public static Expression merge(DuplicateHandling duplicateHandling, Expression... expressions) {
-        return new Expression(NativeExpression.merge(nativePointers(expressions), duplicateHandling.tag()));
+        try {
+            return new Expression(NativeExpression.merge(nativePointers(expressions), duplicateHandling.tag()));
+        } finally {
+            Reference.reachabilityFence(expressions);
+        }
     }
 
     /**
@@ -112,7 +129,11 @@ public final class Expression {
         if (operands.length <= 0) {
             throw new IllegalArgumentException("and requires at least one operand");
         }
-        return new Expression(NativeExpression.and(nativePointers(operands)));
+        try {
+            return new Expression(NativeExpression.and(nativePointers(operands)));
+        } finally {
+            Reference.reachabilityFence(operands);
+        }
     }
 
     /** Logical OR. Requires at least one operand. */
@@ -120,11 +141,20 @@ public final class Expression {
         if (operands.length <= 0) {
             throw new IllegalArgumentException("or requires at least one operand");
         }
-        return new Expression(NativeExpression.or(nativePointers(operands)));
+        try {
+            return new Expression(NativeExpression.or(nativePointers(operands)));
+        } finally {
+            Reference.reachabilityFence(operands);
+        }
     }
 
     public static Expression binary(BinaryOp op, Expression lhs, Expression rhs) {
-        return new Expression(NativeExpression.binary(op.code(), lhs.nativePointer(), rhs.nativePointer()));
+        try {
+            return new Expression(NativeExpression.binary(op.code(), lhs.nativePointer(), rhs.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(lhs);
+            Reference.reachabilityFence(rhs);
+        }
     }
 
     /**
@@ -139,8 +169,13 @@ public final class Expression {
             throw new IllegalArgumentException(String.format("%s is not a comparison operator", op));
         }
         Objects.requireNonNull(order, "order");
-        return new Expression(
-                NativeExpression.compare(op.code(), order.code(), lhs.nativePointer(), rhs.nativePointer()));
+        try {
+            return new Expression(
+                    NativeExpression.compare(op.code(), order.code(), lhs.nativePointer(), rhs.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(lhs);
+            Reference.reachabilityFence(rhs);
+        }
     }
 
     /**
@@ -152,19 +187,35 @@ public final class Expression {
             throw new IllegalArgumentException(
                     String.format("%s takes %s operands, got %s", function, function.arity(), operands.length));
         }
-        return new Expression(NativeExpression.spatial(function.code(), nativePointers(operands)));
+        try {
+            return new Expression(NativeExpression.spatial(function.code(), nativePointers(operands)));
+        } finally {
+            Reference.reachabilityFence(operands);
+        }
     }
 
     public static Expression not(Expression child) {
-        return new Expression(NativeExpression.not(child.nativePointer()));
+        try {
+            return new Expression(NativeExpression.not(child.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(child);
+        }
     }
 
     public static Expression isNull(Expression child) {
-        return new Expression(NativeExpression.isNull(child.nativePointer()));
+        try {
+            return new Expression(NativeExpression.isNull(child.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(child);
+        }
     }
 
     public static Expression isNotNull(Expression child) {
-        return new Expression(NativeExpression.isNotNull(child.nativePointer()));
+        try {
+            return new Expression(NativeExpression.isNotNull(child.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(child);
+        }
     }
 
     /**
@@ -172,7 +223,12 @@ public final class Expression {
      * must be a non-nullable boolean.
      */
     public static Expression mask(Expression child, Expression mask) {
-        return new Expression(NativeExpression.mask(child.nativePointer(), mask.nativePointer()));
+        try {
+            return new Expression(NativeExpression.mask(child.nativePointer(), mask.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(child);
+            Reference.reachabilityFence(mask);
+        }
     }
 
     /**
@@ -182,8 +238,13 @@ public final class Expression {
      * @param caseInsensitive whether to perform case-insensitive matching ({@code ILIKE})
      */
     public static Expression like(Expression child, Expression pattern, boolean negated, boolean caseInsensitive) {
-        return new Expression(
-                NativeExpression.like(child.nativePointer(), pattern.nativePointer(), negated, caseInsensitive));
+        try {
+            return new Expression(
+                    NativeExpression.like(child.nativePointer(), pattern.nativePointer(), negated, caseInsensitive));
+        } finally {
+            Reference.reachabilityFence(child);
+            Reference.reachabilityFence(pattern);
+        }
     }
 
     /**
@@ -194,8 +255,14 @@ public final class Expression {
      */
     public static Expression between(
             Expression value, Expression lower, Expression upper, boolean lowerStrict, boolean upperStrict) {
-        return new Expression(NativeExpression.between(
-                value.nativePointer(), lower.nativePointer(), upper.nativePointer(), lowerStrict, upperStrict));
+        try {
+            return new Expression(NativeExpression.between(
+                    value.nativePointer(), lower.nativePointer(), upper.nativePointer(), lowerStrict, upperStrict));
+        } finally {
+            Reference.reachabilityFence(value);
+            Reference.reachabilityFence(lower);
+            Reference.reachabilityFence(upper);
+        }
     }
 
     /**
@@ -234,8 +301,13 @@ public final class Expression {
     public static Expression listContains(
             Expression list, Expression needle, boolean sqlNullSemantics, FloatOrder order) {
         Objects.requireNonNull(order, "order");
-        return new Expression(NativeExpression.listContains(
-                list.nativePointer(), needle.nativePointer(), sqlNullSemantics, order.code()));
+        try {
+            return new Expression(NativeExpression.listContains(
+                    list.nativePointer(), needle.nativePointer(), sqlNullSemantics, order.code()));
+        } finally {
+            Reference.reachabilityFence(list);
+            Reference.reachabilityFence(needle);
+        }
     }
 
     /**
@@ -484,8 +556,13 @@ public final class Expression {
      * {@code elementsNullable}, and every element, which must itself be a literal, is cast to it.
      */
     public static Expression literalList(Expression elementType, boolean elementsNullable, Expression... elements) {
-        return new Expression(NativeExpression.literalList(
-                nativePointers(elements), elementType.nativePointer(), elementsNullable, false));
+        try {
+            return new Expression(NativeExpression.literalList(
+                    nativePointers(elements), elementType.nativePointer(), elementsNullable, false));
+        } finally {
+            Reference.reachabilityFence(elements);
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /**
@@ -497,50 +574,86 @@ public final class Expression {
      * value is a count of that type's unit, as in {@link #literalTimestamp(long, TimeUnit, String)}.
      */
     public static Expression literalLongList(Expression elementType, boolean withNull, long[] values) {
-        return new Expression(NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for booleans. */
     public static Expression literalBooleanList(Expression elementType, boolean withNull, boolean[] values) {
-        return new Expression(
-                NativeExpression.literalListBool(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(
+                    NativeExpression.literalListBool(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for 8-bit integers. */
     public static Expression literalByteList(Expression elementType, boolean withNull, byte[] values) {
-        return new Expression(NativeExpression.literalListI8(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(NativeExpression.literalListI8(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for 16-bit integers. */
     public static Expression literalShortList(Expression elementType, boolean withNull, short[] values) {
-        return new Expression(NativeExpression.literalListI16(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(NativeExpression.literalListI16(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for 32-bit integers. */
     public static Expression literalIntList(Expression elementType, boolean withNull, int[] values) {
-        return new Expression(NativeExpression.literalListI32(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(NativeExpression.literalListI32(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for 32-bit floats. */
     public static Expression literalFloatList(Expression elementType, boolean withNull, float[] values) {
-        return new Expression(NativeExpression.literalListF32(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(NativeExpression.literalListF32(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for 64-bit floats. */
     public static Expression literalDoubleList(Expression elementType, boolean withNull, double[] values) {
-        return new Expression(NativeExpression.literalListF64(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(NativeExpression.literalListF64(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for strings. */
     public static Expression literalStringList(Expression elementType, boolean withNull, String[] values) {
-        return new Expression(
-                NativeExpression.literalListUtf8(values, elementType.nativePointer(), withNull, withNull));
+        try {
+            return new Expression(
+                    NativeExpression.literalListUtf8(values, elementType.nativePointer(), withNull, withNull));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** Null list literal. See {@link #literalList(Expression, boolean, Expression...)} for the element dtype. */
     public static Expression nullLiteralList(Expression elementType, boolean elementsNullable) {
-        return new Expression(
-                NativeExpression.literalList(new long[0], elementType.nativePointer(), elementsNullable, true));
+        try {
+            return new Expression(
+                    NativeExpression.literalList(new long[0], elementType.nativePointer(), elementsNullable, true));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /**
@@ -549,8 +662,13 @@ public final class Expression {
      */
     public static Expression literalFixedSizeList(
             Expression elementType, boolean elementsNullable, Expression... elements) {
-        return new Expression(NativeExpression.literalFixedSizeList(
-                nativePointers(elements), elementType.nativePointer(), elementsNullable, elements.length, false));
+        try {
+            return new Expression(NativeExpression.literalFixedSizeList(
+                    nativePointers(elements), elementType.nativePointer(), elementsNullable, elements.length, false));
+        } finally {
+            Reference.reachabilityFence(elements);
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** Null fixed-size list literal of {@code size} elements. */
@@ -558,8 +676,12 @@ public final class Expression {
         if (size < 0) {
             throw new IllegalArgumentException(String.format("fixed-size list size must not be negative: %s", size));
         }
-        return new Expression(NativeExpression.literalFixedSizeList(
-                new long[0], elementType.nativePointer(), elementsNullable, size, true));
+        try {
+            return new Expression(NativeExpression.literalFixedSizeList(
+                    new long[0], elementType.nativePointer(), elementsNullable, size, true));
+        } finally {
+            Reference.reachabilityFence(elementType);
+        }
     }
 
     /** Create a struct literal. Each field must be a literal expression; its dtype becomes the field's dtype. */
@@ -568,7 +690,11 @@ public final class Expression {
             throw new IllegalArgumentException(
                     String.format("struct literal has %s field names but %s fields", fieldNames.length, fields.length));
         }
-        return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fields), false));
+        try {
+            return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fields), false));
+        } finally {
+            Reference.reachabilityFence(fields);
+        }
     }
 
     /**
@@ -580,7 +706,11 @@ public final class Expression {
             throw new IllegalArgumentException(String.format(
                     "struct literal has %s field names but %s field types", fieldNames.length, fieldTypes.length));
         }
-        return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fieldTypes), true));
+        try {
+            return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fieldTypes), true));
+        } finally {
+            Reference.reachabilityFence(fieldTypes);
+        }
     }
 
     /**
@@ -595,19 +725,31 @@ public final class Expression {
             throw new IllegalArgumentException(
                     String.format("map literal has %s keys but %s values", keys.length, values.length));
         }
-        return new Expression(NativeExpression.literalMap(
-                nativePointers(keys),
-                nativePointers(values),
-                keyType.nativePointer(),
-                valueType.nativePointer(),
-                valuesNullable,
-                false));
+        try {
+            return new Expression(NativeExpression.literalMap(
+                    nativePointers(keys),
+                    nativePointers(values),
+                    keyType.nativePointer(),
+                    valueType.nativePointer(),
+                    valuesNullable,
+                    false));
+        } finally {
+            Reference.reachabilityFence(keys);
+            Reference.reachabilityFence(values);
+            Reference.reachabilityFence(keyType);
+            Reference.reachabilityFence(valueType);
+        }
     }
 
     /** Null map literal. See {@link #literalMap} for how the key and value dtypes are derived. */
     public static Expression nullLiteralMap(Expression keyType, Expression valueType, boolean valuesNullable) {
-        return new Expression(NativeExpression.literalMap(
-                new long[0], new long[0], keyType.nativePointer(), valueType.nativePointer(), valuesNullable, true));
+        try {
+            return new Expression(NativeExpression.literalMap(
+                    new long[0], new long[0], keyType.nativePointer(), valueType.nativePointer(), valuesNullable, true));
+        } finally {
+            Reference.reachabilityFence(keyType);
+            Reference.reachabilityFence(valueType);
+        }
     }
 
     private static long[] nativePointers(Expression[] exprs) {
