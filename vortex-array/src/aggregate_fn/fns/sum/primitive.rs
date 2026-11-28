@@ -276,9 +276,10 @@ const NO_SIGN_EXTENSION: bool = cfg!(all(target_arch = "x86_64", not(target_feat
 /// A checked add per element does not vectorize, so the values are added with wrapping, and
 /// evidence of each value's magnitude is ORed together alongside. Both reassociate, so the
 /// compiler vectorizes the fold in lane order with the width and interleave it picks, which beats
-/// independent per-lane partial sums on every target. If the initial accumulator and every
-/// value meet the bound, every prefix fits. Otherwise replay checked additions in input order
-/// so the first overflowing prefix saturates the sum, including across null runs.
+/// independent per-lane partial sums on every target. If the initial accumulator has headroom for
+/// `values.len()` bounded values and every value meets the bound, every prefix fits. Otherwise
+/// replay checked additions in input order so the first overflowing prefix saturates the sum,
+/// including across null runs.
 fn sum_wide<T, S>(acc: &mut S, values: &[T], valid: Option<&BitBuffer>) -> bool
 where
     T: NativePType + AsPrimitive<S>,
@@ -288,21 +289,20 @@ where
         return false;
     };
 
+    // If the running accumulator lacks headroom for `values.len()` bounded values, or the first
+    // valid row already rules out the bound, start checked addition immediately so an early
+    // overflow doesn't cost a full scan.
+    if !bound.has_headroom(*acc, values.len())
+        || (!bound.holds(bound.evidence(values[0].as_())) && valid.is_none_or(|mask| mask.value(0)))
+    {
+        return sum_checked(acc, values, valid);
+    }
+
     let add = |(sum, evidence): (S, S), v: T| {
         let v = v.as_();
         (sum.wrapping_add(v), evidence | bound.evidence(v))
     };
-    // for_len uses the next power of two strictly above len, so its bound covers the initial
-    // accumulator as well as all len inputs.
-    let acc_evidence = bound.evidence(*acc);
-    // If the first row already rules out the bound, start checked addition immediately so an
-    // early overflow doesn't cost a full scan.
-    if !bound.holds(acc_evidence | bound.evidence(values[0].as_()))
-        && valid.is_none_or(|mask| mask.value(0))
-    {
-        return sum_checked(acc, values, valid);
-    }
-    let initial = (*acc, acc_evidence);
+    let initial = (*acc, S::zero());
     let (sum, evidence) = match valid {
         None => values.iter().fold(initial, |acc, &v| add(acc, v)),
         Some(valid) => values.fold_masked(valid, T::zero(), initial, add),
@@ -351,6 +351,9 @@ trait SumBound<S>: Copy {
 
     /// Whether the ORed evidence shows every value is within the bound.
     fn holds(self, evidence: S) -> bool;
+
+    /// Whether starting from `acc`, adding `len` values within this bound cannot overflow `S`.
+    fn has_headroom(self, acc: S, len: usize) -> bool;
 }
 
 /// Signed values within `[-2^bits, 2^bits)`, where `len` of them sum to less than `2^63` in
@@ -375,6 +378,13 @@ impl SumBound<i64> for SignedBound {
     fn holds(self, evidence: i64) -> bool {
         evidence >> (self.bits + 1) == 0
     }
+
+    fn has_headroom(self, acc: i64, len: usize) -> bool {
+        let len = len as i128;
+        let limit = 1i128 << self.bits;
+        let acc = i128::from(acc);
+        acc - len * limit >= i128::from(i64::MIN) && acc + len * (limit - 1) <= i128::from(i64::MAX)
+    }
 }
 
 /// Unsigned values below `2^bits`, where `len` of them sum to less than `2^64`.
@@ -397,6 +407,11 @@ impl SumBound<u64> for UnsignedBound {
 
     fn holds(self, evidence: u64) -> bool {
         evidence >> self.bits == 0
+    }
+
+    fn has_headroom(self, acc: u64, len: usize) -> bool {
+        let max_delta = (len as u128) * ((1u128 << self.bits) - 1);
+        u128::from(acc) + max_delta <= u128::from(u64::MAX)
     }
 }
 
@@ -430,11 +445,16 @@ impl WrappingSum for u64 {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::SignedBound;
+    use super::SumBound;
+    use super::UnsignedBound;
+    use super::sum_wide;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -851,5 +871,28 @@ mod tests {
         drop(acc.finish()?);
         assert!(!acc.is_saturated());
         Ok(())
+    }
+
+    #[test]
+    fn sum_wide_bound_headroom_covers_large_running_acc() {
+        let len = 65_536;
+        let signed = SignedBound::for_len(len).unwrap();
+        // Past the per-value bound (2^46), a running sum still has headroom up to ~2^62.
+        let large_signed = 1i64 << 61;
+        assert!(!signed.holds(signed.evidence(large_signed)));
+        assert!(signed.has_headroom(large_signed, len));
+        assert!(!signed.has_headroom(i64::MAX, len));
+        assert!(!signed.has_headroom(i64::MIN, len));
+
+        let unsigned = UnsignedBound::for_len(len).unwrap();
+        let large_unsigned = 1u64 << 62;
+        assert!(!unsigned.holds(unsigned.evidence(large_unsigned)));
+        assert!(unsigned.has_headroom(large_unsigned, len));
+        assert!(!unsigned.has_headroom(u64::MAX, len));
+
+        // Near-overflow accumulator with a null row 0 still detects prefix overflow cleanly.
+        let mut acc = i64::MAX - 1;
+        let valid = BitBuffer::from_iter([false, true, true]);
+        assert!(sum_wide(&mut acc, &[0i64, 2, -5], Some(&valid)));
     }
 }
