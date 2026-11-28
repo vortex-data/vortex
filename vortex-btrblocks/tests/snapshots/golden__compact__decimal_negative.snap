@@ -7,7 +7,5 @@ root: vortex.decimal_byte_parts.v2(decimal(10,2), len=16384) nbytes=36105
   metadata: 
   msp: vortex.widen(i64, len=16384) nbytes=36105
     metadata: 
-    values: vortex.zigzag(i32, len=16384) nbytes=36105
-      metadata: 
-      encoded: vortex.pco(u32, len=16384) nbytes=36105
-        metadata: ptype: u32, nrows: 16384, slice: 0..16384
+    values: vortex.pco(i32, len=16384) nbytes=36105
+      metadata: ptype: i32, nrows: 16384, slice: 0..16384

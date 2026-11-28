@@ -289,3 +289,73 @@ fn test_f16_nullable_roundtrip() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn test_chunk_metas_nbytes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let empty = PrimitiveArray::from_iter(Vec::<i32>::new());
+    let empty_pco = Pco::from_primitive(empty.as_view(), 3, 0, &mut ctx)?;
+    assert!(empty_pco.chunk_metas.is_empty());
+    assert_eq!(empty_pco.chunk_metas_nbytes(), 0);
+
+    let single_chunk = PrimitiveArray::from_iter(0..1024_i32);
+    let single_pco = Pco::from_primitive(single_chunk.as_view(), 3, 0, &mut ctx)?;
+    assert_eq!(single_pco.chunk_metas.len(), 1);
+    assert_eq!(
+        single_pco.chunk_metas_nbytes(),
+        single_pco.chunk_metas[0].len() as u64
+    );
+    assert!(single_pco.chunk_metas_nbytes() > 0);
+    assert!(single_pco.chunk_metas_nbytes() < single_pco.as_array().nbytes());
+
+    let chunk_a: Vec<i32> = vec![0; 200];
+    let chunk_b: Vec<i32> = (0..200_i32).map(|i| (i % 16) * 10_000 + (i / 16)).collect();
+    let pco_a = Pco::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        PcoData::from_primitive_with_values_per_chunk(
+            PrimitiveArray::from_iter(chunk_a.clone()).as_view(),
+            3,
+            200,
+            100,
+            &mut ctx,
+        )?,
+        Validity::NonNullable,
+    )?;
+    let pco_b = Pco::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        PcoData::from_primitive_with_values_per_chunk(
+            PrimitiveArray::from_iter(chunk_b.clone()).as_view(),
+            3,
+            200,
+            100,
+            &mut ctx,
+        )?,
+        Validity::NonNullable,
+    )?;
+    assert_eq!(pco_a.chunk_metas.len(), 1);
+    assert_eq!(pco_b.chunk_metas.len(), 1);
+    assert_ne!(pco_a.chunk_metas_nbytes(), pco_b.chunk_metas_nbytes());
+
+    let multi_chunk = PrimitiveArray::from_iter(chunk_a.into_iter().chain(chunk_b));
+    let multi_data = PcoData::from_primitive_with_values_per_chunk(
+        multi_chunk.as_view(),
+        3,
+        200,
+        100,
+        &mut ctx,
+    )?;
+    let multi_pco = Pco::try_new(
+        multi_chunk.dtype().clone(),
+        multi_data,
+        Validity::NonNullable,
+    )?;
+    assert_eq!(multi_pco.chunk_metas.len(), 2);
+    assert_eq!(
+        multi_pco.chunk_metas_nbytes(),
+        pco_a.chunk_metas_nbytes() + pco_b.chunk_metas_nbytes()
+    );
+    assert!(multi_pco.chunk_metas_nbytes() < multi_pco.as_array().nbytes());
+
+    Ok(())
+}

@@ -677,6 +677,12 @@ impl PcoData {
         self.slice_stop == self.slice_start
     }
 
+    /// Returns the total byte size of all Pco chunk metadata buffers.
+    #[inline]
+    pub fn chunk_metas_nbytes(&self) -> u64 {
+        self.chunk_metas.iter().map(|meta| meta.len() as u64).sum()
+    }
+
     pub(crate) fn slice_start(&self) -> usize {
         self.slice_start
     }
