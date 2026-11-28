@@ -113,6 +113,7 @@ mod tests {
     use vortex_compressor::CascadingCompressor;
     use vortex_compressor::scheme::CompressionEstimate;
     use vortex_error::VortexResult;
+    use vortex_fastlanes::BitPacked;
     use vortex_pco::Pco;
     use vortex_session::VortexSession;
 
@@ -229,8 +230,9 @@ mod tests {
         let unamortized = CascadingCompressor::new(vec![&UnamortizedPcoScheme, &BITPACKING])
             .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
-            !unamortized.is::<Pco>(),
-            "without fixed_nbytes amortization, int PcoScheme should lose to BitPacking on the production sample"
+            unamortized.is::<BitPacked>(),
+            "without fixed_nbytes amortization, int PcoScheme should lose to BitPacking on the production sample, got {}",
+            unamortized.encoding_id()
         );
 
         let compressed = CascadingCompressor::new(vec![&PcoScheme, &BITPACKING])

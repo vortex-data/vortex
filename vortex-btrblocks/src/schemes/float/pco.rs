@@ -94,6 +94,7 @@ impl Scheme for PcoScheme {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_alp::ALPRD;
     use vortex_array::ArrayId;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
@@ -216,8 +217,9 @@ mod tests {
         let unamortized = CascadingCompressor::new(vec![&UnamortizedPcoScheme, &ALPRDScheme])
             .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
-            !unamortized.is::<Pco>(),
-            "without fixed_nbytes amortization, float PcoScheme should lose to ALPRD on the production sample"
+            unamortized.is::<ALPRD>(),
+            "without fixed_nbytes amortization, float PcoScheme should lose to ALPRD on the production sample, got {}",
+            unamortized.encoding_id()
         );
 
         let compressed = CascadingCompressor::new(vec![&PcoScheme, &ALPRDScheme])
