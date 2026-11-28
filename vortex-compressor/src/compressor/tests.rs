@@ -35,9 +35,12 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveSlots;
 use vortex_array::arrays::varbinview::BinaryView;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::builders::dict::dict_encode;
@@ -2012,13 +2015,19 @@ fn test_container_children_preserve_is_sample() -> VortexResult<()> {
     .into_array();
     let struct_arr = StructArray::try_new(
         FieldNames::from(["a"]),
-        vec![const_i32],
+        vec![const_i32.clone()],
         1024,
         Validity::NonNullable,
     )?
     .into_array();
     let ext = ExtensionArray::new(ext_dtype, fsl.clone()).into_array();
     let map = map_array_from_rows(&vec![Some(vec![(1, Some("same"))]); 128], true)?;
+    let variant_core = ConstantArray::new(
+        Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
+        1024,
+    )
+    .into_array();
+    let variant = VariantArray::try_new(variant_core, Some(const_i32))?;
 
     for (name, input) in [
         ("Struct", struct_arr),
@@ -2043,6 +2052,19 @@ fn test_container_children_preserve_is_sample() -> VortexResult<()> {
         );
         assert_arrays_eq!(&compressed, &input, &mut ctx);
     }
+
+    let compressed_variant =
+        comp.compress_canonical(Canonical::Variant(variant.clone()), sample_ctx, &mut ctx)?;
+    let shredded = compressed_variant
+        .as_::<Variant>()
+        .shredded()
+        .ok_or_else(|| vortex_err!("expected shredded child"))?;
+    assert!(
+        !shredded.depth_first_traversal().any(|a| a.is::<Constant>()),
+        "sample Variant shredded child must not collapse to Constant:\n{}",
+        shredded.display_tree()
+    );
+    assert_arrays_eq!(&compressed_variant, &variant.into_array(), &mut ctx);
 
     // Non-sample compression still collapses constant elements.
     let full_fsl = comp.compress(&fsl, &mut ctx)?;
