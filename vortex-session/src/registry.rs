@@ -209,13 +209,16 @@ impl Interner {
         self
     }
 
+    /// Return whether the context permits this ID without interning it.
+    pub fn permits(&self, id: &Id) -> bool {
+        self.allowed
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(id))
+    }
+
     /// Intern an ID, returning its index.
     pub fn intern(&self, id: &Id) -> Option<u16> {
-        if self
-            .allowed
-            .as_ref()
-            .is_some_and(|allowed| !allowed.contains(id))
-        {
+        if !self.permits(id) {
             // ID not permitted, cannot intern.
             return None;
         }

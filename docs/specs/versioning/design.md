@@ -131,15 +131,32 @@ A serializer must choose the oldest supported writable format that preserves the
 representation without recompression. A plugin can adapt metadata, buffers, or children to fit an
 older format. Formats retained only for reading, however, are not candidates for writing.
 
-The serializer makes that choice before the writer checks edition permissions. If the chosen ID is
-forbidden, the write fails without retrying another format that happens to be permitted. In
-particular, a custom edition that permits only the v2 decimal ID cannot write the single-child array
-through this serializer, which selects v1.
+The decoder for the chosen wire ID defines the order, dtype, length, and layout of its children.
+A serializer can fill a child position with an array already nested anywhere in the input or
+build one that fits. The complete wire node must decode to the same logical array.
 
-This policy preserves compatibility with readers of the earlier wire format when the existing
-representation allows it. If compatibility requires a different encoding of the same values, the
-write path must arrange recompression before serialization or fail. Selecting an edition does not
-perform that conversion automatically.
+## Write normalization
+
+Previously, the flat writer failed on a forbidden wire ID. It now retries from the source array,
+trying a rewrite before execution.
+
+For example, `Widen(Dict(...))` used to fail when an edition allowed `vortex.dict` and
+`vortex.decimal` but forbade `vortex.widen`. The retry can move `Widen` into the dictionary's value
+table and keep the codes.
+
+Older Decimal arrays could store a narrow buffer at a wider logical precision. The legacy
+`vortex.decimal` format records the buffer width separately from the logical dtype, so it can
+carry a narrow Decimal leaf's buffer and its validity in one wire node.
+
+```text
+In memory       Widen(Dict(codes, Decimal(validity)))
+After rewrite   Dict(codes, Widen(Decimal(validity)))
+On wire         vortex.dict(codes, vortex.decimal(validity))
+```
+
+If the validity needs normalization, the writer finds it by following the in-memory slots from
+`Widen` to `Decimal` to the validity array. It replaces that slot and rebuilds the arrays along the
+path. The serializer runs again because its metadata can depend on the children it writes.
 
 ## Write and read checks
 
@@ -263,8 +280,7 @@ The default BtrBlocks compressor uses only the schemes whose output it can write
 allowed when the session registers it, the enabled editions permit it, and the compressor's preset
 does not exclude it. For example, the CUDA preset excludes some v2 IDs. The compressor excludes a
 scheme if any wire ID that the scheme declares is not allowed. Child arrays go through the same
-compressor. The writer still checks every serialized ID, so a forbidden ID in any child fails the
-write.
+compressor. The writer checks every serialized ID, including the IDs chosen for children.
 
 A scheme can have variants that write different wire IDs. The compressor picks the variant from the
 allowed wire IDs, so callers do not choose it directly. For example, the decimal scheme uses its v2
