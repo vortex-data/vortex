@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use tracing::trace;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
@@ -15,6 +14,8 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+
+use crate::segments::slot::Completer;
 
 /// An I/O request, either a single read or a coalesced set of reads.
 #[derive(Debug)]
@@ -97,7 +98,7 @@ pub struct ReadRequest {
     pub(crate) offset: u64,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
-    pub(crate) callback: oneshot::Sender<VortexResult<BufferHandle>>,
+    pub(crate) callback: Completer,
 }
 
 impl Debug for ReadRequest {
@@ -114,9 +115,10 @@ impl Debug for ReadRequest {
 
 impl ReadRequest {
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
-        if self.callback.send(result).is_err() {
+        if self.callback.is_canceled() {
             trace!("ReadRequest {} dropped before resolving", self.id);
         }
+        self.callback.complete(result);
     }
 }
 

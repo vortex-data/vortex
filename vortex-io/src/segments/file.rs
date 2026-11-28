@@ -3,7 +3,6 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -14,8 +13,8 @@ use std::task::Poll;
 use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
+use futures::TryFutureExt;
 use futures::channel::mpsc;
-use futures::channel::oneshot;
 use futures::future;
 use futures::future::BoxFuture;
 use futures::future::Shared;
@@ -26,6 +25,7 @@ use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -35,6 +35,8 @@ use vortex_metrics::Histogram;
 use vortex_metrics::Label;
 use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
+use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 use super::SegmentFuture;
 use super::SegmentId;
@@ -44,6 +46,9 @@ use super::read::IoRequest;
 use super::read::IoRequestStream;
 use super::read::ReadRequest;
 use super::read::RequestId;
+use super::slot::FillHooks;
+use super::slot::SharedRead;
+use super::slot::WeakSharedRead;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
 use crate::VortexReadAt;
@@ -82,12 +87,12 @@ pub enum ReadEvent {
 ///
 /// I/O requests will be processed in the order they are `registered`, however coalescing may mean
 /// other registered requests are lumped together into a single I/O operation.
-/// A cloneable handle to the background read driver, shared by every in-flight [`ReadFuture`].
+/// A cloneable handle to the background read driver, joined by the readers of any request the
+/// driver dropped unresolved.
 ///
-/// [`Shared`] fans a single completion out to all readers with correct waker bookkeeping, so a
-/// reader is always woken when the driver finishes — even if another reader polled the driver more
-/// recently and was then dropped. Its output is `()`; a driver panic is carried out of band in
-/// [`DriverPanic`] so it can be re-raised on the reader side.
+/// Readers join it only once the driver has stopped, so [`Shared`]'s locking costs nothing on the
+/// read path. Its output is `()`; a driver panic is carried out of band in [`DriverPanic`] so it
+/// can be re-raised on the reader side.
 type SharedDriver = Shared<BoxFuture<'static, ()>>;
 
 /// Slot holding the driver's panic payload, if it panicked while driving reads. The first reader to
@@ -286,6 +291,9 @@ pub struct FileSegmentSource {
     driver_panic: DriverPanic,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
+    /// Reads requested and not yet dropped by every waiter, so that each request for a segment
+    /// already being read waits on that read.
+    in_flight: DashMap<SegmentId, WeakSharedRead>,
 }
 
 impl FileSegmentSource {
@@ -357,6 +365,7 @@ impl FileSegmentSource {
             driver,
             driver_panic,
             next_id: Arc::new(AtomicUsize::new(0)),
+            in_flight: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
         }
     }
 }
@@ -365,112 +374,96 @@ impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
         // coalescing becomes effective prior to the future being polled.
-        let spec = *match self.segments.get(*id as usize) {
-            Some(spec) => spec,
-            None => {
-                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        let Some(&location) = self.segments.get(*id as usize) else {
+            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        };
+        let read = loop {
+            match self.in_flight.entry(id) {
+                Entry::Occupied(e) => match e.get().upgrade() {
+                    Some(read) => break read,
+                    // Every waiter has gone, so the read was cancelled. Start another.
+                    None => drop(e.remove()),
+                },
+                Entry::Vacant(e) => {
+                    let read = self.start_read(location);
+                    e.insert(read.downgrade());
+                    break read;
+                }
             }
         };
-
-        let SegmentLocation {
-            offset,
-            length,
-            alignment,
-        } = spec;
-
-        let (send, recv) = oneshot::channel();
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let event = ReadEvent::Request(ReadRequest {
-            id,
-            offset,
-            length: length as usize,
-            alignment,
-            callback: send,
-        });
-
-        // If we fail to submit the event, we create a future that has failed.
-        if let Err(e) = self.events.unbounded_send(event) {
-            return future::ready(Err(vortex_err!("Failed to submit read request: {e}"))).boxed();
-        }
-
-        let fut = ReadFuture {
-            id,
-            recv,
-            polled: false,
-            finished: false,
-            events: self.events.clone(),
-            driver: self.driver.clone(),
-            driver_panic: Arc::clone(&self.driver_panic),
-        };
-
-        // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
-        fut.boxed()
+        read.map_err(VortexError::from).boxed()
     }
 }
 
-/// A future that resolves a read request from a [`FileSegmentSource`].
+impl FileSegmentSource {
+    fn start_read(&self, location: SegmentLocation) -> SharedRead {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (read, completer) = SharedRead::new(Some(Box::new(ReadHooks {
+            id,
+            events: self.events.clone(),
+            driver: self.driver.clone(),
+            driver_panic: Arc::clone(&self.driver_panic),
+        })));
+        let event = ReadEvent::Request(ReadRequest {
+            id,
+            offset: location.offset,
+            length: location.length as usize,
+            alignment: location.alignment,
+            callback: completer,
+        });
+
+        // If we fail to submit the event, the read fails. The event carries the completer, so
+        // dropping it would send the waiters to join the driver instead.
+        if let Err(e) = self.events.unbounded_send(event) {
+            let ReadEvent::Request(request) = e.into_inner() else {
+                unreachable!("sent a request")
+            };
+            request.callback.complete(Err(vortex_err!(
+                "Failed to submit read request: read driver stopped"
+            )));
+        }
+        read
+    }
+}
+
+/// Tells the read driver about the waiters of a read from a [`FileSegmentSource`].
 ///
 /// See the documentation for [`FileSegmentSource`] for details on coalescing and pre-fetching.
-/// If dropped, the read request will be canceled where possible.
-struct ReadFuture {
+/// If every waiter is dropped, the read request is canceled where possible.
+struct ReadHooks {
     id: usize,
-    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
-    polled: bool,
-    finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
     driver: SharedDriver,
     driver_panic: DriverPanic,
 }
 
-impl Future for ReadFuture {
-    type Output = VortexResult<BufferHandle>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.recv.poll_unpin(cx) {
-            // note: we are skipping polled and dropped events for this if the future is ready on
-            //       the first poll, that means this request was completed before it was polled,
-            //       as part of a coalesced request.
-            Poll::Ready(Ok(result)) => {
-                self.finished = true;
-                Poll::Ready(result)
-            }
-            // The request's sender was dropped, so the driver has finished. Join it so a panic
-            // raised while driving reads is re-raised here rather than surfacing as a generic
-            // error. Only report the dropped error once the driver has finished.
-            Poll::Ready(Err(e)) => match self.driver.poll_unpin(cx) {
-                Poll::Ready(()) => {
-                    self.finished = true;
-                    // Re-raise the driver panic on the first reader to observe it; later readers
-                    // fall through to the graceful dropped error.
-                    if let Some(panic) = self.driver_panic.lock().take() {
-                        std::panic::resume_unwind(panic);
-                    }
-                    Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")))
-                }
-                Poll::Pending => Poll::Pending,
-            },
-            Poll::Pending if !self.polled => {
-                self.polled = true;
-                // Notify the I/O stream that this request has been polled.
-                match self.events.unbounded_send(ReadEvent::Polled(self.id)) {
-                    Ok(()) => Poll::Pending,
-                    Err(e) => Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}"))),
-                }
-            }
-            _ => Poll::Pending,
-        }
+impl FillHooks for ReadHooks {
+    fn polled(&self) {
+        // If the driver has stopped, the request it dropped sends the waiters to `abandoned`.
+        drop(self.events.unbounded_send(ReadEvent::Polled(self.id)));
     }
-}
 
-impl Drop for ReadFuture {
-    fn drop(&mut self) {
-        // Completed requests have already left driver state.
-        if self.finished {
-            return;
-        }
-
+    fn dropped(&self) {
         // Best-effort cancellation signal to the I/O stream.
         drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
+    }
+
+    fn abandoned(&self) -> SegmentFuture {
+        // The request was dropped unresolved, so the driver has finished or is finishing. Join it
+        // so a panic raised while driving reads is re-raised here rather than surfacing as a
+        // generic error.
+        let driver = self.driver.clone();
+        let driver_panic = Arc::clone(&self.driver_panic);
+        async move {
+            driver.await;
+            // Re-raise the driver panic on the first reader to observe it; later readers get the
+            // graceful dropped error.
+            if let Some(panic) = driver_panic.lock().take() {
+                std::panic::resume_unwind(panic);
+            }
+            Err(vortex_err!("ReadRequest dropped by runtime"))
+        }
+        .boxed()
     }
 }
 
@@ -583,7 +576,7 @@ mod tests {
     use crate::runtime::tokio::TokioRuntime;
 
     fn io_request(id: RequestId, offset: u64, length: usize) -> IoRequest {
-        let (callback, _receiver) = oneshot::channel();
+        let (_receiver, callback) = SharedRead::new(None);
         IoRequest::new_single(ReadRequest {
             id,
             offset,
@@ -833,6 +826,38 @@ mod tests {
         assert_eq!(request_metrics.read_ranges_multi.value(), 1);
         assert_eq!(request_metrics.read_ranges_num_ranges.count(), 1);
         assert_eq!(request_metrics.read_ranges_num_ranges.total(), 4.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn requests_for_a_segment_in_flight_share_its_read() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let segments: Arc<[SegmentLocation]> = Arc::from([SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        }]);
+        let metrics = DefaultMetricsRegistry::default();
+        let request_metrics = RequestMetrics::new(&metrics, vec![]);
+        let source = FileSegmentSource::open(
+            segments,
+            ReadRangesOnly {
+                calls: Arc::clone(&calls),
+            },
+            TokioRuntime::current(),
+            request_metrics.clone(),
+        );
+
+        let results = future::join_all((0..4).map(|_| source.request(SegmentId::from(0)))).await;
+
+        for result in results {
+            assert_eq!(result?.len(), 4);
+        }
+        assert_eq!(request_metrics.read_ranges_num_ranges.total(), 1.0);
+
+        // Every waiter of that read has dropped, so a new request starts a new read.
+        assert_eq!(source.request(SegmentId::from(0)).await?.len(), 4);
+        assert_eq!(request_metrics.read_ranges_num_ranges.total(), 2.0);
         Ok(())
     }
 

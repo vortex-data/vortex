@@ -80,9 +80,9 @@ To bring your own cache, implement `SegmentCache` and pass it to
 that many files share must also key its entries by file. Give each file its own `SegmentCache`
 that holds the file's `SegmentSourceId` and adds it to the key, as `MokaSegmentCache` does.
 
-A `SharedSegmentSource` deduplicates concurrent requests for the same segment using weak
-shared futures, ensuring that only one underlying I/O request is issued regardless of how many
-callers request the same segment simultaneously.
+`FileSegmentSource` shares a read that is in flight, so only one I/O request is issued however
+many callers request the same segment at once. Every caller awaits the same result, and the read
+is cancelled once all of them have dropped their futures.
 
 ## Backend Adaptation
 
