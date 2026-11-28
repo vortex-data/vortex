@@ -20,6 +20,9 @@ mod execute;
 mod take;
 pub use take::*;
 
+mod take_referenced;
+pub use take_referenced::*;
+
 pub mod vtable;
 pub use vtable::*;
 

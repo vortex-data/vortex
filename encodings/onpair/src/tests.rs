@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use onpair::CompactDictionaryView;
 use prost::Message;
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -706,6 +707,69 @@ fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
 
     let expected = input.into_array().take(indices)?;
     assert_arrays_eq!(typed.into_array(), expected, &mut ctx);
+    Ok(())
+}
+
+/// The take kernel ignores null indices, so their values may be anything, even out of bounds.
+#[rstest]
+#[case::gather(300, 2_000, 1)]
+#[case::prefix(1_500, 40, 1)]
+#[case::scattered(1_500, 40, 47)]
+#[case::decode_all(1_500, 2_000, 1)]
+fn test_dict_over_onpair_null_indices_out_of_bounds(
+    #[case] len: u32,
+    #[case] range: u32,
+    #[case] stride: u32,
+) -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let input = take_input();
+    let arr = compress_onpair(&input.clone().into_array(), &mut ctx)?;
+    let valid = (0..len).map(|i| i % 3 != 0).collect::<Vec<_>>();
+    let selected = (0..len).map(|i| (i % range) * stride);
+    let values = selected
+        .clone()
+        .zip(&valid)
+        .map(|(row, &valid)| if valid { row } else { u32::MAX })
+        .collect::<BufferMut<u32>>();
+    let indices = PrimitiveArray::new(values.freeze(), Validity::from_iter(valid.iter().copied()))
+        .into_array();
+    let dict = DictArray::try_new(indices, arr.into_array())?.into_array();
+
+    let in_bounds = selected
+        .zip(&valid)
+        .map(|(row, &valid)| valid.then_some(row));
+    let expected = input
+        .into_array()
+        .take(PrimitiveArray::from_option_iter(in_bounds).into_array())?;
+    assert_arrays_eq!(dict, expected, &mut ctx);
+    Ok(())
+}
+
+/// A periodic sample can see a single row even when the full take spans the dictionary.
+#[test]
+fn test_dict_over_onpair_with_periodic_indices() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let rows = 16_385u32;
+    let input = VarBinArray::from_iter(
+        (0..rows).map(|row| Some(format!("https://example.com/items/{row}"))),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let encoded = compress_onpair(&input, &mut ctx)?.into_array();
+
+    for range in [41, rows] {
+        let codes = PrimitiveArray::from_iter((0..rows).map(|i| {
+            if i.is_multiple_of(16) {
+                rows - 1
+            } else {
+                (i % range) * 151 % rows
+            }
+        }))
+        .into_array();
+        let dict = DictArray::try_new(codes.clone(), encoded.clone())?.into_array();
+        assert_arrays_eq!(dict, input.take(codes)?, &mut ctx);
+    }
     Ok(())
 }
 

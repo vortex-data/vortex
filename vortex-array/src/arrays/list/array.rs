@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -38,7 +39,29 @@ use crate::scalar::NumericOperator;
 use crate::scalar::ScalarValue;
 use crate::stats::Precision;
 use crate::stats::Stat;
+use crate::stats::StatsProviderExt;
 use crate::validity::Validity;
+
+/// Returns the span of nondecreasing integer offsets using resident endpoints or exact cached
+/// bounds. A sliced offsets array can cover only part of its backing elements.
+pub fn known_offset_span(offsets: &ArrayRef) -> Option<u64> {
+    if let Some(offsets) = offsets.as_opt::<Primitive>()
+        && offsets.buffer_handle().as_host_opt().is_some()
+    {
+        return match_each_integer_ptype!(offsets.ptype(), |P| {
+            endpoint_span(offsets.as_slice::<P>())
+        });
+    }
+    let stats = offsets.statistics();
+    let first = stats.get_as::<u64>(Stat::Min).as_exact()?;
+    let last = stats.get_as::<u64>(Stat::Max).as_exact()?;
+    last.checked_sub(first)
+}
+
+fn endpoint_span<P: ToPrimitive>(offsets: &[P]) -> Option<u64> {
+    let first = offsets.first()?.to_u64()?;
+    offsets.last()?.to_u64()?.checked_sub(first)
+}
 
 #[array_slots(List)]
 pub struct ListSlots {
