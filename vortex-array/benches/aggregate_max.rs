@@ -191,10 +191,10 @@ fn max_f32(bencher: Bencher) {
     let data: Vec<f32> = (0..N).map(|_| rng.random::<f32>()).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<f32>(ctx));
 }
@@ -207,10 +207,10 @@ fn max_f64_nulls_scattered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<f64>(ctx));
 }

@@ -277,10 +277,10 @@ fn sum_u64(bencher: Bencher) {
     let data: Vec<u64> = (0..N).map(|_| rng.random_range(0..2000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
 }
@@ -293,10 +293,10 @@ fn sum_i64_nulls_scattered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
@@ -312,10 +312,10 @@ fn sum_f64_nulls_scattered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
 }

@@ -12,6 +12,7 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::prelude::*;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -26,8 +27,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -60,32 +63,33 @@ fn f64_values() -> Buffer<f64> {
 
 fn bench_with<O>(
     bencher: Bencher,
-    input: impl Fn() -> ArrayRef + Sync,
-    f: impl Fn(&ArrayRef) -> O + Sync,
+    input: impl Fn(&mut ExecutionCtx) -> ArrayRef + Sync,
+    f: impl Fn(&ArrayRef, &mut ExecutionCtx) -> O + Sync,
 ) {
-    bencher.with_inputs(&input).bench_refs(|array| f(array));
+    bencher
+        .with_inputs(|| {
+            let mut ctx = SESSION.create_execution_ctx();
+            let array = input(&mut ctx);
+            mark_optimized(&array, &SESSION).vortex_expect("mark benchmark input as optimized");
+            (array, ctx)
+        })
+        .bench_refs(|(array, ctx)| f(array, ctx));
 }
 
-fn bench_min_max(bencher: Bencher, input: impl Fn() -> ArrayRef + Sync) {
-    bench_with(bencher, input, |array| {
-        min_max(
-            array,
-            &mut SESSION.create_execution_ctx(),
-            NumericalAggregateOpts::default(),
-        )
+fn bench_min_max(bencher: Bencher, input: impl Fn(&mut ExecutionCtx) -> ArrayRef + Sync) {
+    bench_with(bencher, input, |array, ctx| {
+        min_max(array, ctx, NumericalAggregateOpts::default())
     });
 }
 
-fn bench_sum(bencher: Bencher, input: impl Fn() -> ArrayRef + Sync) {
-    bench_with(bencher, input, |array| {
-        sum(array, &mut SESSION.create_execution_ctx())
-    });
+fn bench_sum(bencher: Bencher, input: impl Fn(&mut ExecutionCtx) -> ArrayRef + Sync) {
+    bench_with(bencher, input, sum);
 }
 
 #[divan::bench]
 fn min_max_f64_all_valid(bencher: Bencher) {
     let values = f64_values();
-    bench_min_max(bencher, || {
+    bench_min_max(bencher, |_| {
         PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array()
     });
 }
@@ -93,7 +97,7 @@ fn min_max_f64_all_valid(bencher: Bencher) {
 #[divan::bench]
 fn min_max_f64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (f64_values(), scattered_validity());
-    bench_min_max(bencher, || {
+    bench_min_max(bencher, |_| {
         PrimitiveArray::new(values.clone(), validity.clone()).into_array()
     });
 }
@@ -108,12 +112,12 @@ fn decimal_i64_values() -> Buffer<i64> {
 #[divan::bench]
 fn min_max_decimal_i64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (decimal_i64_values(), scattered_validity());
-    bench_min_max(bencher, || {
+    bench_min_max(bencher, |ctx| {
         DecimalArray::new(
             values.clone(),
             DecimalDType::new(18, 2),
             validity.clone(),
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .into_array()
     });
@@ -124,7 +128,7 @@ fn sum_i32_nulls_scattered(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(4);
     let values: Buffer<i32> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     let validity = scattered_validity();
-    bench_sum(bencher, || {
+    bench_sum(bencher, |_| {
         PrimitiveArray::new(values.clone(), validity.clone()).into_array()
     });
 }
@@ -132,7 +136,7 @@ fn sum_i32_nulls_scattered(bencher: Bencher) {
 #[divan::bench]
 fn sum_f64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (f64_values(), scattered_validity());
-    bench_sum(bencher, || {
+    bench_sum(bencher, |_| {
         PrimitiveArray::new(values.clone(), validity.clone()).into_array()
     });
 }
@@ -140,12 +144,12 @@ fn sum_f64_nulls_scattered(bencher: Bencher) {
 #[divan::bench]
 fn sum_decimal_i64_all_valid(bencher: Bencher) {
     let values = decimal_i64_values();
-    bench_sum(bencher, || {
+    bench_sum(bencher, |ctx| {
         DecimalArray::new(
             values.clone(),
             DecimalDType::new(18, 2),
             Validity::NonNullable,
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .into_array()
     });
@@ -154,12 +158,12 @@ fn sum_decimal_i64_all_valid(bencher: Bencher) {
 #[divan::bench]
 fn sum_decimal_i64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (decimal_i64_values(), scattered_validity());
-    bench_sum(bencher, || {
+    bench_sum(bencher, |ctx| {
         DecimalArray::new(
             values.clone(),
             DecimalDType::new(18, 2),
             validity.clone(),
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .into_array()
     });
@@ -170,8 +174,8 @@ fn nan_count_f64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (f64_values(), scattered_validity());
     bench_with(
         bencher,
-        || PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
-        |array| nan_count(array, &mut SESSION.create_execution_ctx()),
+        |_| PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
+        nan_count,
     );
 }
 
@@ -183,12 +187,13 @@ fn null_count_i32_masked(bencher: Bencher) {
     let validity = scattered_validity();
     let mut rng = StdRng::seed_from_u64(6);
     let mask = BoolArray::from_iter((0..N).map(|_| rng.random_bool(0.5))).into_array();
+    mark_optimized(&mask, &SESSION).vortex_expect("mark benchmark mask as optimized");
     bench_with(
         bencher,
-        || PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
-        |array| {
+        |_| PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
+        |array, ctx| {
             let masked = array.clone().mask(mask.clone())?;
-            null_count(&masked, &mut SESSION.create_execution_ctx())
+            null_count(&masked, ctx)
         },
     );
 }
