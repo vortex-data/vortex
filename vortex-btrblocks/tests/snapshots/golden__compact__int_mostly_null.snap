@@ -3,7 +3,11 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: i32?, len=16384, nbytes=67584
-root: vortex.pco(i32?, len=16384) nbytes=3086
+root: vortex.pco(i32?, len=16384) nbytes=1663
   metadata: ptype: i32, nrows: 16384, slice: 0..16384
-  validity_child: vortex.bool(bool, len=16384) nbytes=2048
-    metadata: offset: 0
+  validity_child: vortex.sparse(bool, len=16384) nbytes=625
+    metadata: fill_value: false
+    patch_indices: vortex.pco(u16, len=823) nbytes=621
+      metadata: ptype: u16, nrows: 823, slice: 0..823
+    patch_values: vortex.constant(bool, len=823) nbytes=2
+      metadata: scalar: true
