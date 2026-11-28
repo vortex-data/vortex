@@ -712,6 +712,42 @@ fn test_take_out_of_bounds() -> VortexResult<()> {
 }
 
 #[test]
+fn test_take_shuffled_large() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let nchunks: i32 = 100;
+    let chunk_len: i32 = 1_000;
+    let total = nchunks * chunk_len;
+
+    let chunks: Vec<_> = (0..nchunks)
+        .map(|c| {
+            let start = c * chunk_len;
+            PrimitiveArray::from_iter(start..start + chunk_len).into_array()
+        })
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+    let arr = ChunkedArray::try_new(chunks, dtype)?;
+
+    // Fisher-Yates shuffle with a fixed seed for determinism.
+    let mut indices: Vec<u64> = (0..u64::try_from(total)?).collect();
+    let mut seed: u64 = 0xdeadbeef;
+    for i in (1..indices.len()).rev() {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let j = (seed >> 33) as usize % (i + 1);
+        indices.swap(i, j);
+    }
+
+    let expected_vals: Vec<i32> = indices
+        .iter()
+        .map(|&idx| i32::try_from(idx))
+        .collect::<Result<_, _>>()?;
+    let expected = PrimitiveArray::from_iter(expected_vals);
+    let indices_arr = PrimitiveArray::new(Buffer::from(indices), Validity::NonNullable);
+    let result = arr.take(indices_arr.into_array())?;
+    assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
 fn test_take_fsl_over_chunked_elements_conformance() -> VortexResult<()> {
     let elements = ChunkedArray::try_new(
         vec![

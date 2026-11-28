@@ -788,24 +788,27 @@ fn run_listview_builder_model<O: OffsetBuilderPType, S: OffsetBuilderPType>(
         }
 
         let actual = builder.finish_into_listview();
-        // Whenever the builder claims `is_zero_copy_to_list()`, offsets must be monotonic and
-        // non-overlapping (`offset[i] + size[i] <= offset[i + 1]`).
-        if actual.is_zero_copy_to_list() {
-            let elem_len = actual.elements().len();
-            for i in 0..actual.len() {
-                let offset = actual.offset_at(i, ctx);
-                let size = actual.size_at(i, ctx);
-                assert!(
-                    offset + size <= elem_len,
-                    "ZCTL view {i} exceeds elements len: {offset} + {size} > {elem_len}"
+        // Contiguous appends must preserve `is_zero_copy_to_list()`, with no gaps or overlaps
+        // (`offset[i] + size[i] == offset[i + 1]`).
+        assert!(
+            actual.is_zero_copy_to_list(),
+            "contiguous appends must preserve is_zero_copy_to_list"
+        );
+        let elem_len = actual.elements().len();
+        for i in 0..actual.len() {
+            let offset = actual.offset_at(i, ctx);
+            let size = actual.size_at(i, ctx);
+            assert!(
+                offset + size <= elem_len,
+                "ZCTL view {i} exceeds elements len: {offset} + {size} > {elem_len}"
+            );
+            if i + 1 < actual.len() {
+                let next_offset = actual.offset_at(i + 1, ctx);
+                assert_eq!(
+                    offset + size,
+                    next_offset,
+                    "ZCTL invariant violated at {i}: offset={offset}, size={size}, next_offset={next_offset}"
                 );
-                if i + 1 < actual.len() {
-                    let next_offset = actual.offset_at(i + 1, ctx);
-                    assert!(
-                        offset <= next_offset && offset + size <= next_offset,
-                        "ZCTL invariant violated at {i}: offset={offset}, size={size}, next_offset={next_offset}"
-                    );
-                }
             }
         }
         let expected = list_array_from_model(&model, nullable, ctx);
@@ -971,10 +974,19 @@ fn hegel_dict_builders_roundtrip_and_frequency(tc: TestCase) {
     let expected_distinct = distinct.len();
     let dict_bytes = expected_dict_bytes(arr.dtype(), &distinct);
 
-    // 1. dict_encode roundtrip + exact distinct count check.
+    // 1. dict_encode roundtrip + exact distinct count and first-seen dictionary order check.
     let dict = dict_encode(&arr, &mut ctx).vortex_expect("dict_encode");
     assert_eq!(dict.values().dtype(), arr.dtype());
     assert_eq!(dict.values().len(), expected_distinct);
+    for (code, expected) in distinct.iter().enumerate() {
+        assert_eq!(
+            dict.values()
+                .execute_scalar(code, &mut ctx)
+                .vortex_expect("dict value"),
+            *expected,
+            "dict_encode values must preserve first-seen order at code {code}"
+        );
+    }
     assert_arrays_eq!(&dict, &arr, &mut ctx);
 
     // 2. dict_encode_by_frequency roundtrip + non-increasing code frequency check.
@@ -1605,13 +1617,10 @@ fn test_validity_survives_chunked_children(
     let built = builder.finish();
 
     assert!(child_of(&built).is::<Chunked>());
+    assert_eq!(built.len(), array.len() * 2 + 1);
 
-    let mut null = builder_with_capacity_in(array.dtype(), 1, BufferAllocatorRef::static_ref());
-    null.append_nulls(1);
-    let expected = ChunkedArray::try_new(
-        vec![array.clone(), null.finish(), array],
-        built.dtype().clone(),
-    )?;
+    let null = ConstantArray::new(Scalar::null(built.dtype().clone()), 1).into_array();
+    let expected = ChunkedArray::try_new(vec![array.clone(), null, array], built.dtype().clone())?;
     assert_arrays_eq!(&built, &expected, &mut ctx);
     Ok(())
 }
