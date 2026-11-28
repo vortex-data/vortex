@@ -72,7 +72,7 @@ fn gather_limit(rows: usize, indices: usize, code_count: Option<u64>) -> usize {
         .saturating_sub(8 * 1024)
         .saturating_sub(indices.saturating_mul(size_of::<u32>()));
     // Each selected row also needs its compressed range, decoded length and view.
-    let per_row = (codes / rows).saturating_add(32);
+    let per_row = (codes / rows).saturating_add(40);
     (budget / per_row).min(rows.div_ceil(2))
 }
 
@@ -91,6 +91,9 @@ fn remap_referenced<P: AsPrimitive<usize>>(
     limit: usize,
 ) -> Option<ReferencedRows> {
     let mut words = vec![0u64; len.div_ceil(64)];
+    if validity.all_true() && likely_dense(indices, len, limit, &mut words)? {
+        return None;
+    }
     let chunk_size = len.div_ceil(2);
     let mut count = 0;
 
@@ -146,4 +149,38 @@ fn remap_referenced<P: AsPrimitive<usize>>(
         rows: referenced.freeze(),
         remapped,
     })
+}
+
+/// Samples large takes before paying for a full marking pass. The observed collisions estimate
+/// the size of a uniform index domain. Skew can change the estimate, so the gather path still
+/// counts the actual rows and bulk decode always remains a valid fallback.
+fn likely_dense<P: AsPrimitive<usize>>(
+    indices: &[P],
+    len: usize,
+    limit: usize,
+    words: &mut [u64],
+) -> Option<bool> {
+    if len < 16_384 || indices.len() <= limit {
+        return Some(false);
+    }
+    // Sampling on the order of sqrt(len) gives a measurable number of collisions even when
+    // the indices cover the whole dictionary. Spread the sample across the output.
+    let step = (indices.len() / (8 * len.isqrt())).max(1);
+    let samples = indices.len().div_ceil(step);
+    let mut repeats = 0;
+    for &idx in indices.iter().step_by(step) {
+        let row = idx.as_();
+        let word = words.get_mut(row / 64)?;
+        let bit = 1 << (row % 64);
+        repeats += usize::from(*word & bit != 0);
+        *word |= bit;
+    }
+    if repeats == 0 {
+        return Some(true);
+    }
+    // For a small sample, repeat hits approximate the s * (s - 1) / (2 * d) colliding pairs
+    // expected from s draws over d distinct rows. After k draws the unseen fraction is exp(-k / d).
+    let domain = samples as f64 * (samples - 1) as f64 / (2 * repeats) as f64;
+    let distinct = -domain * (-(indices.len() as f64) / domain).exp_m1();
+    Some(distinct >= limit as f64)
 }

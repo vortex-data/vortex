@@ -746,6 +746,33 @@ fn test_dict_over_onpair_null_indices_out_of_bounds(
     Ok(())
 }
 
+/// A periodic sample can see a single row even when the full take spans the dictionary.
+#[test]
+fn test_dict_over_onpair_with_periodic_indices() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let rows = 16_385u32;
+    let input = VarBinArray::from_iter(
+        (0..rows).map(|row| Some(format!("https://example.com/items/{row}"))),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let encoded = compress_onpair(&input, &mut ctx)?.into_array();
+
+    for range in [41, rows] {
+        let codes = PrimitiveArray::from_iter((0..rows).map(|i| {
+            if i.is_multiple_of(16) {
+                rows - 1
+            } else {
+                (i % range) * 151 % rows
+            }
+        }))
+        .into_array();
+        let dict = DictArray::try_new(codes.clone(), encoded.clone())?.into_array();
+        assert_arrays_eq!(dict, input.take(codes)?, &mut ctx);
+    }
+    Ok(())
+}
+
 /// A dictionary whose values are OnPair takes through the kernel instead of decoding every value.
 #[test]
 fn test_dict_over_onpair_uses_take_kernel() -> vortex_error::VortexResult<()> {
