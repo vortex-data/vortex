@@ -6,7 +6,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ProbeState;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::extension::datetime::Timestamp;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -17,6 +17,7 @@ use crate::DateTimeParts;
 use crate::DateTimePartsSlots;
 use crate::timestamp;
 use crate::timestamp::TimestampParts;
+use crate::timestamp::temporal_kind;
 
 impl OperationsVTable<DateTimeParts> for DateTimeParts {
     type ProbeState = ();
@@ -27,16 +28,13 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let array = state.array();
-        let DType::Extension(ext) = array.dtype().clone() else {
-            vortex_panic!(
-                "DateTimePartsArray must have extension dtype, found {}",
-                array.dtype()
-            );
+        let dtype = array.dtype().clone();
+        let subseconds_divisor = array.subseconds_divisor();
+        let DType::Extension(ext) = dtype else {
+            vortex_panic!("DateTimePartsArray must have extension dtype, found {dtype}");
         };
 
-        let Some(options) = ext.metadata_opt::<Timestamp>() else {
-            vortex_panic!("must decode TemporalMetadata from extension metadata");
-        };
+        let kind = temporal_kind(&DType::Extension(ext.clone()))?;
 
         if !state.is_valid(index, ctx)? {
             return Ok(Scalar::null(DType::Extension(ext)));
@@ -52,19 +50,29 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
             ctx,
         )?;
 
-        let ts = timestamp::combine(
+        let ts = timestamp::combine_with_divisor(
             TimestampParts {
                 days,
                 seconds,
                 subseconds,
             },
-            options.unit,
+            kind.unit(),
+            subseconds_divisor,
         )?;
 
-        Ok(Scalar::extension::<Timestamp>(
-            options.clone(),
-            Scalar::primitive(ts, ext.storage_dtype().nullability()),
-        ))
+        let nullability = ext.storage_dtype().nullability();
+        let storage_scalar = match ext.storage_dtype().as_ptype() {
+            PType::I32 => {
+                let ts_i32 = i32::try_from(ts).map_err(|_| {
+                    vortex_err!("DateTimeParts value {ts} overflows i32 storage for {ext}")
+                })?;
+                Scalar::primitive(ts_i32, nullability)
+            }
+            PType::I64 => Scalar::primitive(ts, nullability),
+            ptype => vortex_panic!("Unexpected temporal storage ptype {ptype}"),
+        };
+
+        Scalar::try_extension_ref(ext, storage_scalar)
     }
 
     fn scalar_at(
@@ -108,6 +116,7 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 

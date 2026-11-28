@@ -16,7 +16,6 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
@@ -29,6 +28,7 @@ use vortex_mask::AllOr;
 use crate::array::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
+use crate::timestamp::temporal_kind;
 
 impl CompareKernel for DateTimeParts {
     fn compare(
@@ -56,25 +56,71 @@ impl CompareKernel for DateTimeParts {
             return Ok(None);
         };
 
-        let DType::Extension(ext_dtype) = rhs_const.dtype() else {
+        let Ok(kind) = temporal_kind(rhs_const.dtype()) else {
             return Ok(None);
         };
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
-        let Some(options) = ext_dtype.metadata_opt::<Timestamp>() else {
-            return Ok(None);
-        };
+        let ts_parts = timestamp::split(timestamp, kind.unit())?;
+        let divisor = i64::from(lhs.subseconds_divisor());
+        let rhs_sub = i64::from(ts_parts.subseconds);
+        let sub_q = rhs_sub.div_euclid(divisor);
+        let sub_r = rhs_sub.rem_euclid(divisor);
 
-        let ts_parts = timestamp::split(timestamp, options.unit)?;
-
+        // When `sub_r != 0`, `rhs` falls strictly between `sub_q * divisor` and
+        // `(sub_q + 1) * divisor`. Because every value encoded in `lhs` has subseconds that are
+        // an exact multiple of `divisor`, `lhs` can never equal `rhs`:
+        // - `Eq` is false on every valid row, `NotEq` is true on every valid row.
+        // - `s * divisor < sub_q * divisor + sub_r`  <=> `s <= sub_q` (same for `<=`).
+        // - `s * divisor > sub_q * divisor + sub_r`  <=> `s > sub_q`  (same for `>=`).
         let result = match operator {
-            CompareOperator::Eq => compare_eq(lhs, &ts_parts, nullability, ctx)?,
-            CompareOperator::NotEq => compare_ne(lhs, &ts_parts, nullability, ctx)?,
+            CompareOperator::Eq if sub_r != 0 => {
+                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).into_array()
+            }
+            CompareOperator::NotEq if sub_r != 0 => {
+                ConstantArray::new(Scalar::bool(true, nullability), lhs.len()).into_array()
+            }
+            CompareOperator::Eq => compare_eq(
+                lhs,
+                ts_parts.days,
+                i64::from(ts_parts.seconds),
+                sub_q,
+                nullability,
+                ctx,
+            )?,
+            CompareOperator::NotEq => compare_ne(
+                lhs,
+                ts_parts.days,
+                i64::from(ts_parts.seconds),
+                sub_q,
+                nullability,
+                ctx,
+            )?,
             CompareOperator::Lt
             | CompareOperator::Lte
             | CompareOperator::Gt
-            | CompareOperator::Gte => compare_ordered(lhs, &ts_parts, operator, nullability, ctx)?,
+            | CompareOperator::Gte => {
+                let sub_op = if sub_r == 0 {
+                    operator
+                } else {
+                    match operator {
+                        CompareOperator::Lt | CompareOperator::Lte => CompareOperator::Lte,
+                        CompareOperator::Gt | CompareOperator::Gte => CompareOperator::Gt,
+                        CompareOperator::Eq | CompareOperator::NotEq => unreachable!(),
+                    }
+                };
+                compare_ordered(
+                    lhs,
+                    ts_parts.days,
+                    i64::from(ts_parts.seconds),
+                    sub_q,
+                    operator,
+                    sub_op,
+                    nullability,
+                    ctx,
+                )?
+            }
         };
         with_validity(lhs, result, nullability).map(Some)
     }
@@ -100,24 +146,21 @@ fn with_validity(
 
 fn compare_eq(
     lhs: ArrayView<DateTimeParts>,
-    ts_parts: &timestamp::TimestampParts,
+    rhs_days: i64,
+    rhs_seconds: i64,
+    rhs_subseconds: i64,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?
+    let mut comparison = compare_dtp(lhs.days(), rhs_days, CompareOperator::Eq, nullability)?
         .execute::<BoolArray>(ctx)?;
     if valid_rows_all(&comparison, false, ctx)? {
         return Ok(comparison.into_array());
     }
 
-    comparison = compare_dtp(
-        lhs.seconds(),
-        i64::from(ts_parts.seconds),
-        CompareOperator::Eq,
-        nullability,
-    )?
-    .boolean(comparison.into_array(), BooleanOperator::And)?
-    .execute::<BoolArray>(ctx)?;
+    comparison = compare_dtp(lhs.seconds(), rhs_seconds, CompareOperator::Eq, nullability)?
+        .boolean(comparison.into_array(), BooleanOperator::And)?
+        .execute::<BoolArray>(ctx)?;
 
     if valid_rows_all(&comparison, false, ctx)? {
         return Ok(comparison.into_array());
@@ -125,7 +168,7 @@ fn compare_eq(
 
     compare_dtp(
         lhs.subseconds(),
-        i64::from(ts_parts.subseconds),
+        rhs_subseconds,
         CompareOperator::Eq,
         nullability,
     )?
@@ -134,24 +177,21 @@ fn compare_eq(
 
 fn compare_ne(
     lhs: ArrayView<DateTimeParts>,
-    ts_parts: &timestamp::TimestampParts,
+    rhs_days: i64,
+    rhs_seconds: i64,
+    rhs_subseconds: i64,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut comparison = compare_dtp(
-        lhs.days(),
-        ts_parts.days,
-        CompareOperator::NotEq,
-        nullability,
-    )?
-    .execute::<BoolArray>(ctx)?;
+    let mut comparison = compare_dtp(lhs.days(), rhs_days, CompareOperator::NotEq, nullability)?
+        .execute::<BoolArray>(ctx)?;
     if valid_rows_all(&comparison, true, ctx)? {
         return Ok(comparison.into_array());
     }
 
     comparison = compare_dtp(
         lhs.seconds(),
-        i64::from(ts_parts.seconds),
+        rhs_seconds,
         CompareOperator::NotEq,
         nullability,
     )?
@@ -164,7 +204,7 @@ fn compare_ne(
 
     compare_dtp(
         lhs.subseconds(),
-        i64::from(ts_parts.subseconds),
+        rhs_subseconds,
         CompareOperator::NotEq,
         nullability,
     )?
@@ -175,11 +215,16 @@ fn compare_ne(
 ///
 /// `split` gives every timestamp a unique `(days, seconds, subseconds)` triple whose remainders
 /// share the timestamp's sign, so the parts compare lexicographically: the first part that
-/// differs decides, and the last part carries the operator's strictness.
+/// differs decides, and the last part carries `sub_op` (which accounts for any rounding from
+/// `subseconds_divisor`).
+#[expect(clippy::too_many_arguments)]
 fn compare_ordered(
     lhs: ArrayView<DateTimeParts>,
-    ts_parts: &timestamp::TimestampParts,
+    rhs_days: i64,
+    rhs_seconds: i64,
+    rhs_subseconds: i64,
     operator: CompareOperator,
+    sub_op: CompareOperator,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -192,35 +237,20 @@ fn compare_ordered(
     };
 
     let days_strict =
-        compare_dtp(lhs.days(), ts_parts.days, strict, nullability)?.execute::<BoolArray>(ctx)?;
+        compare_dtp(lhs.days(), rhs_days, strict, nullability)?.execute::<BoolArray>(ctx)?;
     if valid_rows_all(&days_strict, true, ctx)? {
         return Ok(days_strict.into_array());
     }
-    let days_eq = compare_dtp(lhs.days(), ts_parts.days, CompareOperator::Eq, nullability)?
+    let days_eq = compare_dtp(lhs.days(), rhs_days, CompareOperator::Eq, nullability)?
         .execute::<BoolArray>(ctx)?;
     if valid_rows_all(&days_eq, false, ctx)? {
         return Ok(days_strict.into_array());
     }
     let (days_strict, days_eq) = (days_strict.into_array(), days_eq.into_array());
 
-    let seconds_strict = compare_dtp(
-        lhs.seconds(),
-        i64::from(ts_parts.seconds),
-        strict,
-        nullability,
-    )?;
-    let seconds_eq = compare_dtp(
-        lhs.seconds(),
-        i64::from(ts_parts.seconds),
-        CompareOperator::Eq,
-        nullability,
-    )?;
-    let subseconds = compare_dtp(
-        lhs.subseconds(),
-        i64::from(ts_parts.subseconds),
-        operator,
-        nullability,
-    )?;
+    let seconds_strict = compare_dtp(lhs.seconds(), rhs_seconds, strict, nullability)?;
+    let seconds_eq = compare_dtp(lhs.seconds(), rhs_seconds, CompareOperator::Eq, nullability)?;
+    let subseconds = compare_dtp(lhs.subseconds(), rhs_subseconds, sub_op, nullability)?;
 
     let within_day = seconds_strict.boolean(
         seconds_eq.boolean(subseconds, BooleanOperator::And)?,
@@ -324,12 +354,14 @@ mod tests {
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::IntegerPType;
+    use vortex_array::extension::datetime::Time;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -840,6 +872,171 @@ mod tests {
             .expect("kernel engages");
             let expected = BoolArray::from_iter([Some(valid), None, Some(valid)]);
             assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn scaled_timestamp_compare_in_between_constants() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let validities = [
+            Validity::NonNullable,
+            Validity::from_iter([true, false, true, true, false, true, true, true, true, true]),
+            Validity::AllInvalid,
+        ];
+        for (unit, expected_divisor) in [
+            (TimeUnit::Microseconds, 1_000u32),
+            (TimeUnit::Nanoseconds, 1_000),
+            (TimeUnit::Nanoseconds, 1_000_000),
+        ] {
+            let tps = timestamp::ticks_per_second(unit)?;
+            let day = 86_400 * tps;
+            let step = i64::from(expected_divisor);
+
+            // Positive, zero, and pre-epoch negative timestamps, all multiples of `step`.
+            let values = vec![
+                -day - tps - 2 * step,
+                -day,
+                -tps - step,
+                -step,
+                0,
+                step,
+                2 * step,
+                tps - step,
+                tps,
+                day + tps + 3 * step,
+            ];
+            let half = step / 2;
+            let mut constants = Vec::new();
+            for &v in &values {
+                constants.extend([v - half, v - 1, v, v + 1, v + half]);
+            }
+            constants.extend([-tps + 1, -tps + half, -1, 1, tps - 1]);
+
+            for validity in &validities {
+                let temporal = TemporalArray::new_timestamp(
+                    PrimitiveArray::new(Buffer::from(values.clone()), validity.clone())
+                        .into_array(),
+                    unit,
+                    Some("UTC".into()),
+                );
+                let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+                if !matches!(validity, Validity::AllInvalid) {
+                    assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+                }
+
+                for &constant in &constants {
+                    let rhs = timestamp_constant(&dtp, constant, dtp.len());
+                    for operator in ALL_OPERATORS {
+                        let actual = <DateTimeParts as CompareKernel>::compare(
+                            dtp.as_view(),
+                            &rhs,
+                            operator,
+                            &mut ctx,
+                        )?
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "datetime-parts compare must engage for {operator:?} on constant {constant}"
+                            )
+                        });
+                        let expected = temporal
+                            .clone()
+                            .into_array()
+                            .compare(rhs.clone(), operator)?;
+                        assert_arrays_eq!(actual, expected, &mut ctx);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn time_constant(unit: TimeUnit, value: i64, len: usize) -> ArrayRef {
+        let storage = match unit {
+            TimeUnit::Seconds | TimeUnit::Milliseconds => {
+                Scalar::primitive(i32::try_from(value).unwrap(), Nullability::NonNullable)
+            }
+            TimeUnit::Microseconds | TimeUnit::Nanoseconds => {
+                Scalar::primitive(value, Nullability::NonNullable)
+            }
+            TimeUnit::Days => unreachable!(),
+        };
+        ConstantArray::new(Scalar::extension::<Time>(unit, storage), len).into_array()
+    }
+
+    #[test]
+    fn time_compare_matches_temporal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for (unit, expected_divisor) in [
+            (TimeUnit::Seconds, 1u32),
+            (TimeUnit::Milliseconds, 1),
+            (TimeUnit::Microseconds, 1),
+            (TimeUnit::Microseconds, 1_000),
+            (TimeUnit::Nanoseconds, 1_000),
+            (TimeUnit::Nanoseconds, 1_000_000),
+        ] {
+            let tps = timestamp::ticks_per_second(unit)?;
+            let step = i64::from(expected_divisor);
+            let raw_values = vec![
+                0,
+                step,
+                tps,
+                3_600 * tps + 2 * step,
+                43_200 * tps + 5 * step,
+                86_399 * tps,
+            ];
+            let max_time = 86_400 * tps - 1;
+            let half = (step / 2).max(1);
+            let mut constants = Vec::new();
+            for &v in &raw_values {
+                for candidate in [v - half, v - 1, v, v + 1, v + half] {
+                    if (0..=max_time).contains(&candidate) {
+                        constants.push(candidate);
+                    }
+                }
+            }
+
+            for nullable in [false, true] {
+                let validity = if nullable {
+                    Validity::from_iter([true, false, true, true, false, true])
+                } else {
+                    Validity::NonNullable
+                };
+                let storage = match unit {
+                    TimeUnit::Seconds | TimeUnit::Milliseconds => PrimitiveArray::new(
+                        Buffer::from_iter(raw_values.iter().map(|&v| i32::try_from(v).unwrap())),
+                        validity,
+                    )
+                    .into_array(),
+                    TimeUnit::Microseconds | TimeUnit::Nanoseconds => {
+                        PrimitiveArray::new(Buffer::from(raw_values.clone()), validity).into_array()
+                    }
+                    TimeUnit::Days => unreachable!(),
+                };
+                let temporal = TemporalArray::new_time(storage, unit);
+                let dtp = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+                assert_eq!(dtp.subseconds_divisor(), expected_divisor);
+
+                for &constant in &constants {
+                    let rhs = time_constant(unit, constant, dtp.len());
+                    for operator in ALL_OPERATORS {
+                        let actual = <DateTimeParts as CompareKernel>::compare(
+                            dtp.as_view(),
+                            &rhs,
+                            operator,
+                            &mut ctx,
+                        )?
+                        .unwrap_or_else(|| {
+                            panic!("compare must engage for Time {unit} {operator:?}")
+                        });
+                        let expected = temporal
+                            .clone()
+                            .into_array()
+                            .compare(rhs.clone(), operator)?;
+                        assert_arrays_eq!(actual, expected, &mut ctx);
+                    }
+                }
+            }
         }
         Ok(())
     }

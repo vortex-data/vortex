@@ -14,8 +14,6 @@ use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
-use vortex_array::dtype::DType;
-use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::scalar::Scalar;
@@ -32,6 +30,7 @@ use vortex_session::VortexSession;
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
+use crate::timestamp::temporal_kind;
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(Filter, DateTimeParts, const { &DTPFilterPushDownRule });
@@ -82,7 +81,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
             return Ok(None);
         }
 
-        DateTimeParts::try_new(
+        DateTimeParts::try_new_with_divisor(
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
@@ -103,6 +102,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
                 parent.filter_mask().true_count(),
             )
             .into_array(),
+            child.subseconds_divisor(),
         )
         .map(|x| Some(x.into_array()))
     }
@@ -187,12 +187,8 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
         .as_::<i64>()?;
 
     // Get the time unit from the dtype
-    let DType::Extension(ext_dtype) = constant.dtype() else {
-        return None;
-    };
-
-    let options = ext_dtype.metadata::<Timestamp>();
-    let ts_parts = timestamp::split(timestamp, options.unit).ok()?;
+    let kind = temporal_kind(constant.dtype()).ok()?;
+    let ts_parts = timestamp::split(timestamp, kind.unit()).ok()?;
 
     // Only allow pushdown if seconds and subseconds are zero
     if ts_parts.seconds != 0 || ts_parts.subseconds != 0 {
@@ -221,14 +217,18 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::extension::datetime::Time;
     use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_functions::between::BetweenOptions;
     use vortex_functions::between::StrictComparison;
     use vortex_mask::Mask;
@@ -621,6 +621,59 @@ mod tests {
             DTPFilterPushDownRule
                 .reduce_parent(dtp.as_view(), filter.as_view(), 0)?
                 .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_pushdown_preserves_subseconds_divisor() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
+        );
+        let dtp = DateTimeParts::try_new_with_divisor(
+            dtype.clone(),
+            PrimitiveArray::from_iter([0i32, 1, 2, 3]).into_array(),
+            ConstantArray::new(10i32, 4).into_array(),
+            ConstantArray::new(250i32, 4).into_array(),
+            1_000,
+        )?;
+        let mask = Mask::from_iter([true, false, true, false]);
+        let filter = FilterArray::try_new(dtp.clone().into_array(), mask)?;
+
+        let reduced = DTPFilterPushDownRule
+            .reduce_parent(dtp.as_view(), filter.as_view(), 0)?
+            .vortex_expect("filter pushdown must fire for constant seconds/subseconds");
+        assert_eq!(reduced.as_::<DateTimeParts>().subseconds_divisor(), 1_000);
+
+        let expected = DateTimeParts::try_new_with_divisor(
+            dtype,
+            PrimitiveArray::from_iter([0i32, 2]).into_array(),
+            ConstantArray::new(10i32, 2).into_array(),
+            ConstantArray::new(250i32, 2).into_array(),
+            1_000,
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(reduced, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_comparison_pushdown_handles_time_constant() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let temporal =
+            TemporalArray::new_time(buffer![0i64, 0, 0].into_array(), TimeUnit::Microseconds);
+        let dtp = DateTimeParts::try_from_temporal_v2(temporal, &mut ctx)?;
+        let rhs = ConstantArray::new(
+            Scalar::extension::<Time>(TimeUnit::Microseconds, 0i64.into()),
+            3,
+        )
+        .into_array();
+        let cmp = Compare::try_new(dtp.into_array(), rhs, CompareOperator::Eq)?.into_array();
+        let optimized = cmp.optimize_ctx(&SESSION)?;
+        assert_arrays_eq!(
+            optimized,
+            BoolArray::from_iter([true, true, true]),
+            &mut ctx
         );
         Ok(())
     }

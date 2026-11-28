@@ -21,7 +21,7 @@ use vortex_session::VortexSession;
 
 /// Initialize datetime-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(DateTimeParts);
+    session.arrays().register(DateTimePartsPlugin);
     compute::kernel::initialize(session);
 
     session.aggregate_fns().register_aggregate_kernel(
@@ -39,6 +39,7 @@ mod test {
     use vortex_array::test_harness::check_metadata;
 
     use crate::DateTimePartsMetadata;
+    use crate::DateTimePartsV2Metadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -49,6 +50,21 @@ mod test {
                 days_ptype: PType::I64 as i32,
                 seconds_ptype: PType::I64 as i32,
                 subseconds_ptype: PType::I64 as i32,
+            }
+            .encode_to_vec(),
+        );
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_datetimeparts_v2_metadata() {
+        check_metadata(
+            "datetimeparts_v2.metadata",
+            &DateTimePartsV2Metadata {
+                days_ptype: PType::I64 as i32,
+                seconds_ptype: PType::I64 as i32,
+                subseconds_ptype: PType::I64 as i32,
+                subseconds_divisor: 1_000,
             }
             .encode_to_vec(),
         );

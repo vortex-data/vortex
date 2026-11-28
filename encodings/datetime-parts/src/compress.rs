@@ -27,13 +27,15 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 
 use crate::timestamp;
+use crate::timestamp::temporal_kind;
 
 /// The day, second, and subsecond components of a temporal array.
 pub struct TemporalParts {
-    /// Days since the Unix epoch, carrying the validity of the original timestamps.
+    /// Days since the Unix epoch (or `0` for `Time` values), carrying the validity of the
+    /// original temporal array.
     ///
     /// Uses `i32` when all non-null days fit, otherwise `i64`.
     pub days: ArrayRef,
@@ -43,19 +45,72 @@ pub struct TemporalParts {
     pub subseconds: ArrayRef,
 }
 
-/// Splits a [`TemporalArray`] into day, second, and subsecond components.
+/// The day, second, and scaled subsecond components of a temporal array.
+pub struct ScaledTemporalParts {
+    /// Days since the Unix epoch (or `0` for `Time` values), carrying the validity of the
+    /// original temporal array.
+    ///
+    /// Uses `i32` when all non-null days fit, otherwise `i64`.
+    pub days: ArrayRef,
+    /// Seconds within the day, with non-nullable storage.
+    pub seconds: ArrayRef,
+    /// Subseconds within the second divided by [`Self::subseconds_divisor`], with non-nullable
+    /// storage.
+    pub subseconds: ArrayRef,
+    /// Power-of-1000 scaling divisor applied to [`Self::subseconds`] (`1`, `1_000`, or
+    /// `1_000_000`).
+    pub subseconds_divisor: u32,
+}
+
+/// Splits a [`TemporalArray`] (`Timestamp` or `Time`) into day, second, and unscaled subsecond
+/// components (`subseconds_divisor = 1`).
 ///
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
 ///
 /// # Errors
 ///
-/// Returns an error for day units or if the storage cannot be executed.
+/// Returns an error for unsupported temporal types, day units, or if the storage cannot be
+/// executed.
 pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<TemporalParts> {
-    let time_unit = array.temporal_metadata().time_unit();
-    if matches!(time_unit, TimeUnit::Days) {
-        vortex_bail!("Cannot handle day-level data");
-    }
+    let ScaledTemporalParts {
+        days,
+        seconds,
+        subseconds,
+        ..
+    } = split_temporal_impl(array, false, ctx)?;
+    Ok(TemporalParts {
+        days,
+        seconds,
+        subseconds,
+    })
+}
+
+/// Splits a [`TemporalArray`] (`Timestamp` or `Time`) into day, second, and optionally scaled
+/// subsecond components.
+///
+/// For `Microseconds` and `Nanoseconds` arrays, inspects only valid (non-null) rows to detect
+/// whether all subseconds are zero or evenly divisible by `1_000_000` (for `Nanoseconds`) or
+/// `1_000` (for `Microseconds` and `Nanoseconds`). When all valid subseconds are zero, emits a
+/// constant-zero subseconds array with `subseconds_divisor = 1`.
+///
+/// # Errors
+///
+/// Returns an error for unsupported temporal types, day units, or if the storage cannot be
+/// executed.
+pub fn split_temporal_v2(
+    array: TemporalArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ScaledTemporalParts> {
+    split_temporal_impl(array, true, ctx)
+}
+
+fn split_temporal_impl(
+    array: TemporalArray,
+    detect_divisor: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ScaledTemporalParts> {
+    let time_unit = temporal_kind(array.dtype())?.unit();
 
     let temporal_values = array
         .temporal_values()
@@ -92,7 +147,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
             seconds.set_len(length);
         }
 
-        return Ok(TemporalParts {
+        return Ok(ScaledTemporalParts {
             days: widen_days_if_needed(
                 PrimitiveArray::new(days.freeze(), temporal_values.validity()?),
                 timestamps,
@@ -102,6 +157,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
             )?,
             seconds: seconds.into_array(),
             subseconds: ConstantArray::new(0, length).into_array(),
+            subseconds_divisor: 1,
         });
     }
 
@@ -128,17 +184,128 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
         subseconds.set_len(length);
     }
 
-    Ok(TemporalParts {
+    let validity = temporal_values.validity()?;
+    let (subseconds_array, subseconds_divisor) =
+        if detect_divisor && matches!(time_unit, TimeUnit::Microseconds | TimeUnit::Nanoseconds) {
+            let mask = validity.execute_mask(length, ctx)?;
+            match detect_subseconds_divisor(subseconds.as_slice(), &mask, time_unit) {
+                DetectedSubseconds::AllZero => (ConstantArray::new(0i32, length).into_array(), 1),
+                DetectedSubseconds::Scaled(divisor) => {
+                    let scaled = match divisor {
+                        1_000_000 => scale_subseconds::<1_000_000>(subseconds, &mask),
+                        1_000 => scale_subseconds::<1_000>(subseconds, &mask),
+                        _ => unreachable!("only 1_000 and 1_000_000 are valid scaled divisors"),
+                    };
+                    (scaled.into_array(), divisor)
+                }
+                DetectedSubseconds::Unscaled => (subseconds.into_array(), 1),
+            }
+        } else {
+            (subseconds.into_array(), 1)
+        };
+
+    Ok(ScaledTemporalParts {
         days: widen_days_if_needed(
-            PrimitiveArray::new(days.freeze(), temporal_values.validity()?),
+            PrimitiveArray::new(days.freeze(), validity),
             timestamps,
             time_unit,
             all_days_fit_i32,
             ctx,
         )?,
         seconds: seconds.into_array(),
-        subseconds: subseconds.into_array(),
+        subseconds: subseconds_array,
+        subseconds_divisor,
     })
+}
+
+enum DetectedSubseconds {
+    /// Every valid row has subseconds == 0 (including empty or all-null arrays).
+    AllZero,
+    /// At least one valid row has non-zero subseconds, and every valid row is divisible by the
+    /// returned power-of-1000 divisor (`1_000` or `1_000_000`).
+    Scaled(u32),
+    /// Valid rows require full resolution (`subseconds_divisor = 1`).
+    Unscaled,
+}
+
+fn detect_subseconds_divisor(
+    subseconds: &[i32],
+    mask: &Mask,
+    time_unit: TimeUnit,
+) -> DetectedSubseconds {
+    let check_1m = matches!(time_unit, TimeUnit::Nanoseconds);
+    let mut any_nonzero = false;
+    let mut div_1m = check_1m;
+    let mut div_1k = true;
+
+    let mut visit = |s: i32| -> bool {
+        if s != 0 {
+            any_nonzero = true;
+            if s % 1_000 != 0 {
+                div_1k = false;
+                div_1m = false;
+                return false;
+            }
+            if div_1m && s % 1_000_000 != 0 {
+                div_1m = false;
+            }
+        }
+        true
+    };
+
+    match mask {
+        Mask::AllFalse(_) => return DetectedSubseconds::AllZero,
+        Mask::AllTrue(_) => {
+            for &s in subseconds {
+                if !visit(s) {
+                    break;
+                }
+            }
+        }
+        Mask::Values(values) => {
+            let _ = values.bit_buffer().try_for_each_set_index(|idx| {
+                if visit(subseconds[idx]) {
+                    Ok(())
+                } else {
+                    Err(())
+                }
+            });
+        }
+    }
+
+    if !any_nonzero {
+        DetectedSubseconds::AllZero
+    } else if div_1m {
+        DetectedSubseconds::Scaled(1_000_000)
+    } else if div_1k {
+        DetectedSubseconds::Scaled(1_000)
+    } else {
+        DetectedSubseconds::Unscaled
+    }
+}
+
+fn scale_subseconds<const DIVISOR: i32>(
+    mut subseconds: BufferMut<i32>,
+    mask: &Mask,
+) -> BufferMut<i32> {
+    match mask {
+        Mask::AllTrue(_) => {
+            for s in subseconds.as_mut_slice() {
+                *s /= DIVISOR;
+            }
+            subseconds
+        }
+        Mask::Values(values) => {
+            let src = subseconds.as_slice();
+            let mut out = BufferMut::<i32>::zeroed(src.len());
+            let dst = out.as_mut_slice();
+            values.bit_buffer().for_each_set_index(|idx| {
+                dst[idx] = src[idx] / DIVISOR;
+            });
+            out
+        }
+        Mask::AllFalse(_) => unreachable!("AllFalse returns DetectedSubseconds::AllZero"),
+    }
 }
 
 /// Keeps widened days only when a non-null day exceeds the `i32` range.
@@ -503,6 +670,78 @@ mod tests {
         assert_eq!(parts.days().dtype().as_ptype(), PType::I32);
         assert_arrays_eq!(parts, temporal, &mut ctx);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_v2_ignores_dirty_null_slots_for_divisor() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Valid rows are all ms-precision in a µs timestamp; null slots hold arbitrary
+        // non-multiple garbage (including negative values).
+        let values = PrimitiveArray::new(
+            buffer![
+                1_700_000_000_000_000i64,
+                1_700_000_000_123_456, // null slot: not multiple of 1_000
+                1_700_000_001_500_000,
+                -987_654_321, // null slot: negative non-multiple
+                -86_400_250_000,
+            ],
+            Validity::from_iter([true, false, true, false, true]),
+        );
+        let temporal = TemporalArray::new_timestamp(
+            values.into_array(),
+            TimeUnit::Microseconds,
+            Some("UTC".into()),
+        );
+        let parts = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+        assert_eq!(parts.subseconds_divisor(), 1_000);
+        // Null slots in scaled subseconds are zeroed so garbage does not leak.
+        let sub_prim = parts
+            .subseconds()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(sub_prim.as_slice::<i32>(), &[0, 0, 500, 0, -250]);
+        assert_arrays_eq!(parts, temporal, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_split_v2_all_zero_valid_subseconds_stays_v1_divisor() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::new(
+            buffer![
+                1_700_000_000_000_000i64,
+                1_700_000_000_123_456, // null slot with non-zero garbage
+                1_700_000_005_000_000,
+            ],
+            Validity::from_iter([true, false, true]),
+        );
+        let temporal =
+            TemporalArray::new_timestamp(values.into_array(), TimeUnit::Microseconds, None);
+        let parts = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+        assert_eq!(parts.subseconds_divisor(), 1);
+        assert!(parts.subseconds().as_constant().is_some());
+        assert_arrays_eq!(parts, temporal, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::all_null(Validity::AllInvalid)]
+    #[case::empty(Validity::NonNullable)]
+    fn test_split_v2_empty_and_all_null_keep_divisor_one(
+        #[case] validity: Validity,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = if matches!(validity, Validity::AllInvalid) {
+            PrimitiveArray::new(buffer![123i64, 456, 789], validity)
+        } else {
+            PrimitiveArray::from_iter(iter::empty::<i64>())
+        };
+        let temporal =
+            TemporalArray::new_timestamp(values.into_array(), TimeUnit::Nanoseconds, None);
+        let parts = DateTimeParts::try_from_temporal_v2(temporal.clone(), &mut ctx)?;
+        assert_eq!(parts.subseconds_divisor(), 1);
+        assert_arrays_eq!(parts, temporal, &mut ctx);
         Ok(())
     }
 }

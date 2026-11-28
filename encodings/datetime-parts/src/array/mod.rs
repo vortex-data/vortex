@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_array::AnyColumnar;
@@ -36,25 +37,35 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::registry::CachedId;
 
+use crate::ScaledTemporalParts;
 use crate::TemporalParts;
 use crate::block::days_block_op;
 use crate::canonical::decode_to_temporal;
 use crate::split_temporal;
+use crate::split_temporal_v2;
+use crate::timestamp::temporal_kind;
+use crate::timestamp::validate_subseconds_divisor;
 
 mod plugin;
+
+pub use plugin::DateTimePartsPlugin;
+pub use plugin::DateTimePartsV2Metadata;
+pub use plugin::datetime_parts_v1_id;
+pub use plugin::datetime_parts_v2_id;
 
 /// A [`DateTimeParts`]-encoded Vortex array.
 pub type DateTimePartsArray = Array<DateTimeParts>;
 
 impl ArrayHash for DateTimePartsData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
+    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
+        self.subseconds_divisor.hash(state);
+    }
 }
 
 impl ArrayEq for DateTimePartsData {
-    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
-        true
+    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
+        self.subseconds_divisor == other.subseconds_divisor
     }
 }
 
@@ -95,19 +106,25 @@ impl VTable for DateTimeParts {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.datetimeparts");
-        *ID
+        datetime_parts_v1_id()
     }
 
     fn validate(
         &self,
-        _data: &Self::TypedArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let slots = DateTimePartsSlotsView::from_slots(slots);
-        DateTimePartsData::validate(dtype, slots.days, slots.seconds, slots.subseconds, len)
+        DateTimePartsData::validate(
+            dtype,
+            slots.days,
+            slots.seconds,
+            slots.subseconds,
+            data.subseconds_divisor,
+            len,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -170,6 +187,7 @@ impl VTable for DateTimeParts {
             child_dtype,
             array.seconds(),
             array.subseconds(),
+            array.subseconds_divisor(),
         ))
     }
 }
@@ -188,12 +206,24 @@ pub struct DateTimePartsSlots {
 }
 
 #[derive(Clone, Debug)]
-pub struct DateTimePartsData {}
+pub struct DateTimePartsData {
+    pub(crate) subseconds_divisor: u32,
+}
+
+impl DateTimePartsData {
+    /// Returns the scaling divisor applied to the `subseconds` child.
+    ///
+    /// Decoded subseconds are `subseconds * subseconds_divisor`.
+    pub fn subseconds_divisor(&self) -> u32 {
+        self.subseconds_divisor
+    }
+}
 
 pub struct DateTimePartsParts {
     pub days: ArrayRef,
     pub seconds: ArrayRef,
     pub subseconds: ArrayRef,
+    pub subseconds_divisor: u32,
 }
 
 pub trait DateTimePartsOwnedExt {
@@ -202,6 +232,7 @@ pub trait DateTimePartsOwnedExt {
 
 impl DateTimePartsOwnedExt for Array<DateTimeParts> {
     fn into_parts(self) -> DateTimePartsParts {
+        let subseconds_divisor = self.subseconds_divisor();
         match self.try_into_parts() {
             Ok(parts) => {
                 let slots = DateTimePartsSlots::from_slots(parts.slots);
@@ -209,6 +240,7 @@ impl DateTimePartsOwnedExt for Array<DateTimeParts> {
                     days: slots.days,
                     seconds: slots.seconds,
                     subseconds: slots.subseconds,
+                    subseconds_divisor,
                 }
             }
             Err(array) => {
@@ -217,6 +249,7 @@ impl DateTimePartsOwnedExt for Array<DateTimeParts> {
                     days: view.days.clone(),
                     seconds: view.seconds.clone(),
                     subseconds: view.subseconds.clone(),
+                    subseconds_divisor,
                 }
             }
         }
@@ -224,7 +257,10 @@ impl DateTimePartsOwnedExt for Array<DateTimeParts> {
 }
 
 impl Display for DateTimePartsData {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.subseconds_divisor != 1 {
+            write!(f, "subseconds_divisor: {}", self.subseconds_divisor)?;
+        }
         Ok(())
     }
 }
@@ -233,23 +269,42 @@ impl Display for DateTimePartsData {
 pub struct DateTimeParts;
 
 impl DateTimeParts {
-    /// Construct a new [`DateTimePartsArray`] from its components.
+    /// Construct a new [`DateTimePartsArray`] from its components with `subseconds_divisor = 1`.
     pub fn try_new(
         dtype: DType,
         days: ArrayRef,
         seconds: ArrayRef,
         subseconds: ArrayRef,
     ) -> VortexResult<DateTimePartsArray> {
+        Self::try_new_with_divisor(dtype, days, seconds, subseconds, 1)
+    }
+
+    /// Construct a new [`DateTimePartsArray`] from its components and subseconds divisor.
+    pub fn try_new_with_divisor(
+        dtype: DType,
+        days: ArrayRef,
+        seconds: ArrayRef,
+        subseconds: ArrayRef,
+        subseconds_divisor: u32,
+    ) -> VortexResult<DateTimePartsArray> {
         let len = days.len();
-        DateTimePartsData::validate(&dtype, &days, &seconds, &subseconds, len)?;
+        DateTimePartsData::validate(
+            &dtype,
+            &days,
+            &seconds,
+            &subseconds,
+            subseconds_divisor,
+            len,
+        )?;
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
-        let data = DateTimePartsData {};
+        let data = DateTimePartsData { subseconds_divisor };
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data, slots))
         })
     }
 
-    /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
+    /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`] with unscaled subseconds
+    /// (`subseconds_divisor = 1`).
     pub fn try_from_temporal(
         temporal: TemporalArray,
         ctx: &mut ExecutionCtx,
@@ -262,6 +317,22 @@ impl DateTimeParts {
         } = split_temporal(temporal, ctx)?;
         Self::try_new(dtype, days, seconds, subseconds)
     }
+
+    /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`], scaling coarse-grained
+    /// subseconds by a power-of-1000 divisor when lossless.
+    pub fn try_from_temporal_v2(
+        temporal: TemporalArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<DateTimePartsArray> {
+        let dtype = temporal.dtype().clone();
+        let ScaledTemporalParts {
+            days,
+            seconds,
+            subseconds,
+            subseconds_divisor,
+        } = split_temporal_v2(temporal, ctx)?;
+        Self::try_new_with_divisor(dtype, days, seconds, subseconds, subseconds_divisor)
+    }
 }
 
 impl DateTimePartsData {
@@ -270,8 +341,12 @@ impl DateTimePartsData {
         days: &ArrayRef,
         seconds: &ArrayRef,
         subseconds: &ArrayRef,
+        subseconds_divisor: u32,
         len: usize,
     ) -> VortexResult<()> {
+        let kind = temporal_kind(dtype)?;
+        validate_subseconds_divisor(kind.unit(), subseconds_divisor)?;
+
         vortex_ensure_eq!(days.len(), len);
 
         if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {

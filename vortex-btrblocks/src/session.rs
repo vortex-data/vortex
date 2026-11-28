@@ -107,8 +107,8 @@ impl Default for CompressionSession {
             // Byte parts are the default, which the dictionary's estimate has to beat.
             &decimal::DecimalDictScheme,
             &decimal::DECIMAL_V1,
-            // Temporal schemes.
-            &temporal::TemporalScheme,
+            // Temporal schemes. `refine` switches to v2 where the v2 ID is allowed.
+            &temporal::TEMPORAL_V1,
             // Fixed-size list schemes.
             &fixed_size_list::FixedSizeListSparseScheme,
         ];

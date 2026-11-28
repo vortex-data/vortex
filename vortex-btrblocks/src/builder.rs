@@ -9,6 +9,7 @@ use vortex_array::ArrayId;
 use vortex_array::VTable;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::Masked;
+use vortex_datetime_parts::datetime_parts_v2_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
@@ -118,9 +119,15 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
-            // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
+            // DateTimeParts v2 (`Time` or scaled subseconds), multi-part DecimalByteParts arrays,
+            // FoR arrays with per-chunk references and BitPacked arrays with per-block bit widths
+            // have no CUDA decode kernel.
+            Self::Cuda => vec![
+                datetime_parts_v2_id(),
+                decimal_byte_parts_v2_id(),
+                for_v2_id(),
+                bitpacked_v2_id(),
+            ],
         }
     }
 }
@@ -351,6 +358,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_datetime_parts::datetime_parts_v1_id;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
     use vortex_edition::EDITION_DECLARATIONS;
@@ -368,6 +376,8 @@ mod tests {
     use crate::CompressionSession;
     use crate::schemes::decimal::DECIMAL_V1;
     use crate::schemes::decimal::DECIMAL_V2;
+    use crate::schemes::temporal::TEMPORAL_V1;
+    use crate::schemes::temporal::TEMPORAL_V2;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<CompressionSession>());
@@ -377,6 +387,9 @@ mod tests {
     #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
     #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
     #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
+    #[case::temporal_v1_id(&TEMPORAL_V1, vec![datetime_parts_v1_id()], true)]
+    #[case::temporal_both_ids(&TEMPORAL_V2, vec![datetime_parts_v1_id(), datetime_parts_v2_id()], true)]
+    #[case::temporal_v2_only(&TEMPORAL_V1, vec![datetime_parts_v2_id()], false)]
     #[case::bitpacking_without_constant(
         &integer::BITPACKING_V1,
         vec![bitpacked_v1_id(), Patched.id()],
