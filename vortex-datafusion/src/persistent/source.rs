@@ -662,6 +662,7 @@ mod tests {
 
     use super::*;
     use crate::convert::exprs::ProcessedProjection;
+    use crate::persistent::pruning::FilePruner;
 
     struct TrackingExpressionConverter {
         inner: DefaultExpressionConverter,
@@ -712,6 +713,19 @@ mod tests {
         VortexSource::new(TableSchema::from(schema), VortexSession::default())
     }
 
+    fn prunes_file(source: &VortexSource, file: &PartitionedFile) -> DFResult<bool> {
+        let predicate = source.full_predicate.clone().expect("pruning predicate");
+        FilePruner::try_new(
+            predicate,
+            source.table_schema.file_schema(),
+            file,
+            Count::new(),
+            Some(Arc::clone(&source.file_pruning_cache)),
+        )
+        .expect("file has pruning statistics")
+        .should_prune()
+    }
+
     #[test]
     fn pushing_filters_rebuilds_cached_file_pruning() -> anyhow::Result<()> {
         let schema = sort_test_schema();
@@ -725,19 +739,7 @@ mod tests {
         statistics.column_statistics[0].min_value = Precision::Exact(ScalarValue::Int32(Some(0)));
         statistics.column_statistics[0].max_value = Precision::Exact(ScalarValue::Int32(Some(20)));
         let file = PartitionedFile::new("file.vortex", 100).with_statistics(Arc::new(statistics));
-        let errors = Count::new();
-        assert_eq!(
-            source.file_pruning_cache.should_prune(
-                source
-                    .full_predicate
-                    .as_ref()
-                    .expect("source has a predicate"),
-                &schema,
-                &file,
-                &errors,
-            ),
-            Some(false)
-        );
+        assert!(!prunes_file(&source, &file)?);
         let added = Arc::new(df_expr::BinaryExpr::new(
             Arc::new(Column::new("a", 0)),
             Operator::Lt,
@@ -748,15 +750,7 @@ mod tests {
         let updated = updated
             .downcast_ref::<VortexSource>()
             .expect("VortexSource");
-        assert_eq!(
-            updated.file_pruning_cache.should_prune(
-                updated.full_predicate.as_ref().expect("updated predicate"),
-                &schema,
-                &file,
-                &errors,
-            ),
-            Some(true)
-        );
+        assert!(prunes_file(updated, &file)?);
         Ok(())
     }
 
@@ -925,17 +919,14 @@ mod tests {
         ));
         let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
         let updated = result.updated_node.expect("expected updated source");
-        let filtered = updated.downcast_ref::<VortexSource>().expect("VortexSource");
+        let filtered = updated
+            .downcast_ref::<VortexSource>()
+            .expect("VortexSource");
         let predicate = filtered.full_predicate.as_ref().expect("pruning predicate");
         let mut stats = Statistics::new_unknown(&schema);
         stats.column_statistics[0].max_value = Precision::Exact(ScalarValue::Int32(Some(5)));
         let file = PartitionedFile::new("file.vortex", 100).with_statistics(Arc::new(stats));
-        assert_eq!(
-            filtered
-                .file_pruning_cache
-                .should_prune(predicate, &schema, &file, &Count::new()),
-            Some(true)
-        );
+        assert!(prunes_file(filtered, &file)?);
         let original_predicate = Arc::downgrade(predicate);
 
         let cleared = filtered.clone().without_predicates();

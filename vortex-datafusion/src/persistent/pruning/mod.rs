@@ -46,7 +46,7 @@ use tokio::sync::OnceCell;
 #[derive(Default)]
 pub(super) struct FilePruningCache {
     kind: OnceLock<CacheKind>,
-    predicate: OnceLock<Option<Arc<PruningPredicate>>>,
+    predicate: OnceLock<CompiledPredicate>,
     dynamic_predicate: RwLock<Option<Arc<VersionedPredicate>>>,
 }
 
@@ -136,41 +136,18 @@ fn is_immutable_node(expression: &PhysicalExprRef) -> bool {
 }
 
 impl FilePruningCache {
-    fn kind(&self, expression: &PhysicalExprRef) -> CacheKind {
-        *self.kind.get_or_init(|| CacheKind::classify(expression))
-    }
-
-    /// `None` delegates dynamic predicates to FilePruner; `Some` is this file's static result.
-    pub(super) fn should_prune(
+    fn static_predicate(
         &self,
-        expression: &PhysicalExprRef,
+        expression: PhysicalExprRef,
         schema: &SchemaRef,
-        file: &PartitionedFile,
         errors: &Count,
-    ) -> Option<bool> {
-        if self.kind(expression) != CacheKind::Static {
-            return None;
+    ) -> Option<&PruningPredicate> {
+        if let Some(compiled) = self.predicate.get() {
+            return compiled.as_deref();
         }
-        // A file without usable statistics must not prevent a later file from compiling the
-        // shared predicate. This matches FilePruner's static-predicate eligibility check.
-        if !file.has_statistics() {
-            return Some(false);
-        }
-        let statistics = file.statistics.as_ref()?;
-        let compiled = match self.predicate.get() {
-            Some(compiled) => compiled,
-            None => {
-                // A cold partition can compile its own predicate rather than blocking a runtime
-                // worker on another partition's compilation. Later files reuse the first result.
-                let compiled = build_pruning_predicate(Arc::clone(expression), schema, errors);
-                self.predicate.get_or_init(|| compiled)
-            }
-        };
-        let Some(predicate) = compiled else {
-            return Some(false);
-        };
-        let statistics = PrunableStatistics::new(vec![Arc::clone(statistics)], Arc::clone(schema));
-        Some(prune_file(predicate, &statistics, errors))
+        // Compile outside the lock so a cold partition cannot block another runtime worker.
+        let compiled = build_pruning_predicate(expression, schema, errors);
+        self.predicate.get_or_init(|| compiled).as_deref()
     }
 
     fn dynamic_predicate(
@@ -178,8 +155,7 @@ impl FilePruningCache {
         expression: &PhysicalExprRef,
         build: impl FnOnce() -> CompiledPredicate,
     ) -> CompiledPredicate {
-        let generation = snapshot_generation(expression);
-        let entry = self.dynamic_entry(expression, generation);
+        let entry = self.dynamic_entry(expression);
         if !entry.shareable {
             return build();
         }
@@ -188,35 +164,31 @@ impl FilePruningCache {
         }
         // Stream polling cannot await another initializer. A competing build remains local.
         let predicate = build();
-        if snapshot_generation(expression) == generation {
+        if snapshot_generation(expression) == entry.generation {
             drop(entry.predicate.set(predicate.clone()));
         }
         predicate
     }
 
-    async fn initial_dynamic_predicate<Fut>(
+    async fn initial_dynamic_predicate(
         &self,
         expression: &PhysicalExprRef,
-        build: impl FnOnce() -> Fut,
-    ) -> CompiledPredicate
-    where
-        Fut: Future<Output = CompiledPredicate>,
-    {
-        let generation = snapshot_generation(expression);
-        let entry = self.dynamic_entry(expression, generation);
+        build: impl Future<Output = CompiledPredicate>,
+    ) -> CompiledPredicate {
+        let entry = self.dynamic_entry(expression);
         if !entry.shareable {
-            return build().await;
+            return build.await;
         }
         match entry
             .predicate
             .get_or_try_init(|| async {
                 // A waiter on an obsolete cell can skip this optional check. Its file watcher
                 // still holds the update, so stream polling will check the new generation.
-                if snapshot_generation(expression) != generation {
+                if snapshot_generation(expression) != entry.generation {
                     return Err(None);
                 }
-                let predicate = build().await;
-                if snapshot_generation(expression) == generation {
+                let predicate = build.await;
+                if snapshot_generation(expression) == entry.generation {
                     Ok(predicate)
                 } else {
                     Err(predicate)
@@ -229,11 +201,8 @@ impl FilePruningCache {
         }
     }
 
-    fn dynamic_entry(
-        &self,
-        expression: &PhysicalExprRef,
-        generation: u64,
-    ) -> Arc<VersionedPredicate> {
+    fn dynamic_entry(&self, expression: &PhysicalExprRef) -> Arc<VersionedPredicate> {
+        let generation = snapshot_generation(expression);
         {
             let cached = self.dynamic_predicate.read();
             if let Some(cached) = cached.as_ref()
@@ -283,31 +252,35 @@ impl FilePruner {
         errors: Count,
         cache: Option<Arc<FilePruningCache>>,
     ) -> Option<Self> {
-        if let Some(pruned) = cache
-            .as_ref()
-            .and_then(|cache| cache.should_prune(&predicate, schema, file, &errors))
-        {
-            return Some(Self::Static(pruned));
-        }
-        let cache = cache.filter(|cache| cache.kind(&predicate) != CacheKind::Uncached);
-        let Some(cache) = cache else {
-            return datafusion_pruning::FilePruner::try_new(predicate, schema, file, errors)
-                .map(Self::DataFusion);
-        };
         let statistics = file.statistics.as_ref()?;
-        let tracking = DynamicFilterTracking::classify(&predicate);
-        if !file.has_statistics() && !tracking.contains_dynamic_filter() {
-            return None;
+        if let Some(cache) = cache {
+            let file_statistics =
+                || PrunableStatistics::new(vec![Arc::clone(statistics)], Arc::clone(schema));
+            match cache.kind.get_or_init(|| CacheKind::classify(&predicate)) {
+                CacheKind::Static => {
+                    if !file.has_statistics() {
+                        return None;
+                    }
+                    let compiled = cache.static_predicate(predicate, schema, &errors)?;
+                    let pruned = prune_file(compiled, &file_statistics(), &errors);
+                    return Some(Self::Static(pruned));
+                }
+                CacheKind::Dynamic => {
+                    return Some(Self::Shared(SharedFilePruner {
+                        tracking: DynamicFilterTracking::classify(&predicate),
+                        predicate,
+                        checked_once: false,
+                        schema: Arc::clone(schema),
+                        statistics: file_statistics(),
+                        errors,
+                        cache,
+                    }));
+                }
+                CacheKind::Uncached => {}
+            }
         }
-        Some(Self::Shared(SharedFilePruner {
-            predicate,
-            tracking,
-            checked_once: false,
-            schema: Arc::clone(schema),
-            statistics: PrunableStatistics::new(vec![Arc::clone(statistics)], Arc::clone(schema)),
-            errors,
-            cache,
-        }))
+        datafusion_pruning::FilePruner::try_new(predicate, schema, file, errors)
+            .map(Self::DataFusion)
     }
 
     pub(super) fn is_watching(&self) -> bool {
@@ -328,9 +301,8 @@ impl FilePruner {
 
     pub(super) async fn should_prune_initial(&mut self) -> DFResult<bool> {
         match self {
-            Self::Static(pruned) => Ok(std::mem::take(pruned)),
             Self::Shared(pruner) => Ok(pruner.should_prune_initial().await),
-            Self::DataFusion(pruner) => pruner.should_prune(),
+            _ => self.should_prune(),
         }
     }
 }
@@ -347,18 +319,17 @@ pub(super) struct SharedFilePruner {
 
 impl SharedFilePruner {
     fn needs_check(&mut self) -> bool {
-        if self.checked_once {
-            if !self
-                .tracking
-                .watcher()
-                .is_some_and(|watcher| watcher.changed())
-            {
-                return false;
-            }
-        } else {
+        if !self.checked_once {
             self.checked_once = true;
+            return true;
         }
-        true
+        self.tracking
+            .watcher()
+            .is_some_and(|watcher| watcher.changed())
+    }
+
+    fn compile(&self) -> CompiledPredicate {
+        build_pruning_predicate(Arc::clone(&self.predicate), &self.schema, &self.errors)
     }
 
     fn should_prune(&mut self) -> bool {
@@ -366,9 +337,7 @@ impl SharedFilePruner {
             return false;
         }
         self.cache
-            .dynamic_predicate(&self.predicate, || {
-                build_pruning_predicate(Arc::clone(&self.predicate), &self.schema, &self.errors)
-            })
+            .dynamic_predicate(&self.predicate, || self.compile())
             .is_some_and(|predicate| prune_file(&predicate, &self.statistics, &self.errors))
     }
 
@@ -377,9 +346,7 @@ impl SharedFilePruner {
             return false;
         }
         self.cache
-            .initial_dynamic_predicate(&self.predicate, || async {
-                build_pruning_predicate(Arc::clone(&self.predicate), &self.schema, &self.errors)
-            })
+            .initial_dynamic_predicate(&self.predicate, async { self.compile() })
             .await
             .is_some_and(|predicate| prune_file(&predicate, &self.statistics, &self.errors))
     }

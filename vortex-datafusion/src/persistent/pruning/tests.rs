@@ -33,8 +33,8 @@ use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::BinaryExpr;
 use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
-use datafusion_physical_expr::expressions::Literal;
 use datafusion_physical_expr::expressions::NotExpr;
+use datafusion_physical_expr::expressions::lit;
 use datafusion_physical_plan::joins::HashExpr;
 use datafusion_physical_plan::joins::SeededRandomState;
 use datafusion_physical_plan::metrics::Count;
@@ -45,6 +45,7 @@ use tokio::sync::Barrier;
 use vortex::error::VortexExpect;
 
 use super::CacheKind;
+use super::CompiledPredicate;
 use super::FilePruner;
 use super::FilePruningCache;
 use super::prune_file;
@@ -53,27 +54,54 @@ fn schema() -> SchemaRef {
     Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]))
 }
 
-fn predicate() -> PhysicalExprRef {
-    greater_than(10)
+fn column() -> PhysicalExprRef {
+    Arc::new(Column::new("a", 0))
 }
 
 fn greater_than(value: i32) -> PhysicalExprRef {
-    Arc::new(BinaryExpr::new(
-        Arc::new(Column::new("a", 0)),
-        Operator::Gt,
-        Arc::new(Literal::new(ScalarValue::Int32(Some(value)))),
-    ))
+    Arc::new(BinaryExpr::new(column(), Operator::Gt, lit(value)))
 }
 
-fn file(schema: &Schema, max: i32) -> PartitionedFile {
-    file_range(schema, 0, max)
+fn dynamic_filter(body: PhysicalExprRef) -> Arc<DynamicFilterPhysicalExpr> {
+    Arc::new(DynamicFilterPhysicalExpr::new(vec![column()], body))
 }
 
-fn file_range(schema: &Schema, min: i32, max: i32) -> PartitionedFile {
-    let mut statistics = Statistics::new_unknown(schema);
+fn compile(expression: &PhysicalExprRef, errors: &Count) -> CompiledPredicate {
+    build_pruning_predicate(Arc::clone(expression), &schema(), errors)
+}
+
+fn cached_generation_is_initialized(cache: &FilePruningCache) -> bool {
+    cache
+        .dynamic_predicate
+        .read()
+        .as_ref()
+        .vortex_expect("a generation was requested")
+        .predicate
+        .get()
+        .is_some()
+}
+
+fn file(max: i32) -> PartitionedFile {
+    file_range(0, max)
+}
+
+fn file_range(min: i32, max: i32) -> PartitionedFile {
+    let mut statistics = Statistics::new_unknown(&schema());
     statistics.column_statistics[0].min_value = Precision::Exact(ScalarValue::Int32(Some(min)));
     statistics.column_statistics[0].max_value = Precision::Exact(ScalarValue::Int32(Some(max)));
     PartitionedFile::new("file.vortex", 100).with_statistics(Arc::new(statistics))
+}
+
+fn file_statistics(max: i32) -> PrunableStatistics {
+    PrunableStatistics::new(
+        vec![file(max).statistics.vortex_expect("file statistics")],
+        schema(),
+    )
+}
+
+fn unknown_file() -> PartitionedFile {
+    PartitionedFile::new("unknown.vortex", 100)
+        .with_statistics(Arc::new(Statistics::new_unknown(&schema())))
 }
 
 #[derive(Debug)]
@@ -162,7 +190,7 @@ fn scalar_function_volatility_controls_sharing(
     #[case] expected: CacheKind,
 ) -> DFResult<()> {
     let arguments = if column_argument {
-        vec![Arc::new(Column::new("a", 0)) as PhysicalExprRef]
+        vec![column()]
     } else {
         Vec::new()
     };
@@ -182,11 +210,11 @@ fn immutable_wrappers_still_check_their_children(
 ) -> DFResult<()> {
     let child = if custom_child {
         Arc::new(CustomSnapshotExpr {
-            state: RwLock::new((0, predicate())),
+            state: RwLock::new((0, greater_than(10))),
             versioned: false,
         }) as PhysicalExprRef
     } else {
-        Arc::new(Column::new("a", 0)) as PhysicalExprRef
+        column()
     };
     let function = Arc::new(ScalarFunctionExpr::try_new(
         coalesce(),
@@ -209,19 +237,27 @@ fn immutable_wrappers_still_check_their_children(
     Ok(())
 }
 
+fn file_pruner(
+    cache: &Arc<FilePruningCache>,
+    expression: &PhysicalExprRef,
+    file: &PartitionedFile,
+    errors: Count,
+) -> Option<FilePruner> {
+    FilePruner::try_new(
+        Arc::clone(expression),
+        &schema(),
+        file,
+        errors,
+        Some(Arc::clone(cache)),
+    )
+}
+
 async fn initial_file_check(
     cache: &Arc<FilePruningCache>,
     expression: &PhysicalExprRef,
-    schema: &SchemaRef,
     file: &PartitionedFile,
 ) -> DFResult<bool> {
-    match FilePruner::try_new(
-        Arc::clone(expression),
-        schema,
-        file,
-        Count::new(),
-        Some(Arc::clone(cache)),
-    ) {
+    match file_pruner(cache, expression, file, Count::new()) {
         Some(mut pruner) => pruner.should_prune_initial().await,
         None => Ok(false),
     }
@@ -232,21 +268,17 @@ async fn initial_file_check(
 async fn cached_decisions_match_datafusion(#[values(false, true)] dynamic: bool) -> DFResult<()> {
     let cache = Arc::new(FilePruningCache::default());
     let schema = schema();
-    let filter = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    ));
+    let filter = dynamic_filter(greater_than(10));
     let expression = if dynamic {
         Arc::clone(&filter) as PhysicalExprRef
     } else {
-        predicate()
+        greater_than(10)
     };
     let files = [
-        file(&schema, 5),
-        file(&schema, 20),
-        file(&schema, 40),
-        PartitionedFile::new("unknown.vortex", 100)
-            .with_statistics(Arc::new(Statistics::new_unknown(&schema))),
+        file(5),
+        file(20),
+        file(40),
+        unknown_file(),
         PartitionedFile::new("absent.vortex", 100),
     ];
     for bound in [10, 30] {
@@ -262,7 +294,7 @@ async fn cached_decisions_match_datafusion(#[values(false, true)] dynamic: bool)
             .transpose()?
             .unwrap_or(false);
             assert_eq!(
-                initial_file_check(&cache, &expression, &schema, file).await?,
+                initial_file_check(&cache, &expression, file).await?,
                 original,
             );
         }
@@ -285,11 +317,10 @@ async fn custom_snapshots_are_refreshed_for_each_file(
     #[values(false, true)] with_builtin_dynamic: bool,
 ) -> DFResult<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
     let initial = if initially_true {
-        Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))) as PhysicalExprRef
+        lit(true)
     } else {
-        predicate()
+        greater_than(10)
     };
     let custom = Arc::new(CustomSnapshotExpr {
         state: RwLock::new((1, initial)),
@@ -300,24 +331,21 @@ async fn custom_snapshots_are_refreshed_for_each_file(
         Arc::new(BinaryExpr::new(
             custom_expression,
             Operator::And,
-            Arc::new(DynamicFilterPhysicalExpr::new(
-                vec![Arc::new(Column::new("a", 0))],
-                Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
-            )),
+            dynamic_filter(lit(true)),
         )) as PhysicalExprRef
     } else {
         custom_expression
     };
-    let first = file(&schema, maximum);
+    let first = file(maximum);
     let mut second = first.clone();
     second.object_meta.location = "second.vortex".into();
     assert_eq!(
-        initial_file_check(&cache, &expression, &schema, &first).await?,
+        initial_file_check(&cache, &expression, &first).await?,
         initial_pruned
     );
     custom.update(greater_than(updated_bound));
     assert_eq!(
-        initial_file_check(&cache, &expression, &schema, &second).await?,
+        initial_file_check(&cache, &expression, &second).await?,
         updated_pruned
     );
     Ok(())
@@ -337,50 +365,43 @@ async fn nested_dynamic_filters_use_current_bounds_for_each_file(
     #[values(false, true)] hidden_from_start: bool,
 ) -> DFResult<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
-    let inner = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Literal::new(ScalarValue::Int32(Some(0))))],
-        Arc::new(Literal::new(ScalarValue::Int32(Some(10)))),
-    ));
+    let inner = Arc::new(DynamicFilterPhysicalExpr::new(vec![lit(0)], lit(10)));
     let body = Arc::new(BinaryExpr::new(
-        Arc::new(Column::new("a", 0)),
+        column(),
         Operator::Gt,
         Arc::clone(&inner) as PhysicalExprRef,
     )) as PhysicalExprRef;
-    let outer = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        if hidden_from_start {
-            Arc::clone(&body)
-        } else {
-            predicate()
-        },
-    ));
+    let outer = dynamic_filter(if hidden_from_start {
+        Arc::clone(&body)
+    } else {
+        greater_than(10)
+    });
     let expression = Arc::clone(&outer) as PhysicalExprRef;
-    let file = file(&schema, maximum);
+    let file = file(maximum);
     assert_eq!(
-        initial_file_check(&cache, &expression, &schema, &file).await?,
+        initial_file_check(&cache, &expression, &file).await?,
         initial_pruned
     );
     if !hidden_from_start {
         outer.update(body)?;
         assert_eq!(
-            initial_file_check(&cache, &expression, &schema, &file).await?,
+            initial_file_check(&cache, &expression, &file).await?,
             initial_pruned
         );
     }
-    inner.update(Arc::new(Literal::new(ScalarValue::Int32(Some(new_bound)))))?;
+    inner.update(lit(new_bound))?;
     let mut next_file = file;
     next_file.object_meta.location = "next.vortex".into();
     let mut reference = datafusion_pruning::FilePruner::try_new(
         Arc::clone(&expression),
-        &schema,
+        &schema(),
         &next_file,
         Count::new(),
     )
     .vortex_expect("file has statistics");
     assert_eq!(reference.should_prune()?, updated_pruned);
     assert_eq!(
-        initial_file_check(&cache, &expression, &schema, &next_file).await?,
+        initial_file_check(&cache, &expression, &next_file).await?,
         updated_pruned
     );
     Ok(())
@@ -389,34 +410,21 @@ async fn nested_dynamic_filters_use_current_bounds_for_each_file(
 #[tokio::test]
 async fn negated_dynamic_filter_uses_per_file_snapshots() -> DFResult<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
-    let inner = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Literal::new(ScalarValue::Int32(Some(0))))],
-        Arc::new(Literal::new(ScalarValue::Int32(Some(10)))),
-    ));
-    let outer = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        Arc::new(BinaryExpr::new(
-            Arc::new(Column::new("a", 0)),
-            Operator::Gt,
-            Arc::clone(&inner) as PhysicalExprRef,
-        )),
-    ));
+    let inner = Arc::new(DynamicFilterPhysicalExpr::new(vec![lit(0)], lit(10)));
+    let outer = dynamic_filter(Arc::new(BinaryExpr::new(
+        column(),
+        Operator::Gt,
+        Arc::clone(&inner) as PhysicalExprRef,
+    )));
     let expression = Arc::new(NotExpr::new(outer)) as PhysicalExprRef;
-    let file = file_range(&schema, 15, 20);
+    let file = file_range(15, 20);
     assert!(matches!(
-        FilePruner::try_new(
-            Arc::clone(&expression),
-            &schema,
-            &file,
-            Count::new(),
-            Some(Arc::clone(&cache)),
-        ),
+        file_pruner(&cache, &expression, &file, Count::new()),
         Some(FilePruner::DataFusion(_))
     ));
-    assert!(initial_file_check(&cache, &expression, &schema, &file).await?);
-    inner.update(Arc::new(Literal::new(ScalarValue::Int32(Some(30)))))?;
-    assert!(!initial_file_check(&cache, &expression, &schema, &file).await?);
+    assert!(initial_file_check(&cache, &expression, &file).await?);
+    inner.update(lit(30))?;
+    assert!(!initial_file_check(&cache, &expression, &file).await?);
     Ok(())
 }
 
@@ -431,79 +439,56 @@ fn dynamic_filter_composition_preserves_refinement(
     #[case] positive: bool,
     #[case] expected: CacheKind,
 ) {
-    let filter = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    )) as PhysicalExprRef;
-    let expression = Arc::new(BinaryExpr::new(
-        filter,
+    let expression: PhysicalExprRef = Arc::new(BinaryExpr::new(
+        dynamic_filter(greater_than(10)),
         operator,
-        Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
-    )) as PhysicalExprRef;
+        lit(true),
+    ));
     let expression = if positive {
         expression
     } else {
-        Arc::new(NotExpr::new(expression)) as PhysicalExprRef
+        Arc::new(NotExpr::new(expression))
     };
     assert_eq!(CacheKind::classify(&expression), expected);
 }
 
 #[test]
-fn shared_predicate_evaluates_each_file_statistics() {
-    let cache = FilePruningCache::default();
-    let schema = schema();
-    let predicate = predicate();
+fn shared_predicate_evaluates_each_file_statistics() -> DFResult<()> {
+    let cache = Arc::new(FilePruningCache::default());
+    let predicate = greater_than(10);
     let errors = Count::new();
     for (max, expected) in [(5, true), (20, false), (5, true)] {
-        assert_eq!(
-            cache.should_prune(&predicate, &schema, &file(&schema, max), &errors),
-            Some(expected)
-        );
+        let mut pruner = file_pruner(&cache, &predicate, &file(max), errors.clone())
+            .vortex_expect("file has statistics");
+        assert_eq!(pruner.should_prune()?, expected);
     }
     assert_eq!(errors.value(), 0);
+    Ok(())
 }
 
-#[test]
-fn missing_statistics_do_not_disable_later_pruning() {
-    let cache = FilePruningCache::default();
-    let schema = schema();
-    let predicate = predicate();
-    let errors = Count::new();
-    let unknown = PartitionedFile::new("unknown.vortex", 100)
-        .with_statistics(Arc::new(Statistics::new_unknown(&schema)));
-    for file in [PartitionedFile::new("absent.vortex", 100), unknown] {
-        assert_eq!(
-            cache.should_prune(&predicate, &schema, &file, &errors),
-            Some(false)
-        );
+#[tokio::test]
+async fn missing_statistics_do_not_disable_later_pruning() -> DFResult<()> {
+    let cache = Arc::new(FilePruningCache::default());
+    let predicate = greater_than(10);
+    for file in [PartitionedFile::new("absent.vortex", 100), unknown_file()] {
+        assert!(!initial_file_check(&cache, &predicate, &file).await?);
         assert!(cache.predicate.get().is_none());
     }
-    assert_eq!(
-        cache.should_prune(&predicate, &schema, &file(&schema, 5), &errors),
-        Some(true)
-    );
+    assert!(initial_file_check(&cache, &predicate, &file(5)).await?);
+    assert!(cache.predicate.get().is_some());
+    Ok(())
 }
 
-#[test]
-fn dynamic_predicates_keep_their_file_pruners() -> anyhow::Result<()> {
-    let cache = FilePruningCache::default();
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
-    ));
+#[tokio::test]
+async fn dynamic_predicates_keep_their_file_pruners() -> DFResult<()> {
+    let cache = Arc::new(FilePruningCache::default());
+    let dynamic = dynamic_filter(lit(true));
     let expression = Arc::clone(&dynamic) as PhysicalExprRef;
-    let errors = Count::new();
-    assert_eq!(
-        cache.should_prune(&expression, &schema, &file(&schema, 5), &errors),
-        None
-    );
-    dynamic.update(predicate())?;
+    let file = file(5);
+    assert!(!initial_file_check(&cache, &expression, &file).await?);
+    dynamic.update(greater_than(10))?;
     dynamic.mark_complete();
-    assert_eq!(
-        cache.should_prune(&expression, &schema, &file(&schema, 5), &errors),
-        None
-    );
+    assert!(initial_file_check(&cache, &expression, &file).await?);
     assert!(cache.predicate.get().is_none());
     Ok(())
 }
@@ -511,29 +496,13 @@ fn dynamic_predicates_keep_their_file_pruners() -> anyhow::Result<()> {
 #[test]
 fn dynamic_pruners_share_compilation_and_watch_each_file() -> anyhow::Result<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
-    ));
+    let dynamic = dynamic_filter(lit(true));
     let expression = Arc::clone(&dynamic) as PhysicalExprRef;
     let errors = Count::new();
-    let mut small = FilePruner::try_new(
-        Arc::clone(&expression),
-        &schema,
-        &file(&schema, 5),
-        errors.clone(),
-        Some(Arc::clone(&cache)),
-    )
-    .vortex_expect("file statistics exist");
-    let mut large = FilePruner::try_new(
-        Arc::clone(&expression),
-        &schema,
-        &file(&schema, 20),
-        errors.clone(),
-        Some(Arc::clone(&cache)),
-    )
-    .vortex_expect("file statistics exist");
+    let mut small = file_pruner(&cache, &expression, &file(5), errors.clone())
+        .vortex_expect("file statistics exist");
+    let mut large = file_pruner(&cache, &expression, &file(20), errors.clone())
+        .vortex_expect("file statistics exist");
     assert!(small.is_watching());
     assert!(!small.should_prune()?);
     assert!(!large.should_prune()?);
@@ -543,7 +512,7 @@ fn dynamic_pruners_share_compilation_and_watch_each_file() -> anyhow::Result<()>
             .is_none()
     );
 
-    dynamic.update(predicate())?;
+    dynamic.update(greater_than(10))?;
     assert!(small.should_prune()?);
     assert!(!large.should_prune()?);
     let compiled = cache
@@ -564,42 +533,24 @@ fn dynamic_pruners_share_compilation_and_watch_each_file() -> anyhow::Result<()>
 }
 
 #[rstest]
-#[case(false)]
-#[case(true)]
-fn completed_dynamic_filters_are_checked(#[case] initially_complete: bool) -> anyhow::Result<()> {
+fn completed_dynamic_filters_are_checked(
+    #[values(false, true)] initially_complete: bool,
+) -> anyhow::Result<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))),
-    ));
+    let dynamic = dynamic_filter(lit(true));
     if initially_complete {
-        dynamic.update(predicate())?;
+        dynamic.update(greater_than(10))?;
         dynamic.mark_complete();
     }
     let expression = Arc::clone(&dynamic) as PhysicalExprRef;
-    let unknown = PartitionedFile::new("unknown.vortex", 100)
-        .with_statistics(Arc::new(Statistics::new_unknown(&schema)));
-    let mut unknown = FilePruner::try_new(
-        Arc::clone(&expression),
-        &schema,
-        &unknown,
-        Count::new(),
-        Some(Arc::clone(&cache)),
-    )
-    .vortex_expect("dynamic predicates accept unknown statistics");
-    let mut pruner = FilePruner::try_new(
-        expression,
-        &schema,
-        &file(&schema, 5),
-        Count::new(),
-        Some(cache),
-    )
-    .vortex_expect("file statistics exist");
+    let mut unknown = file_pruner(&cache, &expression, &unknown_file(), Count::new())
+        .vortex_expect("dynamic predicates accept unknown statistics");
+    let mut pruner = file_pruner(&cache, &expression, &file(5), Count::new())
+        .vortex_expect("file statistics exist");
     assert_eq!(pruner.is_watching(), !initially_complete);
     if !initially_complete {
         assert!(!pruner.should_prune()?);
-        dynamic.update(predicate())?;
+        dynamic.update(greater_than(10))?;
         dynamic.mark_complete();
     }
     assert!(pruner.should_prune()?);
@@ -609,54 +560,29 @@ fn completed_dynamic_filters_are_checked(#[case] initially_complete: bool) -> an
 }
 
 #[rstest]
-#[case(false)]
-#[case(true)]
 fn changing_generation_during_compilation_is_not_published(
-    #[case] publish_newer: bool,
+    #[values(false, true)] publish_newer: bool,
 ) -> anyhow::Result<()> {
     let cache = FilePruningCache::default();
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    ));
+    let dynamic = dynamic_filter(greater_than(10));
     let expression = Arc::clone(&dynamic) as PhysicalExprRef;
     let errors = Count::new();
     let previous = cache
         .dynamic_predicate(&expression, || {
-            let compiled = build_pruning_predicate(Arc::clone(&expression), &schema, &errors);
+            let compiled = compile(&expression, &errors);
             dynamic.update(greater_than(30)).expect("valid update");
             if publish_newer {
-                drop(cache.dynamic_predicate(&expression, || {
-                    build_pruning_predicate(Arc::clone(&expression), &schema, &errors)
-                }));
+                drop(cache.dynamic_predicate(&expression, || compile(&expression, &errors)));
             }
             compiled
         })
         .vortex_expect("bounds are prunable");
-    assert_eq!(
-        cache
-            .dynamic_predicate
-            .read()
-            .as_ref()
-            .and_then(|entry| entry.predicate.get())
-            .is_some(),
-        publish_newer
-    );
+    assert_eq!(cached_generation_is_initialized(&cache), publish_newer);
     let current = cache
-        .dynamic_predicate(&expression, || {
-            build_pruning_predicate(Arc::clone(&expression), &schema, &errors)
-        })
+        .dynamic_predicate(&expression, || compile(&expression, &errors))
         .vortex_expect("updated bounds are prunable");
     assert!(!Arc::ptr_eq(&previous, &current));
-    let statistics = PrunableStatistics::new(
-        vec![
-            file(&schema, 20)
-                .statistics
-                .vortex_expect("file statistics"),
-        ],
-        schema,
-    );
+    let statistics = file_statistics(20);
     assert!(!prune_file(&previous, &statistics, &errors));
     assert!(prune_file(&current, &statistics, &errors));
     Ok(())
@@ -665,19 +591,14 @@ fn changing_generation_during_compilation_is_not_published(
 #[tokio::test]
 async fn concurrent_initial_checks_compile_once() {
     let cache = FilePruningCache::default();
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    ));
-    let expression = dynamic as PhysicalExprRef;
+    let expression: PhysicalExprRef = dynamic_filter(greater_than(10));
     let errors = Count::new();
     let (first, second) = futures::join!(
-        cache.initial_dynamic_predicate(&expression, || async {
+        cache.initial_dynamic_predicate(&expression, async {
             tokio::task::yield_now().await;
-            build_pruning_predicate(Arc::clone(&expression), &schema, &errors)
+            compile(&expression, &errors)
         }),
-        cache.initial_dynamic_predicate(&expression, || async {
+        cache.initial_dynamic_predicate(&expression, async {
             panic!("the second file must await the first compilation")
         })
     );
@@ -690,33 +611,24 @@ async fn concurrent_initial_checks_compile_once() {
 #[tokio::test]
 async fn canceled_initializer_allows_waiter_to_take_over() -> anyhow::Result<()> {
     let cache = FilePruningCache::default();
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    ));
-    let expression = dynamic as PhysicalExprRef;
+    let expression: PhysicalExprRef = dynamic_filter(greater_than(10));
     let errors = Count::new();
-    let mut initializer = Box::pin(cache.initial_dynamic_predicate(&expression, || async {
+    let mut initializer = Box::pin(cache.initial_dynamic_predicate(&expression, async {
         pending::<()>().await;
         unreachable!("initializer must be canceled")
     }));
     assert!(futures::poll!(&mut initializer).is_pending());
-    let mut waiter = Box::pin(cache.initial_dynamic_predicate(&expression, || async {
-        build_pruning_predicate(Arc::clone(&expression), &schema, &errors)
+    let mut waiter = Box::pin(cache.initial_dynamic_predicate(&expression, async {
+        compile(&expression, &errors)
     }));
     assert!(futures::poll!(&mut waiter).is_pending());
     drop(initializer);
     let compiled = tokio::time::timeout(Duration::from_secs(5), waiter)
         .await?
         .vortex_expect("the waiter compiles the bounds");
-    let statistics = PrunableStatistics::new(
-        vec![file(&schema, 5).statistics.vortex_expect("file statistics")],
-        Arc::clone(&schema),
-    );
-    assert!(prune_file(&compiled, &statistics, &errors));
+    assert!(prune_file(&compiled, &file_statistics(5), &errors));
     let cached = cache
-        .initial_dynamic_predicate(&expression, || async {
+        .initial_dynamic_predicate(&expression, async {
             panic!("the waiter's result must be published")
         })
         .await
@@ -729,27 +641,22 @@ async fn canceled_initializer_allows_waiter_to_take_over() -> anyhow::Result<()>
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn initial_checks_share_compilation_across_workers() -> anyhow::Result<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
-    let expression = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    )) as PhysicalExprRef;
+    let expression: PhysicalExprRef = dynamic_filter(greater_than(10));
     let builds = Arc::new(AtomicUsize::new(0));
     let start = Arc::new(Barrier::new(16));
     let tasks = (0..16)
         .map(|_| {
             let cache = Arc::clone(&cache);
-            let schema = Arc::clone(&schema);
             let expression = Arc::clone(&expression);
             let builds = Arc::clone(&builds);
             let start = Arc::clone(&start);
             tokio::spawn(async move {
                 start.wait().await;
                 cache
-                    .initial_dynamic_predicate(&expression, || async {
+                    .initial_dynamic_predicate(&expression, async {
                         builds.fetch_add(1, Ordering::Relaxed);
                         tokio::task::yield_now().await;
-                        build_pruning_predicate(Arc::clone(&expression), &schema, &Count::new())
+                        compile(&expression, &Count::new())
                     })
                     .await
                     .vortex_expect("bounds are prunable")
@@ -768,24 +675,14 @@ async fn initial_checks_share_compilation_across_workers() -> anyhow::Result<()>
 #[tokio::test]
 async fn update_and_completion_while_awaiting_remain_visible() -> anyhow::Result<()> {
     let cache = Arc::new(FilePruningCache::default());
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    ));
+    let dynamic = dynamic_filter(greater_than(10));
     let expression = Arc::clone(&dynamic) as PhysicalExprRef;
     let errors = Count::new();
-    let mut pruner = FilePruner::try_new(
-        Arc::clone(&expression),
-        &schema,
-        &file(&schema, 20),
-        errors.clone(),
-        Some(Arc::clone(&cache)),
-    )
-    .vortex_expect("file statistics exist");
+    let mut pruner = file_pruner(&cache, &expression, &file(20), errors.clone())
+        .vortex_expect("file statistics exist");
     let (_, initial) = futures::join!(
-        cache.initial_dynamic_predicate(&expression, || async {
-            let previous = build_pruning_predicate(Arc::clone(&expression), &schema, &errors);
+        cache.initial_dynamic_predicate(&expression, async {
+            let previous = compile(&expression, &errors);
             tokio::task::yield_now().await;
             dynamic.update(greater_than(30)).expect("valid update");
             dynamic.mark_complete();
@@ -794,16 +691,7 @@ async fn update_and_completion_while_awaiting_remain_visible() -> anyhow::Result
         pruner.should_prune_initial(),
     );
     assert!(!initial?);
-    assert!(
-        cache
-            .dynamic_predicate
-            .read()
-            .as_ref()
-            .vortex_expect("an old generation was requested")
-            .predicate
-            .get()
-            .is_none()
-    );
+    assert!(!cached_generation_is_initialized(&cache));
     assert!(pruner.should_prune()?);
     assert_eq!(errors.value(), 0);
     Ok(())
@@ -812,32 +700,16 @@ async fn update_and_completion_while_awaiting_remain_visible() -> anyhow::Result
 #[tokio::test]
 async fn stream_check_does_not_wait_for_initial_compilation() {
     let cache = FilePruningCache::default();
-    let schema = schema();
-    let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![Arc::new(Column::new("a", 0))],
-        predicate(),
-    ));
-    let expression = dynamic as PhysicalExprRef;
+    let expression: PhysicalExprRef = dynamic_filter(greater_than(10));
     let errors = Count::new();
     let (initial, stream) = futures::join!(
-        cache.initial_dynamic_predicate(&expression, || async {
+        cache.initial_dynamic_predicate(&expression, async {
             tokio::task::yield_now().await;
-            build_pruning_predicate(Arc::clone(&expression), &schema, &errors)
+            compile(&expression, &errors)
         }),
         async {
-            let local = cache.dynamic_predicate(&expression, || {
-                build_pruning_predicate(Arc::clone(&expression), &schema, &errors)
-            });
-            assert!(
-                cache
-                    .dynamic_predicate
-                    .read()
-                    .as_ref()
-                    .vortex_expect("generation exists")
-                    .predicate
-                    .get()
-                    .is_none()
-            );
+            let local = cache.dynamic_predicate(&expression, || compile(&expression, &errors));
+            assert!(!cached_generation_is_initialized(&cache));
             local
         }
     );
