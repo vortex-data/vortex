@@ -2698,6 +2698,7 @@ name = "datafusion-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "custom-labels",
  "datafusion 56.0.0",
@@ -2712,12 +2713,14 @@ dependencies = [
  "opentelemetry_sdk",
  "parking_lot 0.12.5",
  "tokio",
+ "tracing",
  "url",
  "vortex",
  "vortex-arrow",
  "vortex-bench",
  "vortex-datafusion",
  "vortex-metrics",
+ "vortex-table",
 ]
 
 [[package]]
@@ -12416,6 +12419,7 @@ dependencies = [
  "vortex-file",
  "vortex-io",
  "vortex-layout",
+ "vortex-mask",
  "vortex-session",
  "vortex-utils",
 ]

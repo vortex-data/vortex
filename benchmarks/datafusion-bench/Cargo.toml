@@ -23,6 +23,7 @@ test = false
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 datafusion = { workspace = true, features = [
     "parquet",
@@ -41,12 +42,14 @@ opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-datafusion = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-table = { path = "../../vortex-table" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 custom-labels = { workspace = true }

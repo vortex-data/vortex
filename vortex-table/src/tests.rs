@@ -16,10 +16,12 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_expr::col;
 use vortex_expr::gt_eq;
@@ -27,6 +29,7 @@ use vortex_expr::lit;
 use vortex_file::DeserializeStep;
 use vortex_file::Footer;
 use vortex_file::WriteOptionsSessionExt;
+use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_io::object_store::ObjectStoreFileSystem;
 use vortex_io::session::RuntimeSessionExt;
@@ -78,7 +81,8 @@ async fn a_written_manifest_reads_back_the_same() -> VortexResult<()> {
     let mut written = ByteBufferMut::empty();
     manifest.write(&SESSION, &mut written).await?;
     let read = Manifest::read(&SESSION, Arc::new(written.freeze())).await?;
-    assert_eq!(read, manifest);
+    assert_eq!(read.entries, manifest.entries);
+    assert!(read.stats.is_none());
     Ok(())
 }
 
@@ -107,7 +111,7 @@ async fn an_empty_manifest_reads_back_empty() -> VortexResult<()> {
     let mut written = ByteBufferMut::empty();
     Manifest::default().write(&SESSION, &mut written).await?;
     let read = Manifest::read(&SESSION, Arc::new(written.freeze())).await?;
-    assert_eq!(read, Manifest::default());
+    assert!(read.entries.is_empty() && read.stats.is_none());
     Ok(())
 }
 
@@ -235,5 +239,68 @@ async fn a_scan_opens_files_on_a_file_system() -> VortexResult<()> {
     );
     let actual = collect(&scan, files).await?;
     assert_arrays_eq!(actual, xs(1200..4000)?, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+/// The manifest of `files` with their stats, written and read back.
+async fn manifest_with_stats(files: &[ByteBuffer]) -> VortexResult<Manifest> {
+    let files = files
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| {
+            let read: Arc<dyn VortexReadAt> = Arc::new(bytes.clone());
+            (format!("data/part-{i}.vortex"), read)
+        })
+        .collect();
+    let mut written = ByteBufferMut::empty();
+    Manifest::build(&SESSION, files)
+        .await?
+        .write(&SESSION, &mut written)
+        .await?;
+    Manifest::read(&SESSION, Arc::new(written.freeze())).await
+}
+
+#[tokio::test]
+async fn a_manifest_records_each_files_column_stats() -> VortexResult<()> {
+    let files = [data_file(0..1000).await?, data_file(1000..1500).await?];
+    let manifest = manifest_with_stats(&files).await?;
+    assert_eq!(manifest.entries, self::manifest(&files).await?.entries);
+    let stats = manifest.stats.ok_or_else(|| vortex_err!("no stats"))?;
+    let x = stats.array().unmasked_field_by_name("x")?.clone();
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(
+        x.execute::<StructArray>(&mut ctx)?
+            .unmasked_field_by_name("min")?
+            .clone(),
+        PrimitiveArray::from_option_iter([Some(0u64), Some(1000)]).into_array(),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn manifest_stats_prune_files_before_opening_them() -> VortexResult<()> {
+    let files = [
+        data_file(0..1000).await?,
+        data_file(1000..1500).await?,
+        data_file(1500..4000).await?,
+    ];
+    let manifest = manifest_with_stats(&files).await?;
+    let scan = TableScan::new(SESSION.clone()).with_filter(gt_eq(col("x"), lit(1600u64)));
+    // Only the third file can hold x >= 1600, so opening any other is an error.
+    let third = files[2].clone();
+    let files = scan
+        .plan(&manifest, |entry| {
+            vortex_ensure_eq!(entry.path, "data/part-2.vortex");
+            Ok(Arc::new(ReadAtOpenable::new(
+                entry.path.as_str(),
+                Arc::new(third.clone()),
+            )))
+        })
+        .await?;
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].row_offset, 1500);
+    let actual = collect(&scan, files).await?;
+    assert_arrays_eq!(actual, xs(1600..4000)?, &mut SESSION.create_execution_ctx());
     Ok(())
 }

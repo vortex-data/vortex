@@ -25,6 +25,7 @@ INTEGRATION_ARGS: dict[tuple[Engine, Integration], list[str]] = {
     (Engine.DATAFUSION, Integration.FILE): [],
     (Engine.DUCKDB, Integration.FILE): [],
     (Engine.DATAFUSION, Integration.DATASOURCE): ["--scan-api", "true"],
+    (Engine.DATAFUSION, Integration.TABLE): ["--table", "true"],
 }
 
 

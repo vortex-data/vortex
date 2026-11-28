@@ -57,6 +57,9 @@ class Integration(Enum):
     # A `DataSource` over the whole table: DataFusion's `VortexTable`. DuckDB has no `DataSource`
     # table function yet.
     DATASOURCE = "datasource"
+    # A vortex-table manifest over the files, built before the queries, whose per-file stats drop
+    # files before DataFusion lists them. DataFusion only, V2 scan only.
+    TABLE = "table"
 
 
 class ScanEngine(Enum):
@@ -148,6 +151,7 @@ SUPPORTED_SCANS: dict[Engine, dict[Integration, frozenset[ScanEngine]]] = {
         # `VortexTable` reaches only V1: `MultiFileDataSource` opens `LayoutReader`s. V2 needs the V2
         # scan behind `split`/`open` (#11626).
         Integration.DATASOURCE: frozenset({ScanEngine.V1}),
+        Integration.TABLE: frozenset({ScanEngine.V2}),
     },
     Engine.DUCKDB: {
         Integration.FILE: frozenset({ScanEngine.V1, ScanEngine.V2}),

@@ -69,6 +69,7 @@ EXPECTED_GROUPS = {
         }
     ),
     "pr-scan": ("clickbench-nvme", "tpch-nvme"),
+    "pr-table": ("clickbench-nvme", "tpch-nvme"),
     "pr-compact": COMPACT_IDS,
     "pr-all": PR_FULL_IDS,
     "pr-full": PR_FULL_IDS,

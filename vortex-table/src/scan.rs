@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scanning a table: open its files through an [`Openable`], several at once and each footer in
-//! one read, drop the files whose statistics rule the filter out, and run each remaining file's
-//! ordinary scan, in table order.
+//! Scanning a table: drop the files whose statistics rule the filter out, open the rest through
+//! an [`Openable`], several at once and each footer in one read, and run each remaining file's
+//! ordinary scan, in table order. A manifest with [`TableStats`](crate::TableStats) prunes before
+//! opening any file; one without prunes each file on its footer.
 //!
 //! Every file is scanned by its own [`ScanDriver`]. TODO: once IO requests carry a source id, a
 //! single plan driver can run all the files' planners together.
@@ -78,9 +79,9 @@ impl TableScan {
         self
     }
 
-    /// Opens the manifest's files, each through the [`Openable`] `open` gives for its entry, up
-    /// to [`OPEN_CONCURRENCY`] at once, and keeps those the filter may match on their file
-    /// statistics, in table order.
+    /// Keeps the manifest's files that the filter may match on their statistics and opens them,
+    /// each through the [`Openable`] `open` gives for its entry, up to [`OPEN_CONCURRENCY`] at
+    /// once, in table order.
     pub async fn plan(
         &self,
         manifest: &Manifest,
@@ -91,15 +92,30 @@ impl TableScan {
             *next += entry.row_count;
             Some(row_offset)
         });
-        stream::iter(manifest.entries.iter().zip(row_offsets))
+        let may_match = match (&self.filter, &manifest.stats) {
+            (Some(filter), Some(stats)) => {
+                let row_counts: Vec<u64> = manifest.entries.iter().map(|e| e.row_count).collect();
+                Some(stats.may_match(filter, &row_counts, &self.session)?)
+            }
+            _ => None,
+        };
+        let kept = manifest
+            .entries
+            .iter()
+            .zip(row_offsets)
+            .enumerate()
+            .filter(|(i, _)| may_match.as_ref().is_none_or(|mask| mask.value(*i)))
+            .map(|(_, kept)| kept);
+        let footer_pruning = may_match.is_none();
+        stream::iter(kept)
             .map(|(entry, row_offset)| {
                 let openable = open(entry);
                 async move {
                     let read = openable?.open().await?;
                     let file = entry.open(&self.session, read).await?;
                     let pruned = match &self.filter {
-                        Some(filter) => file.can_prune(filter)?,
-                        None => false,
+                        Some(filter) if footer_pruning => file.can_prune(filter)?,
+                        _ => false,
                     };
                     VortexResult::Ok((!pruned).then_some(PlannedFile { file, row_offset }))
                 }
