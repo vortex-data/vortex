@@ -7,13 +7,18 @@ use std::sync::LazyLock;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
+use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
+use crate::ArrayDeserialization;
+use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -27,6 +32,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::ChunkedData;
+use crate::arrays::chunked::ChunkedSlots;
 use crate::arrays::chunked::array::ChunkedArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
@@ -37,9 +44,69 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+struct OffsetsOnly<'a> {
+    offsets: &'a ArrayRef,
+    nchunks: usize,
+}
+
+impl ArrayChildren for OffsetsOnly<'_> {
+    fn get(&self, index: usize, _dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+        assert_eq!(
+            index,
+            ChunkedSlots::CHUNK_OFFSETS,
+            "attempted to decode data child {index} with length {len}"
+        );
+
+        // Return the actual offset count so the test can exercise a count mismatch.
+        Ok(self.offsets.clone())
+    }
+
+    fn len(&self) -> usize {
+        self.nchunks + 1
+    }
+}
+
+#[rstest]
+#[case::empty(&[], 0, 0, "must have at least one chunk offset")]
+#[case::nonzero_start(&[1, 3], 1, 3, "must start at zero")]
+#[case::decreasing(&[0, 2, 1, 3], 3, 3, "must be nondecreasing")]
+#[case::wrong_end(&[0, usize::MAX], 1, 3, "must end at the array length")]
+#[case::too_few(&[0, 3], 2, 3, "must have one more chunk offset than chunks")]
+#[case::too_many(&[0, 1, 3], 1, 3, "must have one more chunk offset than chunks")]
+fn rejects_invalid_chunk_offsets(
+    #[case] offsets: &[usize],
+    #[case] nchunks: usize,
+    #[case] len: usize,
+    #[case] expected_error: &str,
+) {
+    let dtype = DType::from(PType::U64);
+    let offset_array = ChunkedData::make_chunk_offsets_array(offsets);
+    let children = OffsetsOnly {
+        offsets: &offset_array,
+        nchunks,
+    };
+    let parts = ArrayDeserialization::new(Chunked.id(), &dtype, len, &[], &[], &children);
+    let err = Chunked.deserialize(parts, &SESSION).unwrap_err();
+    assert!(err.to_string().contains(expected_error), "{err}");
+
+    let mut slots = ArraySlots::with_capacity(nchunks + 1);
+    slots.push(Some(offset_array));
+    slots.resize(nchunks + 1, Some(buffer![0u64, 0].into_array()));
+    let err = ChunkedArray::try_from_parts(ArrayParts::new(
+        Chunked,
+        dtype,
+        len,
+        ChunkedData::new(offsets.to_vec()),
+        slots,
+    ))
+    .unwrap_err();
+    assert!(err.to_string().contains(expected_error), "{err}");
+}
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(

@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use super::validate_chunk_offsets;
 use crate::Array;
 use crate::ArrayDeserialization;
 use crate::ArrayId;
@@ -78,11 +79,11 @@ impl ArrayPlugin for Chunked {
             vortex_bail!("Chunked array needs at least one child");
         }
 
-        let nchunks = children.len() - 1;
+        let child_count = children.len();
         let chunk_offsets = children.get(
             ChunkedSlots::CHUNK_OFFSETS,
             &DType::Primitive(PType::U64, Nullability::NonNullable),
-            nchunks + 1,
+            child_count,
         )?;
         let mut ctx = session.create_execution_ctx();
         let chunk_offsets_buf = chunk_offsets
@@ -97,7 +98,11 @@ impl ArrayPlugin for Chunked {
                     .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let mut slots = SmallVec::with_capacity(children.len());
+
+        // A bad offset can follow valid spans, so check the whole array before decoding any chunk.
+        validate_chunk_offsets(&chunk_offsets_usize, child_count, len)?;
+
+        let mut slots = SmallVec::with_capacity(child_count);
         slots.push(Some(chunk_offsets));
         for (idx, (start, end)) in chunk_offsets_usize
             .iter()

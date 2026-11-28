@@ -55,6 +55,37 @@ pub type ChunkedArray = Array<Chunked>;
 #[derive(Clone, Debug)]
 pub struct Chunked;
 
+fn validate_chunk_offsets(
+    offsets: &[usize],
+    expected_offset_count: usize,
+    array_len: usize,
+) -> VortexResult<()> {
+    let Some((&first, &last)) = offsets.first().zip(offsets.last()) else {
+        vortex_bail!("ChunkedArray must have at least one chunk offset, got 0");
+    };
+
+    vortex_ensure_eq!(
+        offsets.len(),
+        expected_offset_count,
+        "ChunkedArray must have one more chunk offset than chunks",
+    );
+    vortex_ensure_eq!(first, 0, "ChunkedArray offsets must start at zero");
+    vortex_ensure_eq!(
+        last,
+        array_len,
+        "ChunkedArray offsets must end at the array length",
+    );
+
+    for (idx, (start, end)) in offsets.iter().copied().tuple_windows().enumerate() {
+        vortex_ensure!(
+            start <= end,
+            "ChunkedArray offsets must be nondecreasing, got {start} > {end} for chunk {idx}",
+        );
+    }
+
+    Ok(())
+}
+
 impl ArrayHash for ChunkedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
@@ -104,19 +135,8 @@ impl VTable for Chunked {
             data.chunk_offsets.len(),
             "ChunkedArray chunk offsets slot length does not match cached offsets length",
         );
-        vortex_ensure_eq!(
-            data.chunk_offsets.len(),
-            slots.len() - ChunkedSlots::CHUNKS_OFFSET + 1,
-            "ChunkedArray must have one more chunk offset than chunks",
-        );
-        vortex_ensure_eq!(
-            data.chunk_offsets
-                .last()
-                .copied()
-                .vortex_expect("chunked arrays always have a leading 0 offset"),
-            len,
-            "ChunkedArray length does not match outer length",
-        );
+        validate_chunk_offsets(&data.chunk_offsets, slots.len(), len)?;
+
         for (idx, (start, end)) in data
             .chunk_offsets
             .iter()
@@ -138,6 +158,7 @@ impl VTable for Chunked {
                 "ChunkedArray chunk {idx} len does not match offsets span",
             );
         }
+
         Ok(())
     }
 
