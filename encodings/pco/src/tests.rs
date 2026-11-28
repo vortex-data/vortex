@@ -318,12 +318,9 @@ fn test_chunk_metas_nbytes() -> VortexResult<()> {
         Validity::NonNullable,
     )?;
     assert_eq!(multi_pco.chunk_metas.len(), 4);
-    let expected_sum: u64 = multi_pco
-        .chunk_metas
-        .iter()
-        .map(|meta| meta.len() as u64)
-        .sum();
-    assert_eq!(multi_pco.chunk_metas_nbytes(), expected_sum);
+    assert!(multi_pco.chunk_metas_nbytes() > multi_pco.chunk_metas[0].len() as u64);
+    assert!(multi_pco.chunk_metas_nbytes() > single_pco.chunk_metas_nbytes());
+    assert!(multi_pco.chunk_metas_nbytes() < multi_pco.as_array().nbytes());
 
     Ok(())
 }

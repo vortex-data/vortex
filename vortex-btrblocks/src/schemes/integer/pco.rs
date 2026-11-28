@@ -102,27 +102,20 @@ impl Scheme for PcoScheme {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::ArrayId;
-    use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
-    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_compressor::CascadingCompressor;
-    use vortex_compressor::scheme::CompressionEstimate;
     use vortex_error::VortexResult;
     use vortex_pco::Pco;
     use vortex_session::VortexSession;
 
-    use crate::ArrayAndStats;
-    use crate::CompressorContext;
-    use crate::Encoded;
-    use crate::Scheme;
     use crate::schemes::integer::IntDictScheme;
     use crate::schemes::integer::PcoScheme;
+    use crate::schemes::test_utils::UnamortizedScheme;
+    use crate::schemes::test_utils::assert_pco_fixed_nbytes_and_fallback;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -130,67 +123,11 @@ mod tests {
         session
     });
 
-    /// Identical to [`PcoScheme`] except it leaves `fixed_nbytes` at the default `0`.
-    #[derive(Debug, Copy, Clone)]
-    struct UnamortizedPcoScheme;
-
-    impl Scheme for UnamortizedPcoScheme {
-        fn scheme_name(&self) -> &'static str {
-            PcoScheme.scheme_name()
-        }
-
-        fn matches(&self, canonical: &Canonical) -> bool {
-            PcoScheme.matches(canonical)
-        }
-
-        fn produced_encodings(&self) -> Vec<ArrayId> {
-            PcoScheme.produced_encodings()
-        }
-
-        fn expected_compression_ratio(
-            &self,
-            data: &ArrayAndStats,
-            compress_ctx: CompressorContext,
-            exec_ctx: &mut ExecutionCtx,
-        ) -> CompressionEstimate {
-            PcoScheme.expected_compression_ratio(data, compress_ctx, exec_ctx)
-        }
-
-        fn encode(
-            &self,
-            data: &ArrayAndStats,
-            compress_ctx: &CompressorContext,
-            exec_ctx: &mut ExecutionCtx,
-        ) -> VortexResult<Encoded> {
-            PcoScheme.encode(data, compress_ctx, exec_ctx)
-        }
-
-        fn compress(
-            &self,
-            compressor: &CascadingCompressor,
-            data: &ArrayAndStats,
-            compress_ctx: CompressorContext,
-            exec_ctx: &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef> {
-            PcoScheme.compress(compressor, data, compress_ctx, exec_ctx)
-        }
-    }
-
     #[test]
     fn test_fixed_nbytes_reports_chunk_metas_and_zero_for_fallback() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter(0..1024_i32);
-        let pco = Pco::from_primitive(
-            primitive.as_view(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-            &mut ctx,
-        )?;
-        let expected_fixed = pco.chunk_metas_nbytes();
-        assert!(expected_fixed > 0);
-        assert_eq!(PcoScheme.fixed_nbytes(&pco.into_array()), expected_fixed);
-        assert_eq!(PcoScheme.fixed_nbytes(&primitive.into_array()), 0);
-        Ok(())
+        assert_pco_fixed_nbytes_and_fallback(&PcoScheme, primitive, &mut ctx)
     }
 
     #[test]
@@ -218,8 +155,9 @@ mod tests {
 
         let array = PrimitiveArray::from_iter(values);
 
-        let unamortized = CascadingCompressor::new(vec![&UnamortizedPcoScheme, &IntDictScheme])
-            .compress(&array.clone().into_array(), &mut ctx)?;
+        let unamortized =
+            CascadingCompressor::new(vec![&UnamortizedScheme(PcoScheme), &IntDictScheme])
+                .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
             unamortized.is::<Dict>(),
             "without fixed_nbytes amortization, int PcoScheme should lose to IntDictScheme on the production sample, got {}",
