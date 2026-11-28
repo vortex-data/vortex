@@ -94,17 +94,23 @@ impl Scheme for PcoScheme {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::ArrayId;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
     use vortex_compressor::CascadingCompressor;
+    use vortex_compressor::scheme::CompressionEstimate;
     use vortex_error::VortexResult;
     use vortex_pco::Pco;
     use vortex_session::VortexSession;
 
+    use crate::ArrayAndStats;
+    use crate::CompressorContext;
+    use crate::Encoded;
     use crate::Scheme;
     use crate::schemes::float::ALPRDScheme;
     use crate::schemes::float::PcoScheme;
@@ -116,6 +122,52 @@ mod tests {
         vortex_pco::initialize(&session);
         session
     });
+
+    /// Identical to [`PcoScheme`] except it leaves `fixed_nbytes` at the default `0`.
+    #[derive(Debug, Copy, Clone)]
+    struct UnamortizedPcoScheme;
+
+    impl Scheme for UnamortizedPcoScheme {
+        fn scheme_name(&self) -> &'static str {
+            PcoScheme.scheme_name()
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            PcoScheme.matches(canonical)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            PcoScheme.produced_encodings()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            data: &ArrayAndStats,
+            compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            PcoScheme.expected_compression_ratio(data, compress_ctx, exec_ctx)
+        }
+
+        fn encode(
+            &self,
+            data: &ArrayAndStats,
+            compress_ctx: &CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Encoded> {
+            PcoScheme.encode(data, compress_ctx, exec_ctx)
+        }
+
+        fn compress(
+            &self,
+            compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            PcoScheme.compress(compressor, data, compress_ctx, exec_ctx)
+        }
+    }
 
     #[test]
     fn test_fixed_nbytes_reports_chunk_metas_and_zero_for_fallback() -> VortexResult<()> {
@@ -138,15 +190,15 @@ mod tests {
     fn test_pco_amortizes_chunk_metas_on_large_clustered_float_array() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let len = 131_072usize;
-        // 32 irregularly spaced clusters inside [1.0, 2.0) (f64): ALPRD needs ~53 bits/row
-        // (~6,784 B on a 1,024-row sample), while Pco uses ~48 bits/row (~6,144 B page data) plus
-        // a multi-bin chunk_meta that pushes the unamortized 1,024-row sample past ALPRD.
-        let base_exp = 1023_u64 << 52;
+        // 32 clusters across 8 distinct top-16-bit prefixes (4 clusters per prefix) with 44 random
+        // low mantissa bits: ALPRD fits all 8 prefixes in its dictionary (~51 bits/row on the
+        // 2,048-row production sample), while Pco uses ~50 bits/row page data plus a multi-bin
+        // chunk_meta that pushes the unamortized sample past ALPRD.
         let bases: [u64; 32] = std::array::from_fn(|idx| {
             let idx = u64::try_from(idx).expect("idx < 32");
-            let slot = idx << 47;
-            let jitter = ((idx * idx * 7 + idx * 3) % 11) << 43;
-            base_exp | (slot + jitter)
+            let exp = (1023 + (idx / 4)) << 52;
+            let sub = ((idx % 4) * 5 + (idx % 2)) << 44;
+            exp | sub
         });
         let mut state = 0xd1b5_4a32_d192_ed03_u64;
         let mut values = Vec::with_capacity(len);
@@ -155,34 +207,21 @@ mod tests {
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1_442_695_040_888_963_407);
             let cluster = ((state >> 56) & 0x1f) as usize;
-            let low_mantissa = (state >> 11) & ((1_u64 << 43) - 1);
+            let low_mantissa = (state >> 11) & ((1_u64 << 44) - 1);
             values.push(f64::from_bits(bases[cluster] | low_mantissa));
         }
 
         let array = PrimitiveArray::from_iter(values);
 
-        let sample = PrimitiveArray::new(
-            Buffer::from(array.as_slice::<f64>()[..1024].to_vec()),
-            Validity::NonNullable,
-        );
-        let sample_pco = Pco::from_primitive(
-            sample.as_view(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-            &mut ctx,
-        )?;
-        let alprd_compressor = CascadingCompressor::new(vec![&ALPRDScheme]);
-        let sample_alprd = alprd_compressor.compress(&sample.into_array(), &mut ctx)?;
+        let unamortized = CascadingCompressor::new(vec![&UnamortizedPcoScheme, &ALPRDScheme])
+            .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
-            sample_pco.as_array().nbytes() > sample_alprd.nbytes(),
-            "without fixed_nbytes amortization, Pco sample ({}, chunk_metas={}) should lose to ALPRD ({})",
-            sample_pco.as_array().nbytes(),
-            sample_pco.chunk_metas_nbytes(),
-            sample_alprd.nbytes(),
+            !unamortized.is::<Pco>(),
+            "without fixed_nbytes amortization, float PcoScheme should lose to ALPRD on the production sample"
         );
 
-        let compressor = CascadingCompressor::new(vec![&PcoScheme, &ALPRDScheme]);
-        let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
+        let compressed = CascadingCompressor::new(vec![&PcoScheme, &ALPRDScheme])
+            .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
             compressed.is::<Pco>(),
             "expected float PcoScheme to win once chunk_metas are amortized, got {}",

@@ -102,17 +102,23 @@ impl Scheme for PcoScheme {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_array::ArrayId;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
     use vortex_compressor::CascadingCompressor;
+    use vortex_compressor::scheme::CompressionEstimate;
     use vortex_error::VortexResult;
     use vortex_pco::Pco;
     use vortex_session::VortexSession;
 
+    use crate::ArrayAndStats;
+    use crate::CompressorContext;
+    use crate::Encoded;
     use crate::Scheme;
     use crate::schemes::integer::BitPackingScheme;
     use crate::schemes::integer::PcoScheme;
@@ -125,6 +131,52 @@ mod tests {
         vortex_fastlanes::initialize(&session);
         session
     });
+
+    /// Identical to [`PcoScheme`] except it leaves `fixed_nbytes` at the default `0`.
+    #[derive(Debug, Copy, Clone)]
+    struct UnamortizedPcoScheme;
+
+    impl Scheme for UnamortizedPcoScheme {
+        fn scheme_name(&self) -> &'static str {
+            PcoScheme.scheme_name()
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            PcoScheme.matches(canonical)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            PcoScheme.produced_encodings()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            data: &ArrayAndStats,
+            compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            PcoScheme.expected_compression_ratio(data, compress_ctx, exec_ctx)
+        }
+
+        fn encode(
+            &self,
+            data: &ArrayAndStats,
+            compress_ctx: &CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Encoded> {
+            PcoScheme.encode(data, compress_ctx, exec_ctx)
+        }
+
+        fn compress(
+            &self,
+            compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            PcoScheme.compress(compressor, data, compress_ctx, exec_ctx)
+        }
+    }
 
     #[test]
     fn test_fixed_nbytes_reports_chunk_metas_and_zero_for_fallback() -> VortexResult<()> {
@@ -147,50 +199,42 @@ mod tests {
     fn test_pco_amortizes_chunk_metas_on_large_skewed_int_array() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let len = 131_072usize;
-        // 64 irregularly spaced narrow clusters in 0..1023 (no common GCD for IntMult):
-        // BitPacking needs 10 bits/row (1,280 B on a 1,024-row sample), while Pco uses ~7 bits/row
-        // (~896 B page data) plus a multi-bin chunk_meta that exceeds BitPacking until amortized.
-        let centers: [i32; 64] = std::array::from_fn(|idx| {
-            let idx = i32::try_from(idx).expect("idx < 64");
-            let base = idx * 15;
-            let jitter = (idx * idx * 7 + idx * 3) % 11;
+        // 48 irregularly spaced clusters of width 6 in 0..1023 plus sparse outliers at 1_000_000:
+        // BitPacking patches the outliers and packs at 10 bits/row, while Pco must use multi-bin
+        // encoding whose chunk_meta pushes the unamortized 2,048-row production sample past
+        // BitPacking.
+        let centers: [i32; 48] = std::array::from_fn(|idx| {
+            let idx = i32::try_from(idx).expect("idx < 48");
+            let base = idx * 21;
+            let jitter = (idx * idx * 7 + idx * 3) % 7;
             base + jitter
         });
         let mut state = 0x9e37_79b9_7f4a_7c15_u64;
         let mut values = Vec::with_capacity(len);
-        for _ in 0..len {
+        for i in 0..len {
             state = state
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1_442_695_040_888_963_407);
-            let cluster = ((state >> 56) & 0x3f) as usize;
-            let offset = ((state >> 32) & 0x03) as i32;
-            values.push(centers[cluster] + offset);
+            if i % 256 == 0 {
+                values.push(1_000_000);
+            } else {
+                let cluster = ((state >> 56) as usize) % centers.len();
+                let offset = ((state >> 32) % 6) as i32;
+                values.push(centers[cluster] + offset);
+            }
         }
 
         let array = PrimitiveArray::from_iter(values);
 
-        // Verify the 1,024-row sample has non-trivial chunk_meta overhead relative to bit-packing.
-        let sample = PrimitiveArray::new(
-            Buffer::from(array.as_slice::<i32>()[..1024].to_vec()),
-            Validity::NonNullable,
-        );
-        let sample_pco = Pco::from_primitive(
-            sample.as_view(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-            &mut ctx,
-        )?;
-        let bp_compressor = CascadingCompressor::new(vec![&BITPACKING]);
-        let sample_bp = bp_compressor.compress(&sample.into_array(), &mut ctx)?;
+        let unamortized = CascadingCompressor::new(vec![&UnamortizedPcoScheme, &BITPACKING])
+            .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
-            sample_pco.as_array().nbytes() > sample_bp.nbytes(),
-            "without fixed_nbytes amortization, Pco sample ({}) should lose to BitPacking ({})",
-            sample_pco.as_array().nbytes(),
-            sample_bp.nbytes(),
+            !unamortized.is::<Pco>(),
+            "without fixed_nbytes amortization, int PcoScheme should lose to BitPacking on the production sample"
         );
 
-        let compressor = CascadingCompressor::new(vec![&PcoScheme, &BITPACKING]);
-        let compressed = compressor.compress(&array.clone().into_array(), &mut ctx)?;
+        let compressed = CascadingCompressor::new(vec![&PcoScheme, &BITPACKING])
+            .compress(&array.clone().into_array(), &mut ctx)?;
         assert!(
             compressed.is::<Pco>(),
             "expected PcoScheme to win once chunk_metas are amortized, got {}",
