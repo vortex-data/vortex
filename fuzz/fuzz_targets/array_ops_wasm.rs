@@ -60,8 +60,8 @@ pub unsafe extern "C" fn wasmfuzz_free(ptr: *mut u8, size: usize) {
 ///
 /// # Safety
 ///
-/// When `size > 0` and `data` is non-null, `data` must be valid for reads of `size` initialized
-/// bytes for `'a` and must not be mutated during `'a`.
+/// When `0 < size <= isize::MAX as usize` and `data` is non-null, `data` must be valid for reads
+/// of `size` initialized bytes for `'a` and must not be mutated during `'a`.
 unsafe fn input_slice<'a>(data: *const u8, size: usize) -> Option<&'a [u8]> {
     if size == 0 {
         return Some(&[]);
@@ -89,9 +89,9 @@ fn handle_fuzz_result(result: VortexFuzzResult<bool>) -> i32 {
 ///
 /// # Safety
 ///
-/// When `size > 0` and `data` is non-null, the caller must ensure that `data` points to a valid
-/// initialized memory region of at least `size` bytes. This is guaranteed by wasmfuzz when calling
-/// this function.
+/// When `0 < size <= isize::MAX as usize` and `data` is non-null, the caller must ensure that
+/// `data` points to a valid initialized memory region of at least `size` bytes that is not
+/// mutated for the duration of the call. This is guaranteed by wasmfuzz when calling this function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LLVMFuzzerTestOneInput(data: *const u8, size: usize) -> i32 {
     // SAFETY: Forwarded from the caller's contract for `LLVMFuzzerTestOneInput`.
@@ -125,19 +125,24 @@ mod tests {
     use super::wasmfuzz_malloc;
 
     #[test]
-    fn wasmfuzz_malloc_and_free_roundtrip() {
-        // Zero-sized and invalid-layout allocations return null without calling `alloc`.
-        assert!(unsafe { wasmfuzz_malloc(0) }.is_null());
-        assert!(unsafe { wasmfuzz_malloc(usize::MAX) }.is_null());
-        unsafe { wasmfuzz_free(ptr::null_mut(), 0) };
-        unsafe { wasmfuzz_free(ptr::null_mut(), 64) };
+    fn test_wasmfuzz_malloc_and_free_roundtrip() {
+        // SAFETY: `wasmfuzz_malloc` accepts any size (returning null for 0 or invalid layouts),
+        // and `wasmfuzz_free` is a no-op on null pointers.
+        unsafe {
+            assert!(wasmfuzz_malloc(0).is_null());
+            assert!(wasmfuzz_malloc(usize::MAX).is_null());
+            wasmfuzz_free(ptr::null_mut(), 0);
+            wasmfuzz_free(ptr::null_mut(), 64);
+        }
 
         let size = 64;
+        // SAFETY: `wasmfuzz_malloc` has no preconditions on `size`.
         let ptr = unsafe { wasmfuzz_malloc(size) };
         assert!(!ptr.is_null());
         assert_eq!(ptr.addr() % WASMFUZZ_ALIGN, 0);
 
-        // SAFETY: `ptr` points to `size` writable bytes allocated above.
+        // SAFETY: `ptr` points to `size` writable bytes allocated by `wasmfuzz_malloc(size)` above,
+        // is initialized via `write_bytes` before `input_slice`, and is freed once with the same size.
         unsafe {
             ptr.write_bytes(0xAB, size);
             let slice = input_slice(ptr, size);
@@ -147,46 +152,48 @@ mod tests {
     }
 
     #[test]
-    fn input_slice_guards_empty_null_and_oversized() {
+    fn test_input_slice_guards_empty_null_and_oversized() {
         let buf = [1u8, 2, 3, 4];
 
-        // `wasmfuzz_malloc(0)` returns null; zero-size inputs must produce `&[]` without UB.
-        assert_eq!(unsafe { input_slice(ptr::null(), 0) }, Some([].as_slice()));
-        assert_eq!(unsafe { input_slice(buf.as_ptr(), 0) }, Some([].as_slice()));
+        // SAFETY: Zero-sized, null, and oversized (`> isize::MAX`) inputs are rejected without
+        // dereferencing `data`; the final call passes a valid initialized slice `buf`.
+        unsafe {
+            // `wasmfuzz_malloc(0)` returns null; zero-size inputs must produce `&[]` without UB.
+            assert_eq!(input_slice(ptr::null(), 0), Some([].as_slice()));
+            assert_eq!(input_slice(buf.as_ptr(), 0), Some([].as_slice()));
 
-        // Null pointer or size > `isize::MAX` for non-empty buffers must be rejected.
-        assert_eq!(unsafe { input_slice(ptr::null(), 1) }, None);
-        assert_eq!(unsafe { input_slice(buf.as_ptr(), usize::MAX) }, None);
+            // Null pointer or size > `isize::MAX` for non-empty buffers must be rejected.
+            assert_eq!(input_slice(ptr::null(), 1), None);
+            assert_eq!(input_slice(buf.as_ptr(), usize::MAX), None);
 
-        assert_eq!(
-            unsafe { input_slice(buf.as_ptr(), buf.len()) },
-            Some(buf.as_slice())
-        );
+            assert_eq!(input_slice(buf.as_ptr(), buf.len()), Some(buf.as_slice()));
+        }
     }
 
     #[test]
-    fn llvm_fuzzer_entry_point_handles_null_and_empty_inputs() {
-        let empty_rc = unsafe { LLVMFuzzerTestOneInput(ptr::null(), 0) };
-        assert!(empty_rc == 0 || empty_rc == -1);
-
-        assert_eq!(unsafe { LLVMFuzzerTestOneInput(ptr::null(), 16) }, -1);
-
+    fn test_llvm_fuzzer_entry_point_handles_null_and_empty_inputs() {
         let byte = 0u8;
-        assert_eq!(
-            unsafe { LLVMFuzzerTestOneInput(&raw const byte, usize::MAX) },
-            -1
-        );
+
+        // SAFETY: Each call passes either `size == 0`, a null pointer, or `size > isize::MAX`,
+        // all of which `LLVMFuzzerTestOneInput` handles without dereferencing `data`.
+        unsafe {
+            let empty_rc = LLVMFuzzerTestOneInput(ptr::null(), 0);
+            assert!(empty_rc == 0 || empty_rc == -1);
+
+            assert_eq!(LLVMFuzzerTestOneInput(ptr::null(), 16), -1);
+            assert_eq!(LLVMFuzzerTestOneInput(&raw const byte, usize::MAX), -1);
+        }
     }
 
     #[test]
-    fn handle_fuzz_result_maps_ok_values() {
+    fn test_handle_fuzz_result_maps_ok_values() {
         assert_eq!(handle_fuzz_result(Ok(true)), 0);
         assert_eq!(handle_fuzz_result(Ok(false)), -1);
     }
 
     #[test]
     #[should_panic(expected = "simulated fuzz failure")]
-    fn handle_fuzz_result_panics_on_error() {
+    fn test_handle_fuzz_result_panics_on_error() {
         let err = VortexFuzzError::VortexError(
             vortex_err!("simulated fuzz failure"),
             Backtrace::capture(),
