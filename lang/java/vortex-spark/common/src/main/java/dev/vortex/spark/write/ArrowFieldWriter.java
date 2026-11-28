@@ -20,6 +20,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.VarCharVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
+import dev.vortex.spark.SparkVariants;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
@@ -87,6 +88,8 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
             return new TimestampWriter((TimeStampMicroTZVector) vector);
         } else if (dataType instanceof TimestampNTZType) {
             return new TimestampNTZWriter((TimeStampMicroVector) vector);
+        } else if (SparkVariants.isVariant(dataType)) {
+            return new VariantWriter((StructVector) vector);
         } else if (dataType instanceof DecimalType decimalType) {
             return new DecimalWriter((DecimalVector) vector, decimalType.precision(), decimalType.scale());
         } else if (dataType instanceof StructType structType) {
@@ -121,13 +124,18 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
      * slots at the next value or at {@code setValueCount}.
      */
     final void write(SpecializedGetters row, int ordinal) {
-        if (!row.isNullAt(ordinal)) {
+        if (row.isNullAt(ordinal)) {
+            setNull();
+        } else {
             setValue(row, ordinal);
         }
         count++;
     }
 
     abstract void setValue(SpecializedGetters row, int ordinal);
+
+    /** Marks the next slot null. Most vectors leave it as allocated, as {@link #write} describes. */
+    void setNull() {}
 
     /** Forgets the values appended so far. Called once their buffers have been handed to the native writer. */
     void reset() {
@@ -290,6 +298,23 @@ abstract class ArrowFieldWriter<V extends FieldVector> {
             } else {
                 vector.setSafe(count, value.toJavaBigDecimal());
             }
+        }
+    }
+
+    private static final class VariantWriter extends ArrowFieldWriter<StructVector> {
+        VariantWriter(StructVector vector) {
+            super(vector);
+        }
+
+        @Override
+        void setValue(SpecializedGetters row, int ordinal) {
+            SparkVariants.write(vector, row, ordinal, count);
+        }
+
+        // Vortex requires the parts of a variant to be non-null, also in a null row.
+        @Override
+        void setNull() {
+            SparkVariants.writeNull(vector, count);
         }
     }
 
