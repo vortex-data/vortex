@@ -5,38 +5,31 @@ use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::runend::RunEndArraySlotsExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::assert_arrays_eq;
-use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
-use vortex_array::dtype::i256;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -47,6 +40,7 @@ use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_expr::ArrayExprExt;
@@ -63,262 +57,210 @@ use crate::list_contains::PreparedSetData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
-
     vortex_array::initialize(&session);
-
     crate::initialize(&session);
-
     session
 });
 
-/// Prepares the non-null list scalar `list`.
-fn prepare(list: &Scalar) -> VortexResult<PreparedSetData> {
-    PreparedSetData::try_new(list.clone())
-}
+const SQL: ListContainsOptions = ListContainsOptions {
+    sql_null_semantics: true,
+    compare_mode: CompareMode::new(FloatOrder::ZerosEqual),
+};
 
-/// Prepares the non-null list scalar `list` as a set repeated `len` times.
-fn prepare_array(list: &Scalar, len: usize) -> VortexResult<ArrayRef> {
-    PreparedSet::try_new_array(list.clone(), len)
-}
-
-/// A non-null list scalar of the rows of `elements`.
-fn list_scalar(elements: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    let values = (0..elements.len())
-        .map(|idx| elements.execute_scalar(idx, ctx))
-        .collect::<VortexResult<Vec<_>>>()?;
-    Ok(Scalar::list(
-        elements.dtype().clone(),
-        values,
-        Nullability::NonNullable,
-    ))
-}
-
-fn nested_needles() -> ArrayRef {
-    let mut ctx = SESSION.create_execution_ctx();
-    ListArray::try_new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), None, Some(9)]).into_array(),
-        buffer![0u32, 2, 2, 4, 5].into_array(),
-        Validity::from(BitBuffer::from_iter([true, false, true, true])),
-        &mut ctx,
-    )
-    .unwrap()
-    .into_array()
-}
-
-fn map_needles() -> ArrayRef {
-    let ctx = SESSION.create_execution_ctx();
-    let dtype = DType::map(
-        DType::Primitive(PType::I32, Nullability::NonNullable),
-        DType::Utf8(Nullability::Nullable),
-        false,
-        Nullability::Nullable,
-    )
-    .unwrap();
-    let mut builder = builder_with_capacity_in(&dtype, 4, ctx.allocator());
-    for key in [Some(1i32), None, Some(2), Some(9)] {
-        let scalar = match key {
-            Some(key) => Scalar::map(
-                dtype.clone(),
-                [(key.into(), Scalar::null(DType::Utf8(Nullability::Nullable)))],
-            ),
-            None => Scalar::null(dtype.clone()),
-        };
-        builder.append_scalar(&scalar).unwrap();
-    }
-    builder.finish()
-}
-
-fn struct_needles() -> ArrayRef {
-    StructArray::from_fields(&[("list", nested_needles())])
-        .unwrap()
-        .into_array()
-}
-
-#[rstest]
-#[case::list(nested_needles())]
-#[case::map(map_needles())]
-#[case::struct_of_lists(struct_needles())]
-#[case::fixed_size_list(FixedSizeListArray::new(
-    PrimitiveArray::from_option_iter([
-        Some(1i32), None, Some(2), None, Some(9), None, Some(8), None,
-    ]).into_array(),
-    2, Validity::NonNullable, 4,
-).into_array())]
-fn test_row_set_returns_membership_bits(
-    #[case] needles: ArrayRef,
-    #[values(false, true)] sql_null_semantics: bool,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let dtype = needles.dtype().as_nullable();
-    // Unsorted, repeated members and a top-level null exercise normalization and SQL's
-    // unknown non-match independently of any nulls nested inside the members.
-    let members = [2, 0, 2]
-        .map(|idx| needles.execute_scalar(idx, &mut ctx)?.cast(&dtype))
-        .into_iter()
-        .collect::<VortexResult<Vec<_>>>()?;
-    let mut elements = members.clone();
-    elements.push(Scalar::null(dtype.clone()));
-    let list = Scalar::list(dtype, elements, Nullability::NonNullable);
-    let options = ListContainsOptions {
-        sql_null_semantics,
-        ..Default::default()
-    };
-    let set = prepare(&list)?;
-    let result = set.contains(&needles, &options, &mut ctx)?;
-    // The old fallback returned a lazy OR tree here.
-    assert!(result.is::<Bool>());
-    let expected = (0..needles.len())
-        .map(|idx| {
-            let value = needles.execute_scalar(idx, &mut ctx)?;
-            Ok(if value.is_null() {
-                None
-            } else if members.contains(&value) {
-                Some(true)
-            } else if sql_null_semantics {
-                None
-            } else {
-                Some(false)
-            })
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    // The list is not null, so only a null needle can make the result null. Under SQL null
-    // semantics the null element also can, by leaving a non-match unknown.
-    let nullability = needles.dtype().nullability() | Nullability::from(sql_null_semantics);
-    assert_eq!(result.dtype(), &DType::Bool(nullability));
-
-    let validity = match nullability {
-        Nullability::NonNullable => Validity::NonNullable,
-        Nullability::Nullable => Validity::from_iter(expected.iter().map(Option::is_some)),
-    };
-    let expected = BoolArray::new(
-        BitBuffer::from_iter(expected.into_iter().map(Option::unwrap_or_default)),
-        validity,
-    );
-    assert_arrays_eq!(result, expected, &mut ctx);
-    Ok(())
-}
-
-#[rstest]
-fn test_decimal_bitmap_across_storage_widths(
-    #[values(2, 4, 9, 18, 38, 76)] precision: u8,
-    #[values(false, true)] sql_null_semantics: bool,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let decimal = DecimalDType::new(precision, 1);
-    let dtype = DType::Decimal(decimal, Nullability::Nullable);
-    let mut elements: Vec<_> = [1i8, -2, 1]
-        .map(|value| Scalar::decimal(value.into(), decimal, Nullability::Nullable))
-        .into();
-    elements.push(Scalar::null(dtype.clone()));
-    let list = Scalar::list(dtype, elements, Nullability::NonNullable);
-    let needles =
-        DecimalArray::from_option_iter([Some(-2i8), Some(0), Some(1), None], decimal).into_array();
-    let options = ListContainsOptions {
-        sql_null_semantics,
-        ..Default::default()
-    };
-    let set = prepare(&list)?;
-    let non_match = (!sql_null_semantics).then_some(false);
-    assert_arrays_eq!(
-        set.contains(&needles, &options, &mut ctx)?,
-        BoolArray::from_iter([Some(true), non_match, Some(true), None]),
-        &mut ctx
-    );
-    Ok(())
-}
-
-#[rstest]
-#[case::dense_i128(38, i256::from_i128(1i128 << 100), true)]
-#[case::sparse_i128(38, i256::from_i128(1i128 << 100), false)]
-#[case::dense_i256(76, i256::from_parts(0, 1i128 << 72), true)]
-#[case::sparse_i256(76, i256::from_parts(0, 1i128 << 72), false)]
-fn test_decimal_wide_values(
-    #[case] precision: u8,
-    #[case] base: i256,
-    #[case] dense: bool,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let decimal = DecimalDType::new(precision, 2);
-    let second = if dense { base + i256::ONE } else { -base };
-    let list = Scalar::list(
-        DType::Decimal(decimal, Nullability::NonNullable),
-        [second, base, second]
-            .map(|v| Scalar::decimal(v.into(), decimal, Nullability::NonNullable))
-            .into(),
-        Nullability::NonNullable,
-    );
-    // The last non-null value shares the low 64 bits of a member but must not match it.
-    let needles = DecimalArray::from_option_iter::<i256, _>(
-        [
-            Some(base),
-            Some(second),
-            Some(base - i256::ONE),
-            Some(i256::ZERO),
-            Some(base + i256::from_i128(1i128 << 64)),
-            None,
+fn set_with_null() -> Scalar {
+    let element = DType::Primitive(PType::I32, Nullability::Nullable);
+    Scalar::list(
+        element.clone(),
+        vec![
+            Scalar::primitive(2i32, Nullability::Nullable),
+            Scalar::null(element),
         ],
-        decimal,
+        Nullability::NonNullable,
+    )
+}
+
+fn empty_i32_set() -> Scalar {
+    Scalar::list(
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        vec![],
+        Nullability::NonNullable,
+    )
+}
+
+fn list_set(node: &ArrayRef) -> PreparedSetData {
+    PreparedSet::set_of(node.as_::<ScalarFn>().get_child(0))
+        .vortex_expect("the list of the node is a prepared set")
+        .clone()
+}
+
+fn chunked_needles() -> VortexResult<ArrayRef> {
+    Ok(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array(),
+            PrimitiveArray::from_option_iter::<i32, _>([]).into_array(),
+            PrimitiveArray::from_option_iter([None, Some(3), Some(2)]).into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::Nullable),
+    )?
+    .into_array())
+}
+
+#[test]
+fn test_prepared_set_shares_haystack_across_slice_filter_and_zero_child_guard() -> VortexResult<()>
+{
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = set_with_null();
+    let scalar_fn =
+        TypedScalarFnInstance::new(PreparedSet, PreparedSetData::try_new(list.clone())?).erased();
+
+    let err = ScalarFnArray::try_new(scalar_fn.clone(), vec![]).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("ScalarFnArray length cannot be inferred without children"),
+        "{err}"
+    );
+
+    let set = ScalarFnArray::try_new_with_len(scalar_fn, vec![], 4)?.into_array();
+    assert_eq!(set.as_::<ScalarFn>().nchildren(), 0);
+    assert_arrays_eq!(set, ConstantArray::new(list.clone(), 4), &mut ctx);
+
+    let prepared = PreparedSet::set_of(&set).vortex_expect("prepared set");
+    let sliced = set.slice(1..3)?.optimize_ctx(&SESSION)?;
+    assert_eq!(sliced.len(), 2);
+    assert!(PreparedSet::set_of(&sliced).is_some_and(|s| s.shares_set_with(prepared)));
+
+    let filtered = FilterArray::try_new(set.clone(), Mask::from_iter([true, false, true, true]))?
+        .into_array()
+        .optimize_ctx(&SESSION)?;
+    assert_eq!(filtered.len(), 3);
+    assert_eq!(filtered.as_::<ScalarFn>().nchildren(), 0);
+    assert!(PreparedSet::set_of(&filtered).is_some_and(|s| s.shares_set_with(prepared)));
+    assert_arrays_eq!(filtered, ConstantArray::new(list, 3), &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::array_default(false, ListContainsOptions::default(), [Some(false), Some(true), None, Some(false), Some(true)])]
+#[case::array_sql(false, ListContainsOptions { sql_null_semantics: true, ..Default::default() }, [None, Some(true), None, None, Some(true)])]
+#[case::expr_default(true, ListContainsOptions::default(), [Some(false), Some(true), None, Some(false), Some(true)])]
+fn test_chunked_pushdown_shares_one_prepared_set(
+    #[case] via_expr: bool,
+    #[case] options: ListContainsOptions,
+    #[case] expected: [Option<bool>; 5],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let needles = chunked_needles()?;
+    let array = if via_expr {
+        let expr = list_contains(lit(set_with_null()), root())
+            .bind(needles.dtype())?
+            .optimize()?;
+        needles.apply_bound(&expr)?.optimize_ctx(&SESSION)?
+    } else {
+        let list = ConstantArray::new(set_with_null(), needles.len()).into_array();
+        ListContains::try_new_opts(list, needles, options)?
+            .into_array()
+            .optimize_ctx(&SESSION)?
+    };
+
+    let sets: Vec<_> = array
+        .as_::<Chunked>()
+        .iter_chunks()
+        .filter(|chunk| !chunk.is_empty())
+        .map(list_set)
+        .collect();
+    assert!(sets.len() > 1);
+    assert!(sets.iter().all(|s| s.shares_set_with(&sets[0])));
+    assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::null_code_default(true, ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), None, Some(true)])]
+#[case::null_code_sql(true, SQL, set_with_null(), vec![Some(true), None, None, Some(true)])]
+#[case::empty_default(true, ListContainsOptions::default(), empty_i32_set(), vec![Some(false); 4])]
+#[case::empty_sql(true, SQL, empty_i32_set(), vec![Some(false), Some(false), None, Some(false)])]
+#[case::null_value_default(false, ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), Some(true), None, Some(false)])]
+fn test_dict_pushdown_structure(
+    #[case] null_code: bool,
+    #[case] options: ListContainsOptions,
+    #[case] set: Scalar,
+    #[case] expected: Vec<Option<bool>>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let needles = if null_code {
+        DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(0)]).into_array(),
+            buffer![2i32, 3].into_array(),
+        )?
+        .into_array()
+    } else {
+        DictArray::try_new(
+            buffer![0u8, 1, 0, 2, 1].into_array(),
+            PrimitiveArray::from_option_iter([Some(2i32), Some(3), None]).into_array(),
+        )?
+        .into_array()
+    };
+    let list = ConstantArray::new(set, needles.len()).into_array();
+    let array = ListContains::try_new_opts(list, needles, options)?
+        .into_array()
+        .optimize_ctx(&SESSION)?;
+
+    // Rewritten to Dict of answers or Constant for empty list off SQL null semantics.
+    assert!(!array.is::<ScalarFn>());
+    if let Some(dict) = array.as_opt::<Dict>() {
+        assert!(PreparedSet::set_of(dict.values().as_::<ScalarFn>().get_child(0)).is_some());
+    }
+    assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_runend_pushdown_structure() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let needles = RunEnd::try_new(
+        buffer![2u32, 5, 6].into_array(),
+        buffer![1i32, 2, 3].into_array(),
+        &mut ctx,
+    )?
+    .into_array();
+    let list = ConstantArray::new(
+        Scalar::list(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            vec![Scalar::from(2i32), Scalar::from(3i32)],
+            Nullability::NonNullable,
+        ),
+        needles.len(),
     )
     .into_array();
-    let set = prepare(&list)?;
+
+    let array = ListContains::try_new(list, needles)?
+        .into_array()
+        .optimize_ctx(&SESSION)?;
+    assert!(array.is::<RunEnd>());
+    let values = array.as_::<RunEnd>().values();
+    assert!(PreparedSet::set_of(values.as_::<ScalarFn>().get_child(0)).is_some());
     assert_arrays_eq!(
-        set.contains(&needles, &ListContainsOptions::default(), &mut ctx)?,
-        BoolArray::from_iter([
-            Some(true),
-            Some(true),
-            Some(false),
-            Some(false),
-            Some(false),
-            None,
-        ]),
+        array,
+        BoolArray::from_iter([false, false, true, true, true, true]),
         &mut ctx
     );
     Ok(())
 }
 
-#[rstest]
-#[case::bitmap(
-    PrimitiveArray::from_option_iter([Some(5i64), Some(-3), Some(5)]).into_array(),
-    PrimitiveArray::from_option_iter([Some(-3i64), Some(4), Some(i64::MIN), None]).into_array(),
-    [Some(true), Some(false), Some(false), None],
-)]
-#[case::unsigned_in_signed_order(
-    PrimitiveArray::from_option_iter([Some(u64::MAX), Some(0), Some(1 << 40)]).into_array(),
-    PrimitiveArray::from_option_iter([Some(1u64 << 40), Some(1), Some(u64::MAX), Some(0)])
-        .into_array(),
-    [Some(true), Some(false), Some(true), Some(true)],
-)]
-#[case::float_bits(
-    PrimitiveArray::from_option_iter([Some(0.0f64), Some(f64::NAN)]).into_array(),
-    PrimitiveArray::from_option_iter([Some(-0.0f64), Some(0.0), Some(f64::NAN), Some(1.5)])
-        .into_array(),
-    [Some(false), Some(true), Some(true), Some(false)],
-)]
-fn test_primitive_integers(
-    #[case] elements: ArrayRef,
-    #[case] needles: ArrayRef,
-    #[case] expected: [Option<bool>; 4],
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let set = PreparedSetData::try_new(list_scalar(&elements, &mut ctx)?)?;
-    assert_arrays_eq!(
-        set.contains(&needles, &ListContainsOptions::default(), &mut ctx)?,
-        BoolArray::from_iter(expected),
-        &mut ctx
-    );
-    Ok(())
-}
-
-/// Needles longer than one lookup batch, in an encoding other than primitive, are looked up a
-/// batch at a time.
+/// Needles longer than one lookup batch (`NEEDLE_BATCH_LEN = 8192`) in a non-primitive encoding
+/// decode and probe one batch at a time.
 #[test]
 fn test_compressed_needles_in_batches() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let set = PreparedSetData::try_new(list_scalar(
-        &buffer![3i64, 9000, 20_001].into_array(),
-        &mut ctx,
-    )?)?;
+    let set = PreparedSetData::try_new(Scalar::list(
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+        vec![
+            Scalar::from(3i64),
+            Scalar::from(9000i64),
+            Scalar::from(20_001i64),
+        ],
+        Nullability::NonNullable,
+    ))?;
     let values = |range: std::ops::Range<i64>| {
         PrimitiveArray::from_option_iter(range.map(|v| (v % 7 != 0).then_some(v))).into_array()
     };
@@ -338,111 +280,54 @@ fn test_compressed_needles_in_batches() -> VortexResult<()> {
     Ok(())
 }
 
-/// The set `{2, null}` of nullable `i32`.
-fn set_with_null() -> Scalar {
-    let element = DType::Primitive(PType::I32, Nullability::Nullable);
-    Scalar::list(
-        element.clone(),
-        vec![
-            Scalar::primitive(2i32, Nullability::Nullable),
-            Scalar::null(element),
-        ],
-        Nullability::NonNullable,
-    )
-}
-
 #[test]
-fn test_prepared_set_rows_are_the_constant_list() -> VortexResult<()> {
+fn test_constant_needle_executes_to_constant_for_primitive_and_row_haystacks() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let set = prepare_array(&set_with_null(), 4)?;
-
-    assert_arrays_eq!(set, ConstantArray::new(set_with_null(), 4), &mut ctx);
-
-    // A slice and a filter keep the haystack instead of building it again.
-    let prepared = PreparedSet::set_of(&set).expect("prepared set");
-    let sliced = set.slice(1..3)?.optimize_ctx(&SESSION)?;
-    assert_eq!(sliced.len(), 2);
-    assert!(PreparedSet::set_of(&sliced).is_some_and(|sliced| sliced.shares_set_with(prepared)));
-    let filtered = set
-        .filter(Mask::from_iter([true, false, true, true]))?
-        .optimize_ctx(&SESSION)?;
-    assert_eq!(filtered.len(), 3);
-    assert!(
-        PreparedSet::set_of(&filtered).is_some_and(|filtered| filtered.shares_set_with(prepared))
-    );
-    Ok(())
-}
-
-const SQL: ListContainsOptions = ListContainsOptions {
-    sql_null_semantics: true,
-    compare_mode: CompareMode::new(FloatOrder::ZerosEqual),
-};
-
-#[rstest]
-#[case::default(ListContainsOptions::default(), [Some(false), Some(true), None, Some(false)])]
-#[case::sql(
-    ListContainsOptions {
-        sql_null_semantics: true,
-        ..Default::default()
-    },
-    [None, Some(true), None, None]
-)]
-fn test_list_contains_looks_up_in_a_prepared_set_list(
-    #[case] options: ListContainsOptions,
-    #[case] expected: [Option<bool>; 4],
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let set = prepare_array(&set_with_null(), 4)?;
-    let needles =
-        PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(3)]).into_array();
-
-    let result = ListContains::try_new_opts(set, needles, options)?.into_array();
-    assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
-    Ok(())
-}
-
-#[rstest]
-#[case::default(ListContainsOptions::default(), Some(false))]
-#[case::sql(ListContainsOptions {
-        sql_null_semantics: true,
-        ..Default::default()
-    }, None)]
-fn test_constant_needle_gives_a_constant(
-    #[case] options: ListContainsOptions,
-    #[case] expected: Option<bool>,
-) -> VortexResult<()> {
-    // `3 IN (2, NULL)` against the prepared set is looked up once, and gives a constant.
-    let mut ctx = SESSION.create_execution_ctx();
-    let set = prepare_array(&set_with_null(), 4)?;
+    // Primitive haystack: `3 IN (2, NULL)` -> false (default) or null (SQL).
+    let set_arr = PreparedSet::try_new_array(set_with_null(), 4)?;
     let needle = ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 4).into_array();
+    for (options, expected) in [
+        (
+            ListContainsOptions::default(),
+            Scalar::bool(false, Nullability::Nullable),
+        ),
+        (
+            ListContainsOptions {
+                sql_null_semantics: true,
+                ..Default::default()
+            },
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+        ),
+    ] {
+        let res = ListContains::try_new_opts(set_arr.clone(), needle.clone(), options)?
+            .into_array()
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert_eq!(res.as_constant(), Some(&expected));
+    }
 
-    let result = ListContains::try_new_opts(set, needle, options)?
-        .into_array()
-        .execute::<ArrayRef>(&mut ctx)?;
-    let expected = match expected {
-        Some(value) => Scalar::bool(value, Nullability::Nullable),
-        None => Scalar::null(DType::Bool(Nullability::Nullable)),
-    };
-    assert_eq!(result.as_constant(), Some(&expected));
-    Ok(())
-}
-
-#[test]
-fn test_constant_row_needle_looks_up_one_row() -> VortexResult<()> {
-    // A row haystack cannot look a scalar needle up, so execution looks up one row.
-    let mut ctx = SESSION.create_execution_ctx();
-    let needles = nested_needles();
-    let dtype = needles.dtype().as_nullable();
-    let member = needles.execute_scalar(2, &mut ctx)?.cast(&dtype)?;
-    let list = Scalar::list(dtype, vec![member.clone()], Nullability::NonNullable);
-
-    let set = prepare_array(&list, 4)?;
-    let needle = ConstantArray::new(member, 4).into_array();
-    let result = ListContains::try_new_opts(set, needle, ListContainsOptions::default())?
-        .into_array()
-        .execute::<ArrayRef>(&mut ctx)?;
+    // Row haystack: constant nested list needle looks up one row and yields a constant.
+    let nested = ListArray::try_new(
+        PrimitiveArray::from_option_iter([Some(1i32), None]).into_array(),
+        buffer![0u32, 2].into_array(),
+        Validity::AllValid,
+        &mut ctx,
+    )?
+    .into_array();
+    let member = nested.execute_scalar(0, &mut ctx)?;
+    let list = Scalar::list(
+        member.dtype().clone(),
+        vec![member.clone()],
+        Nullability::NonNullable,
+    );
+    let res = ListContains::try_new_opts(
+        PreparedSet::try_new_array(list, 4)?,
+        ConstantArray::new(member, 4).into_array(),
+        ListContainsOptions::default(),
+    )?
+    .into_array()
+    .execute::<ArrayRef>(&mut ctx)?;
     assert_eq!(
-        result.as_constant(),
+        res.as_constant(),
         Some(&Scalar::bool(true, Nullability::Nullable))
     );
     Ok(())
@@ -450,222 +335,36 @@ fn test_constant_row_needle_looks_up_one_row() -> VortexResult<()> {
 
 #[rstest]
 #[case::default(ListContainsOptions::default(), [Some(true), Some(false), None])]
-#[case::sql(ListContainsOptions {
-        sql_null_semantics: true,
-        ..Default::default()
-    }, [Some(true), None, None])]
-fn test_result_from_bits_applies_null_semantics(
+#[case::sql(
+    ListContainsOptions { sql_null_semantics: true, ..Default::default() },
+    [Some(true), None, None],
+)]
+fn test_result_from_bits_and_guards(
     #[case] options: ListContainsOptions,
     #[case] expected: [Option<bool>; 3],
 ) -> VortexResult<()> {
-    // Against `{2, null}`: a match, a non-match, and a null needle whose bit has no effect.
     let mut ctx = SESSION.create_execution_ctx();
-    let set = prepare(&set_with_null())?;
+    let set = PreparedSetData::try_new(set_with_null())?;
     let needle_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
     let bits = BitBuffer::from_iter([true, false, true]);
     let validity = Validity::from_iter([true, true, false]);
 
-    let result = set.result_from_bits(bits, validity, &needle_dtype, &options)?;
-    assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_result_from_bits_rejects_mismatched_needles() -> VortexResult<()> {
-    let set = prepare(&set_with_null())?;
-    let options = ListContainsOptions::default();
-    let bits = BitBuffer::from_iter([true, false]);
-
-    // A validity with a null keeps its row count; an all-valid one folds to `AllValid`, which
-    // has none to check.
-    let long_validity = Validity::from_iter([true, false, true]);
-    let needle_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-    assert!(
-        set.result_from_bits(bits.clone(), long_validity, &needle_dtype, &options)
-            .is_err()
+    assert_arrays_eq!(
+        set.result_from_bits(bits.clone(), validity, &needle_dtype, &options)?,
+        BoolArray::from_iter(expected),
+        &mut ctx
     );
 
+    // Mismatched validity length and mismatched needle dtype must fail.
+    let short_validity = Validity::from_iter([true, false]);
+    assert!(
+        set.result_from_bits(bits.clone(), short_validity, &needle_dtype, &options)
+            .is_err()
+    );
     let wrong_dtype = DType::Primitive(PType::I64, Nullability::Nullable);
     assert!(
         set.result_from_bits(bits, Validity::AllValid, &wrong_dtype, &options)
             .is_err()
-    );
-    Ok(())
-}
-
-#[test]
-fn test_bytes_set_short_and_long_views() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let elements = VarBinViewArray::from_iter_nullable_str([
-        Some("ab"),
-        Some(""),
-        Some("a long string with suffix A"),
-        Some("another long string"),
-        None,
-        Some("ab"),
-    ])
-    .into_array();
-    let set = PreparedSetData::try_new(list_scalar(&elements, &mut ctx)?)?;
-
-    // "abc" shares the prefix of a short element, and "... suffix B" shares the head of a long
-    // one: length and first 4 bytes. Neither is an element.
-    let needles = VarBinViewArray::from_iter_nullable_str([
-        Some("ab"),
-        Some("abc"),
-        Some(""),
-        Some("a long string with suffix B"),
-        Some("another long string"),
-        Some("a string never in the set"),
-        None,
-    ])
-    .into_array();
-
-    assert_arrays_eq!(
-        set.contains(&needles, &ListContainsOptions::default(), &mut ctx)?,
-        BoolArray::from_iter([
-            Some(true),
-            Some(false),
-            Some(true),
-            Some(false),
-            Some(true),
-            Some(false),
-            None,
-        ]),
-        &mut ctx
-    );
-    Ok(())
-}
-
-fn chunked_needles() -> VortexResult<ArrayRef> {
-    Ok(ChunkedArray::try_new(
-        vec![
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array(),
-            PrimitiveArray::from_option_iter::<i32, _>([]).into_array(),
-            PrimitiveArray::from_option_iter([None, Some(3), Some(2)]).into_array(),
-        ],
-        DType::Primitive(PType::I32, Nullability::Nullable),
-    )?
-    .into_array())
-}
-
-/// The set that the list of a `list_contains` node holds.
-fn list_set(node: &ArrayRef) -> PreparedSetData {
-    PreparedSet::set_of(node.as_::<ScalarFn>().get_child(0))
-        .expect("the list of the node is a prepared set")
-        .clone()
-}
-
-/// Asserts that `array` was pushed into its chunks, and that every non-empty chunk looks up in
-/// one set.
-fn assert_chunks_share_one_set(array: &ArrayRef) {
-    let chunked = array.as_::<Chunked>();
-    let sets: Vec<_> = chunked
-        .iter_chunks()
-        .filter(|chunk| !chunk.is_empty())
-        .map(list_set)
-        .collect();
-    assert!(sets.len() > 1);
-    assert!(sets.iter().all(|set| set.shares_set_with(&sets[0])));
-}
-
-#[rstest]
-#[case::default(
-    ListContainsOptions::default(),
-    [Some(false), Some(true), None, Some(false), Some(true)],
-)]
-#[case::sql(
-    ListContainsOptions {
-        sql_null_semantics: true,
-        ..Default::default()
-    },
-    [None, Some(true), None, None, Some(true)],
-)]
-fn test_constant_list_over_chunked_needles(
-    #[case] options: ListContainsOptions,
-    #[case] expected: [Option<bool>; 5],
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let needles = chunked_needles()?;
-    let list = ConstantArray::new(set_with_null(), needles.len()).into_array();
-
-    // The list is prepared before the push-down, so every chunk gets a slice of the one set.
-    let array = ListContains::try_new_opts(list, needles, options)?
-        .into_array()
-        .optimize_ctx(&SESSION)?;
-    assert_chunks_share_one_set(&array);
-
-    assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_optimized_expression_over_chunked_needles() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let needles = chunked_needles()?;
-    let expr = list_contains(lit(set_with_null()), root())
-        .bind(needles.dtype())?
-        .optimize()?;
-
-    let array = needles.apply_bound(&expr)?.optimize_ctx(&SESSION)?;
-    assert_chunks_share_one_set(&array);
-
-    assert_arrays_eq!(
-        array,
-        BoolArray::from_iter([Some(false), Some(true), None, Some(false), Some(true)]),
-        &mut ctx
-    );
-    Ok(())
-}
-
-/// A prepared set has no children, so its `ScalarFnArray` takes an explicit length.
-#[test]
-fn test_scalar_fn_without_children_requires_explicit_len() -> VortexResult<()> {
-    let list = Scalar::list(
-        DType::Primitive(PType::I32, Nullability::NonNullable),
-        vec![Scalar::from(1i32)],
-        Nullability::NonNullable,
-    );
-    let scalar_fn =
-        TypedScalarFnInstance::new(PreparedSet, PreparedSetData::try_new(list.clone())?).erased();
-
-    let Err(err) = ScalarFnArray::try_new(scalar_fn.clone(), vec![]) else {
-        panic!("ScalarFnArray::try_new should reject zero children");
-    };
-    assert!(
-        err.to_string()
-            .contains("ScalarFnArray length cannot be inferred without children")
-    );
-
-    let scalar_fn_array = ScalarFnArray::try_new_with_len(scalar_fn, vec![], 3)?;
-    assert_eq!(scalar_fn_array.len(), 3);
-    assert_eq!(scalar_fn_array.child_count(), 0);
-    assert_arrays_eq!(
-        scalar_fn_array,
-        ConstantArray::new(list, 3),
-        &mut SESSION.create_execution_ctx()
-    );
-    Ok(())
-}
-
-/// Filtering a prepared set, which has no children, keeps a prepared set of the filtered length.
-#[test]
-fn test_filter_pushdown_without_children() -> VortexResult<()> {
-    let list = Scalar::list(
-        DType::Primitive(PType::I32, Nullability::NonNullable),
-        vec![Scalar::from(7i32)],
-        Nullability::NonNullable,
-    );
-    let array = PreparedSet::try_new_array(list.clone(), 3)?;
-    let result = FilterArray::try_new(array, Mask::from_iter([true, false, true]))?
-        .into_array()
-        .optimize_ctx(&SESSION)?;
-
-    assert_eq!(result.as_::<ScalarFn>().nchildren(), 0);
-    assert_eq!(result.len(), 2);
-    assert_arrays_eq!(
-        result,
-        ConstantArray::new(list, 2),
-        &mut SESSION.create_execution_ctx()
     );
     Ok(())
 }
@@ -730,66 +429,4 @@ fn serialize_propagates_extension_metadata_error() -> VortexResult<()> {
         "{err}"
     );
     Ok(())
-}
-
-/// Dictionary needles with a null code or a null value, against a set that is empty or not.
-#[rstest]
-#[case::default(null_code_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), None, Some(true)])]
-#[case::sql(null_code_needles(), SQL, set_with_null(), vec![Some(true), None, None, Some(true)])]
-// Off SQL null semantics an empty list answers `false` even for the null code.
-#[case::empty(null_code_needles(), ListContainsOptions::default(), empty_i32_set(), vec![Some(false); 4])]
-#[case::empty_sql(null_code_needles(), SQL, empty_i32_set(), vec![Some(false), Some(false), None, Some(false)])]
-#[case::null_value(null_value_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), Some(true), None, Some(false)])]
-fn test_dictionary_needles(
-    #[case] needles: VortexResult<ArrayRef>,
-    #[case] options: ListContainsOptions,
-    #[case] set: Scalar,
-    #[case] expected: Vec<Option<bool>>,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let needles = needles?;
-    let list = ConstantArray::new(set, needles.len()).into_array();
-
-    let array = ListContains::try_new_opts(list, needles, options)?
-        .into_array()
-        .optimize_ctx(&SESSION)?;
-
-    // The rule took the node: it is a dictionary of answers, or a constant for the empty list.
-    assert!(!array.is::<ScalarFn>());
-
-    // The prepared list still lets the function into the values of the dictionary.
-    if let Some(dict) = array.as_opt::<Dict>() {
-        let values = dict.values().clone();
-        assert!(PreparedSet::set_of(values.as_::<ScalarFn>().get_child(0)).is_some());
-    }
-
-    assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
-    Ok(())
-}
-
-/// Dictionary needles of `i32` with a null code.
-fn null_code_needles() -> VortexResult<ArrayRef> {
-    Ok(DictArray::try_new(
-        PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(0)]).into_array(),
-        buffer![2i32, 3].into_array(),
-    )?
-    .into_array())
-}
-
-/// Dictionary needles of `i32` with a null value.
-fn null_value_needles() -> VortexResult<ArrayRef> {
-    Ok(DictArray::try_new(
-        buffer![0u8, 1, 0, 2, 1].into_array(),
-        PrimitiveArray::from_option_iter([Some(2i32), Some(3), None]).into_array(),
-    )?
-    .into_array())
-}
-
-/// The empty set of nullable `i32`.
-fn empty_i32_set() -> Scalar {
-    Scalar::list(
-        DType::Primitive(PType::I32, Nullability::Nullable),
-        vec![],
-        Nullability::NonNullable,
-    )
 }

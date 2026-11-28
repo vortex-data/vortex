@@ -6,6 +6,11 @@
 mod is_null;
 mod select;
 
+use hegel::TestCase;
+use hegel::generators as gs;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -337,4 +342,50 @@ fn expr_display() {
         .to_string(),
         "{dog: 32u32, cat: \"rufus\"}"
     );
+}
+
+pub(crate) fn draw_len(tc: &TestCase, max_len: usize) -> usize {
+    match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => 0,
+        1 => 1,
+        2 => tc.draw(
+            gs::integers::<usize>()
+                .min_value(2)
+                .max_value(8.min(max_len)),
+        ),
+        _ => tc.draw(gs::integers::<usize>().max_value(max_len)),
+    }
+}
+
+pub(crate) fn draw_nullability(tc: &TestCase) -> Nullability {
+    if tc.draw(gs::booleans()) {
+        Nullability::Nullable
+    } else {
+        Nullability::NonNullable
+    }
+}
+
+/// Prepends random padding rows before `canonical` and returns a slice with a non-zero offset.
+pub(crate) fn slice_with_padding(
+    tc: &TestCase,
+    canonical: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let len = canonical.len();
+    let pad_before = tc.draw(gs::integers::<usize>().min_value(1).max_value(7));
+    let pad_after = tc.draw(gs::integers::<usize>().max_value(3));
+    let mut builder = builder_with_capacity_in(
+        canonical.dtype(),
+        pad_before + len + pad_after,
+        ctx.allocator(),
+    );
+    let fill = Scalar::default_value(canonical.dtype());
+    for _ in 0..pad_before {
+        builder.append_scalar(&fill)?;
+    }
+    canonical.append_to_builder(builder.as_mut(), ctx)?;
+    for _ in 0..pad_after {
+        builder.append_scalar(&fill)?;
+    }
+    builder.finish().slice(pad_before..pad_before + len)
 }

@@ -11865,6 +11865,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-buffer 60.2.0",
  "codspeed-divan-compat",
+ "hegeltest",
  "insta",
  "itertools 0.14.0",
  "jiff 1.0.2",
