@@ -154,7 +154,8 @@ that is the form that the published file holds.
 │  Version-specific: builds arrays, writes/reads   │
 │  .vortex files, compares arrays                  │
 │                                                  │
-│  Commands: generate, editions, check             │
+│  Commands: generate, editions, dump-expected,    │
+│            check                                 │
 └──────────────────────────────────────────────────┘
 ```
 
