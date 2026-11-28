@@ -26,9 +26,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
 
 /// Compression scheme for temporal timestamp arrays via datetime-part decomposition.
 ///
@@ -74,13 +75,13 @@ impl Scheme for TemporalScheme {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
-    fn compress(
+    /// Children: days=0, which carry the validity, seconds=1, subseconds=2, each narrowed.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let array = data.array().clone();
         let ext_array = array.execute::<ExtensionArray>(exec_ctx)?;
         let temporal_array = TemporalArray::try_from(ext_array.into_array())?;
@@ -92,35 +93,33 @@ impl Scheme for TemporalScheme {
             subseconds,
         } = split_temporal(temporal_array, exec_ctx)?;
 
-        let days_primitive = days.execute::<PrimitiveArray>(exec_ctx)?.narrow(exec_ctx)?;
-        let days = compressor.compress_child(
-            &days_primitive.into_array(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-        let seconds_primitive = seconds
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
-        let seconds = compressor.compress_child(
-            &seconds_primitive.into_array(),
-            &compress_ctx,
-            self.id(),
-            1,
-            exec_ctx,
-        )?;
-        let subseconds_primitive = subseconds
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
-        let subseconds = compressor.compress_child(
-            &subseconds_primitive.into_array(),
-            &compress_ctx,
-            self.id(),
-            2,
-            exec_ctx,
-        )?;
-
-        Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
+        let children = vec![
+            Child::new(self, 0, narrowed(days, exec_ctx)?),
+            Child::new(self, 1, narrowed(seconds, exec_ctx)?),
+            Child::new(self, 2, narrowed(subseconds, exec_ctx)?),
+        ];
+        Ok(Encoded::new(children, Vec::new(), move |children, _| {
+            let [days, seconds, subseconds] = children.compressed()?;
+            Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
+        }))
     }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+/// Narrows a datetime part to the smallest integer type that holds its values.
+fn narrowed(part: ArrayRef, exec_ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    Ok(part
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow(exec_ctx)?
+        .into_array())
 }

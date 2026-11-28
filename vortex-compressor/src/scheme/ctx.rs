@@ -106,6 +106,14 @@ impl CompressorContext {
         self
     }
 
+    /// Returns a fresh root context, preserving sampling mode from `self`.
+    pub(crate) fn fresh_root(&self) -> Self {
+        Self {
+            is_sample: self.is_sample,
+            ..Self::new()
+        }
+    }
+
     /// Descends one level in the cascade, recording the current scheme and which child is
     /// being compressed.
     ///

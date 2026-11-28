@@ -136,13 +136,15 @@ mod test {
     use hegel::TestCase;
     use hegel::generators as gs;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::conformance::hegel::draw_validity;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::IntegerPType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::match_each_integer_ptype;
@@ -156,6 +158,7 @@ mod test {
 
     use crate::Sequence;
     use crate::SequenceArray;
+    use crate::model_tests::draw_sequence;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -288,64 +291,43 @@ mod test {
         PType::U64,
     ];
 
-    /// Rows per generated sequence and per generated set of indices.
-    const MAX_LEN: usize = 64;
-
-    /// Taking from a generated sequence matches taking from its canonical values.
-    #[hegel::test]
+    /// Taking from any generated sequence across all 8 integer index types (both nullable and
+    /// non-nullable) matches taking from its exact canonical values without rejecting draws.
+    #[hegel::test(test_cases = 100, print_blob = true)]
     fn take_matches_canonical(tc: TestCase) {
-        match tc.draw(gs::integers::<u8>().max_value(7)) {
-            0 => check_take::<u8>(&tc),
-            1 => check_take::<u16>(&tc),
-            2 => check_take::<u32>(&tc),
-            3 => check_take::<u64>(&tc),
-            4 => check_take::<i8>(&tc),
-            5 => check_take::<i16>(&tc),
-            6 => check_take::<i32>(&tc),
-            _ => check_take::<i64>(&tc),
-        }
-        .vortex_expect("sequence take");
+        check_take(&tc).vortex_expect("sequence take");
     }
 
-    fn check_take<P>(tc: &TestCase) -> VortexResult<()>
-    where
-        P: NativePType + gs::Integer + Into<PValue> + 'static,
-    {
+    fn check_take(tc: &TestCase) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let base: P = tc.draw(gs::integers());
-        let multiplier: i64 = tc.draw(gs::integers());
-        let len: usize = tc.draw(gs::integers().min_value(1).max_value(MAX_LEN));
-        let Ok(sequence) = Sequence::try_new(
-            base.into(),
-            PValue::from(multiplier),
-            P::PTYPE,
-            Nullability::NonNullable,
-            len,
-        ) else {
-            tc.reject()
-        };
-        let sequence = sequence.into_array();
+        let (sequence, canonical) = draw_sequence(tc)?;
+        let len = sequence.len();
 
         let indices: Vec<u8> = tc.draw(gs::vecs(
             gs::integers::<u8>().max_value(u8::try_from(len - 1)?),
         ));
+        let index_validity = if tc.draw(gs::booleans()) {
+            Validity::NonNullable
+        } else {
+            draw_validity(tc, indices.len())
+        };
         let index_ptype = tc.draw(gs::sampled_from(&INDEX_PTYPES));
         let indices = match_each_integer_ptype!(index_ptype, |I| {
-            Buffer::<I>::from_iter(
-                indices
-                    .iter()
-                    .map(|&index| num_traits::cast::<u8, I>(index).vortex_expect("index fits")),
-            )
-            .into_array()
+            build_take_indices::<I>(&indices, index_validity)
         });
 
-        let expected = sequence
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?
-            .into_array()
-            .take(indices.clone())?;
-        let taken = sequence.take(indices)?;
+        let expected = canonical.into_array().take(indices.clone())?;
+        let taken = sequence.into_array().take(indices)?;
         assert_arrays_eq!(taken, expected, &mut ctx);
         Ok(())
+    }
+
+    fn build_take_indices<I: IntegerPType>(indices: &[u8], validity: Validity) -> ArrayRef {
+        let buffer = Buffer::<I>::from_iter(
+            indices
+                .iter()
+                .map(|&index| num_traits::cast::<u8, I>(index).vortex_expect("index fits")),
+        );
+        PrimitiveArray::new(buffer, validity).into_array()
     }
 }

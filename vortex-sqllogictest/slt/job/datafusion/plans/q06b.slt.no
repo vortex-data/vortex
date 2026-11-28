@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(k.keyword) AS movie_keyword,
+       MIN(n.name) AS actor_name,
+       MIN(t.title) AS hero_movie
+FROM cast_info AS ci,
+     keyword AS k,
+     movie_keyword AS mk,
+     name AS n,
+     title AS t
+WHERE k.keyword IN ('superhero',
+                    'sequel',
+                    'second-part',
+                    'marvel-comics',
+                    'based-on-comic',
+                    'tv-special',
+                    'fight',
+                    'violence')
+  AND n.name LIKE '%Downey%Robert%'
+  AND t.production_year > 2014
+  AND k.id = mk.keyword_id
+  AND t.id = mk.movie_id
+  AND t.id = ci.movie_id
+  AND ci.movie_id = mk.movie_id
+  AND n.id = ci.person_id;
+----
+logical_plan
+01)Projection: min(k.keyword) AS movie_keyword, min(n.name) AS actor_name, min(t.title) AS hero_movie
+02)--Aggregate: groupBy=[[]], aggr=[[min(k.keyword), min(n.name), min(t.title)]]
+03)----Projection: k.keyword, n.name, t.title
+04)------Inner Join: mk.movie_id = t.id, ci.movie_id = t.id
+05)--------Projection: ci.movie_id, mk.movie_id, k.keyword, n.name
+06)----------Inner Join: ci.person_id = n.id
+07)------------Projection: ci.person_id, ci.movie_id, mk.movie_id, k.keyword
+08)--------------Inner Join: mk.keyword_id = k.id
+09)----------------Inner Join: ci.movie_id = mk.movie_id
+10)------------------SubqueryAlias: ci
+11)--------------------TableScan: cast_info projection=[person_id, movie_id]
+12)------------------SubqueryAlias: mk
+13)--------------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+14)----------------SubqueryAlias: k
+15)------------------Filter: keyword.keyword IN ([Utf8View("superhero"), Utf8View("sequel"), Utf8View("second-part"), Utf8View("marvel-comics"), Utf8View("based-on-comic"), Utf8View("tv-special"), Utf8View("fight"), Utf8View("violence")])
+16)--------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword IN ([Utf8View("superhero"), Utf8View("sequel"), Utf8View("second-part"), Utf8View("marvel-comics"), Utf8View("based-on-comic"), Utf8View("tv-special"), Utf8View("fight"), Utf8View("violence")])]
+17)------------SubqueryAlias: n
+18)--------------Filter: name.name LIKE Utf8View("%Downey%Robert%")
+19)----------------TableScan: name projection=[id, name], partial_filters=[name.name LIKE Utf8View("%Downey%Robert%")]
+20)--------SubqueryAlias: t
+21)----------Projection: title.id, title.title
+22)------------Filter: title.production_year > Float64(2014)
+23)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year > Float64(2014)]
+physical_plan
+01)ProjectionExec: expr=[min(k.keyword)@0 as movie_keyword, min(n.name)@1 as actor_name, min(t.title)@2 as hero_movie]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(k.keyword), min(n.name), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(k.keyword), min(n.name), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, movie_id@1), (id@0, movie_id@0)], projection=[keyword@4, name@5, title@1]
+06)----------CoalescePartitionsExec
+07)------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 > 2014
+08)----------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, id@0)], projection=[movie_id@1, movie_id@2, keyword@3, name@5]
+09)------------CoalescePartitionsExec
+10)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, keyword_id@3)], projection=[person_id@2, movie_id@3, movie_id@4, keyword@1]
+11)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id, keyword], file_type=vortex, predicate: keyword@1 IN (SET) ([superhero, sequel, second-part, marvel-comics, based-on-comic, tv-special, fight, violence])
+12)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@1)], projection=[person_id@2, movie_id@3, movie_id@0, keyword_id@1]
+13)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+14)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[person_id, movie_id], file_type=vortex
+15)------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/name.vortex:0..423440], [${WORK_DIR}/name.vortex:423440..846880], [${WORK_DIR}/name.vortex:846880..1270320], [${WORK_DIR}/name.vortex:1270320..1693760]]}, projection=[id, name], file_type=vortex, predicate: name@1 LIKE %Downey%Robert%

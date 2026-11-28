@@ -36,6 +36,7 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
 goldenfile = { workspace = true, optional = true }
 half = { workspace = true, features = ["num-traits"] }
+hegeltest = { workspace = true, optional = true }
 humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
@@ -75,6 +76,7 @@ arbitrary = ["dep:arbitrary", "dep:primitive-types"]
 canonical_counter = []
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
+_test-harness-hegel = ["_test-harness", "dep:hegeltest"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.
 unstable_row_fns = []

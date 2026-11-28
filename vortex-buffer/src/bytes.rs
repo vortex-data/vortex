@@ -45,3 +45,38 @@ pub trait AlignedBuf: Buf {
 }
 
 impl<B: Buf> AlignedBuf for B {}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Buf;
+
+    use crate::AlignedBuf;
+    use crate::Alignment;
+    use crate::ByteBuffer;
+
+    #[test]
+    fn copy_to_aligned_and_const_aligned_advance_and_align() {
+        // Use Bytes (whose Buf::copy_to_bytes is zero-copy) starting at an 8-byte aligned address
+        // so advancing by 1 byte produces a genuinely misaligned pointer for the 8-byte read.
+        let mut buf = ByteBuffer::copy_from_aligned([0u8, 1, 2, 3, 4, 5, 6, 7], Alignment::new(8))
+            .into_bytes();
+
+        let head = buf.copy_to_aligned(1, Alignment::new(1));
+        assert_eq!(head.as_slice(), &[0]);
+        assert_eq!(buf.remaining(), 7);
+
+        let misaligned_ptr = buf.chunk().as_ptr();
+        assert!(!Alignment::new(8).is_offset_aligned(misaligned_ptr.addr()));
+        let mid = buf.copy_to_aligned(4, Alignment::new(8));
+        assert_ne!(mid.as_ptr(), misaligned_ptr);
+        assert_eq!(mid.as_slice(), &[1, 2, 3, 4]);
+        assert!(mid.is_aligned(Alignment::new(8)));
+        assert_eq!(mid.alignment(), Alignment::new(8));
+        assert_eq!(buf.remaining(), 3);
+
+        let tail = buf.copy_to_const_aligned::<16>(3);
+        assert_eq!(tail.as_slice(), &[5, 6, 7]);
+        assert!(tail.inner().is_aligned(Alignment::new(16)));
+        assert_eq!(buf.remaining(), 0);
+    }
+}

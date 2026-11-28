@@ -20,6 +20,7 @@ use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitPackedDataParts;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
@@ -37,6 +38,29 @@ use crate::schemes::patches::KeptPatches;
 pub struct BitPackingScheme;
 
 impl BitPackingScheme {
+    /// Bit-packs `primitive_array`, or returns `None` when it is empty or its best bit width does
+    /// not save at least [`MIN_BITS_SAVED`] bits.
+    pub(super) fn compress_array(
+        &self,
+        primitive_array: &PrimitiveArray,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<BitPackedArray>> {
+        if primitive_array.is_empty() {
+            return Ok(None);
+        }
+        let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
+        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+        if !should_pack(primitive_array.ptype(), bw) {
+            return Ok(None);
+        }
+        Ok(Some(bitpack_encode(
+            primitive_array,
+            bw,
+            Some(&histogram),
+            exec_ctx,
+        )?))
+    }
+
     /// Bit-packs `data`, or returns `None` when compressing is not beneficial.
     pub(super) fn try_encode(
         &self,
@@ -44,13 +68,9 @@ impl BitPackingScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Encoded>> {
         let primitive_array = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-        let histogram = bit_width_histogram(primitive_array.as_view(), exec_ctx)?;
-        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
-        if !should_pack(primitive_array.ptype(), bw) {
+        let Some(packed) = self.compress_array(&primitive_array, exec_ctx)? else {
             return Ok(None);
-        }
-
-        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram), exec_ctx)?;
+        };
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
         let BitPackedDataParts {

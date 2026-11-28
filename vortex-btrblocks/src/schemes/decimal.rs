@@ -26,9 +26,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum DecimalSchemeMode {
@@ -141,13 +142,14 @@ impl Scheme for DecimalScheme {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
-    fn compress(
+    /// Children: msp=0, which carries the validity, then the lower parts from 1 on, most
+    /// significant first.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
         let mask = decimal.validity()?.execute_mask(decimal.len(), exec_ctx)?;
         let lower_part_count = lower_part_count(&decimal, &mask)?;
@@ -164,7 +166,7 @@ impl Scheme for DecimalScheme {
                 max_lower_parts(decimal_dtype),
             );
 
-            return Ok(data.array().clone());
+            return Ok(Encoded::leaf(data.array().clone()));
         }
 
         let parts = split_decimal(&decimal, &mask, lower_part_count)?;
@@ -172,35 +174,41 @@ impl Scheme for DecimalScheme {
         let canonical_msp = parts.msp.execute::<PrimitiveArray>(exec_ctx)?;
         let msp = WidenArray::encode(canonical_msp, exec_ctx)?;
 
-        // NB: Compress the narrow child, then wrap it. `CascadingCompressor::compress_child`
-        // executes its input to canonical form, which would undo the `Widen`.
+        // NB: Register the narrow stored integer and wrap it again in the constructor. The
+        // compressor executes each child to canonical form, which would undo the `Widen`.
         let logical_dtype = msp.dtype().clone();
-        let compressed_msp = compressor.compress_child(
-            &WidenArray::to_stored_integer(&msp),
-            &compress_ctx,
-            self.id(),
-            DecimalBytePartsSlots::MSP,
-            exec_ctx,
-        )?;
-        let msp = WidenArray::from_stored_integer(compressed_msp, logical_dtype)?;
+        let stored_msp = WidenArray::to_stored_integer(&msp);
+        let num_lower_parts = parts.lower_parts.len();
+        let mut children = Vec::with_capacity(1 + num_lower_parts);
+        children.push(Child::new(self, DecimalBytePartsSlots::MSP, stored_msp));
+        children.extend(
+            (DecimalBytePartsSlots::LOWER_PARTS_OFFSET..)
+                .zip(parts.lower_parts)
+                .map(|(slot, part)| Child::new(self, slot, part)),
+        );
 
-        let lower_parts = parts
-            .lower_parts
-            .iter()
-            .enumerate()
-            .map(|(idx, part)| {
-                compressor.compress_child(
-                    part,
-                    &compress_ctx,
-                    self.id(),
-                    DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx,
-                    exec_ctx,
-                )
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
+        let decimal_dtype = decimal.decimal_dtype();
+        Ok(Encoded::new(children, Vec::new(), move |children, _| {
+            let [msp] = children.compressed()?;
+            let msp = WidenArray::from_stored_integer(msp, logical_dtype)?;
+            // `compressed` takes a fixed count, so take the lower parts one at a time.
+            let lower_parts = (0..num_lower_parts)
+                .map(|_| children.compressed::<1>().map(|[part]| part))
+                .collect::<VortexResult<Vec<_>>>()?;
+            DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, decimal_dtype)
+                .map(IntoArray::into_array)
+        }))
+    }
 
-        DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, decimal.decimal_dtype())
-            .map(IntoArray::into_array)
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

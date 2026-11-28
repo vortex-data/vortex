@@ -73,7 +73,7 @@ logical_plan
 22)--------Projection: min(partsupp.ps_supplycost), partsupp.ps_partkey
 23)----------Aggregate: groupBy=[[partsupp.ps_partkey]], aggr=[[min(partsupp.ps_supplycost)]]
 24)------------Projection: partsupp.ps_partkey, partsupp.ps_supplycost
-25)--------------Inner Join: nation.n_regionkey = region.r_regionkey
+25)--------------LeftSemi Join: nation.n_regionkey = region.r_regionkey
 26)----------------Projection: partsupp.ps_partkey, partsupp.ps_supplycost, nation.n_regionkey
 27)------------------Inner Join: supplier.s_nationkey = nation.n_nationkey
 28)--------------------Projection: partsupp.ps_partkey, partsupp.ps_supplycost, supplier.s_nationkey
@@ -102,7 +102,7 @@ physical_plan
 15)--------AggregateExec: mode=FinalPartitioned, gby=[ps_partkey@0 as ps_partkey], aggr=[min(partsupp.ps_supplycost)]
 16)----------RepartitionExec: partitioning=Hash([ps_partkey@0], 4), input_partitions=4
 17)------------AggregateExec: mode=Partial, gby=[ps_partkey@0 as ps_partkey], aggr=[min(partsupp.ps_supplycost)]
-18)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(r_regionkey@0, n_regionkey@2)], projection=[ps_partkey@1, ps_supplycost@2]
+18)--------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(r_regionkey@0, n_regionkey@2)], projection=[ps_partkey@0, ps_supplycost@1]
 19)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/region.vortex]]}, projection=[r_regionkey], file_type=vortex, predicate: r_name@1 = EUROPE
 20)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(n_nationkey@0, s_nationkey@2)], projection=[ps_partkey@2, ps_supplycost@3, n_regionkey@1]
 21)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/nation.vortex]]}, projection=[n_nationkey, n_regionkey], file_type=vortex

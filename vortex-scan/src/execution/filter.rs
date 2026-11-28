@@ -38,9 +38,12 @@ use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
+use crate::plan::Eval;
 use crate::plan::FilterPlan;
 use crate::plan::PlanRef;
+use crate::plan::RowIdx;
 use crate::plan::Zoned;
+use crate::plan::builtins::zoned::contains_stat_fn;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::planning::planner::Planner;
@@ -151,7 +154,8 @@ impl FilterPlans {
     }
 }
 
-/// A pruning plan must not fetch data when its requested statistics are unavailable.
+/// A pruning plan must not fetch data, materialize row indices, or execute unresolved statistics
+/// when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
         .as_opt::<Zoned>()
@@ -159,7 +163,12 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     {
         return Ok(true);
     }
-    if plan.is_data_source() {
+    if plan.is_data_source() || plan.is::<RowIdx>() {
+        return Ok(false);
+    }
+    if let Some(eval) = plan.as_opt::<Eval>()
+        && contains_stat_fn(eval.expression())?
+    {
         return Ok(false);
     }
     for child in plan.children() {

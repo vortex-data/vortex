@@ -81,3 +81,42 @@ impl<T, const A: usize> Deref for ConstBuffer<T, A> {
         self.0.as_slice()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::Alignment;
+    use crate::ByteBuffer;
+    use crate::ConstBuffer;
+
+    #[test]
+    fn try_from_aligned_succeeds_and_misaligned_errors() -> VortexResult<()> {
+        let aligned = ByteBuffer::copy_from_aligned([1u8, 2, 3, 4], Alignment::new(16));
+        let ptr = aligned.as_ptr();
+        let const_buf = ConstBuffer::<u8, 16>::try_from(aligned)?;
+        assert_eq!(const_buf.as_slice(), &[1, 2, 3, 4]);
+        assert_eq!(const_buf.inner().as_ptr(), ptr);
+        assert_eq!(const_buf.into_inner().alignment(), Alignment::new(16));
+
+        let unaligned = ByteBuffer::copy_from_aligned([1u8, 2, 3, 4], Alignment::new(1));
+        let err = ConstBuffer::<u8, 16>::try_from(unaligned).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Cannot convert buffer with alignment 1 to buffer with alignment 16"),
+            "{err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn align_from_realigns_misaligned_slice() {
+        let misaligned =
+            ByteBuffer::copy_from_aligned([0u8, 1, 2, 3, 4, 5, 6, 7], Alignment::new(8))
+                .slice_unaligned(1..5);
+        let const_buf = ConstBuffer::<u8, 8>::align_from(misaligned);
+        assert_eq!(const_buf.as_slice(), &[1, 2, 3, 4]);
+        assert!(const_buf.inner().is_aligned(Alignment::new(8)));
+        assert_eq!(const_buf.inner().alignment(), Alignment::new(8));
+    }
+}

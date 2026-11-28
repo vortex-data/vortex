@@ -76,7 +76,7 @@
     "widen_decimal": 9
   },
   "vortex-arrow": {
-    "to_arrow": 135
+    "to_arrow": 137
   },
   "vortex-buffer": {
     "allocation": 35,
@@ -172,6 +172,7 @@
     "decode": 9
   },
   "vortex-parquet-variant": {
+    "parquet_variant_extract": 4,
     "parquet_variant_probe": 12
   },
   "vortex-pco": {
