@@ -3,6 +3,7 @@
 
 //! The chunk loop of the float statistics.
 
+use vortex_array::dtype::NativePType;
 use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_mask::AllOr;
@@ -51,18 +52,20 @@ fn padded<T: Copy>(values: &[T]) -> [T; 64] {
 }
 
 /// Returns how many times the value changes along `values`, starting from `prev`, the last
-/// value before them.
+/// value before them, using bitwise [`NativePType::is_eq`] equality.
 ///
-/// The count is branch-free and at most 64, so a `u8` accumulator lets the comparison use
-/// full-width byte lanes.
+/// Counting equal pairs with a `u32` accumulator over non-overlapping adjacent slices avoids
+/// loop-carried dependencies and lets LLVM vectorize bitwise equality without mask negation.
+///
+/// Expects `1 <= values.len() <= 64`.
 #[allow(clippy::inline_always)]
+#[expect(clippy::cast_possible_truncation, reason = "values.len() <= 64")]
 #[inline(always)]
-pub(super) fn count_transitions<T: PartialEq>(prev: &T, values: &[T]) -> u8 {
+pub(super) fn count_transitions<T: NativePType>(prev: T, values: &[T]) -> u32 {
     debug_assert!(!values.is_empty() && values.len() <= 64);
-    u8::from(values[0] != *prev)
-        + values
-            .iter()
-            .zip(&values[1..])
-            .map(|(a, b)| u8::from(a != b))
-            .sum::<u8>()
+    let mut equal_pairs = u32::from(values[0].is_eq(prev));
+    for (&a, &b) in values.iter().zip(&values[1..]) {
+        equal_pairs += u32::from(a.is_eq(b));
+    }
+    values.len() as u32 - equal_pairs
 }

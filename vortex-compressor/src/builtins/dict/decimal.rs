@@ -98,12 +98,13 @@ impl Scheme for DecimalDictScheme {
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let stats = data.decimal_stats(exec_ctx);
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
+        if value_count == 0 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -112,33 +113,37 @@ impl Scheme for DecimalDictScheme {
         );
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count > stats.value_count() / 2 {
+        if distinct_values_count == 0 || distinct_values_count > value_count / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Ignore nulls encoding for the estimate. We only focus on values, at their stored width,
-        // since the values are compressed again.
-        let bit_width = data.array_as_decimal().values_type().byte_width() * 8;
-        let values_size = bit_width * distinct_values_count as usize;
+        let array_len = u64::from(value_count) + u64::from(stats.null_count());
+        let validity_bits = if stats.null_count() > 0 { array_len } else { 0 };
 
-        // Assume codes are compressed RLE + BitPacking.
-        let codes_bw = u32::BITS - distinct_values_count.leading_zeros();
-        let average_run_length = stats
-            .average_run_length()
+        let bit_width = (data.array_as_decimal().values_type().byte_width() * 8) as u64;
+        let values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
+
+        let run_count = stats
+            .run_count()
             .vortex_expect("runs are counted with the distinct values");
-        let n_runs = (stats.value_count() / average_run_length) as usize;
 
-        // Assume that codes will either be BitPack or RLE-BitPack.
-        let codes_size_bp = codes_bw as usize * stats.value_count() as usize;
-        let codes_size_rle_bp = usize::checked_mul(codes_bw as usize + 32, n_runs);
+        let codes_bits = super::estimate_codes_bits(
+            array_len,
+            u64::from(value_count),
+            distinct_values_count,
+            run_count,
+            None,
+            compress_ctx.allowed_cascading(),
+        );
 
-        let codes_size = usize::min(codes_size_bp, codes_size_rle_bp.unwrap_or(usize::MAX));
+        let before = array_len
+            .saturating_mul(bit_width)
+            .saturating_add(validity_bits);
+        let after = values_bits
+            .saturating_add(codes_bits)
+            .saturating_add(validity_bits);
 
-        let before = stats.value_count() as usize * bit_width;
-
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            before as f64 / (values_size + codes_size) as f64,
-        ))
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(before as f64 / after as f64))
     }
 
     /// Children: values=0, codes=1. The codes carry the validity.
@@ -243,6 +248,11 @@ mod tests {
 
     use super::DecimalDictScheme;
     use crate::CascadingCompressor;
+    use crate::scheme::CompressionEstimate;
+    use crate::scheme::CompressorContext;
+    use crate::scheme::EstimateVerdict;
+    use crate::scheme::Scheme;
+    use crate::stats::ArrayAndStats;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -309,5 +319,34 @@ mod tests {
 
         assert!(!compressed.is::<Dict>(), "{}", compressed.display_tree());
         Ok(())
+    }
+
+    #[rstest]
+    #[case::two_values(2, 120.0, 128.0)]
+    #[case::four_values(4, 60.0, 64.0)]
+    fn power_of_two_cardinality_does_not_overestimate_code_width(
+        #[case] distinct: usize,
+        #[case] min_ratio: f64,
+        #[case] max_ratio: f64,
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = decimal(
+            (0..4096).map(|i| ((i % distinct) as i128) << 100),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let data = ArrayAndStats::new(array, DecimalDictScheme.stats_options());
+        let ratio = match DecimalDictScheme.expected_compression_ratio(
+            &data,
+            CompressorContext::new(),
+            &mut ctx,
+        ) {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => ratio,
+            other => panic!("expected Ratio verdict, got {other:?}"),
+        };
+        assert!(
+            ratio > min_ratio && ratio < max_ratio,
+            "expected ratio in ({min_ratio}, {max_ratio}), got {ratio}"
+        );
     }
 }
