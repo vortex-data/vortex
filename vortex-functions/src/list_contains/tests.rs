@@ -1349,3 +1349,31 @@ fn test_constant_float_needle_overlapping_list_view(
     );
     Ok(())
 }
+
+#[rstest]
+#[case::default(ListContainsOptions::default(), Some(false))]
+#[case::sql(SQL, None)]
+fn test_constant_needle_ignores_null_value_bits(
+    #[case] options: ListContainsOptions,
+    #[case] null_element_result: Option<bool>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // Both the null element and the valid match have the same physical value.
+    let elements = PrimitiveArray::new(
+        buffer![7i32, 7, 8],
+        Validity::from(BitBuffer::from_iter([false, true, true])),
+    );
+    let lists = ListArray::try_new(
+        elements.into_array(),
+        buffer![0u32, 1, 2, 3, 3].into_array(),
+        Validity::AllValid,
+        &mut ctx,
+    )?
+    .into_array();
+    assert_arrays_eq!(
+        lists.apply(&list_contains_opts(root(), lit(7i32), options))?,
+        BoolArray::from_iter([null_element_result, Some(true), Some(false), Some(false)]),
+        &mut ctx
+    );
+    Ok(())
+}
