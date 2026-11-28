@@ -289,18 +289,22 @@ The executor fuses in three steps:
    executor asks the parent for its op, once per frame, then the child for its block source. A
    leaf starts a block program, and the op of each fusable parent above is pushed onto it as its
    frame is popped. A child that is not a leaf yet executes as usual, and the op waits in the
-   frame for the result.
+   frame for the result. A source can also absorb its nearest same-type op into its own fill loop
+   (`BlockSource::try_absorb`), recorded in traces as `fuse absorb`, or decode directly into the
+   output buffer (`BlockSource::output_source`). An op may decline to start a single-op program
+   with `BlockOp::fuse_standalone`.
 3. **Drive.** As soon as the next parent cannot extend the program, or at the root, the executor
    runs it, in place of the parents it reached, and execution carries on with the result. A
    program never waits, so the executor holds it as a value, not as an array.
 
 Fusion covers primitive arrays and extension types stored as primitives, and today FoR and
-BitPacked take part. Each block's validity starts as the leaf source's, and an op may edit it a
+BitPacked take part (along with ALP and DateTimeParts ops). Each block's validity starts as the leaf source's, and an op may edit it a
 row or a 64-bit word at a time, such as a patch that nulls a row or an intersection with a side
-input's validity. Only edited blocks are copied into the output's validity. Disable fusion with
+input's validity. Only edited blocks are copied into the output's validity. Fusion is always
+enabled in production; tests and benchmarks with the `_test-harness` feature can disable it via
 `ExecutionCtx::with_block_fusion(false)`. Traces show each
-`ExecuteSpine` or `ExecuteSlot`, `fuse start`, `fuse extend` and `drive`, and how each op ran over
-the first block.
+`ExecuteSpine` or `ExecuteSlot`, `fuse start`, `fuse extend`, `fuse absorb` and `drive`, and how
+each op ran over the first block.
 
 ### Walkthrough: a Leaf and Two Ops
 

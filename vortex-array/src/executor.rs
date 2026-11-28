@@ -518,11 +518,18 @@ fn try_fuse(
     let Some(mut op) = take_op(stack, child.dtype(), ctx)? else {
         return Ok(Err(child));
     };
-    let Some(source) = child.block_source(ctx)? else {
+    let Some(mut source) = child.block_source(ctx)? else {
         // Not a leaf yet: the child executes, and the op waits in its frame for the result.
         stack.last_mut().vortex_expect("the op's frame").op = Some(op);
         return Ok(Err(child));
     };
+    if !op.fuse_standalone(child.len())
+        && !(op.prefers_output() && source.output_source().is_some())
+        && !stack.iter().rev().nth(1).is_some_and(|frame| frame.fuse)
+    {
+        stack.last_mut().vortex_expect("the op's frame").fuse = false;
+        return Ok(Err(child));
+    }
     let mut chain = FusedChain::start(&child, source)?;
     // Release the leaf, so a buffer it owned is again the source's alone.
     drop(child);
@@ -720,8 +727,9 @@ impl ExecutionCtx {
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
-    /// Enable or disable block fusion of primitive encoding chains, which is on by default. See
+    /// Enable or disable block fusion, which is on by default, for differential tests. See
     /// [`crate::block`].
+    #[cfg(any(test, feature = "_test-harness"))]
     pub fn with_block_fusion(mut self, enabled: bool) -> Self {
         self.block_fusion = enabled;
         self

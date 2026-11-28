@@ -21,6 +21,7 @@ use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType::I32;
 use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
@@ -182,5 +183,48 @@ fn canonicalize_sparse_fixed_size_list(
                     .execute::<Canonical>(&mut ctx)
                     .vortex_expect("sparse fixed-size-list canonicalization"),
             )
+        });
+}
+
+/// Sparse counters with 1% or 10% observations, optionally missing between observations, whole
+/// or sliced off chunk boundaries.
+#[divan::bench(args = [(100, false, false), (10, true, false), (100, true, true), (10, false, true)])]
+fn primitive_patches(bencher: Bencher, (stride, null_fill, sliced): (usize, bool, bool)) {
+    let len = 65_536u32;
+    let mut ctx = SESSION.create_execution_ctx();
+    let indices = PrimitiveArray::from_iter((0..len).step_by(stride));
+    let observed = (0..indices.len()).map(|i| (i as i64) * 7 + 12);
+    let (values, fill) = if null_fill {
+        (
+            PrimitiveArray::from_option_iter(observed.map(Some)),
+            Scalar::null_native::<i64>(),
+        )
+    } else {
+        (PrimitiveArray::from_iter(observed), Scalar::from(12i64))
+    };
+    let array = Sparse::try_new(
+        indices.into_array(),
+        values.into_array(),
+        len as usize,
+        fill,
+        &mut ctx,
+    )
+    .vortex_expect("valid sparse counters")
+    .into_array();
+    let array = if sliced {
+        array
+            .slice(17..len as usize - 9)
+            .vortex_expect("slice sparse counters")
+    } else {
+        array
+    }
+    .optimize_ctx(&SESSION)
+    .vortex_expect("optimize sparse counters");
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut ctx)| {
+            array
+                .execute::<PrimitiveArray>(&mut ctx)
+                .vortex_expect("decode sparse counters")
         });
 }

@@ -61,8 +61,11 @@ impl FusedChain {
             parent.len(),
             "a spine child has its parent's length"
         );
-        self.program.push(op, ptype);
-        trace_op!(record_fuse_extend(parent, self.program.ops()));
+        let absorbed = self.program.try_absorb(op.as_ref(), ptype.into());
+        if !absorbed {
+            self.program.push(op, ptype);
+        }
+        trace_op!(record_fuse_extend(parent, self.program.ops(), absorbed));
         self.dtype = parent.dtype().clone();
         self.stats = parent.statistics().to_owned();
         Ok(())
