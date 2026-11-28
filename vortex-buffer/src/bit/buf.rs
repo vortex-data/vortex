@@ -843,9 +843,38 @@ mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
 
+    use crate::BitBufferMut;
     use crate::ByteBuffer;
+    use crate::ByteBufferMut;
     use crate::bit::BitBuffer;
     use crate::buffer;
+
+    fn random_bits(len: usize, seed: u64) -> Vec<bool> {
+        let mut rng = StdRng::seed_from_u64(seed);
+        (0..len).map(|_| rng.random_bool(0.5)).collect()
+    }
+
+    /// Packs `bits` after `offset` leading bits into a fresh, uniquely owned buffer. Every bit
+    /// outside the logical range is set, so reading padding shows up as a wrong result.
+    fn pack(bits: &[bool], offset: usize) -> BitBuffer {
+        let n_bytes = (offset + bits.len()).div_ceil(8).max(1);
+        let bytes: ByteBufferMut = (0..n_bytes)
+            .map(|byte| {
+                (0..8).fold(0u8, |acc, bit| {
+                    let set = (byte * 8 + bit)
+                        .checked_sub(offset)
+                        .and_then(|i| bits.get(i).copied())
+                        .unwrap_or(true);
+                    acc | (u8::from(set) << bit)
+                })
+            })
+            .collect();
+        BitBufferMut::from_buffer(bytes, offset, bits.len()).freeze()
+    }
+
+    fn to_bools(buf: &BitBuffer) -> Vec<bool> {
+        buf.iter().collect()
+    }
 
     #[test]
     fn test_bool() {
@@ -1253,5 +1282,117 @@ mod tests {
             );
         }
         assert_eq!(sliced.select_unset(expected.len()), None);
+    }
+
+    /// Every owned and borrowed operator form, compared against a per-bit model. `shared` keeps a
+    /// clone of the owned left operand alive, so the in-place path cannot take its storage.
+    #[rstest]
+    fn binary_operators_match_naive(
+        #[values((0, 0), (3, 3), (7, 7), (0, 5), (6, 1))] offsets: (usize, usize),
+        #[values(0, 1, 7, 63, 65, 130)] len: usize,
+        #[values(false, true)] shared: bool,
+    ) {
+        let (left_offset, right_offset) = offsets;
+        let lhs = random_bits(len, 1);
+        let rhs = random_bits(len, 2);
+        let left = pack(&lhs, left_offset);
+        let right = pack(&rhs, right_offset);
+
+        let check = |name: &str, got: BitBuffer, op: fn(bool, bool) -> bool| {
+            let expected: Vec<bool> = lhs.iter().zip(&rhs).map(|(&a, &b)| op(a, b)).collect();
+            assert_eq!(to_bools(&got), expected, "{name}");
+        };
+        // A fresh left operand, plus a clone sharing its storage when `shared`.
+        let owned = || {
+            let buf = pack(&lhs, left_offset);
+            let clone = shared.then(|| buf.clone());
+            (buf, clone)
+        };
+
+        let (l, _keep) = owned();
+        check("owned & owned", l & pack(&rhs, right_offset), |a, b| a & b);
+        let (l, _keep) = owned();
+        check("owned & ref", l & &right, |a, b| a & b);
+        check("ref & owned", &left & right.clone(), |a, b| a & b);
+        check("ref & ref", &left & &right, |a, b| a & b);
+
+        let (l, _keep) = owned();
+        check("owned | owned", l | pack(&rhs, right_offset), |a, b| a | b);
+        let (l, _keep) = owned();
+        check("owned | ref", l | &right, |a, b| a | b);
+        check("ref | ref", &left | &right, |a, b| a | b);
+
+        let (l, _keep) = owned();
+        check("owned ^ ref", l ^ &right, |a, b| a ^ b);
+        check("ref ^ ref", &left ^ &right, |a, b| a ^ b);
+
+        let (l, _keep) = owned();
+        check("into_bitand_not", l.into_bitand_not(&right), |a, b| a & !b);
+        check("bitand_not", left.bitand_not(&right), |a, b| a & !b);
+    }
+
+    /// The callback must see each bit's logical index and value, across full 64-bit chunks and
+    /// the trailing remainder of an offset buffer.
+    #[rstest]
+    #[case(0, 64)]
+    #[case(5, 63)]
+    #[case(5, 200)]
+    #[case(3, 256)]
+    fn test_map_cmp_index_and_value(#[case] offset: usize, #[case] len: usize) {
+        let bits = random_bits(len, 3);
+        let mask = random_bits(len, 4);
+        let buf = pack(&bits, offset);
+
+        let mapped = buf.map_cmp(|idx, bit| bit ^ mask[idx]);
+
+        let expected: Vec<bool> = bits.iter().zip(&mask).map(|(&b, &m)| b ^ m).collect();
+        assert_eq!(to_bools(&mapped), expected);
+    }
+
+    #[rstest]
+    #[case::byte_aligned(8, 13)]
+    #[case::byte_aligned_long(16, 200)]
+    #[case::empty(8, 0)]
+    fn test_sliced_byte_aligned(#[case] start: usize, #[case] len: usize) {
+        let bits = random_bits(start + len + 11, 5);
+        let buf = BitBuffer::from(bits.as_slice()).slice(start..start + len);
+
+        let sliced = buf.sliced();
+
+        assert_eq!(sliced.offset(), 0);
+        assert_eq!(sliced.inner().len(), len.div_ceil(8));
+        assert_eq!(to_bools(&sliced), bits[start..start + len]);
+    }
+
+    #[rstest]
+    #[case(3, 13)]
+    #[case(1, 64)]
+    #[case(7, 200)]
+    fn test_sliced_unaligned(#[case] offset: usize, #[case] len: usize) {
+        for bits in [random_bits(len, 6), vec![true; len], vec![false; len]] {
+            let sliced = pack(&bits, offset).sliced();
+            assert_eq!(to_bools(&sliced), bits);
+        }
+    }
+
+    #[rstest]
+    #[case(0, 0)]
+    #[case(0, 9)]
+    #[case(3, 5)]
+    #[case(3, 6)]
+    #[case(7, 1)]
+    #[case(7, 130)]
+    fn test_shrink_offset(#[case] offset: usize, #[case] len: usize) {
+        let bits = random_bits(len, 7);
+        // Trailing padding bytes give `shrink_offset` whole bytes to drop.
+        let buf = pack(&[bits.clone(), vec![true; 16]].concat(), offset).slice(..len);
+        assert_eq!(buf.offset(), offset);
+        assert_eq!(buf.inner().len(), (offset + len + 16).div_ceil(8));
+
+        let shrunk = buf.shrink_offset();
+
+        assert_eq!(shrunk.offset(), offset);
+        assert_eq!(shrunk.inner().len(), (offset + len).div_ceil(8));
+        assert_eq!(to_bools(&shrunk), bits);
     }
 }
