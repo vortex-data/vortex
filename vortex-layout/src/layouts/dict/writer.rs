@@ -55,6 +55,7 @@ use crate::LayoutWriterContext;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::compressed::CompressorPlugin;
+use crate::layouts::compressed::PlanReuseScopeQueue;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -234,6 +235,11 @@ impl LayoutStrategy for DictStrategy {
         // Each of these pairs becomes a child dict layout.
         let runs = DictionaryTransformer::new(dict_stream);
 
+        // The runs of one column are similar, so their codes streams share scheme decisions, and
+        // so do their values streams, in run order.
+        let mut codes_scope = PlanReuseScopeQueue::default();
+        let mut values_scope = PlanReuseScopeQueue::default();
+
         let handle = session.handle();
         let dtype2 = dtype.clone();
         let child_layouts = stream! {
@@ -249,7 +255,10 @@ impl LayoutStrategy for DictStrategy {
                 };
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone().with_child_size_scope();
+                let ctx2 = ctx
+                    .clone()
+                    .with_child_size_scope()
+                    .with_plan_reuse_scope(codes_scope.next_run());
                 if let Some((uncompressed, compressed)) = codes_probe {
                     ctx2.size_scope().record_probe(uncompressed, compressed);
                 }
@@ -267,7 +276,10 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = ctx.clone().with_child_size_scope();
+                let ctx2 = ctx
+                    .clone()
+                    .with_child_size_scope()
+                    .with_plan_reuse_scope(values_scope.next_run());
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();

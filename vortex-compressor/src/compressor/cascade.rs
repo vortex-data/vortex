@@ -3,6 +3,8 @@
 
 //! Core cascading compression flow.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -35,7 +37,14 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
+use super::plan::Decision;
+use super::plan::PlanState;
+use super::plan::Planned;
+use super::select::WinnerEstimate;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
+use crate::scheme::DeferredEstimate;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -73,6 +82,21 @@ impl Selection {
         Selection::Unchanged(data.into_array(), null_count)
     }
 
+    /// Returns the compression ratio against `before_nbytes`.
+    fn ratio(&self, before_nbytes: u64) -> f64 {
+        match self {
+            Selection::Compressed(array) => before_nbytes as f64 / array.nbytes().max(1) as f64,
+            Selection::Unchanged(..) => 1.0,
+        }
+    }
+
+    /// Returns the decision for this selection, when `scheme` made it.
+    fn decision(&self, scheme: SchemeId) -> Decision {
+        match self {
+            Selection::Compressed(_) => Decision::Scheme(scheme),
+            Selection::Unchanged(..) => Decision::Unchanged,
+        }
+    }
     /// Returns the array, compressed or not.
     fn into_array(self) -> ArrayRef {
         match self {
@@ -95,6 +119,16 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         self.compress_with_ctx(array, CompressorContext::new(), exec_ctx)
+    }
+
+    /// Like [`compress`](Self::compress), but replays and records decisions through `plan`.
+    pub(super) fn compress_in_plan(
+        &self,
+        array: &ArrayRef,
+        plan: Arc<PlanState>,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_with_ctx(array, CompressorContext::new().with_plan(plan), exec_ctx)
     }
 
     /// Compresses `array` starting from `compress_ctx`.
@@ -434,6 +468,97 @@ impl CascadingCompressor {
         // A scheme competes against the bytes the rows reference, not dead bytes in the buffers.
         let before_nbytes = exact_uncompressed_size(&array, exec_ctx)?;
 
+        if eligible_schemes.is_empty() {
+            return Ok(Selection::Unchanged(array, None));
+        }
+
+        // A planned scheme that is no longer eligible, or that rejects the array, falls back to
+        // the full selection.
+        let Some(plan) = compress_ctx.plan() else {
+            return self.select_and_compress(
+                &eligible_schemes,
+                array,
+                before_nbytes,
+                compress_ctx,
+                exec_ctx,
+            );
+        };
+
+        match plan.planned(compress_ctx.cascade_history()) {
+            Some(Planned {
+                decision: Decision::Unchanged,
+                ..
+            }) => {
+                record_decision(&compress_ctx, Decision::Unchanged, 1.0);
+                return Ok(Selection::Unchanged(array, None));
+            }
+            Some(
+                planned @ Planned {
+                    decision: Decision::Scheme(id),
+                    ..
+                },
+            ) => {
+                if let Some(&scheme) = eligible_schemes.iter().find(|s| s.id() == id)
+                    && let Some(replayed) =
+                        self.replay(scheme, &array, before_nbytes, &compress_ctx, exec_ctx)?
+                {
+                    // `compress_reusing` checks the root ratio itself.
+                    let replayed_ratio = replayed.ratio(before_nbytes);
+                    if compress_ctx.cascade_history().is_empty()
+                        || plan.accepts(replayed_ratio, &planned)
+                    {
+                        return Ok(replayed);
+                    }
+
+                    // The child data changed: select again and keep the smaller result.
+                    plan.mark_child_replanned();
+                    let replayed_decision = replayed.decision(id);
+                    let replayed_subtree = plan.take_subtree(compress_ctx.cascade_history());
+                    let selected = self.select_and_compress(
+                        &eligible_schemes,
+                        array,
+                        before_nbytes,
+                        compress_ctx.clone(),
+                        exec_ctx,
+                    )?;
+                    if selected.ratio(before_nbytes) > replayed_ratio {
+                        return Ok(selected);
+                    }
+
+                    plan.restore_subtree(compress_ctx.cascade_history(), replayed_subtree);
+                    record_decision(&compress_ctx, replayed_decision, replayed_ratio);
+                    return Ok(replayed);
+                }
+            }
+            None => {}
+        }
+
+        if plan.has_replay() {
+            if compress_ctx.cascade_history().is_empty() {
+                plan.mark_root_selected();
+            } else {
+                plan.mark_child_replanned();
+            }
+        }
+
+        self.select_and_compress(
+            &eligible_schemes,
+            array,
+            before_nbytes,
+            compress_ctx,
+            exec_ctx,
+        )
+    }
+
+    /// Selects the best of `eligible_schemes` for `array` and compresses with it.
+    fn select_and_compress(
+        &self,
+        eligible_schemes: &[&'static dyn Scheme],
+        array: ArrayRef,
+        before_nbytes: u64,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Selection> {
         let merged_opts = eligible_schemes
             .iter()
             .fold(GenerateStatsOptions::default(), |acc, s| {
@@ -448,14 +573,79 @@ impl CascadingCompressor {
         }
 
         let Some((winner, winner_estimate)) =
-            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
+            self.choose_best_scheme(eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
+            record_decision(&compress_ctx, Decision::Unchanged, 1.0);
             return Ok(Selection::unchanged(data));
         };
 
+        self.compress_with_winner(
+            winner,
+            data,
+            before_nbytes,
+            winner_estimate,
+            compress_ctx,
+            exec_ctx,
+        )
+    }
+
+    /// Compresses `array` with the replayed `scheme`, or returns `None` if the scheme rejects it.
+    ///
+    /// Only sampling is skipped: some schemes check preconditions in their verdict or callback.
+    fn replay(
+        &self,
+        scheme: &'static dyn Scheme,
+        array: &ArrayRef,
+        before_nbytes: u64,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Selection>> {
+        let opts = scheme.stats_options();
+        let compress_ctx = compress_ctx.clone().with_merged_stats_options(opts);
+        let data = ArrayAndStats::new(array.clone(), opts);
+
+        let usable = match scheme.expected_compression_ratio(&data, compress_ctx.clone(), exec_ctx)
+        {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip) => false,
+            CompressionEstimate::Verdict(_)
+            | CompressionEstimate::Deferred(DeferredEstimate::Sample) => true,
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(callback)) => !matches!(
+                callback(self, &data, None, compress_ctx.clone(), exec_ctx)?,
+                EstimateVerdict::Skip
+            ),
+        };
+
+        if !usable {
+            return Ok(None);
+        }
+
+        // On failure, the caller falls back to the full selection.
+        Ok(self
+            .compress_with_winner(
+                scheme,
+                data,
+                before_nbytes,
+                WinnerEstimate::Replayed,
+                compress_ctx,
+                exec_ctx,
+            )
+            .ok())
+    }
+
+    /// Compresses `data` with `winner` and keeps the result if it is smaller than `before_nbytes`.
+    fn compress_with_winner(
+        &self,
+        winner: &'static dyn Scheme,
+        data: ArrayAndStats,
+        before_nbytes: u64,
+        winner_estimate: WinnerEstimate,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Selection> {
         // Run the winning scheme's `encode` and compress the children it registers, unless an
         // estimate already produced its complete output. On failure, emit an ERROR event carrying
-        // the scheme name and cascade history before propagating.
+        // the scheme name and cascade history before propagating. Replays are not reported, because
+        // the caller falls back to the full selection.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
         let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
         let compressed = self
@@ -464,13 +654,22 @@ impl CascadingCompressor {
                 // NB: this is the only way we can tell which scheme panicked / bailed on their
                 // data, especially for third-party schemes where the error site may not carry any
                 // compressor context.
-                trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), err);
+                if winner_estimate != WinnerEstimate::Replayed {
+                    trace::scheme_compress_failed(
+                        winner.id(),
+                        before_nbytes,
+                        error_ctx.as_ref(),
+                        err,
+                    );
+                }
             })?;
 
         // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
-        let compressed = match data.get::<TrialOutput>() {
-            Some(trial) if trial.array.nbytes() < compressed.nbytes() => trial.array.clone(),
-            _ => compressed,
+        let (winning_scheme, compressed) = match data.get::<TrialOutput>() {
+            Some(trial) if trial.array.nbytes() < compressed.nbytes() => {
+                (trial.scheme, trial.array.clone())
+            }
+            _ => (winner.id(), compressed),
         };
 
         let after_nbytes = compressed.nbytes();
@@ -486,8 +685,11 @@ impl CascadingCompressor {
         );
 
         if accepted {
+            let ratio = before_nbytes as f64 / after_nbytes.max(1) as f64;
+            record_decision(&compress_ctx, Decision::Scheme(winning_scheme), ratio);
             Ok(Selection::Compressed(compressed))
         } else {
+            record_decision(&compress_ctx, Decision::Unchanged, 1.0);
             Ok(Selection::unchanged(data))
         }
     }
@@ -523,6 +725,12 @@ impl CascadingCompressor {
     }
 }
 
+/// Records `decision` at the cascade position of `compress_ctx`, if it carries a plan.
+fn record_decision(compress_ctx: &CompressorContext, decision: Decision, ratio: f64) {
+    if let Some(plan) = compress_ctx.plan() {
+        plan.record(compress_ctx.cascade_history(), decision, ratio);
+    }
+}
 /// The bytes `array`'s rows use once canonical, read from the exact statistic the writer caches
 /// on each chunk and computed otherwise. A dtype that cannot be measured, such as variant, is
 /// sized by the bytes it holds.
