@@ -218,8 +218,6 @@ fn encode_masked_into_simd<S: Simd, T: ALPFloat>(
 
         // Pass 2: compute per-lane exception flags in a separate branchless SIMD loop, then mask
         // against the validity words so null lanes never emit patches.
-        patch_indices.reserve(chunk_patch_count);
-        patch_values.reserve(chunk_patch_count);
         let mut is_exc = [0u8; ENCODE_CHUNK_SIZE];
         for ((&enc, &v), flag) in chunk_encoded.iter().zip(chunk_values).zip(&mut is_exc) {
             *flag = u8::from(!T::decode_single(enc, exp).is_eq(v));

@@ -164,6 +164,46 @@ mod tests {
     }
 
     #[test]
+    fn test_sample_valid_values_matches_filtered_ranks_across_word_boundaries() {
+        let offset = 13;
+        let len = 500;
+        let valid_flags: Vec<bool> = (0..offset + len)
+            .map(|idx| idx % 3 != 0 && idx % 17 != 0)
+            .collect();
+        let full_mask = Mask::from_iter(valid_flags.iter().copied());
+        let sliced_mask = full_mask.slice(offset..offset + len);
+        let Mask::Values(mask_values) = sliced_mask else {
+            panic!("expected Mask::Values");
+        };
+        let values: Vec<usize> = (0..len).collect();
+
+        let max_sample = 67;
+        let block = 11;
+        let sample = sample_valid_values(&values, &mask_values, max_sample, block);
+
+        // Reference: filter valid values first, then pick exact rank blocks.
+        let filtered: Vec<usize> = (0..len).filter(|&i| valid_flags[offset + i]).collect();
+        let num_blocks = (max_sample / block).max(1);
+        let base_quota = max_sample / num_blocks;
+        let quota_rem = max_sample % num_blocks;
+        let total_gap = filtered.len() - max_sample;
+        let (base_gap, gap_rem) = if num_blocks > 1 {
+            (total_gap / (num_blocks - 1), total_gap % (num_blocks - 1))
+        } else {
+            (0, 0)
+        };
+        let mut expected = Vec::with_capacity(max_sample);
+        let mut pos = 0;
+        for b in 0..num_blocks {
+            let quota = base_quota + usize::from(b < quota_rem);
+            expected.extend_from_slice(&filtered[pos..pos + quota]);
+            pos += quota + base_gap + usize::from(b < gap_rem);
+        }
+
+        assert_eq!(sample, expected);
+    }
+
+    #[test]
     fn test_alp_encode_nullable_samples_trailing_fractions() -> VortexResult<()> {
         let mut ctx = VortexSession::empty().create_execution_ctx();
         let len = 8192;
