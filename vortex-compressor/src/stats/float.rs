@@ -402,32 +402,39 @@ mod tests {
         };
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let mut ctx = SESSION.create_execution_ctx();
-        let stats = FloatStats::generate_opts(
-            &array,
-            GenerateStatsOptions {
-                count_distinct_values: true,
-            },
-            &mut ctx,
-        );
-
-        assert_eq!(stats.value_count, value_count);
-        if value_count > 0 {
-            assert_eq!(stats.average_run_length, value_count / runs);
-            assert_eq!(
-                stats.distinct_count(),
-                Some(u32::try_from(distinct.len()).unwrap())
+        for count_distinct_values in [false, true] {
+            let stats = FloatStats::generate_opts(
+                &array,
+                GenerateStatsOptions {
+                    count_distinct_values,
+                },
+                &mut ctx,
             );
-            let ErasedStats::F64(typed) = stats.erased() else {
-                panic!("expected f64 stats");
-            };
-            let actual: HashMap<NativeValue<f64>, u32> = typed
-                .distinct()
-                .unwrap()
-                .distinct_values()
-                .iter()
-                .map(|(&k, &v)| (k, v))
-                .collect();
-            assert_eq!(actual, distinct);
+
+            assert_eq!(stats.value_count, value_count);
+            assert_eq!(stats.run_count(), runs);
+            if value_count > 0 {
+                assert_eq!(stats.average_run_length, value_count / runs);
+                if count_distinct_values {
+                    assert_eq!(
+                        stats.distinct_count(),
+                        Some(u32::try_from(distinct.len()).unwrap())
+                    );
+                    let ErasedStats::F64(typed) = stats.erased() else {
+                        panic!("expected f64 stats");
+                    };
+                    let actual: HashMap<NativeValue<f64>, u32> = typed
+                        .distinct()
+                        .unwrap()
+                        .distinct_values()
+                        .iter()
+                        .map(|(&k, &v)| (k, v))
+                        .collect();
+                    assert_eq!(actual, distinct);
+                } else {
+                    assert_eq!(stats.distinct_count(), None);
+                }
+            }
         }
     }
 

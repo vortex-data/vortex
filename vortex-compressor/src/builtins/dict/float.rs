@@ -113,7 +113,7 @@ impl Scheme for FloatDictScheme {
         );
 
         // If > 50% of the values are distinct, skip dictionary scheme.
-        if distinct_values_count == 0 || distinct_values_count > value_count / 2 {
+        if distinct_values_count > value_count / 2 {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
@@ -580,7 +580,7 @@ mod tests {
 
     #[test]
     fn test_nullable_and_nan_leading_floats_estimate_cleanly() {
-        // Leading NaN and repeated NaNs must not trigger zero-run-length issues.
+        // Leading NaN mixed with finite values estimates cleanly as 4 distinct values.
         let nan_array = PrimitiveArray::from_iter(
             (0..4096usize).map(|i| if i % 4 == 0 { f64::NAN } else { (i % 4) as f64 }),
         );
