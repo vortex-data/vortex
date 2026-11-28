@@ -10,7 +10,6 @@ mod list_contains;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
-use fastlanes::FoR as FastLanesFoR;
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
 use vortex_array::ArrayRef;
@@ -44,7 +43,6 @@ use crate::FoR;
 use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
-use crate::for_::array::for_decompress::unfor_pack_into;
 
 const _: () = assert!(FL_CHUNK_SIZE == FILTER_CHUNK_LEN);
 
@@ -173,7 +171,7 @@ impl<'a, T: PhysicalPType> FoRPacked<'a, T> {
 unsafe impl<T> ChunkDecoder<T::Physical> for FoRPacked<'_, T>
 where
     T: PhysicalPType + AsPrimitive<T::Physical>,
-    T::Physical: BitPacking + FastLanesFoR + WrappingAdd,
+    T::Physical: BitPacking + WrappingAdd,
 {
     #[inline]
     fn decode_chunk(
@@ -187,9 +185,12 @@ where
             return;
         }
         // SAFETY: `self.chunk(chunk_idx)` holds `FL_CHUNK_SIZE` values of `self.bit_width` bits
-        // and `unfor_pack_into` initializes every element of `dst`.
+        // and `unchecked_unpack_uninit` initializes every element of `dst`.
         unsafe {
-            unfor_pack_into(self.bit_width, self.chunk(chunk_idx), ref_p, dst);
+            T::Physical::unchecked_unpack_uninit(self.bit_width, self.chunk(chunk_idx), dst);
+            for val in dst.assume_init_mut() {
+                *val = val.wrapping_add(&ref_p);
+            }
         }
     }
 
@@ -232,7 +233,7 @@ fn filter_blocked_bitpacked<T>(
 ) -> VortexResult<PrimitiveArray>
 where
     T: IntegerPType + PhysicalPType + WrappingAdd + AsPrimitive<T::Physical>,
-    T::Physical: BitPacking + FastLanesFoR + NativePType + WrappingAdd,
+    T::Physical: BitPacking + NativePType + WrappingAdd,
 {
     let chunks = FoRPacked::<T>::new(bp.packed_slice::<T::Physical>(), bit_width, references);
     let buffer = filter_chunked(&chunks, offset, mask_values.selection(), ctx.allocator());

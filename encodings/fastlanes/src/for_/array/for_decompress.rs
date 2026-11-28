@@ -270,9 +270,7 @@ fn fused_decompress_many_refs(
 }
 
 fn fused_decompress_many_refs_typed<
-    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
-        + AsPrimitive<T::Physical>
-        + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     references: &PrimitiveArray,
@@ -287,9 +285,7 @@ fn fused_decompress_many_refs_typed<
 /// `chunk_reference` maps the index of a chunk, counted from the first chunk of `bp`, to its
 /// reference.
 fn fused_unpack<
-    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
-        + AsPrimitive<T::Physical>
-        + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
@@ -327,9 +323,7 @@ fn fused_unpack<
 /// Full chunks unpack straight into `output`. A partial first or last chunk unpacks into a scratch
 /// chunk, and only its values in `output` are copied over.
 fn unpack_chunks<
-    T: PhysicalPType<Physical: FoR + BitPacking + WrappingAdd>
-        + AsPrimitive<T::Physical>
-        + WrappingAdd,
+    T: PhysicalPType<Physical: FoR + BitPacking> + AsPrimitive<T::Physical> + WrappingAdd,
 >(
     bp: ArrayView<'_, BitPacked>,
     chunk_reference: impl Fn(usize) -> T,
@@ -365,19 +359,20 @@ fn unpack_chunks<
 ///
 /// `packed` must hold one chunk at `bit_width`, and `dst` must have room for a full chunk.
 #[inline]
-pub(crate) unsafe fn unfor_pack_into<T: BitPacking + WrappingAdd>(
+unsafe fn unfor_pack_into<T: FoR>(
     bit_width: usize,
     packed: &[T],
     reference: T,
     dst: &mut [MaybeUninit<T>],
 ) {
-    // SAFETY: the caller guarantees `packed` holds one chunk at `bit_width` and `dst` has room
-    // for a full chunk; `unchecked_unpack_uninit` initializes every element of `dst`.
+    // SAFETY: `T` is a primitive integer, and `unchecked_unfor_pack` only writes to `dst`.
     unsafe {
-        T::unchecked_unpack_uninit(bit_width, packed, dst);
-        for val in dst.assume_init_mut() {
-            *val = val.wrapping_add(&reference);
-        }
+        T::unchecked_unfor_pack(
+            bit_width,
+            packed,
+            reference,
+            mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
+        );
     }
 }
 

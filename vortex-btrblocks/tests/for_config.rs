@@ -11,20 +11,30 @@ use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
+use vortex_btrblocks::ArrayAndStats;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::CascadingCompressor;
 use vortex_btrblocks::CompressionSession;
+use vortex_btrblocks::CompressorContext;
+use vortex_btrblocks::Encoded;
+use vortex_btrblocks::Scheme;
 use vortex_btrblocks::schemes::integer::BitPackingScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_btrblocks::schemes::integer::RunEndScheme;
 use vortex_btrblocks::schemes::integer::SequenceScheme;
 use vortex_buffer::ByteBufferMut;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::stats::GenerateStatsOptions;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionSession;
@@ -285,16 +295,73 @@ fn test_v2_handles_wide_span_inside_block() -> VortexResult<()> {
     assert!(!has_blocked_for(&ids));
     assert!(!ids.contains(&for_v1_id()));
 
-    // With a runner-up scheme available, FoR's fallback delegates to the cascade instead of
-    // leaving the column uncompressed.
+    // Wrap `IntDictScheme` with a low fixed estimate (1.5x) so FoR (~10x on the narrow sampled
+    // chunks) is guaranteed to win selection first; the only way the column ends up compressed is
+    // if FoR's encode fallback delegates back to the cascade.
+    #[derive(Debug)]
+    struct LowBidDict;
+
+    impl Scheme for LowBidDict {
+        fn scheme_name(&self) -> &'static str {
+            "vortex.test.low_bid_dict"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            IntDictScheme.matches(canonical)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            IntDictScheme.produced_encodings()
+        }
+
+        fn num_children(&self) -> usize {
+            IntDictScheme.num_children()
+        }
+
+        fn stats_options(&self) -> GenerateStatsOptions {
+            IntDictScheme.stats_options()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(1.5))
+        }
+
+        fn encode(
+            &self,
+            data: &ArrayAndStats,
+            compress_ctx: &CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Encoded> {
+            IntDictScheme.encode(data, compress_ctx, exec_ctx)
+        }
+
+        #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            unimplemented!()
+        }
+    }
+
+    static LOW_BID_DICT: LowBidDict = LowBidDict;
+
     let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
     let compressed = for_only()
-        .with_new_scheme(&IntDictScheme)
+        .with_new_scheme(&LOW_BID_DICT)
         .build()
         .compress(&array, &mut ctx)?;
     assert!(
         compressed.nbytes() < array.nbytes(),
-        "runner-up scheme should compress wide-span column: {} >= {}",
+        "runner-up scheme should compress wide-span column after FoR fallback: {} >= {}",
         compressed.nbytes(),
         array.nbytes()
     );
