@@ -43,7 +43,9 @@ jobs:
     # job sees the caller's event, never "workflow_call". Allow each caller:
     # - workflow_dispatch: a manual run of this workflow or of a fuzz-* workflow.
     # - workflow_run: the in-pipeline attempt-fix job in run-fuzzer.yml, which
-    #   the fuzz-* workflows start after each Fuzz Build.
+    #   the fuzz-* workflows start after each Fuzz Build on the default branch
+    #   (workflow_run always sets github.ref to the default branch, so check
+    #   head_branch explicitly to avoid autofixing feature-branch crashes against develop).
     # - issues: fuzzer-issue-autofix.yml.
     # The write federation rule trusts this workflow on the default branch.
     # To handle a crash reported on another ref, dispatch this workflow on the
@@ -51,7 +53,8 @@ jobs:
     if: >-
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'workflow_run' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
        github.event_name == 'issues')
 
     runs-on: ubuntu-latest

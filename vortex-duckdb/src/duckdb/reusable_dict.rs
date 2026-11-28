@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ptr;
+
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+
 use crate::cpp;
 use crate::duckdb::LogicalType;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::Vector;
 use crate::duckdb::VectorRef;
+use crate::duckdb::check_vx_error;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -23,14 +29,16 @@ impl ReusableDict {
     /// Create a new reusable dictionary from a logical type and size.
     ///
     /// The dictionary buffer can be reused with multiple selection vectors
-    /// using `Vector::dictionary_reusable`.
-    pub fn new(logical_type: LogicalType, size: usize) -> Self {
-        unsafe {
-            Self::own(cpp::duckdb_vx_reusable_dict_create(
-                logical_type.as_ptr(),
-                size as _,
-            ))
-        }
+    /// using `VectorRef::reuse_dictionary`.
+    pub fn new(logical_type: LogicalType, size: usize) -> VortexResult<Self> {
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let ptr = unsafe {
+            cpp::duckdb_vx_reusable_dict_create(logical_type.as_ptr(), size as _, &raw mut err)
+        };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_reusable_dict_create`.
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(!ptr.is_null(), "Failed to create reusable dictionary");
+        Ok(unsafe { Self::own(ptr) })
     }
 
     /// Get the internal vector of the reusable dictionary.
@@ -38,7 +46,7 @@ impl ReusableDict {
     /// The returned vector is borrowed from this reusable dictionary and can be used
     /// to populate the dictionary values.
     pub fn vector(&mut self) -> &mut VectorRef {
-        let mut out_vector = std::ptr::null_mut();
+        let mut out_vector = ptr::null_mut();
         unsafe {
             cpp::duckdb_vx_reusable_dict_set_vector(self.as_ptr(), &raw mut out_vector);
             Vector::borrow_mut(out_vector)
@@ -67,14 +75,23 @@ impl VectorRef {
         reusable: &ReusableDict,
         sel_vec: &SelectionVector,
         sel_count: usize,
-    ) {
-        unsafe {
+    ) -> VortexResult<()> {
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let state = unsafe {
             cpp::duckdb_vx_vector_dictionary_reusable(
                 self.as_ptr(),
                 reusable.as_ptr(),
                 sel_vec.as_ptr(),
                 sel_count as _,
+                &raw mut err,
             )
-        }
+        };
+        // SAFETY: `err` was initialized to null and populated by `duckdb_vx_vector_dictionary_reusable`.
+        unsafe { check_vx_error(err)? };
+        vortex_ensure!(
+            state == cpp::duckdb_state::DuckDBSuccess,
+            "Failed to create reusable dictionary vector"
+        );
+        Ok(())
     }
 }

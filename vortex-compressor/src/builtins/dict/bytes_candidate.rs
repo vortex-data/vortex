@@ -24,7 +24,7 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::codes_ptype_for_max_len;
-use vortex_array::builders::dict::dict_encode_with_constraints;
+use vortex_array::builders::dict::dict_encode_by_frequency_with_constraints;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -430,8 +430,7 @@ fn build_candidate(
         max_bytes: MAX_DICTIONARY_BYTES,
         max_len: MAX_DICTIONARY_ENTRIES,
     };
-    let dictionary = dict_encode_with_constraints(array, &constraints, exec_ctx)?;
-    Ok((dictionary.len() == array.len()).then_some(dictionary))
+    dict_encode_by_frequency_with_constraints(array, &constraints, exec_ctx)
 }
 
 /// Returns the complete value referenced by a binary view.

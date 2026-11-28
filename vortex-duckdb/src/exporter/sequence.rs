@@ -50,7 +50,7 @@ impl ColumnExporter for SequenceExporter {
         let start = (offset * self.step) + self.start;
         // TODO why don't we apply validity mask here?
 
-        vector.to_sequence(start, self.step, len.as_u64());
+        vector.to_sequence(start, self.step, len.as_u64())?;
         Ok(())
     }
 }

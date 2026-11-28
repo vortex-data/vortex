@@ -21,6 +21,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
+use vortex_array::compute::conformance::filter::test_filter_conformance;
 use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -639,8 +640,49 @@ fn test_onpair_probe_consistency() -> vortex_error::VortexResult<()> {
         }
 
         test_array_consistency(&array, &mut ctx);
+        test_filter_conformance(&array, &mut ctx);
     }
 
+    Ok(())
+}
+
+#[rstest::rstest]
+#[case::utf8(sample_input())]
+#[case::utf8_nullable(VarBinArray::from_iter(
+    [Some("hello"), None, Some("world"), Some("test"), None],
+    DType::Utf8(Nullability::Nullable),
+))]
+#[case::binary(VarBinArray::from_iter(
+    [b"alpha".as_slice(), b"beta", b"gamma", b"delta", b"epsilon"].map(Some),
+    DType::Binary(Nullability::NonNullable),
+))]
+#[case::binary_nullable(VarBinArray::from_iter(
+    [Some(b"foo".as_slice()), None, Some(b"bar"), None, Some(b"baz")],
+    DType::Binary(Nullability::Nullable),
+))]
+#[case::single(VarBinArray::from_iter(
+    ["single element"].map(Some),
+    DType::Utf8(Nullability::NonNullable),
+))]
+#[case::empty_strings(VarBinArray::from_iter(
+    ["", "test", "", "hello", ""].map(Some),
+    DType::Utf8(Nullability::NonNullable),
+))]
+fn test_onpair_consistency_and_filter_conformance(
+    #[case] varbin: VarBinArray,
+) -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = compress_onpair(&varbin.into_array(), &mut ctx)?.into_array();
+    test_array_consistency(&encoded, &mut ctx);
+    test_filter_conformance(&encoded, &mut ctx);
+    if encoded.len() > 2 {
+        let sliced = encoded
+            .slice(1..encoded.len() - 1)?
+            .optimize_ctx(&SESSION)?;
+        assert!(sliced.is::<OnPair>());
+        test_array_consistency(&sliced, &mut ctx);
+        test_filter_conformance(&sliced, &mut ctx);
+    }
     Ok(())
 }
 

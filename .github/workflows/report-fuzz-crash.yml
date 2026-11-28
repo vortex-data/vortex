@@ -9,6 +9,10 @@ on:
       fuzz_name:
         required: false
         type: string
+      extra_cargo_args:
+        required: false
+        type: string
+        default: ""
       artifact_url:
         required: true
         type: string
@@ -76,6 +80,7 @@ jobs:
           REPO: ${{ github.repository }}
           FUZZ_TARGET: ${{ inputs.fuzz_target }}
           FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
+          EXTRA_CARGO_ARGS: ${{ inputs.extra_cargo_args }}
           BRANCH: ${{ inputs.branch }}
           COMMIT: ${{ inputs.commit }}
           ARTIFACT_URL: ${{ inputs.artifact_url }}

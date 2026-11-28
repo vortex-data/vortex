@@ -13,8 +13,6 @@
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
-use parquet_variant::Variant as PqVariant;
-use parquet_variant::VariantBuilder as PqVariantBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
@@ -40,7 +38,6 @@ use vortex_arrow::test_harness::check_containers;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_json::Json;
-use vortex_parquet_variant::ParquetVariant;
 use vortex_spatial::extension::Dimension;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
@@ -59,6 +56,7 @@ use vortex_uuid::Uuid;
 use vortex_uuid::UuidMetadata;
 
 use crate::ARROW_ROUND_TRIP_SESSION;
+use crate::variant::VariantRow;
 
 /// The logical type family selected by the first byte of a fuzz input.
 ///
@@ -125,8 +123,9 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
         let len = u.int_in_range(0usize..=32)?;
 
         if matches!(kind, LogicalKind::Variant) {
+            let rows = VariantRow::arbitrary_rows(u, nullability, len)?;
             return Ok(Self {
-                array: arbitrary_variant(u, nullability, len)?,
+                array: VariantRow::array(rows.iter(), nullability),
             });
         }
 
@@ -153,52 +152,6 @@ impl ArrowRoundTrip {
         )
         .vortex_expect("Arrow transport must preserve dtype and stored values");
     }
-}
-
-/// Encodes `len` Parquet Variant rows, with null rows only when `nullability` allows them.
-fn arbitrary_variant(
-    u: &mut Unstructured<'_>,
-    nullability: Nullability,
-    len: usize,
-) -> arbitrary::Result<ArrayRef> {
-    let mut valid = Vec::with_capacity(len);
-    let mut metadata = Vec::with_capacity(len);
-    let mut value = Vec::with_capacity(len);
-    for _ in 0..len {
-        let is_valid = !nullability.is_nullable() || u.arbitrary::<bool>()?;
-        let text: String;
-        let row = match u.int_in_range(0u8..=4)? {
-            // Null rows still hold a valid encoding, which readers skip.
-            _ if !is_valid => PqVariant::Null,
-            0 => PqVariant::Null,
-            1 => PqVariant::from(u.arbitrary::<bool>()?),
-            2 => PqVariant::from(u.arbitrary::<i64>()?),
-            3 => PqVariant::from(u.arbitrary::<f64>()?),
-            _ => {
-                text = u.arbitrary()?;
-                PqVariant::from(text.as_str())
-            }
-        };
-        let mut builder = PqVariantBuilder::new();
-        builder.append_value(row);
-        let (row_metadata, row_value) = builder.finish();
-        valid.push(is_valid);
-        metadata.push(row_metadata);
-        value.push(row_value);
-    }
-
-    let validity = match nullability {
-        Nullability::NonNullable => Validity::NonNullable,
-        Nullability::Nullable => Validity::from_iter(valid),
-    };
-    Ok(ParquetVariant::try_new(
-        validity,
-        VarBinViewArray::from_iter_bin(metadata).into_array(),
-        Some(VarBinViewArray::from_iter_bin(value).into_array()),
-        None,
-    )
-    .vortex_expect("encoded Parquet Variant rows form valid unshredded storage")
-    .into_array())
 }
 
 /// Generates `len` Time values in `[0, 1 day)`, the range that `vortex.time` scalars accept.

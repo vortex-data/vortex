@@ -145,8 +145,10 @@ impl StatDerivation for CastStatDerivation {
     ) -> Option<BoundExpression> {
         let input = expr.child(0);
         if aggregate_fn.is::<Min>() || aggregate_fn.is::<Max>() {
+            // Preserve nullability so missing or empty-zone stats stay null rather than failing a
+            // cast to a non-nullable target dtype.
             return stat_expr(input, aggregate_fn, session)
-                .map(|stat| cast(stat, expr.as_::<Cast>().clone()));
+                .map(|stat| cast(stat, expr.as_::<Cast>().as_nullable()));
         }
         // A cast keeps NaNs as NaNs and nulls as nulls. A cast to a non-nullable dtype fails on a
         // null input, so it does not change the null count either. A cast changes the sum's dtype
@@ -846,7 +848,10 @@ mod tests {
             falsify(&expr)?,
             Some(nan_guarded(
                 col("f"),
-                lt_eq(cast(stat(col("f"), Stat::Max), dtype), lit(5i32)),
+                lt_eq(
+                    cast(stat(col("f"), Stat::Max), dtype.as_nullable()),
+                    lit(5i32)
+                ),
             ))
         );
         Ok(())
@@ -873,8 +878,14 @@ mod tests {
         assert_rewrite_eq!(
             falsify(&expr)?,
             Some(or(
-                gt(cast(stat(col("a"), Stat::Min), dtype.clone()), lit(42i64)),
-                gt(lit(42i64), cast(stat(col("a"), Stat::Max), dtype)),
+                gt(
+                    cast(stat(col("a"), Stat::Min), dtype.as_nullable()),
+                    lit(42i64),
+                ),
+                gt(
+                    lit(42i64),
+                    cast(stat(col("a"), Stat::Max), dtype.as_nullable()),
+                ),
             ))
         );
         Ok(())
@@ -890,7 +901,10 @@ mod tests {
             Some(cmp_satisfier(
                 stat(col("a"), Stat::NullCount),
                 lit(0u64),
-                gt(cast(stat(col("a"), Stat::Min), dtype), lit(10i64)),
+                gt(
+                    cast(stat(col("a"), Stat::Min), dtype.as_nullable()),
+                    lit(10i64),
+                ),
             ))
         );
         Ok(())

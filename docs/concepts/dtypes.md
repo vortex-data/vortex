@@ -21,21 +21,22 @@ with many columns.
 
 The following table lists the built-in dtypes in Vortex, each of which can be marked as either nullable or non-nullable.
 
-| Name            | Domain                                      |
-|-----------------|---------------------------------------------|
-| `Null`          | `null`                                      |
-| `Bool`          | `true`, `false`                             |
-| `Primitive`     | See [Primitive](#primitive)                 |
-| `Decimal`       | Fixed-precision real numbers                |
-| `Utf8`          | Variable length valid UTF-8 encoded strings |
-| `Binary`        | Arbitrary variable length bytes             |
-| `List`          | See [List](#list)                           |
-| `FixedSizeList` | See [List](#list)                           |
-| `Struct`        | See [Struct](#struct)                       |
-| `Extension`     | See [Extension](#extension)                 |
+| Name              | Domain                                      |
+|-------------------|---------------------------------------------|
+| `Null`            | `null`                                      |
+| `Bool`            | `true`, `false`                             |
+| `Primitive`       | See [Primitive](#primitive)                 |
+| `Decimal`         | Fixed-precision real numbers                |
+| `Utf8`            | Variable length valid UTF-8 encoded strings |
+| `Binary`          | Arbitrary variable length bytes             |
+| `FixedSizeBinary` | Byte strings of one fixed length            |
+| `List`            | See [List](#list)                           |
+| `FixedSizeList`   | See [List](#list)                           |
+| `Struct`          | See [Struct](#struct)                       |
+| `Extension`       | See [Extension](#extension)                 |
 
 :::{note}
-There are additional logical types that Vortex does not yet support, for example fixed-length binary, maps, and variants.
+There are additional logical types that Vortex does not yet support, for example maps and variants.
 These may be added in future versions.
 :::
 

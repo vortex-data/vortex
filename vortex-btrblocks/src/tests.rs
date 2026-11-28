@@ -64,6 +64,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
+use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
@@ -75,6 +76,8 @@ use crate::ChildPolicy;
 use crate::ChildRequest;
 use crate::SESSION;
 use crate::Scheme;
+#[cfg(feature = "zstd")]
+use crate::schemes::binary;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::float::ALPRDScheme;
@@ -85,6 +88,10 @@ use crate::schemes::integer::BitPackingScheme;
 #[cfg(feature = "pco")]
 use crate::schemes::integer::PcoScheme as IntPcoScheme;
 use crate::schemes::integer::RunEndScheme;
+#[cfg(feature = "zstd")]
+use crate::schemes::string;
+use crate::schemes::string::FSSTScheme;
+use crate::schemes::string::OnPairScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -533,6 +540,76 @@ fn test_alp_keeps_its_patches() -> VortexResult<()> {
         !use_experimental_patches(),
         "the patches are inside ALP unless a Patched array wraps it"
     );
+    Ok(())
+}
+
+static ONPAIR: OnPairScheme = OnPairScheme::new(DEFAULT_CONFIG.max_dict_bits);
+
+/// A string or binary scheme that stores its input's validity registers it, so it is compressed.
+#[rstest]
+#[case::fsst(&FSSTScheme, DType::Utf8(Nullability::Nullable))]
+#[case::onpair(&ONPAIR, DType::Utf8(Nullability::Nullable))]
+#[cfg_attr(feature = "zstd", case::string_zstd(&string::ZstdScheme, DType::Utf8(Nullability::Nullable)))]
+#[cfg_attr(
+    feature = "zstd",
+    case::string_zstd_buffers(&string::ZstdBuffersScheme, DType::Utf8(Nullability::Nullable))
+)]
+#[cfg_attr(feature = "zstd", case::binary_zstd(&binary::ZstdScheme, DType::Binary(Nullability::Nullable)))]
+#[cfg_attr(
+    feature = "zstd",
+    case::binary_zstd_buffers(&binary::ZstdBuffersScheme, DType::Binary(Nullability::Nullable))
+)]
+fn test_bytes_scheme_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+    #[case] dtype: DType,
+) -> VortexResult<()> {
+    let input = VarBinViewArray::from_iter(
+        (0..100_000).map(|i| {
+            (!(1000..2000).contains(&i)).then(|| format!("value-{}", i % 100).into_bytes())
+        }),
+        dtype,
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// Zstd compacts its input's buffers, which rebuilds the array, and still stores the input's
+/// validity compressed.
+#[cfg(feature = "zstd")]
+#[rstest]
+#[case::string(&string::ZstdScheme, DType::Utf8(Nullability::Nullable))]
+#[case::binary(&binary::ZstdScheme, DType::Binary(Nullability::Nullable))]
+fn test_zstd_compacts_and_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+    #[case] dtype: DType,
+) -> VortexResult<()> {
+    // Values longer than 12 bytes live in the data buffers, and the slice references a tenth of
+    // them, so compaction rewrites the array.
+    let input = VarBinViewArray::from_iter(
+        (0..200_000).map(|i| {
+            (!(1000..2000).contains(&i))
+                .then(|| format!("an outlined value {}", i % 100).into_bytes())
+        }),
+        dtype,
+    )
+    .into_array()
+    .slice(0..20_000)?;
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
     Ok(())
 }
 

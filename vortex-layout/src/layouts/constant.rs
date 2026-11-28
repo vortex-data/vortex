@@ -188,7 +188,8 @@ fn supports_constant_detection(dtype: &DType) -> bool {
         }
         DType::Struct(fields, _) => fields.fields().all(|f| supports_constant_detection(&f)),
         DType::Extension(ext) => supports_constant_detection(ext.storage_dtype()),
-        DType::Union(..) | DType::Variant(_) => false,
+        // TODO(FixedSizeBinary): enable once `is_constant` supports fixed-size binary.
+        DType::FixedSizeBinary(..) | DType::Union(..) | DType::Variant(_) => false,
     }
 }
 

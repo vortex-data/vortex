@@ -87,3 +87,97 @@ impl Drop for TimeGuard<'_> {
         self.source.update(elapsed);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::Timer;
+    use crate::assert_panics_with;
+
+    #[test]
+    fn timer_empty_state() {
+        let timer = Timer::new();
+        assert!(timer.is_empty());
+        assert_eq!(timer.count(), 0);
+        assert_eq!(timer.total(), Duration::ZERO);
+        assert_eq!(timer.quantile(0.0), None);
+        assert_eq!(timer.quantile(0.5), None);
+        assert_eq!(timer.quantile(1.0), None);
+    }
+
+    #[test]
+    fn timer_update_quantiles_and_total() {
+        let timer = Timer::new();
+        for ms in 1..=100 {
+            timer.update(Duration::from_millis(ms));
+        }
+
+        assert!(!timer.is_empty());
+        assert_eq!(timer.count(), 100);
+        assert!(timer.total().abs_diff(Duration::from_millis(5050)) < Duration::from_micros(100));
+
+        let min = timer.quantile(0.0).unwrap();
+        let median = timer.quantile(0.5).unwrap();
+        let max = timer.quantile(1.0).unwrap();
+        assert!(
+            (Duration::from_micros(500)..=Duration::from_micros(1500)).contains(&min),
+            "unexpected min: {min:?}"
+        );
+        assert!(
+            (Duration::from_millis(45)..=Duration::from_millis(55)).contains(&median),
+            "unexpected median: {median:?}"
+        );
+        assert!(
+            (Duration::from_millis(95)..=Duration::from_millis(105)).contains(&max),
+            "unexpected max: {max:?}"
+        );
+    }
+
+    #[test]
+    fn timer_zero_and_nanosecond_durations() {
+        let timer = Timer::new();
+        timer.update(Duration::ZERO);
+        assert_eq!(timer.count(), 1);
+        assert_eq!(timer.total(), Duration::ZERO);
+        assert_eq!(timer.quantile(0.5), Some(Duration::ZERO));
+
+        timer.update(Duration::from_nanos(500));
+        assert_eq!(timer.count(), 2);
+        assert_eq!(timer.total(), Duration::from_nanos(500));
+    }
+
+    #[test]
+    fn timer_raii_guard_records_on_drop() {
+        let timer = Timer::new();
+        let cloned = timer.clone();
+
+        let guard = timer.time();
+        assert!(timer.is_empty());
+        assert_eq!(timer.count(), 0);
+        drop(guard);
+
+        assert!(!timer.is_empty());
+        assert_eq!(timer.count(), 1);
+        assert_eq!(cloned.count(), 1);
+        assert!(timer.quantile(0.5).is_some());
+
+        {
+            let _second = cloned.time();
+            assert_eq!(timer.count(), 1);
+        }
+        assert_eq!(timer.count(), 2);
+    }
+
+    #[test]
+    fn timer_out_of_range_quantiles_panic() {
+        for invalid in [-0.1, 1.1, f64::NAN] {
+            assert_panics_with(
+                || {
+                    let _ = Timer::new().quantile(invalid);
+                },
+                "quantile must be between 0.0 and 1.0",
+            );
+        }
+    }
+}

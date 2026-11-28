@@ -73,6 +73,7 @@ use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
@@ -387,7 +388,9 @@ impl VortexDataSource {
 /// use one output partition to preserve partition sequence and a global fetch limit. Direct
 /// [`DataSource::open`] calls support only a single output partition; multiple output partitions
 /// must be opened through [`DataSourceExec`] or shared [`OpenArgs`]. Dropping an output partition
-/// before completion cancels its execution; other output partitions report an error.
+/// before completion releases only that partition; the shared scan is cancelled on failure or
+/// stopped once every output partition has finished or been dropped. An output partition that is
+/// never opened keeps the shared scan alive until the plan is dropped.
 /// Scan initialization attempts are serialized; cancellation may drop a pending attempt,
 /// allowing another output partition to retry it.
 ///
@@ -537,7 +540,14 @@ impl VortexDataSource {
                 }
             })
             .boxed();
-            self.batch_stream(partitions, partition, metrics.clone())?
+            match self.batch_stream(partitions, partition, metrics.clone()) {
+                Ok(stream) => stream,
+                Err(err) => {
+                    execution.cancel();
+                    execution.release_partition();
+                    return Err(err);
+                }
+            }
         };
         Ok(Box::pin(OutputPartitionStream {
             partition,
@@ -650,6 +660,7 @@ struct OutputPartitionState {
 
 struct ScanExecution {
     output_partitions: Vec<OutputPartitionState>,
+    remaining_partitions: AtomicUsize,
     cancelled: AtomicBool,
     scan_partitions: OnceCell<VortexResult<Mutex<Option<PartitionStream>>>>,
 }
@@ -660,6 +671,7 @@ impl ScanExecution {
             output_partitions: (0..output_partitions)
                 .map(|_| OutputPartitionState::default())
                 .collect(),
+            remaining_partitions: AtomicUsize::new(output_partitions),
             cancelled: AtomicBool::new(false),
             scan_partitions: OnceCell::new(),
         }
@@ -670,6 +682,22 @@ impl ScanExecution {
             for output in &self.output_partitions {
                 output.waker.wake();
             }
+        }
+        self.drop_scan_partitions();
+    }
+
+    fn release_partition(&self) {
+        let remaining = self.remaining_partitions.fetch_sub(1, Ordering::AcqRel) - 1;
+        if remaining == 0 || self.cancelled.load(Ordering::Acquire) {
+            self.drop_scan_partitions();
+        }
+    }
+
+    fn drop_scan_partitions(&self) {
+        if let Some(Ok(partitions)) = self.scan_partitions.get()
+            && let Some(mut partitions) = partitions.try_lock()
+        {
+            drop(partitions.take());
         }
     }
 }
@@ -682,12 +710,30 @@ struct OutputPartitionStream {
     metrics: BaselineMetrics,
 }
 
+impl OutputPartitionStream {
+    fn finish(&mut self) {
+        if self.stream.is_none() {
+            return;
+        }
+        drop(self.stream.take());
+        drop(
+            self.execution.output_partitions[self.partition]
+                .waker
+                .take(),
+        );
+        self.execution.release_partition();
+    }
+}
+
 impl Stream for OutputPartitionStream {
     type Item = DFResult<RecordBatch>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let metrics = self.metrics.clone();
         let _timer = metrics.elapsed_compute().timer();
+        if self.stream.is_none() {
+            return metrics.record_poll(Poll::Ready(None));
+        }
         self.execution.output_partitions[self.partition]
             .waker
             .register(cx.waker());
@@ -708,12 +754,7 @@ impl Stream for OutputPartitionStream {
             self.execution.cancel();
         }
         if matches!(result, Poll::Ready(None | Some(Err(_)))) {
-            self.stream = None;
-            drop(
-                self.execution.output_partitions[self.partition]
-                    .waker
-                    .take(),
-            );
+            self.finish();
         }
         metrics.record_poll(result)
     }
@@ -727,21 +768,7 @@ impl RecordBatchStream for OutputPartitionStream {
 
 impl Drop for OutputPartitionStream {
     fn drop(&mut self) {
-        if self.stream.is_some() {
-            self.execution.cancel();
-        }
-        drop(self.stream.take());
-        drop(
-            self.execution.output_partitions[self.partition]
-                .waker
-                .take(),
-        );
-        if self.execution.cancelled.load(Ordering::Acquire)
-            && let Some(Ok(partitions)) = self.execution.scan_partitions.get()
-            && let Some(mut partitions) = partitions.try_lock()
-        {
-            drop(partitions.take());
-        }
+        self.finish();
         self.metrics.done();
     }
 }
@@ -1097,8 +1124,10 @@ mod tests {
     use datafusion_physical_plan::collect;
     use datafusion_physical_plan::expressions::BinaryExpr;
     use datafusion_physical_plan::expressions::lit;
+    use datafusion_physical_plan::limit::LocalLimitExec;
     use futures::TryStreamExt;
     use futures::task::ArcWake;
+    use futures::task::noop_waker_ref;
     use futures::task::waker_ref;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
@@ -1261,10 +1290,20 @@ mod tests {
         }
     }
 
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
     struct TestScan {
         dtype: DType,
         limit: Option<u64>,
         polls: Arc<AtomicUsize>,
+        partitions: Vec<&'static [i32]>,
+        dropped: Arc<AtomicBool>,
     }
 
     impl DataSourceScan for TestScan {
@@ -1273,14 +1312,16 @@ mod tests {
         }
 
         fn partition_count(&self) -> Precision<usize> {
-            Precision::Exact(2)
+            Precision::Exact(self.partitions.len())
         }
 
         fn partitions(self: Box<Self>) -> PartitionStream {
             let limit = self
                 .limit
                 .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-            let partitions: Vec<VortexResult<PartitionRef>> = [&[0, 1][..], &[100, 101][..]]
+            let guard = DropFlag(self.dropped);
+            let partitions: Vec<VortexResult<PartitionRef>> = self
+                .partitions
                 .into_iter()
                 .enumerate()
                 .map(|(index, values)| {
@@ -1294,7 +1335,11 @@ mod tests {
                     }) as PartitionRef)
                 })
                 .collect();
-            stream::iter(partitions).boxed()
+            stream::iter(partitions)
+                .inspect(move |_| {
+                    let _ = &guard;
+                })
+                .boxed()
         }
     }
 
@@ -1302,6 +1347,20 @@ mod tests {
         dtype: DType,
         polls: Arc<AtomicUsize>,
         scans: Arc<AtomicUsize>,
+        partitions: Vec<&'static [i32]>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl Default for TestDataSource {
+        fn default() -> Self {
+            Self {
+                dtype: test_dtype(),
+                polls: Arc::default(),
+                scans: Arc::default(),
+                partitions: vec![&[0, 1], &[100, 101]],
+                dropped: Arc::default(),
+            }
+        }
     }
 
     #[async_trait]
@@ -1312,10 +1371,13 @@ mod tests {
 
         async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
             self.scans.fetch_add(1, Ordering::Relaxed);
+            self.dropped.store(false, Ordering::Release);
             Ok(Box::new(TestScan {
                 dtype: self.dtype.clone(),
                 limit: request.limit,
                 polls: Arc::clone(&self.polls),
+                partitions: self.partitions.clone(),
+                dropped: Arc::clone(&self.dropped),
             }))
         }
 
@@ -1339,9 +1401,8 @@ mod tests {
         let arrow_schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let polls = Arc::new(AtomicUsize::new(0));
         let data_source: DataSourceRef = Arc::new(TestDataSource {
-            dtype: test_dtype(),
             polls: Arc::clone(&polls),
-            scans: Arc::default(),
+            ..Default::default()
         });
 
         let mut source = VortexDataSource::builder(data_source, VortexSession::default())
@@ -1385,9 +1446,8 @@ mod tests {
     async fn output_partitions_share_one_lazy_scan_and_reset_reopens_it() -> anyhow::Result<()> {
         let scans = Arc::new(AtomicUsize::new(0));
         let data_source: DataSourceRef = Arc::new(TestDataSource {
-            dtype: test_dtype(),
-            polls: Arc::default(),
             scans: Arc::clone(&scans),
+            ..Default::default()
         });
         let source = VortexDataSource::builder(data_source, VortexSession::default())
             .build()
@@ -1443,37 +1503,59 @@ mod tests {
         assert_eq!(values(reset), [0, 1, 100, 101]);
         assert_eq!(values(independent), [0, 1, 100, 101]);
         assert_eq!(scans.load(Ordering::Relaxed), 3);
-        let cancelled = Arc::clone(&plan).reset_state()?;
-        let mut output = cancelled.execute(0, Arc::new(TaskContext::default()))?;
+        // Dropping one output partition early leaves sibling partitions readable.
+        let partial = Arc::clone(&plan).reset_state()?;
+        let mut output = partial.execute(0, Arc::new(TaskContext::default()))?;
         assert!(output.try_next().await?.is_some());
         drop(output);
-        assert!(
-            cancelled
-                .execute(1, Arc::new(TaskContext::default()))
-                .is_err()
-        );
+        partial
+            .execute(1, Arc::new(TaskContext::default()))?
+            .try_collect::<Vec<_>>()
+            .await?;
 
-        let execution = Arc::new(ScanExecution::new(2));
-        let output = |partition| OutputPartitionStream {
-            partition,
-            schema: plan.schema(),
-            stream: Some(Box::pin(RecordBatchStreamAdapter::new(
-                plan.schema(),
-                stream::pending(),
-            ))),
-            execution: Arc::clone(&execution),
-            metrics: BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
-        };
-        let cancelled = output(0);
-        let mut pending = Box::pin(output(1));
+        let make_output =
+            |partition, execution: &Arc<ScanExecution>, inner| OutputPartitionStream {
+                partition,
+                schema: plan.schema(),
+                stream: Some(Box::pin(RecordBatchStreamAdapter::new(
+                    plan.schema(),
+                    inner,
+                ))),
+                execution: Arc::clone(execution),
+                metrics: BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
+            };
         let wakes = Arc::new(WakeCounter::default());
         let waker = waker_ref(&wakes);
         let mut cx = Context::from_waker(&waker);
+
+        // Dropping one output partition early does not wake or fail a pending sibling.
+        let execution = Arc::new(ScanExecution::new(2));
+        let early_drop = make_output(0, &execution, stream::pending().boxed());
+        let mut pending = Box::pin(make_output(1, &execution, stream::pending().boxed()));
         assert!(pending.as_mut().poll_next(&mut cx).is_pending());
-        drop(cancelled);
+        drop(early_drop);
+        assert_eq!(wakes.0.load(Ordering::Relaxed), 0);
+        assert!(pending.as_mut().poll_next(&mut cx).is_pending());
+        drop(pending);
+
+        // A shared scan failure cancels execution, wakes pending siblings, and reports an error.
+        let failed = Arc::new(ScanExecution::new(2));
+        let mut failing = Box::pin(make_output(
+            0,
+            &failed,
+            stream::once(async { Err(DataFusionError::Execution("boom".into())) }).boxed(),
+        ));
+        let mut sibling = Box::pin(make_output(1, &failed, stream::pending().boxed()));
+        assert!(sibling.as_mut().poll_next(&mut cx).is_pending());
+        assert!(matches!(
+            failing
+                .as_mut()
+                .poll_next(&mut Context::from_waker(noop_waker_ref())),
+            Poll::Ready(Some(Err(_)))
+        ));
         assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
         assert!(matches!(
-            pending.as_mut().poll_next(&mut cx),
+            sibling.as_mut().poll_next(&mut cx),
             Poll::Ready(Some(Err(_)))
         ));
         Ok(())
@@ -1482,11 +1564,7 @@ mod tests {
     #[tokio::test]
     async fn proven_ordering_keeps_one_output_partition_and_remaps_identity_outputs()
     -> anyhow::Result<()> {
-        let data_source: DataSourceRef = Arc::new(TestDataSource {
-            dtype: test_dtype(),
-            polls: Arc::default(),
-            scans: Arc::default(),
-        });
+        let data_source: DataSourceRef = Arc::new(TestDataSource::default());
         let key = Arc::new(Column::new("x", 0)) as Arc<dyn PhysicalExpr>;
         let source = VortexDataSource::builder(data_source, VortexSession::default())
             .with_output_ordering(
@@ -1534,6 +1612,49 @@ mod tests {
             )]))?
             .expect("projection supported");
         assert!(computed.eq_properties().output_ordering().is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn local_limit_early_drop_keeps_sibling_alive_and_full_abandonment_stops_scan()
+    -> anyhow::Result<()> {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let data_source: DataSourceRef = Arc::new(TestDataSource {
+            partitions: vec![&[0, 1]; 8],
+            dropped: Arc::clone(&dropped),
+            ..Default::default()
+        });
+        let source = VortexDataSource::builder(data_source, VortexSession::default())
+            .build()
+            .await?
+            .repartitioned(2, 0, None)?
+            .expect("repartitioning supported");
+
+        let plan = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
+        let ctx = Arc::new(TaskContext::default());
+        let total_rows =
+            |batches: &[RecordBatch]| -> usize { batches.iter().map(RecordBatch::num_rows).sum() };
+
+        let coalesced = Arc::new(LocalLimitExec::new(Arc::clone(&plan).reset_state()?, 1));
+        assert_eq!(total_rows(&collect(coalesced, Arc::clone(&ctx)).await?), 2);
+        assert!(dropped.load(Ordering::Acquire));
+
+        for open_both_upfront in [true, false] {
+            let local = LocalLimitExec::new(Arc::clone(&plan).reset_state()?, 1);
+            let first = local.execute(0, Arc::clone(&ctx))?;
+            let second = open_both_upfront
+                .then(|| local.execute(1, Arc::clone(&ctx)))
+                .transpose()?;
+            assert_eq!(total_rows(&first.try_collect::<Vec<_>>().await?), 1);
+            assert!(!dropped.load(Ordering::Acquire));
+            let second = match second {
+                Some(stream) => stream,
+                None => local.execute(1, Arc::clone(&ctx))?,
+            };
+            assert_eq!(total_rows(&second.try_collect::<Vec<_>>().await?), 1);
+            assert!(dropped.load(Ordering::Acquire));
+        }
+
         Ok(())
     }
 }

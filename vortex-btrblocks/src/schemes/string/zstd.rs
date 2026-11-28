@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 
 /// Zstd compression without dictionaries (nvCOMP compatible).
@@ -45,20 +46,37 @@ impl Scheme for ZstdScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    /// Zstd stores the input's validity, which is registered.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let compacted = compressor
-            .with_compressed_validity(data.array(), exec_ctx)?
+    ) -> VortexResult<Encoded> {
+        // Compact before the validity is registered: compaction rebuilds the array, so compacting
+        // the leaf would replace its compressed bitmap with an uncompressed copy.
+        let compacted = data
+            .array()
+            .clone()
             .execute::<VarBinViewArray>(exec_ctx)?
             .compact_buffers(exec_ctx)?;
-        Ok(
-            vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?
-                .into_array(),
-        )
+        Encoded::of_leaf(compacted.into_array(), |input, exec_ctx| {
+            let input = input.execute::<VarBinViewArray>(exec_ctx)?;
+            Ok(
+                vortex_zstd::Zstd::from_var_bin_view_without_dict(&input, 3, 8192, exec_ctx)?
+                    .into_array(),
+            )
+        })
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

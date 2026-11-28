@@ -86,7 +86,7 @@ impl ColumnExporter for FixedSizeListExporter {
         // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825.
         //
         // SAFETY: `elements_exporter` populated `num_elements` entries in `elements_vector`.
-        unsafe { elements_vector.set_size(num_elements) };
+        unsafe { elements_vector.set_size(num_elements)? };
         elements_vector.flatten();
 
         Ok(())

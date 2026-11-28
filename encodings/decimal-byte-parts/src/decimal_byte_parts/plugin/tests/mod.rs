@@ -22,6 +22,7 @@ use vortex_array::arrays::Widen;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::hegel::serialize_and_decode;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
@@ -29,16 +30,13 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::DecimalBytePartsArray;
@@ -138,24 +136,6 @@ fn deserialize_stored_msp(
             &[],
             &children,
         ),
-        session,
-    )
-}
-
-/// Writes `array` with the serializers of `session` and reads it back.
-fn serialize_and_decode(array: &ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
-    let array_ctx = ArrayContext::empty();
-    let serialized = array.serialize(&array_ctx, session, &SerializeOptions::default())?;
-    let mut concat = ByteBufferMut::empty();
-    for buf in serialized {
-        concat.extend_from_slice(buf.as_ref());
-    }
-    let parts = SerializedArray::try_from(concat.freeze())?;
-
-    parts.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(array_ctx.to_ids()),
         session,
     )
 }
