@@ -29,7 +29,8 @@ use vortex_session::VortexSession;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-const ROWS: usize = 4096;
+// Simulate 32 complete repetitions of the 16-row input pattern on CodSpeed.
+const ROWS: usize = if cfg!(codspeed) { 512 } else { 4096 };
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
     vortex_parquet_variant::initialize(&session);
