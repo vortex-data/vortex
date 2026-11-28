@@ -14,6 +14,7 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -76,6 +77,10 @@ impl VTable for Dict {
         metadata: &DictLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
         let codes_ptype = metadata.get_codes_ptype()?;
+        vortex_ensure!(
+            codes_ptype.is_int(),
+            "DictLayout codes must be integers, got {codes_ptype}"
+        );
         vortex_ensure_eq!(
             args.children.nchildren(),
             2,
@@ -85,6 +90,10 @@ impl VTable for Dict {
             .is_nullable_codes
             .map(Nullability::from)
             .unwrap_or_else(|| args.dtype.nullability());
+        vortex_ensure!(
+            !codes_nullable.is_nullable() || args.dtype.is_nullable(),
+            "DictLayout cannot have nullable codes when dtype is non-nullable"
+        );
         let codes_dtype = DType::Primitive(codes_ptype, codes_nullable);
         args.children.child(0, args.dtype)?;
         let codes = args.children.child(1, &codes_dtype)?;
@@ -211,6 +220,7 @@ impl DictLayoutMetadata {
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -222,17 +232,49 @@ mod tests {
     use crate::LayoutBuildContext;
     use crate::LayoutDeserialization;
     use crate::LayoutPlugin;
+    use crate::LayoutRef;
     use crate::layout_children;
+    use crate::layouts::flat::FlatLayout;
+    use crate::segments::SegmentId;
     use crate::test::SESSION;
 
-    #[test]
-    fn test_build_rejects_unknown_codes_ptype() -> VortexResult<()> {
-        let metadata = DictLayoutMetadata {
+    fn dummy_child(dtype: DType) -> LayoutRef {
+        FlatLayout::new(0, dtype, SegmentId::from(0), ReadContext::new([])).into_layout()
+    }
+
+    #[rstest]
+    #[case::unknown_codes_ptype(
+        DictLayoutMetadata {
             codes_ptype: 11,
             ..Default::default()
-        }
-        .encode_to_vec();
-        let children = layout_children(vec![]);
+        },
+        vec![],
+        "DictLayoutMetadata codes_ptype must be a known PType, got 11",
+    )]
+    #[case::non_integer_codes_ptype(
+        DictLayoutMetadata::new(PType::F32),
+        vec![],
+        "DictLayout codes must be integers, got f32",
+    )]
+    #[case::nullable_codes_with_non_nullable_dtype(
+        DictLayoutMetadata {
+            codes_ptype: PType::U32 as i32,
+            is_nullable_codes: Some(true),
+            all_values_referenced: None,
+        },
+        vec![
+            dummy_child(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            dummy_child(DType::Primitive(PType::U32, Nullability::Nullable)),
+        ],
+        "DictLayout cannot have nullable codes when dtype is non-nullable",
+    )]
+    fn test_build_rejects_invalid_metadata(
+        #[case] metadata: DictLayoutMetadata,
+        #[case] child_layouts: Vec<LayoutRef>,
+        #[case] expected_err: &str,
+    ) -> VortexResult<()> {
+        let encoded = metadata.encode_to_vec();
+        let children = layout_children(child_layouts);
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
             session: &SESSION,
@@ -244,16 +286,17 @@ mod tests {
                 serialized_id: LayoutPlugin::id(&Dict),
                 dtype: &DType::Primitive(PType::I32, Nullability::NonNullable),
                 row_count: 0,
-                metadata: &metadata,
+                metadata: &encoded,
                 segment_ids: vec![],
                 children: children.as_ref(),
             },
             &build_ctx,
         );
-        assert!(result.is_err_and(|err| {
-            err.to_string()
-                .contains("DictLayoutMetadata codes_ptype must be a known PType, got 11")
-        }));
+        let err = result.expect_err("invalid dict metadata must be rejected");
+        assert!(
+            err.to_string().contains(expected_err),
+            "expected error containing {expected_err:?}, got: {err}"
+        );
 
         assert_eq!(
             DictLayoutMetadata::new(PType::U32).get_codes_ptype()?,

@@ -9,11 +9,13 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -23,6 +25,8 @@ use vortex_array::scalar::NumericOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::BoundExpression;
 use vortex_expr::root;
@@ -189,6 +193,7 @@ impl ListReader {
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();
+        let session = self.session.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
         let elements_fut = self.fetch_raw_elements(&(0..elements_row_count))?;
@@ -200,11 +205,14 @@ impl ListReader {
 
         Ok(async move {
             let (offsets, elements, validity) = try_join!(offsets_fut, elements_fut, validity_fut)?;
-            // SAFETY: ListLayout is constructed from a valid ListArray and reading its children
-            // without transformation preserves the list invariants.
-            let list = unsafe {
-                ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
-            }
+            let mut ctx = session.create_execution_ctx();
+            let offsets = materialize_host_offsets(offsets, &mut ctx)?;
+            let list = ListArray::try_new(
+                elements,
+                offsets,
+                create_validity(validity, nullability),
+                &mut ctx,
+            )?
             .into_array();
             list.apply_bound(&expr)
         }
@@ -240,7 +248,11 @@ impl ListReader {
         Ok(async move {
             let offsets = offsets_fut.await?;
 
-            let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
+            let elements_range = elements_range_from_offsets(
+                &offsets,
+                reader.elements.row_count(),
+                &reader.session,
+            )?;
             let elements_fut = reader.fetch_raw_elements(&elements_range)?;
             let validity_fut = fetch_validity(
                 reader.validity.as_ref(),
@@ -250,12 +262,14 @@ impl ListReader {
             let (elements, validity) = try_join!(elements_fut, validity_fut)?;
 
             let offsets = rebase_offsets(offsets, elements_range.start)?;
-            // SAFETY: the selected offsets remain monotonically increasing, rebasing them against
-            // the selected element range preserves their lengths, and validity covers the same
-            // cropped list rows.
-            let list = unsafe {
-                ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
-            }
+            let mut ctx = reader.session.create_execution_ctx();
+            let offsets = materialize_host_offsets(offsets, &mut ctx)?;
+            let list = ListArray::try_new(
+                elements,
+                offsets,
+                create_validity(validity, nullability),
+                &mut ctx,
+            )?
             .into_array();
             let list = if selected_mask.all_true() {
                 list
@@ -564,9 +578,20 @@ fn fetch_validity(
     .boxed())
 }
 
+/// Materialize valid host integer offsets once before [`ListArray::try_new`] so validation and
+/// subsequent filtering or execution do not decode or rebase compressed offsets twice.
+fn materialize_host_offsets(offsets: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    if offsets.is_host() && offsets.dtype().is_int() && !offsets.dtype().is_nullable() {
+        Ok(offsets.execute::<PrimitiveArray>(ctx)?.into_array())
+    } else {
+        Ok(offsets)
+    }
+}
+
 /// Read `offsets[0]` and `offsets[-1]` and return the elements range they bound.
 fn elements_range_from_offsets(
     offsets: &ArrayRef,
+    elements_row_count: u64,
     session: &VortexSession,
 ) -> VortexResult<Range<u64>> {
     if offsets.is_empty() {
@@ -576,13 +601,23 @@ fn elements_range_from_offsets(
     let start = offsets
         .execute_scalar(0, &mut exec_ctx)?
         .as_primitive()
-        .as_::<u64>()
-        .vortex_expect("offset value fits in u64");
+        .as_opt::<u64>()
+        .flatten()
+        .ok_or_else(|| vortex_err!("List start offset must be a non-negative integer"))?;
     let end = offsets
         .execute_scalar(offsets.len() - 1, &mut exec_ctx)?
         .as_primitive()
-        .as_::<u64>()
-        .vortex_expect("offset value fits in u64");
+        .as_opt::<u64>()
+        .flatten()
+        .ok_or_else(|| vortex_err!("List end offset must be a non-negative integer"))?;
+    vortex_ensure!(
+        start <= end,
+        "List offsets must be sorted, but start offset {start} exceeds end offset {end}"
+    );
+    vortex_ensure!(
+        end <= elements_row_count,
+        "List end offset {end} exceeds elements row count {elements_row_count}"
+    );
     Ok(start..end)
 }
 
@@ -1335,5 +1370,91 @@ mod tests {
 
         let strategy = chunked_list_strategy().with_elements(Arc::new(chunked_list_strategy()));
         assert_round_trips(&strategy, sliced_chunks(&outer, &[1, 2])?, outer).await
+    }
+
+    async fn write_flat_child(
+        array: ArrayRef,
+        segments: &Arc<TestSegments>,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutRef> {
+        let (ptr, eof) = SequenceId::root().split();
+        FlatLayoutStrategy::default()
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(segments),
+                array.to_array_stream().sequenced(ptr),
+                eof,
+                session,
+            )
+            .await
+    }
+
+    #[rstest]
+    #[case::unsorted_full(
+        buffer![0u32, 3, 1, 4].into_array(),
+        0..3,
+        "offsets must be sorted"
+    )]
+    #[case::oob_full(
+        buffer![0u32, 2, 99, 100].into_array(),
+        0..3,
+        "beyond the length of the elements array"
+    )]
+    #[case::negative_full(
+        buffer![-1i32, 1, 2, 3].into_array(),
+        0..3,
+        "offsets minimum -1 outside valid range"
+    )]
+    #[case::unsorted_bounded(
+        buffer![0u32, 3, 1, 4].into_array(),
+        0..2,
+        "offsets must be sorted"
+    )]
+    #[case::descending_endpoints_bounded(
+        buffer![3u32, 1, 2, 4].into_array(),
+        0..2,
+        "start offset 3 exceeds end offset 2"
+    )]
+    #[case::oob_bounded(
+        buffer![0u32, 2, 99, 100].into_array(),
+        0..2,
+        "end offset 99 exceeds elements row count 4"
+    )]
+    #[case::negative_bounded(
+        buffer![-1i32, 1, 2, 3].into_array(),
+        0..2,
+        "List start offset must be a non-negative integer"
+    )]
+    #[tokio::test]
+    async fn projection_rejects_corrupt_offsets(
+        #[case] bad_offsets: ArrayRef,
+        #[case] row_range: Range<u64>,
+        #[case] expected_err: &str,
+    ) -> VortexResult<()> {
+        let session = layout_test_session().with_tokio();
+        let segments = Arc::new(TestSegments::default());
+        let elements =
+            write_flat_child(buffer![10i32, 20, 30, 40].into_array(), &segments, &session).await?;
+        let offsets = write_flat_child(bad_offsets, &segments, &session).await?;
+        let list_dtype = DType::List(Arc::new(elements.dtype().clone()), Nullability::NonNullable);
+        let layout = ListLayout::new(list_dtype, elements, offsets, None).into_layout();
+        let reader = layout.new_reader(
+            "list".into(),
+            segments,
+            &session,
+            &LayoutReaderContext::new(),
+        )?;
+        let expr = root().bind(reader.dtype())?;
+        let len = usize::try_from(row_range.end - row_range.start)?;
+
+        let result = reader
+            .projection_evaluation(&row_range, &expr, MaskFuture::new_true(len))?
+            .await;
+        let err = result.expect_err("corrupt offsets must fail validation");
+        assert!(
+            err.to_string().contains(expected_err),
+            "expected error containing {expected_err:?}, got: {err}"
+        );
+        Ok(())
     }
 }

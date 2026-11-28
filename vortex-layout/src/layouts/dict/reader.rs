@@ -331,19 +331,13 @@ impl LayoutReader for DictReader {
                 && is_full_range
                 && codes.len() as u64 == total_row_count;
 
-            // SAFETY:
-            //  * The codes dtype is guaranteed to be an integer type from the layout
-            //  * The codes child reader ensures the correct dtype.
-            //  * The codes come from the file and are not checked here. Each operation that
-            //    uses a code as an index into the values does its own bounds check.
-            //  * The layout stores `all_values_referenced` and if this is malicious then it must
-            //    only affect correctness not memory safety.
-            let array = unsafe {
-                DictArray::new_unchecked(codes, values)
-                    .set_all_values_referenced(all_values_referenced)
+            let mut dict = DictArray::try_new(codes, values)?;
+            if all_values_referenced {
+                // SAFETY: The layout metadata asserts all values are referenced. Per `DictData`,
+                // an inaccurate flag only affects semantics, never memory safety.
+                dict = unsafe { dict.set_all_values_referenced(true) };
             }
-            .into_array()
-            .optimize_ctx(&session)?;
+            let array = dict.into_array().optimize_ctx(&session)?;
 
             array.apply_bound(&expr_outer)
         }
@@ -1007,6 +1001,31 @@ mod tests {
                 session,
             )
             .await
+    }
+
+    #[test]
+    fn projection_rejects_non_integer_codes_layout() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let values =
+                write_flat_layout(buffer![10i32, 20].into_array(), &segments, &session).await?;
+            let float_codes =
+                write_flat_layout(buffer![0.0f32, 1.0].into_array(), &segments, &session).await?;
+            let layout = DictLayout::new(values, float_codes).into_layout();
+            let reader =
+                layout.new_reader("dict".into(), segments, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let err = reader
+                .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
+                .await
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("expected type: int"),
+                "unexpected error: {err}"
+            );
+            Ok(())
+        })
     }
 
     #[test]
