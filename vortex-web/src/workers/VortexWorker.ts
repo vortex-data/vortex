@@ -42,6 +42,10 @@ export class VortexWorker {
       worker ?? new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent) => {
       const { type, id, data, error } = e.data;
+      if (type === 'fatal') {
+        this.failAllPending(new Error(`Worker error: ${error ?? 'Worker crashed'}`));
+        return;
+      }
       const req = this.pending.get(id);
       if (!req) return;
       this.pending.delete(id);

@@ -83,7 +83,9 @@ self.onmessage = async (e: MessageEvent) => {
           fileStructure: JSON.parse(handle.file_structure()),
         };
       } catch (err) {
-        handle.free();
+        if (!(err instanceof WebAssembly.RuntimeError)) {
+          handle.free();
+        }
         throw err;
       }
       retireCurrent();
@@ -109,6 +111,11 @@ self.onmessage = async (e: MessageEvent) => {
       self.postMessage({ type: 'result', id, data: ipcBytes }, [ipcBytes.buffer]);
     }
   } catch (err) {
+    if (err instanceof WebAssembly.RuntimeError) {
+      self.postMessage({ type: 'fatal', error: String(err) });
+      self.close();
+      return;
+    }
     self.postMessage({ type: 'error', id, error: String(err) });
   }
 };

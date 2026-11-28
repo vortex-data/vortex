@@ -52,6 +52,21 @@ describe('VortexWorker request settlement', () => {
     await expect(client.previewData('node-c', 5)).rejects.toThrow('WASM unreachable');
   });
 
+  test('rejects all pending requests and terminates worker on fatal message', async () => {
+    const fake = new FakeWorker();
+    const client = new VortexWorker(fake);
+
+    const pA = client.fetchEncodingTree('node-a');
+    fake.emitMessage({ type: 'fatal', error: 'RuntimeError: unreachable' });
+
+    expect(fake.terminated).toBe(true);
+    expect(client.isClosed).toBe(true);
+    await expect(pA).rejects.toThrow('Worker error: RuntimeError: unreachable');
+    await expect(client.previewData('node-b', 5)).rejects.toThrow(
+      'Worker error: RuntimeError: unreachable',
+    );
+  });
+
   test('closeFile posts only while open and is a no-op once closed or terminated', () => {
     const fake1 = new FakeWorker();
     const client1 = new VortexWorker(fake1);
