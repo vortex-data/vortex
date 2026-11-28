@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Byte encodings shared by the index kinds' columns.
+
+use roaring::RoaringBitmap;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
+
+/// Serialize a roaring bitmap in its portable format.
+pub fn bitmap_to_bytes(bitmap: &RoaringBitmap) -> VortexResult<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(bitmap.serialized_size());
+    bitmap
+        .serialize_into(&mut bytes)
+        .map_err(|err| vortex_err!("Failed to serialize roaring bitmap: {err}"))?;
+    Ok(bytes)
+}
+
+/// Deserialize a roaring bitmap written by [`bitmap_to_bytes`].
+pub fn bitmap_from_bytes(bytes: &[u8]) -> VortexResult<RoaringBitmap> {
+    RoaringBitmap::deserialize_from(bytes)
+        .map_err(|err| vortex_err!("Failed to deserialize roaring bitmap: {err}"))
+}
+
+/// Pack `f32`s little-endian.
+pub fn f32s_to_bytes(values: &[f32]) -> Vec<u8> {
+    values.iter().flat_map(|v| v.to_le_bytes()).collect()
+}
+
+/// Unpack little-endian `f32`s written by [`f32s_to_bytes`].
+pub fn f32s_from_bytes(bytes: &[u8]) -> VortexResult<Vec<f32>> {
+    vortex_ensure_eq!(bytes.len() % 4, 0, "packed f32 buffer has a ragged tail");
+    Ok(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect())
+}
+
+/// A canonical struct chunk of an index child, with typed accessors for its fields.
+pub struct IndexRowsChunk {
+    rows: StructArray,
+}
+
+impl IndexRowsChunk {
+    /// Execute `chunk` into its struct rows.
+    pub fn new(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        Ok(Self {
+            rows: chunk.execute::<StructArray>(ctx)?,
+        })
+    }
+
+    /// Rows in the chunk.
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Whether the chunk has no rows.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// The field `name`, ignoring the struct's validity.
+    pub fn field(&self, name: &str) -> VortexResult<ArrayRef> {
+        Ok(self.rows.unmasked_field_by_name(name)?.clone())
+    }
+
+    /// Every value of a binary field, in row order.
+    pub fn binary_field(
+        &self,
+        name: &str,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<ByteBuffer>> {
+        let values = self.field(name)?.execute::<VarBinViewArray>(ctx)?;
+        Ok((0..values.len()).map(|idx| values.bytes_at(idx)).collect())
+    }
+}
