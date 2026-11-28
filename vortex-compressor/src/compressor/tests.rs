@@ -1691,6 +1691,170 @@ mod fsl_sparse_vs_dense {
     }
 }
 
+mod ext_scheme_vs_storage {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use vortex_array::ArrayId;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
+    use vortex_array::arrays::extension::ExtensionArrayExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::PType;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+
+    use super::SESSION;
+    use crate::CascadingCompressor;
+    use crate::scheme::CompressionEstimate;
+    use crate::scheme::CompressorContext;
+    use crate::scheme::DeferredEstimate;
+    use crate::scheme::EstimateVerdict;
+    use crate::scheme::Scheme;
+    use crate::stats::ArrayAndStats;
+
+    /// A mock temporal-like `Extension` scheme that dictionary-encodes low-cardinality `i64`
+    /// timestamps via sampling, competing against the built-in `ExtensionStorageScheme`.
+    #[derive(Debug)]
+    struct MockExtensionScheme;
+
+    impl Scheme for MockExtensionScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.mock_extension"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Extension(_))
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            let ext = data.array().clone().execute::<ExtensionArray>(exec_ctx)?;
+            let storage = ext
+                .storage_array()
+                .clone()
+                .execute::<PrimitiveArray>(exec_ctx)?;
+            let slice = storage.as_slice::<i64>();
+            let mut unique = Vec::new();
+            let mut codes = Vec::with_capacity(slice.len());
+            for &v in slice {
+                let pos = if let Some(pos) = unique.iter().position(|&u| u == v) {
+                    pos
+                } else {
+                    let pos = unique.len();
+                    unique.push(v);
+                    pos
+                };
+                codes.push(u8::try_from(pos)?);
+            }
+            let values_storage = PrimitiveArray::new(Buffer::from(unique), Validity::NonNullable);
+            let values = ExtensionArray::new(ext.ext_dtype().clone(), values_storage.into_array())
+                .into_array();
+            let codes =
+                PrimitiveArray::new(Buffer::from(codes), Validity::NonNullable).into_array();
+            Ok(DictArray::try_new(codes, values)?.into_array())
+        }
+    }
+
+    static MAX_STORAGE_LEN_SEEN: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Debug)]
+    struct RecordingI64Scheme;
+
+    impl Scheme for RecordingI64Scheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.recording_i64"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(p) if p.ptype() == PType::I64)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            MAX_STORAGE_LEN_SEEN.fetch_max(data.array().len(), Ordering::Relaxed);
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
+        }
+    }
+
+    #[test]
+    fn test_extension_storage_not_run_on_full_column_when_scheme_wins() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        MAX_STORAGE_LEN_SEEN.store(0, Ordering::Relaxed);
+        let comp = CascadingCompressor::new(vec![&MockExtensionScheme, &RecordingI64Scheme]);
+
+        let rows = 4_096;
+        let storage = PrimitiveArray::from_iter(
+            (0..rows as i64).map(|i| 1_700_000_000_000 + (i % 16) * 1_000),
+        )
+        .into_array();
+        let timestamps =
+            TemporalArray::new_timestamp(storage, TimeUnit::Milliseconds, None).into_array();
+
+        let result = comp.compress(&timestamps, &mut exec_ctx)?;
+        assert!(
+            result.is::<Dict>(),
+            "MockExtensionScheme should win over storage default, got {}",
+            result.encoding_id()
+        );
+        assert_arrays_eq!(&result, &timestamps, &mut exec_ctx);
+
+        let max_len = MAX_STORAGE_LEN_SEEN.load(Ordering::Relaxed);
+        assert!(
+            max_len > 0 && max_len < rows,
+            "expected extension storage compression to run only on the sample (< {rows} rows), \
+             saw max {max_len} rows"
+        );
+        Ok(())
+    }
+}
+
 /// Dictionary-encodes `[1, 2, 1, 2, ...]`, registering its values as `Encoded::keep` when
 /// `keep_values`, or not registering them at all.
 #[derive(Debug)]

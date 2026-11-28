@@ -12,12 +12,11 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
-use vortex_array::arrays::Masked;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::Variant;
@@ -27,7 +26,6 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::list_from_list_view;
-use vortex_array::arrays::masked::MaskedArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::union::UnionArraySlotsExt;
@@ -120,6 +118,51 @@ impl Scheme for FixedSizeListDenseScheme {
     }
 }
 
+/// Default scheme for `Extension` that compresses its underlying storage array. Competes on a
+/// sample against extension schemes (such as temporal) via `AlwaysUse`, so only the winner runs on
+/// the full column.
+#[derive(Debug)]
+struct ExtensionStorageScheme;
+
+impl Scheme for ExtensionStorageScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.ext.storage"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches!(canonical, Canonical::Extension(_))
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Extension.id()]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let ext_array = data.array().clone().execute::<ExtensionArray>(exec_ctx)?;
+        let compressed_storage = compressor.compress_with_ctx(
+            ext_array.storage_array(),
+            compress_ctx.fresh_root(),
+            exec_ctx,
+        )?;
+        Ok(ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage).into_array())
+    }
+}
+
 /// The outcome of [`CascadingCompressor::choose_and_compress`].
 enum Selection {
     /// A scheme, or the compressor's own empty, null or constant handling, produced a new array.
@@ -135,13 +178,6 @@ impl Selection {
     fn unchanged(data: ArrayAndStats) -> Self {
         let null_count = data.cached_null_count();
         Selection::Unchanged(data.into_array(), null_count)
-    }
-
-    /// Returns the array, compressed or not.
-    fn into_array(self) -> ArrayRef {
-        match self {
-            Selection::Compressed(array) | Selection::Unchanged(array, _) => array,
-        }
     }
 }
 
@@ -330,45 +366,27 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Extension(ext_array) => {
-                // Try scheme-based compression first.
-                let selection = self.choose_and_compress(
+                // Extension schemes (such as temporal) compete on a sample against
+                // `ExtensionStorageScheme` so only the winner runs on the full column.
+                if let Selection::Compressed(compressed) = self.choose_and_compress(
                     Canonical::Extension(ext_array.clone()),
                     compress_ctx.clone(),
                     exec_ctx,
-                )?;
-
-                // A constant extension array (that might be masked) is already in its terminal
-                // representation, and compressing the storage separately cannot do better.
-                if let Selection::Compressed(compressed) = &selection
-                    && (compressed.is::<Constant>()
-                        || compressed
-                            .as_opt::<Masked>()
-                            .is_some_and(|masked| masked.child().is::<Constant>()))
-                {
-                    return Ok(selection.into_array());
+                )? {
+                    return Ok(compressed);
                 }
 
-                // Also compress the underlying storage array. Some extension schemes can beat the
-                // extension storage but still lose to ordinary storage compression.
+                // A canonical extension array's storage is only canonical at its top level,
+                // so an unchanged input can still hold lazy, unserializable arrays.
                 let compressed_storage = self.compress_with_ctx(
                     ext_array.storage_array(),
                     compress_ctx.fresh_root(),
                     exec_ctx,
                 )?;
-                let storage_compressed =
+                Ok(
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array();
-
-                match selection {
-                    Selection::Compressed(scheme_compressed)
-                        if scheme_compressed.nbytes() < storage_compressed.nbytes() =>
-                    {
-                        Ok(scheme_compressed)
-                    }
-                    // A canonical extension array's storage is only canonical at its top level,
-                    // so an unchanged input can still hold lazy, unserializable arrays.
-                    Selection::Compressed(_) | Selection::Unchanged(..) => Ok(storage_compressed),
-                }
+                        .into_array(),
+                )
             }
             Canonical::Variant(variant_array) => {
                 // Storage under a lazy array, such as a slice, would be written with it.
@@ -459,8 +477,10 @@ impl CascadingCompressor {
             .copied()
             .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
             .collect();
-        if matches!(canonical, Canonical::FixedSizeList(_)) {
-            eligible_schemes.push(&FixedSizeListDenseScheme);
+        match canonical {
+            Canonical::FixedSizeList(_) => eligible_schemes.push(&FixedSizeListDenseScheme),
+            Canonical::Extension(_) => eligible_schemes.push(&ExtensionStorageScheme),
+            _ => {}
         }
 
         let array: ArrayRef = canonical.into();
@@ -542,7 +562,9 @@ impl CascadingCompressor {
         let after_nbytes = compressed.nbytes();
         let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
 
-        let accepted = after_nbytes < before_nbytes || winner.id() == FixedSizeListDenseScheme.id();
+        let accepted = after_nbytes < before_nbytes
+            || winner.id() == FixedSizeListDenseScheme.id()
+            || winner.id() == ExtensionStorageScheme.id();
 
         trace::record_winner_compress_result(
             after_nbytes,

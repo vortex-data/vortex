@@ -18,7 +18,7 @@ use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
@@ -71,8 +71,8 @@ impl Scheme for TemporalScheme {
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // Temporal compression (splitting into parts) is almost always beneficial.
-        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+        // Compete on a sample against the built-in extension storage default.
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     /// Children: days=0, which carry the validity, seconds=1, subseconds=2, each narrowed.
