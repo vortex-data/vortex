@@ -149,8 +149,8 @@ impl LayoutStrategy for StructStrategy {
                 .transpose()?;
 
             // Fields are written unmasked, so each field is defined only where its ancestors
-            // define the struct and the struct is valid. Every row of the validity is part of
-            // the column.
+            // define the struct and the struct is valid. Validity is written as a plain boolean
+            // column without per-row definedness (any outer null struct masks it on read).
             let field_definedness = match &validity {
                 Some(validity) => {
                     let field_definedness = &defined & validity;

@@ -4006,6 +4006,36 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     Ok(())
 }
 
+/// Whole-file pruning over a field of a nullable struct uses logical statistics: values under null
+/// struct rows do not prevent pruning, and null struct rows prevent `is_null` from pruning even
+/// when the stored child field has no nulls.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_nullable_struct_field() -> VortexResult<()> {
+    let s = StructArray::try_new(
+        ["a"].into(),
+        vec![buffer![10i32, 100, 20, 200].into_array()],
+        4,
+        Validity::from_iter([true, false, true, false]),
+    )?;
+    let st = StructArray::try_new(["s"].into(), vec![s.into_array()], 4, Validity::NonNullable)?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .include_nested_statistics()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let s_a = get_item("a", col("s"));
+    assert!(file.can_prune(&gt(s_a.clone(), lit(50)))?);
+    assert!(!file.can_prune(&gt(s_a.clone(), lit(15)))?);
+    assert!(!file.can_prune(&is_null(s_a))?);
+
+    Ok(())
+}
+
 async fn lower_pruning_file(values: Vec<Option<String>>) -> VortexResult<VortexFile> {
     let array = VarBinViewArray::from_iter_nullable_str(values).into_array();
     let mut buf = ByteBufferMut::empty();
