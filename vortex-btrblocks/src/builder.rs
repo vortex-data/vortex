@@ -645,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn cuda_excludes_binary_varbin_scheme() -> VortexResult<()> {
+    fn test_cuda_excludes_binary_varbin_scheme() -> VortexResult<()> {
         let cuda = BtrBlocksCompressorBuilder::from_session(&SESSION)
             .unrestricted()
             .only_cuda_compatible();
@@ -656,7 +656,7 @@ mod tests {
         // Fixed-width random binary values: `binary::VarBinScheme` would halve size by dropping
         // views and sequence-encoding offsets, while Zstd cannot compress random bytes.
         let mut rng = StdRng::seed_from_u64(42);
-        let values: Vec<[u8; 16]> = (0..4_096)
+        let values: Vec<[u8; 16]> = (0..1_023)
             .map(|_| {
                 let mut buf = [0u8; 16];
                 rng.fill_bytes(&mut buf);
@@ -664,8 +664,23 @@ mod tests {
             })
             .collect();
         let input = VarBinViewArray::from_iter_bin(&values).into_array();
-        let compressor = cuda.build();
         let mut ctx = SESSION.create_execution_ctx();
+
+        // Positive control: with `binary::VarBinScheme` present alongside the CUDA schemes,
+        // this fixture selects `VarBin`.
+        let mut with_varbin_schemes = cuda.allowed_schemes();
+        with_varbin_schemes.push(&binary::VarBinScheme);
+        let with_varbin = BtrBlocksCompressor(CascadingCompressor::new(with_varbin_schemes))
+            .compress(&input, &mut ctx)?;
+        assert!(
+            with_varbin
+                .depth_first_traversal()
+                .any(|n| n.is::<VarBin>()),
+            "control with VarBinScheme enabled should emit VarBin, got {}",
+            with_varbin.display_tree()
+        );
+
+        let compressor = cuda.build();
         let compressed = compressor.compress(&input, &mut ctx)?;
 
         for node in compressed.depth_first_traversal() {
