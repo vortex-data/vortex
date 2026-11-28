@@ -11894,12 +11894,15 @@ name = "vortex-fuzz"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "arrow-array 60.2.0",
+ "arrow-schema 60.2.0",
  "flatbuffers",
  "hegeltest",
  "itertools 0.14.0",
  "libfuzzer-sys",
  "num-traits",
  "parquet-variant",
+ "parquet-variant-compute",
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
