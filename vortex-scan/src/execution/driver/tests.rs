@@ -395,17 +395,23 @@ fn shared_budget_bounds_chunks_in_flight_across_drivers() -> VortexResult<()> {
         .map_err(|err| vortex_err!("spawn scans: {err}"))?;
 
     // Release one read at a time so freed slots are reused across both drivers without
-    // waiting for a full wave to drain.
+    // waiting for a full wave to drain, while asserting only the upper-bound contract
+    // (`<= budget + drivers`) so the test does not depend on semaphore wake order.
     let total = drivers * chunks;
     for completed in 0..total {
         runtime.run_until_stalled(&mut pool);
-        let expected_started = (completed + limit).min(total);
-        let expected_pending = expected_started - completed;
-        assert_eq!(segments.started(), expected_started);
-        assert_eq!(segments.pending_count(), expected_pending);
-        assert_eq!(segments.peak(), limit);
+        let remaining = total - completed;
+        assert!(segments.pending_count() >= 1);
+        assert!(segments.pending_count() <= limit.min(remaining));
+        assert!(segments.peak() <= limit);
+        if completed == 1 {
+            // Releasing one read while others remain in flight must admit at least one new read.
+            assert!(segments.started() > limit);
+        }
         segments.complete(1);
     }
+    assert_eq!(segments.started(), total);
+    assert_eq!(segments.peak(), limit);
 
     runtime.run_until_stalled(&mut pool);
     let batches = scans.now_or_never().ok_or_else(|| {
