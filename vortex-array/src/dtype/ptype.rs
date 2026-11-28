@@ -843,7 +843,7 @@ impl PType {
     }
 
     /// Returns whether every value of this type is representable in `to` without loss.
-    pub(crate) fn casts_losslessly_to(self, to: Self) -> bool {
+    pub fn casts_losslessly_to(self, to: Self) -> bool {
         if self == to {
             return true;
         }

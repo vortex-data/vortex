@@ -10,6 +10,7 @@ use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -128,6 +129,34 @@ impl StatDerivation for LiteralStatDerivation {
     }
 }
 
+/// Returns whether casting from `from` to `to` cannot fail on any valid value and preserves
+/// order, so `min/max(cast(x))` equals `cast(min/max(x))` without failing on unread zones.
+fn is_infallible_order_preserving_cast(from: &DType, to: &DType) -> bool {
+    // Casting a nullable column to non-nullable can fail on an all-null zone outside the scan.
+    if from.is_nullable() && !to.is_nullable() {
+        return false;
+    }
+    if from.as_nullable() == to.as_nullable() {
+        return true;
+    }
+    match (from, to) {
+        // Every float target accepts all primitive values (rounding or saturating to infinity)
+        // in non-decreasing order; integer targets only accept all values when lossless.
+        (DType::Primitive(from, _), DType::Primitive(to, _)) => {
+            to.is_float() || from.casts_losslessly_to(*to)
+        }
+        // Bool maps false -> 0 and true -> 1 for every primitive target.
+        (DType::Bool(_), DType::Primitive(..)) => true,
+        // Increasing scale without reducing integer digits keeps every value in range.
+        (DType::Decimal(from, _), DType::Decimal(to, _)) => {
+            to.scale() >= from.scale()
+                && i16::from(to.precision()) - i16::from(to.scale())
+                    >= i16::from(from.precision()) - i16::from(from.scale())
+        }
+        _ => false,
+    }
+}
+
 /// Derives the statistics of `cast(input)` from the statistics of `input`.
 #[derive(Debug)]
 struct CastStatDerivation;
@@ -145,10 +174,14 @@ impl StatDerivation for CastStatDerivation {
     ) -> Option<BoundExpression> {
         let input = expr.child(0);
         if aggregate_fn.is::<Min>() || aggregate_fn.is::<Max>() {
+            let target = expr.as_::<Cast>();
+            if !is_infallible_order_preserving_cast(input.dtype(), target) {
+                return None;
+            }
             // Preserve nullability so missing or empty-zone stats stay null rather than failing a
             // cast to a non-nullable target dtype.
             return stat_expr(input, aggregate_fn, session)
-                .map(|stat| cast(stat, expr.as_::<Cast>().as_nullable()));
+                .map(|stat| cast(stat, target.as_nullable()));
         }
         // A cast keeps NaNs as NaNs and nulls as nulls. A cast to a non-nullable dtype fails on a
         // null input, so it does not change the null count either. A cast changes the sum's dtype
@@ -841,17 +874,26 @@ mod tests {
 
     #[test]
     fn nan_guard_tracks_cast_source_dtype() -> VortexResult<()> {
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let expr = gt(cast(col("f"), dtype.clone()), lit(5i32));
-
+        let f64_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        // Widening a float keeps the NaN guard on the float source column.
+        let float_expr = gt(cast(col("f"), f64_dtype.clone()), lit(5.0f64));
         assert_rewrite_eq!(
-            falsify(&expr)?,
+            falsify(&float_expr)?,
             Some(nan_guarded(
                 col("f"),
                 lt_eq(
-                    cast(stat(col("f"), Stat::Max), dtype.as_nullable()),
-                    lit(5i32)
+                    cast(stat(col("f"), Stat::Max), f64_dtype.as_nullable()),
+                    lit(5.0f64)
                 ),
+            ))
+        );
+        // Casting an integer to float has a float target dtype, but its source cannot contain NaN.
+        let int_expr = gt(cast(col("a"), f64_dtype.clone()), lit(5.0f64));
+        assert_rewrite_eq!(
+            falsify(&int_expr)?,
+            Some(lt_eq(
+                cast(stat(col("a"), Stat::Max), f64_dtype.as_nullable()),
+                lit(5.0f64)
             ))
         );
         Ok(())
@@ -906,6 +948,32 @@ mod tests {
                     lit(10i64),
                 ),
             ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn skips_min_max_through_fallible_cast() -> VortexResult<()> {
+        // Narrowing integer, signed-to-unsigned, and float-to-int casts can fail on unread zones.
+        let i16_dtype = DType::Primitive(PType::I16, Nullability::NonNullable);
+        assert_rewrite_eq!(falsify(&eq(cast(col("a"), i16_dtype), lit(5i16)))?, None);
+
+        let u32_dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        assert_rewrite_eq!(falsify(&eq(cast(col("a"), u32_dtype), lit(5u32)))?, None);
+
+        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        assert_rewrite_eq!(
+            falsify(&gt(cast(col("f"), i32_dtype.clone()), lit(5i32)))?,
+            None
+        );
+
+        let nullable_i32 = DType::Primitive(PType::I32, Nullability::Nullable);
+        assert_rewrite_eq!(
+            falsify(&eq(
+                cast(cast(col("a"), nullable_i32), i32_dtype),
+                lit(5i32)
+            ))?,
+            None
         );
         Ok(())
     }
