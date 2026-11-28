@@ -12,6 +12,7 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_groups::FileGroup;
 use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
@@ -228,6 +229,8 @@ pub struct VortexSource {
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
+    /// False when the scan is known to contain at most one distinct file.
+    can_reorder_files: bool,
     /// Sort order requested by an inexact sort pushdown, used to read the files with the best
     /// statistics first.
     sort_order_for_reorder: Option<LexOrdering>,
@@ -277,6 +280,7 @@ impl VortexSource {
             scan_metrics,
             file_metadata_cache: None,
             ordered: false,
+            can_reorder_files: true,
             sort_order_for_reorder: None,
             options: VortexTableOptions::default(),
         }
@@ -336,6 +340,17 @@ impl VortexSource {
         vortex_reader_factory: Arc<dyn VortexReaderFactory>,
     ) -> Self {
         self.vortex_reader_factory = Some(vortex_reader_factory);
+        self
+    }
+
+    pub(super) fn with_file_reordering(mut self, groups: &[FileGroup]) -> Self {
+        let mut paths = groups
+            .iter()
+            .flat_map(FileGroup::iter)
+            .map(PartitionedFile::path);
+        self.can_reorder_files = paths
+            .next()
+            .is_some_and(|first| paths.any(|path| path != first));
         self
     }
 
@@ -474,6 +489,12 @@ impl FileSource for VortexSource {
             return Ok(SortOrderPushdownResult::Exact {
                 inner: Arc::new(this) as Arc<dyn FileSource>,
             });
+        }
+
+        // Ranges of the same file share its statistics. Claiming an inexact ordering
+        // can introduce an extra merge above TopK without improving the read order.
+        if !self.can_reorder_files {
+            return Ok(SortOrderPushdownResult::Unsupported);
         }
 
         // An inexact pushdown drops the scan's declared ordering. When that ordering is a proper
@@ -860,6 +881,21 @@ mod tests {
     }
 
     #[test]
+    fn single_file_ranges_do_not_request_inexact_sort_pushdown() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let file = PartitionedFile::new("hits.vortex", 100);
+        let groups = [
+            FileGroup::new(vec![file.clone().with_range(0, 50)]),
+            FileGroup::new(vec![file.with_range(50, 100)]),
+        ];
+        let source = sort_test_source(Arc::clone(&schema)).with_file_reordering(&groups);
+        let order = [sort_column("a", 0)];
+        let result = source.try_pushdown_sort(&order, &EquivalenceProperties::new(schema))?;
+        assert!(matches!(result, SortOrderPushdownResult::Unsupported));
+        Ok(())
+    }
+
+    #[test]
     fn try_pushdown_sort_is_unsupported_for_non_column_sort_key() -> anyhow::Result<()> {
         let schema = sort_test_schema();
         let source = sort_test_source(Arc::clone(&schema));
@@ -912,7 +948,8 @@ mod tests {
             file
         };
         let files = || vec![file("low", 1), file("high", 9)];
-        let source = sort_test_source(Arc::clone(&schema));
+        let source =
+            sort_test_source(Arc::clone(&schema)).with_file_reordering(&[FileGroup::new(files())]);
 
         // Without a sort pushdown, files keep their listing order.
         let unchanged = source.reorder_files(files());
