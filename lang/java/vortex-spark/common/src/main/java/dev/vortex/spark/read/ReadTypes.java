@@ -7,6 +7,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import dev.vortex.spark.ArrowUtils;
+import dev.vortex.spark.SparkVariants;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -134,6 +135,9 @@ final class ReadTypes {
 
     /** The Spark type of a file leaf, or {@code null} for a nested or unsupported one. */
     private static DataType leafType(Field file) {
+        if (SparkVariants.isVariant(file) && SparkVariants.variantType().isPresent()) {
+            return SparkVariants.variantType().get();
+        }
         ArrowType type = file.getType();
         if (type instanceof ArrowType.Struct
                 || type instanceof ArrowType.List
