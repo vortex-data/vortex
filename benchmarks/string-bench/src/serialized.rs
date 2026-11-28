@@ -47,6 +47,7 @@ use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
 use vortex_btrblocks::schemes::integer::DeltaScheme;
+use vortex_btrblocks::schemes::string::DominantValueSparseScheme;
 use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::OnPairScheme;
@@ -70,6 +71,7 @@ fn default_string_scheme_ids() -> Vec<SchemeId> {
         FSSTScheme.id(),
         OnPairScheme::default().id(),
         NullDominatedSparseScheme.id(),
+        DominantValueSparseScheme.id(),
     ]
 }
 

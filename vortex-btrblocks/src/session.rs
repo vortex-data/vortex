@@ -92,6 +92,7 @@ impl Default for CompressionSession {
             &string::FSSTScheme,
             &ONPAIR_SCHEME,
             &string::NullDominatedSparseScheme,
+            &string::DominantValueSparseScheme,
             #[cfg(feature = "zstd")]
             &string::ZstdScheme,
             ////////////////////////////////////////////////////////////////////////////////////
