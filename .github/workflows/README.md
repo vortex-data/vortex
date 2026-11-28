@@ -42,6 +42,10 @@ The [workflow][tag-src] runs these jobs in order:
 
 To run a check before a release only, add it to `release-checks.yml`.
 
+To run the release checks on a pull request, add the `action/release-checks` label. The
+[PR Release Checks][pr-checks-src] workflow removes the label and runs every release check on the
+merge of the pull request into its base. Add the label again to run them again.
+
 ## 2. Publish
 
 Open the draft on the [releases page][releases], check the notes and the five attached binaries,
@@ -71,6 +75,7 @@ If an environment requires approval, approve its job on the run page.
 [drafter-config]: ../release-drafter.yml
 [tag-src]: release-tag.yml
 [checks-src]: release-checks.yml
+[pr-checks-src]: pr-release-checks.yml
 [tag-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-tag.yml
 [binaries-src]: release-binaries.yml
 [binaries-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-binaries.yml
