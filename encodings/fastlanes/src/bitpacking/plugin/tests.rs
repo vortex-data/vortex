@@ -27,6 +27,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
 use super::BitPackedPatchedPlugin;
@@ -222,7 +223,7 @@ fn serde_roundtrip(
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?
         .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
-    assert_eq!(serialization.serialized_id, ArrayVTable::id(&BitPacked));
+    assert_eq!(serialization.serialized_id.as_ref(), "fastlanes.bitpacked");
     let metadata = BitPackedMetadata::decode(serialization.metadata.as_slice())?;
     assert_eq!(metadata.bit_width, u32::from(bit_width));
     assert_eq!(metadata.offset, u32::from(view.offset()));
@@ -284,5 +285,33 @@ fn serde_roundtrip_sliced_chunked_patches(#[values(500, 1500)] start: usize) -> 
     );
     assert_arrays_eq!(resliced.indices(), expected_resliced.indices(), &mut ctx);
     assert_arrays_eq!(resliced.values(), expected_resliced.values(), &mut ctx);
+    Ok(())
+}
+
+/// Retired `fastlanes.bitpacked.v2` nodes fail to decode as an unknown encoding.
+#[test]
+fn retired_v2_wire_id_is_rejected() -> VortexResult<()> {
+    let mut ctx = PLUGIN_SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(0u32..16).into_array();
+    let array = BitPackedData::encode(&values, 4, &mut ctx)?.into_array();
+    let array_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &PLUGIN_SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(&buffer);
+    }
+    static RETIRED_V2_ID: CachedId = CachedId::new("fastlanes.bitpacked.v2");
+    let err = SerializedArray::try_from(bytes.freeze())?
+        .decode(
+            array.dtype(),
+            array.len(),
+            &ReadContext::new(vec![*RETIRED_V2_ID]),
+            &PLUGIN_SESSION,
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Unknown encoding: fastlanes.bitpacked.v2"),
+        "unexpected error: {err}"
+    );
     Ok(())
 }
