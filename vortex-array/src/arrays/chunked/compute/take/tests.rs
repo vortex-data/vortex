@@ -485,7 +485,7 @@ fn hegel_take_piecewise_long_runs(tc: TestCase) {
 
 // --- Conformance entry points, internal-invariant tests, and OOB guards ---
 
-fn chunked_struct_of_fsl() -> VortexResult<(ChunkedArray, StructArray)> {
+fn chunked_struct_of_fsl() -> VortexResult<ChunkedArray> {
     let lengths = [3usize, 2, 4];
     let mut chunks = Vec::new();
     let mut start = 0usize;
@@ -514,24 +514,7 @@ fn chunked_struct_of_fsl() -> VortexResult<(ChunkedArray, StructArray)> {
     }
 
     let dtype = chunks[0].dtype().clone();
-    let chunked = ChunkedArray::try_new(chunks, dtype)?;
-
-    let tokens = FixedSizeListArray::try_new(
-        PrimitiveArray::from_iter((0..start * 2).map(|v| v as u64)).into_array(),
-        2,
-        Validity::NonNullable,
-        start,
-    )?;
-    let flat = StructArray::try_new(
-        ["tokens", "id"].into(),
-        vec![
-            tokens.into_array(),
-            PrimitiveArray::from_iter((0..start).map(|v| v as u64)).into_array(),
-        ],
-        start,
-        Validity::from_iter((0..start).map(|row| row % 4 != 1)),
-    )?;
-    Ok((chunked, flat))
+    ChunkedArray::try_new(chunks, dtype)
 }
 
 #[test]
@@ -765,7 +748,7 @@ fn test_take_fsl_over_chunked_elements_conformance() -> VortexResult<()> {
 
 #[test]
 fn test_take_chunked_struct_conformance() -> VortexResult<()> {
-    let (chunked, _) = chunked_struct_of_fsl()?;
+    let chunked = chunked_struct_of_fsl()?;
     test_take_conformance(&chunked.into_array(), &mut SESSION.create_execution_ctx());
     Ok(())
 }
