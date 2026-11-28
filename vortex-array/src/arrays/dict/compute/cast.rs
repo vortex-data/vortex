@@ -80,6 +80,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
@@ -344,7 +345,7 @@ mod tests {
         let valid_codes = PrimitiveArray::new(buffer![0u32, 0], Validity::AllValid).into_array();
         let dict = DictArray::try_new(valid_codes, values)?.into_array();
         let casted = dict.cast(target)?.optimize_ctx(&session)?;
-        assert!(casted.is::<crate::arrays::Constant>());
+        assert!(casted.is::<Constant>());
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([42i32, 42]), ctx);
         Ok(())
     }

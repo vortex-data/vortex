@@ -479,6 +479,8 @@ fn draw_cast_targets(tc: &TestCase, dtype: &DType) -> Vec<DType> {
         DType::Binary(_) => {
             targets.push(DType::Binary(flipped));
         }
+        // TODO(https://github.com/vortex-data/vortex/issues/7717): remove once Variant supports
+        // nullability-only casts in `cast_canonical`.
         DType::Variant(_) => {}
         _ => {
             targets.push(dtype.with_nullability(flipped));
@@ -766,8 +768,10 @@ fn apply_random_op(
     canonical: &ArrayRef,
 ) -> VortexResult<(ArrayRef, ArrayRef)> {
     let len = encoded.len();
-    // `Mask::execute` on an all-true constant mask calls `input.cast(input.dtype().as_nullable())`,
-    // which `cast_canonical` rejects for `DType::Variant` ("Variant arrays don't support casting").
+    // TODO(https://github.com/vortex-data/vortex/issues/7717): remove once Variant supports
+    // nullability-only casts. `Mask::execute` on an all-true constant mask calls
+    // `input.cast(input.dtype().as_nullable())`, which `cast_canonical` currently rejects with
+    // "Variant arrays don't support casting".
     let max_op = if matches!(encoded.dtype(), DType::Variant(Nullability::NonNullable)) {
         2
     } else {
@@ -902,6 +906,7 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
 
@@ -914,18 +919,15 @@ mod tests {
     #[hegel::test(test_cases = 50, print_blob = true)]
     fn test_dict_array_passes_hegel_encoding_harness(tc: TestCase) {
         let mut ctx = SESSION.create_execution_ctx();
-        let values: Vec<i32> = tc.draw(gs::vecs(gs::integers::<i32>()).min_size(1).max_size(12));
+        let values_len = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
         let values_validity = if tc.draw(gs::booleans()) {
             Validity::NonNullable
         } else {
-            draw_validity(&tc, values.len())
+            draw_validity(&tc, values_len)
         };
-        let values_len = values.len();
         let values_mask = values_validity
             .execute_mask(values_len, &mut ctx)
             .vortex_expect("values mask");
-        let values_array =
-            PrimitiveArray::new(Buffer::from(values.clone()), values_validity.clone()).into_array();
 
         let codes_len = tc.draw(gs::integers::<usize>().max_value(32));
         let codes: Vec<u16> = if codes_len == 0 {
@@ -951,21 +953,83 @@ mod tests {
         let codes_array =
             PrimitiveArray::new(Buffer::from(codes.clone()), codes_validity.clone()).into_array();
 
-        let expected_values: Vec<i32> = codes.iter().map(|&c| values[usize::from(c)]).collect();
-        let expected_validity = if matches!(codes_validity, Validity::NonNullable)
-            && matches!(values_validity, Validity::NonNullable)
-        {
-            Validity::NonNullable
-        } else {
-            Validity::from_iter(
-                codes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &c)| codes_mask.value(i) && values_mask.value(usize::from(c))),
-            )
-        };
-        let canonical =
-            PrimitiveArray::new(Buffer::from(expected_values), expected_validity).into_array();
+        let (values_array, canonical) =
+            match tc.draw(gs::integers::<u8>().max_value(2)) {
+                0 => {
+                    let values: Vec<i32> = tc.draw(
+                        gs::vecs(gs::integers::<i32>())
+                            .min_size(values_len)
+                            .max_size(values_len),
+                    );
+                    let values_array =
+                        PrimitiveArray::new(Buffer::from(values.clone()), values_validity.clone())
+                            .into_array();
+                    let expected_values: Vec<i32> =
+                        codes.iter().map(|&c| values[usize::from(c)]).collect();
+                    let expected_validity = if matches!(codes_validity, Validity::NonNullable)
+                        && matches!(values_validity, Validity::NonNullable)
+                    {
+                        Validity::NonNullable
+                    } else {
+                        Validity::from_iter(codes.iter().enumerate().map(|(i, &c)| {
+                            codes_mask.value(i) && values_mask.value(usize::from(c))
+                        }))
+                    };
+                    let canonical =
+                        PrimitiveArray::new(Buffer::from(expected_values), expected_validity)
+                            .into_array();
+                    (values_array, canonical)
+                }
+                1 => {
+                    let values = draw_bool_pattern(&tc, values_len);
+                    let values_array =
+                        BoolArray::new(values.iter().copied().collect(), values_validity.clone())
+                            .into_array();
+                    let expected_values: Vec<bool> =
+                        codes.iter().map(|&c| values[usize::from(c)]).collect();
+                    let expected_validity = if matches!(codes_validity, Validity::NonNullable)
+                        && matches!(values_validity, Validity::NonNullable)
+                    {
+                        Validity::NonNullable
+                    } else {
+                        Validity::from_iter(codes.iter().enumerate().map(|(i, &c)| {
+                            codes_mask.value(i) && values_mask.value(usize::from(c))
+                        }))
+                    };
+                    let canonical =
+                        BoolArray::new(expected_values.into_iter().collect(), expected_validity)
+                            .into_array();
+                    (values_array, canonical)
+                }
+                _ => {
+                    let val = tc.draw(gs::integers::<i32>());
+                    let is_null_const = tc.draw(gs::booleans());
+                    let const_nullability = if is_null_const || tc.draw(gs::booleans()) {
+                        Nullability::Nullable
+                    } else {
+                        Nullability::NonNullable
+                    };
+                    let scalar = if is_null_const {
+                        Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+                    } else {
+                        Scalar::primitive(val, const_nullability)
+                    };
+                    let values_array = ConstantArray::new(scalar, values_len).into_array();
+                    let expected_validity = if matches!(codes_validity, Validity::NonNullable)
+                        && const_nullability == Nullability::NonNullable
+                    {
+                        Validity::NonNullable
+                    } else if is_null_const {
+                        Validity::AllInvalid
+                    } else {
+                        Validity::from_iter((0..codes_len).map(|i| codes_mask.value(i)))
+                    };
+                    let canonical =
+                        PrimitiveArray::new(Buffer::from(vec![val; codes_len]), expected_validity)
+                            .into_array();
+                    (values_array, canonical)
+                }
+            };
 
         let dict = DictArray::try_new(codes_array, values_array)
             .vortex_expect("valid dict")
