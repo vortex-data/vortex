@@ -63,6 +63,7 @@ use crate::sequence::SequentialStreamExt;
 #[derive(Clone, Debug, Default)]
 pub struct FileStatsSelection {
     default: Option<Arc<[AggregateFnRef]>>,
+    additional: Vec<AggregateFnRef>,
     fields: Vec<(FieldPath, Arc<[AggregateFnRef]>)>,
 }
 
@@ -76,7 +77,15 @@ impl FileStatsSelection {
     ///
     /// Pass an empty list to record nothing outside the overridden fields.
     pub fn with_default(mut self, stats: Vec<AggregateFnRef>) -> Self {
+        self.additional.clear();
         self.default = Some(stats.into());
+        self
+    }
+
+    /// Extends each dtype's default statistics outside field overrides.
+    pub fn with_additional(mut self, stats: Vec<AggregateFnRef>) -> Self {
+        self.default = None;
+        self.additional = stats;
         self
     }
 
@@ -100,6 +109,7 @@ impl FileStatsSelection {
             .iter()
             .chain(self.fields.iter().map(|(_, stats)| stats))
             .flat_map(|stats| stats.iter())
+            .chain(&self.additional)
     }
 
     /// Resolves the selection against `dtype` into a tree that [`StatsNode::build`] walks.
@@ -126,6 +136,9 @@ impl FileStatsSelection {
             }
             node.stats = Some(Arc::clone(stats));
         }
+        if !self.additional.is_empty() {
+            root.extend_defaults(dtype, &self.additional);
+        }
         Ok(root)
     }
 }
@@ -140,6 +153,25 @@ struct SelectionNode {
 }
 
 impl SelectionNode {
+    // Resolve the per-dtype defaults once per file. An explicit override applies to its subtree.
+    fn extend_defaults(&mut self, dtype: &DType, additional: &[AggregateFnRef]) {
+        if self.stats.is_some() {
+            return;
+        }
+        let mut stats = default_aggregate_fns(dtype);
+        for extra in additional {
+            if !stats.contains(extra) {
+                stats.push(extra.clone());
+            }
+        }
+        self.stats = Some(stats.into());
+        if let Some(fields) = dtype.as_struct_fields_opt() {
+            for (name, field) in fields.names().iter().zip(fields.fields()) {
+                self.children.entry(name.clone()).or_default().extend_defaults(&field, additional);
+            }
+        }
+    }
+
     fn child(&self, name: &FieldName) -> Option<&SelectionNode> {
         self.children.get(name)
     }
@@ -978,6 +1010,8 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
+    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
@@ -1151,6 +1185,33 @@ mod tests {
         assert_eq!(
             stats.get(Stat::NullCount).as_exact(),
             Some(ScalarValue::from(0u64))
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::sorted_across_chunks(vec![buffer![1i32, 2, 3], buffer![3i32, 7]], true)]
+    #[case::unsorted_chunk(vec![buffer![1i32, 3, 2], buffer![4i32, 5]], false)]
+    #[case::chunks_out_of_order(vec![buffer![1i32, 2, 9], buffer![4i32, 5]], false)]
+    fn is_sorted_spans_chunk_boundaries(
+        #[case] chunks: Vec<vortex_buffer::Buffer<i32>>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut acc = StatsAccumulator::new(
+            &i32_dtype(),
+            Some(&[IsSorted.bind(IsSortedOptions { strict: false })]),
+            &|_| true,
+        );
+        for chunk in chunks {
+            acc.push_chunk(&chunk.into_array(), &mut ctx)?;
+        }
+
+        let is_sorted = IsSorted.bind(IsSortedOptions { strict: false });
+        let sorted = acc.aggregate_stats(|_| true)?.get(&is_sorted).as_exact();
+        assert_eq!(
+            sorted,
+            Some(Scalar::bool(expected, Nullability::NonNullable))
         );
         Ok(())
     }

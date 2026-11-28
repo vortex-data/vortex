@@ -18,6 +18,7 @@ macro_rules! throw_runtime {
     };
 }
 
+mod aggregate;
 mod arrow_compat;
 mod buffer;
 mod data_source;

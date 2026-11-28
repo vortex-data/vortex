@@ -17,7 +17,9 @@ layouts = []
 dtypes = [
     "vortex.duration",
 ]
-aggregates = []
+aggregates = [
+    "vortex.is_sorted",
+]
 
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
@@ -27,4 +29,6 @@ layouts = []
 dtypes = [
     "vortex.duration",
 ]
-aggregates = []
+aggregates = [
+    "vortex.is_sorted",
+]

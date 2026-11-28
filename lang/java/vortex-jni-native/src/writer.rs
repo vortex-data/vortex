@@ -47,6 +47,11 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::buffer::ByteBuffer;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -133,7 +138,11 @@ fn write_queue(
 /// Write options for `session`: its defaults, or the compact strategy, which trades read throughput
 /// for file size as Python's `VortexWriteOptions.compact()` does.
 fn session_write_options(session: &VortexSession, compact: bool) -> VortexWriteOptions {
-    let options = session.write_options();
+    let mut options = session.write_options();
+    let sorted = IsSorted.bind(IsSortedOptions { strict: false });
+    if session.enabled_component_ids(ComponentKind::Aggregate).contains(&sorted.id()) {
+        options = options.with_additional_file_statistics(vec![sorted]).include_nested_statistics();
+    }
     if !compact {
         return options;
     }

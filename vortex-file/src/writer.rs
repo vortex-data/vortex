@@ -198,6 +198,13 @@ impl VortexWriteOptions {
         self
     }
 
+    /// Record these aggregates alongside the dtype-specific defaults unless a field override applies.
+    /// Replaces any previous default selection.
+    pub fn with_additional_file_statistics(mut self, stats: Vec<AggregateFnRef>) -> Self {
+        self.file_statistics = self.file_statistics.with_additional(stats);
+        self
+    }
+
     /// Configure which statistics to compute at the file level for the field at `path` and every
     /// field nested beneath it, in place of those from [`Self::with_file_statistics`].
     ///

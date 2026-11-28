@@ -6,6 +6,7 @@ package dev.vortex.io;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,8 @@ import dev.vortex.api.DataSource;
 import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
+import dev.vortex.api.FileAggregate;
+import dev.vortex.api.FileAggregateResult;
 import dev.vortex.api.Session;
 import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.api.VortexWriteSummary;
@@ -291,6 +294,53 @@ public final class NativeIOBridgeTest {
             assertEquals("Carol", statistics.get(0).upperBound().orElseThrow());
             assertEquals(25, statistics.get(1).lowerBound().orElseThrow());
             assertEquals(40, statistics.get(1).upperBound().orElseThrow());
+        }
+    }
+
+    @Test
+    public void testAggregatesThroughBridge() throws IOException {
+        Path path = tempDir.resolve("bridge_aggregates.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        writePeopleFile(session, allocator, path);
+
+        List<FileAggregate> aggregates = List.of(
+                FileAggregate.countStar(),
+                FileAggregate.count("age"),
+                FileAggregate.min("age"),
+                FileAggregate.max("age"),
+                FileAggregate.sum("age"),
+                FileAggregate.min("name"),
+                FileAggregate.max("name"),
+                FileAggregate.isSorted("name"),
+                FileAggregate.isSorted("age"));
+        try (FileChannelReadable readable = new FileChannelReadable(path);
+                FileAggregateResult result = NativeFiles.aggregate(session, readable, aggregates, true, allocator)) {
+            // The core edition does not include the `IsSorted` statistic, so only it stays unanswered.
+            for (int i = 0; i < 7; i++) {
+                assertTrue(result.answered(i));
+            }
+            assertEquals(3L, result.vector(0).getObject(0));
+            assertEquals(3L, result.vector(1).getObject(0));
+            assertEquals(25, result.vector(2).getObject(0));
+            assertEquals(40, result.vector(3).getObject(0));
+            assertEquals(95L, result.vector(4).getObject(0));
+            assertEquals("Alice", result.vector(5).getObject(0).toString());
+            assertEquals("Carol", result.vector(6).getObject(0).toString());
+            assertFalse(result.answered(7));
+            assertFalse(result.answered(8));
+        }
+
+        // Without a scan, only what the footer states exactly is answered, and COUNT(*) always is.
+        try (FileChannelReadable readable = new FileChannelReadable(path);
+                FileAggregateResult result = NativeFiles.aggregate(session, readable, aggregates, false, allocator)) {
+            assertTrue(result.answered(0));
+            assertEquals(3L, result.vector(0).getObject(0));
+            for (int i = 0; i < result.size(); i++) {
+                if (!result.answered(i)) {
+                    assertTrue(result.vector(i).isNull(0));
+                }
+            }
         }
     }
 
