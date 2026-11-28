@@ -20,11 +20,12 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use super::BlockedChunkAction;
+use super::for_each_decoded_blocked_chunk;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
@@ -170,126 +171,28 @@ where
         + AsPrimitive<T::Physical>,
     T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
 {
-    let len = bp.len();
-    let offset = usize::from(bp.offset());
-
-    let patch_data = if let Some(patches) = bp.patches() {
-        let p_idx = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let p_val = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        Some((p_idx, p_val, patches.offset()))
-    } else {
-        None
-    };
-
-    if let Some((p_idx, p_val, p_off)) = patch_data {
-        match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-            Ok(is_sorted_blocked_bitpacked_inner::<T, I>(
-                bp.packed_slice::<T::Physical>(),
-                bit_width,
-                offset,
-                len,
-                start_row,
-                strict,
-                refs,
-                Some((p_idx.as_slice::<I>(), p_val.as_slice::<T>(), p_off)),
-            ))
-        })
-    } else {
-        Ok(is_sorted_blocked_bitpacked_inner::<T, u64>(
-            bp.packed_slice::<T::Physical>(),
-            bit_width,
-            offset,
-            len,
-            start_row,
-            strict,
-            refs,
-            None,
-        ))
-    }
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "typed blocked is_sorted execution parameters"
-)]
-fn is_sorted_blocked_bitpacked_inner<T, I>(
-    packed: &[T::Physical],
-    bit_width: usize,
-    offset: usize,
-    len: usize,
-    start_row: usize,
-    strict: bool,
-    refs: &[T],
-    patches: Option<(&[I], &[T], usize)>,
-) -> bool
-where
-    T: IntegerPType
-        + PhysicalPType
-        + BitPackedIter
-        + PrimInt
-        + WrappingAdd
-        + AsPrimitive<T::Physical>,
-    T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T>,
-    I: AsPrimitive<usize>,
-{
-    let elems_per_chunk = 128 * bit_width / size_of::<T>();
-    let padded_len = offset + len;
-    let num_chunks = padded_len.div_ceil(FL_CHUNK_SIZE);
-    let start_chunk = (offset + start_row) / FL_CHUNK_SIZE;
-    let mut scratch = [T::Physical::zero(); FL_CHUNK_SIZE];
-    let mut patch_cursor = patches
-        .map(|(p_idx, _, p_off)| {
-            p_idx.partition_point(|&idx| idx.as_().saturating_sub(p_off) < start_row)
-        })
-        .unwrap_or(0);
     let mut prev: Option<T> = None;
-
-    for chunk in start_chunk..num_chunks {
-        let ref_b = refs[chunk];
-        let chunk_start_padded = chunk * FL_CHUNK_SIZE;
-        let chunk_end_padded = (chunk_start_padded + FL_CHUNK_SIZE).min(padded_len);
-        let chunk_lo = chunk_start_padded.saturating_sub(offset).max(start_row);
-        let chunk_hi = chunk_end_padded - offset;
-        let lane_start = offset + chunk_lo - chunk_start_padded;
-        let lane_end = offset + chunk_hi - chunk_start_padded;
-
-        if bit_width == 0 {
-            scratch[lane_start..lane_end].fill(T::Physical::zero());
-        } else {
-            let packed_chunk = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
-            // SAFETY: `packed_chunk` holds one chunk at `bit_width` and `scratch` holds one chunk.
-            unsafe { T::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch) };
-        }
-
-        if let Some((p_idx, p_val, p_off)) = patches {
-            while patch_cursor < p_idx.len() {
-                let Some(pos) = p_idx[patch_cursor].as_().checked_sub(p_off) else {
-                    patch_cursor += 1;
-                    continue;
-                };
-                if pos >= chunk_hi {
-                    break;
+    for_each_decoded_blocked_chunk(
+        bp,
+        bit_width,
+        refs,
+        start_row,
+        |_, _| BlockedChunkAction::Unpack,
+        |ref_b, lanes| {
+            for &raw in lanes {
+                let decoded = ref_b.wrapping_add(&raw.as_());
+                if let Some(p) = prev {
+                    let ok = if strict { decoded > p } else { decoded >= p };
+                    if !ok {
+                        return false;
+                    }
                 }
-                if pos >= chunk_lo {
-                    scratch[offset + pos - chunk_start_padded] = p_val[patch_cursor].as_();
-                }
-                patch_cursor += 1;
+                prev = Some(decoded);
             }
-        }
-
-        for &raw in &scratch[lane_start..lane_end] {
-            let decoded = ref_b.wrapping_add(&raw.as_());
-            if let Some(p) = prev {
-                let ok = if strict { decoded > p } else { decoded >= p };
-                if !ok {
-                    return false;
-                }
-            }
-            prev = Some(decoded);
-        }
-    }
-
-    true
+            true
+        },
+        ctx,
+    )
 }
 
 fn is_sorted_blocked_primitive<T>(

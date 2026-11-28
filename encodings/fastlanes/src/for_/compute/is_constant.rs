@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::Cell;
 use std::iter;
 
 use fastlanes::BitPacking;
@@ -21,11 +22,12 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use super::BlockedChunkAction;
+use super::for_each_decoded_blocked_chunk;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
@@ -137,140 +139,51 @@ where
         + AsPrimitive<T::Physical>,
     T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T> + AsPrimitive<u64>,
 {
-    let len = bp.len();
-    let offset = usize::from(bp.offset());
     let max_packed: u64 = if bit_width >= 64 {
         u64::MAX
     } else {
         (1u64 << bit_width) - 1
     };
+    let expected = Cell::new(None::<T>);
 
-    let patch_data = if let Some(patches) = bp.patches() {
-        let p_idx = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let p_val = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        Some((p_idx, p_val, patches.offset()))
-    } else {
-        None
-    };
-
-    if let Some((p_idx, p_val, p_off)) = patch_data {
-        match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
-            Ok(is_constant_blocked_bitpacked_inner::<T, I>(
-                bp.packed_slice::<T::Physical>(),
-                bit_width,
-                max_packed,
-                offset,
-                len,
-                refs,
-                Some((p_idx.as_slice::<I>(), p_val.as_slice::<T>(), p_off)),
-            ))
-        })
-    } else {
-        Ok(is_constant_blocked_bitpacked_inner::<T, u64>(
-            bp.packed_slice::<T::Physical>(),
-            bit_width,
-            max_packed,
-            offset,
-            len,
-            refs,
-            None,
-        ))
-    }
-}
-
-fn is_constant_blocked_bitpacked_inner<T, I>(
-    packed: &[T::Physical],
-    bit_width: usize,
-    max_packed: u64,
-    offset: usize,
-    len: usize,
-    refs: &[T],
-    patches: Option<(&[I], &[T], usize)>,
-) -> bool
-where
-    T: IntegerPType
-        + PhysicalPType
-        + BitPackedIter
-        + PrimInt
-        + WrappingAdd
-        + WrappingSub
-        + AsPrimitive<T::Physical>,
-    T::Physical: BitPacking + NativePType + Zero + AsPrimitive<T> + AsPrimitive<u64>,
-    I: AsPrimitive<usize>,
-{
-    let elems_per_chunk = 128 * bit_width / size_of::<T>();
-    let padded_len = offset + len;
-    let num_chunks = padded_len.div_ceil(FL_CHUNK_SIZE);
-    let mut scratch = [T::Physical::zero(); FL_CHUNK_SIZE];
-    let mut patch_cursor = 0usize;
-    let mut expected: Option<T> = None;
-
-    for chunk in 0..num_chunks {
-        let ref_b = refs[chunk];
-        let chunk_start_padded = chunk * FL_CHUNK_SIZE;
-        let chunk_end_padded = (chunk_start_padded + FL_CHUNK_SIZE).min(padded_len);
-        let chunk_lo = chunk_start_padded.saturating_sub(offset);
-        let chunk_hi = chunk_end_padded - offset;
-        let lane_start = offset + chunk_lo - chunk_start_padded;
-        let lane_end = offset + chunk_hi - chunk_start_padded;
-
-        let chunk_has_patches = patches.is_some_and(|(p_idx, _, p_off)| {
-            patch_cursor < p_idx.len()
-                && p_idx[patch_cursor]
-                    .as_()
-                    .checked_sub(p_off)
-                    .is_some_and(|pos| pos < chunk_hi)
-        });
-
-        if !chunk_has_patches && let Some(target) = expected {
-            let needed: u64 =
-                <T::Physical as AsPrimitive<u64>>::as_(target.wrapping_sub(&ref_b).as_());
-            if needed > max_packed {
-                return false;
-            }
-            if bit_width == 0 {
-                // Every packed value in this unpatched chunk is 0, so it decodes to `ref_b`.
-                if ref_b != target {
-                    return false;
+    for_each_decoded_blocked_chunk(
+        bp,
+        bit_width,
+        refs,
+        0,
+        |ref_b, chunk_has_patches| {
+            if !chunk_has_patches && let Some(target) = expected.get() {
+                let needed: u64 =
+                    <T::Physical as AsPrimitive<u64>>::as_(target.wrapping_sub(&ref_b).as_());
+                if needed > max_packed {
+                    return BlockedChunkAction::StopFalse;
                 }
-                continue;
-            }
-        }
-
-        if bit_width == 0 {
-            scratch[lane_start..lane_end].fill(T::Physical::zero());
-        } else {
-            let packed_chunk = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
-            // SAFETY: `packed_chunk` holds one chunk at `bit_width` and `scratch` holds one chunk.
-            unsafe { T::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch) };
-        }
-
-        if let Some((p_idx, p_val, p_off)) = patches {
-            while patch_cursor < p_idx.len() {
-                let Some(pos) = p_idx[patch_cursor].as_().checked_sub(p_off) else {
-                    patch_cursor += 1;
-                    continue;
-                };
-                if pos >= chunk_hi {
-                    break;
+                if bit_width == 0 {
+                    // Every packed value in this unpatched chunk is 0, so it decodes to `ref_b`.
+                    return if ref_b != target {
+                        BlockedChunkAction::StopFalse
+                    } else {
+                        BlockedChunkAction::Skip
+                    };
                 }
-                if pos >= chunk_lo {
-                    scratch[offset + pos - chunk_start_padded] = p_val[patch_cursor].as_();
+            }
+            BlockedChunkAction::Unpack
+        },
+        |ref_b, lanes| {
+            let target = match expected.get() {
+                Some(t) => t,
+                None => {
+                    let t = ref_b.wrapping_add(&lanes[0].as_());
+                    expected.set(Some(t));
+                    t
                 }
-                patch_cursor += 1;
-            }
-        }
-
-        let target =
-            *expected.get_or_insert_with(|| ref_b.wrapping_add(&scratch[lane_start].as_()));
-        for &raw in &scratch[lane_start..lane_end] {
-            if ref_b.wrapping_add(&raw.as_()) != target {
-                return false;
-            }
-        }
-    }
-
-    true
+            };
+            lanes
+                .iter()
+                .all(|&raw| ref_b.wrapping_add(&raw.as_()) == target)
+        },
+        ctx,
+    )
 }
 
 fn is_constant_blocked_primitive<T>(encoded: &[T], offset: usize, refs: &[T]) -> bool

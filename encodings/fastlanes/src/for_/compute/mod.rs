@@ -12,6 +12,7 @@ use std::mem::MaybeUninit;
 use fastlanes::BitPacking;
 use num_traits::AsPrimitive;
 use num_traits::WrappingAdd;
+use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -631,6 +632,163 @@ where
     // SAFETY: every slot in `0..len` was initialized above.
     unsafe { out.set_len(len) };
     out.freeze()
+}
+
+/// Decision returned before unpacking a chunk in [`for_each_decoded_blocked_chunk`].
+pub(super) enum BlockedChunkAction {
+    /// Unpack the chunk, apply its patches, and pass the active lanes to `visit`.
+    Unpack,
+    /// Skip unpacking this chunk and advance to the next chunk.
+    Skip,
+    /// Stop walking and return `false`.
+    StopFalse,
+}
+
+/// Walks each 1,024-row chunk of a blocked-FoR `BitPacked` child from `start_row`, unpacking and
+/// applying in-chunk patches into a scratch buffer before passing the chunk's reference and active
+/// lanes to `visit`. Returns `false` as soon as `before_unpack` returns [`BlockedChunkAction::StopFalse`]
+/// or `visit` returns `false`, and `true` if all chunks succeed.
+pub(super) fn for_each_decoded_blocked_chunk<T, B, V>(
+    bp: ArrayView<'_, BitPacked>,
+    bit_width: usize,
+    refs: &[T],
+    start_row: usize,
+    before_unpack: B,
+    visit: V,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool>
+where
+    T: IntegerPType + PhysicalPType + AsPrimitive<T::Physical>,
+    T::Physical: BitPacking + NativePType + Zero,
+    B: FnMut(T, bool) -> BlockedChunkAction,
+    V: FnMut(T, &[T::Physical]) -> bool,
+{
+    let len = bp.len();
+    let offset = usize::from(bp.offset());
+
+    let patch_data = if let Some(patches) = bp.patches() {
+        let p_idx = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let p_val = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+        Some((p_idx, p_val, patches.offset()))
+    } else {
+        None
+    };
+
+    if let Some((p_idx, p_val, p_off)) = patch_data {
+        match_each_unsigned_integer_ptype!(p_idx.ptype(), |I| {
+            Ok(for_each_decoded_blocked_chunk_inner::<T, I, _, _>(
+                bp.packed_slice::<T::Physical>(),
+                bit_width,
+                offset,
+                len,
+                start_row,
+                refs,
+                Some((p_idx.as_slice::<I>(), p_val.as_slice::<T>(), p_off)),
+                before_unpack,
+                visit,
+            ))
+        })
+    } else {
+        Ok(for_each_decoded_blocked_chunk_inner::<T, u64, _, _>(
+            bp.packed_slice::<T::Physical>(),
+            bit_width,
+            offset,
+            len,
+            start_row,
+            refs,
+            None,
+            before_unpack,
+            visit,
+        ))
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "typed blocked chunk walker parameters"
+)]
+fn for_each_decoded_blocked_chunk_inner<T, I, B, V>(
+    packed: &[T::Physical],
+    bit_width: usize,
+    offset: usize,
+    len: usize,
+    start_row: usize,
+    refs: &[T],
+    patches: Option<(&[I], &[T], usize)>,
+    mut before_unpack: B,
+    mut visit: V,
+) -> bool
+where
+    T: IntegerPType + PhysicalPType + AsPrimitive<T::Physical>,
+    T::Physical: BitPacking + NativePType + Zero,
+    I: AsPrimitive<usize>,
+    B: FnMut(T, bool) -> BlockedChunkAction,
+    V: FnMut(T, &[T::Physical]) -> bool,
+{
+    let elems_per_chunk = 128 * bit_width / size_of::<T>();
+    let padded_len = offset + len;
+    let num_chunks = padded_len.div_ceil(FL_CHUNK_SIZE);
+    let start_chunk = (offset + start_row) / FL_CHUNK_SIZE;
+    let mut scratch = [T::Physical::zero(); FL_CHUNK_SIZE];
+    let mut patch_cursor = patches
+        .map(|(p_idx, _, p_off)| {
+            p_idx.partition_point(|&idx| idx.as_().saturating_sub(p_off) < start_row)
+        })
+        .unwrap_or(0);
+
+    for chunk in start_chunk..num_chunks {
+        let ref_b = refs[chunk];
+        let chunk_start_padded = chunk * FL_CHUNK_SIZE;
+        let chunk_end_padded = (chunk_start_padded + FL_CHUNK_SIZE).min(padded_len);
+        let chunk_lo = chunk_start_padded.saturating_sub(offset).max(start_row);
+        let chunk_hi = chunk_end_padded - offset;
+        let lane_start = offset + chunk_lo - chunk_start_padded;
+        let lane_end = offset + chunk_hi - chunk_start_padded;
+
+        let chunk_has_patches = patches.is_some_and(|(p_idx, _, p_off)| {
+            patch_cursor < p_idx.len()
+                && p_idx[patch_cursor]
+                    .as_()
+                    .checked_sub(p_off)
+                    .is_some_and(|pos| pos < chunk_hi)
+        });
+
+        match before_unpack(ref_b, chunk_has_patches) {
+            BlockedChunkAction::Unpack => {}
+            BlockedChunkAction::Skip => continue,
+            BlockedChunkAction::StopFalse => return false,
+        }
+
+        if bit_width == 0 {
+            scratch[lane_start..lane_end].fill(T::Physical::zero());
+        } else {
+            let packed_chunk = &packed[chunk * elems_per_chunk..][..elems_per_chunk];
+            // SAFETY: `packed_chunk` holds one chunk at `bit_width` and `scratch` holds one chunk.
+            unsafe { T::Physical::unchecked_unpack(bit_width, packed_chunk, &mut scratch) };
+        }
+
+        if let Some((p_idx, p_val, p_off)) = patches {
+            while patch_cursor < p_idx.len() {
+                let Some(pos) = p_idx[patch_cursor].as_().checked_sub(p_off) else {
+                    patch_cursor += 1;
+                    continue;
+                };
+                if pos >= chunk_hi {
+                    break;
+                }
+                if pos >= chunk_lo {
+                    scratch[offset + pos - chunk_start_padded] = p_val[patch_cursor].as_();
+                }
+                patch_cursor += 1;
+            }
+        }
+
+        if !visit(ref_b, &scratch[lane_start..lane_end]) {
+            return false;
+        }
+    }
+
+    true
 }
 
 #[cfg(test)]
