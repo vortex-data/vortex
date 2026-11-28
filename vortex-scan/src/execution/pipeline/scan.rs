@@ -18,6 +18,7 @@ use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -31,6 +32,7 @@ use super::port::Slab;
 use super::port::SourceEnd;
 use super::values::ValueCache;
 use crate::execution::operator::Cx;
+use crate::execution::operator::Deferred;
 use crate::execution::operator::InletSet;
 use crate::execution::operator::Input;
 use crate::execution::operator::Operator;
@@ -134,13 +136,15 @@ enum Progress {
     Done,
 }
 
-/// Runs `pipe` until it blocks or finishes, collecting any reads its source requests.
+/// Runs `pipe` until it blocks or finishes, collecting any reads and compiles its source
+/// requests.
 fn drive(
     pipe: &mut Pipeline,
     arena: &mut Arena,
     session: &VortexSession,
     exec: &mut ExecutionCtx,
     reads: &mut SmallVec<[SegmentId; 1]>,
+    compiles: &mut Vec<Deferred>,
 ) -> VortexResult<Progress> {
     let Pipeline {
         source,
@@ -160,12 +164,19 @@ fn drive(
         inlets,
         bytes,
         reads,
+        compiles,
         session,
         exec,
         touched,
         changed,
     };
     loop {
+        // A source's readiness check that compiles returns at once, so a compile queued by
+        // now came from a compute call, whose inlets the new ones cannot join mid-run.
+        vortex_ensure!(
+            cx.compiles.is_empty(),
+            "Only Source::ready may compile plans, not a compute call"
+        );
         // Closing needs no room, so a pipeline with nothing left to flush closes at once.
         if *finishing == Some(stages.len()) && continuing.is_empty() {
             for &outlet in outlets.iter() {
@@ -193,6 +204,10 @@ fn drive(
             vortex_ensure!(
                 cx.reads.is_empty() || ready == SourceReady::Blocked(SourceBlocked::Io),
                 "A source that queues reads must block on IO"
+            );
+            vortex_ensure!(
+                cx.compiles.is_empty() || matches!(ready, SourceReady::Blocked(_)),
+                "A source that compiles plans must block"
             );
             match ready {
                 SourceReady::Ready => {}
@@ -253,7 +268,7 @@ fn push_batch(
     Ok(())
 }
 
-/// Writes `batch` into every outlet: one for a plain pipeline, one per claimant for a share.
+/// Writes `batch` into every outlet.
 fn push_out(batch: ArrayRef, outlets: &[PortId], arena: &mut Arena) {
     if let Some((&last, rest)) = outlets.split_last() {
         for &outlet in rest {
@@ -263,8 +278,8 @@ fn push_out(batch: ArrayRef, outlets: &[PortId], arena: &mut Arena) {
     }
 }
 
-/// Everything a scan's pipelines share: the ports, the pipeline table, the scheduler, the reads
-/// in flight, and the shares.
+/// Everything a scan's pipelines share: the ports, the pipeline table, the scheduler, and the
+/// reads in flight.
 pub(crate) struct Core {
     pub(crate) session: VortexSession,
     pub(crate) exec: ExecutionCtx,
@@ -285,8 +300,11 @@ pub(crate) struct Core {
     /// queued once.
     dirty: Vec<usize>,
     dirty_flags: Vec<bool>,
-    /// The segment of every scan source compiled so far, in compile order.
+    /// The segment of every scan source compiled so far, in compile order, including those of
+    /// compiles sources asked for at run time.
     pub(crate) segments: Vec<SegmentId>,
+    /// Compiles sources asked for at run time with [`Cx::compile`].
+    deferred: u64,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
 }
@@ -307,6 +325,7 @@ impl Core {
             dirty: Vec::new(),
             dirty_flags: Vec::new(),
             segments: Vec::new(),
+            deferred: 0,
             values: ValueCache::default(),
         }
     }
@@ -398,19 +417,29 @@ impl Core {
             .as_mut()
             .ok_or_else(|| vortex_err!("Pipeline {id} is not live"))?;
         pipe.queued = false;
+        #[cfg(debug_assertions)]
+        let attached = pipe.inlets.len();
         let mut reads = SmallVec::new();
+        let mut compiles = Vec::new();
         let progress = drive(
             pipe,
             &mut self.arena,
             &self.session,
             &mut self.exec,
             &mut reads,
+            &mut compiles,
         )?;
         for segment_id in reads {
             self.ask(id, segment_id);
         }
+        // Only a blocked source compiles, so the pipeline is still live to attach to. Nothing
+        // will push into an inlet attached already closed, so its source is woken to see it end.
+        let mut attached_closed = false;
+        for deferred in compiles {
+            attached_closed |= self.attach(id, deferred)?;
+        }
         #[cfg(debug_assertions)]
-        self.validate_progress(id, &progress);
+        self.validate_progress(id, &progress, attached);
         match &progress {
             // A read-ahead source can still have delivered bytes to consume.
             Progress::Blocked(SourceBlocked::Io) if !self.pipeline(id).bytes.is_empty() => {
@@ -422,11 +451,64 @@ impl Core {
             Progress::Outlet => self.pipeline_mut(id).state = State::Outlet,
             Progress::Done => {}
         }
+        if attached_closed {
+            self.make_runnable(id);
+        }
         self.wake_neighbours(id);
         if matches!(progress, Progress::Done) {
             self.retire(id);
         }
         Ok(())
+    }
+
+    /// Compiles what pipeline `id`'s source asked for into a pipeline writing a new inlet of
+    /// that source. Returns whether the inlet is closed already, as when the compile selects no
+    /// row.
+    fn attach(&mut self, id: PipelineId, deferred: Deferred) -> VortexResult<bool> {
+        let Deferred {
+            plan,
+            rows,
+            mask,
+            capacity,
+        } = deferred;
+        vortex_ensure!(
+            rows.start <= rows.end && rows.end <= plan.row_count(),
+            "Deferred compile of rows {rows:?} does not fit a plan of {} rows",
+            plan.row_count()
+        );
+        vortex_ensure_eq!(mask.len() as u64, rows.end - rows.start);
+        let segments = self.segments.len();
+        let chain = self.compile(&plan, rows.clone(), &mask)?;
+        self.deferred += 1;
+        tracing::debug!(
+            plan = %plan.id(),
+            ?rows,
+            selected = mask.true_count(),
+            segments = self.segments.len() - segments,
+            "compiled a plan for a running source",
+        );
+        let index = self.pipeline(id).inlets.len();
+        let port = self
+            .arena
+            .create(capacity, None, SourceEnd::Pipeline { id, inlet: index });
+        let closed = match chain {
+            Some(chain) => {
+                self.add_pipeline(chain, smallvec::smallvec![port]);
+                false
+            }
+            None => {
+                self.arena.close(port);
+                true
+            }
+        };
+        let pipe = self.pipeline_mut(id);
+        pipe.inlets.push(port);
+        pipe.touched.grow(index + 1);
+        pipe.changed.grow(index + 1);
+        pipe.changed.insert(index);
+        #[cfg(debug_assertions)]
+        self.validate();
+        Ok(closed)
     }
 
     /// Issues a read of `segment_id`, which pipeline `id`'s source asked for.
@@ -619,8 +701,7 @@ impl fmt::Debug for Scan {
 impl Scan {
     /// A scan of `plan` over `splits`, with one split active at a time.
     ///
-    /// Counts, from the plan, how often each split will read each segment, so segments read
-    /// more than once are decoded once. Builds no pipeline and issues no read.
+    /// Builds no pipeline and issues no read.
     pub fn try_new(
         session: VortexSession,
         plan: PlanRef,
@@ -653,7 +734,9 @@ impl Scan {
     }
 
     /// The segments compiling `plan` over `rows` under `mask` reads, each once, in id order.
-    /// Compiling does no IO, so the segments a stage will read are known before it starts.
+    /// Compiling does no IO, so the segments a stage will read are known before it starts,
+    /// except those of the compiles its sources ask for at run time with [`Cx::compile`],
+    /// which depend on data this never reads.
     pub fn segments(
         session: &VortexSession,
         plan: &PlanRef,
@@ -791,6 +874,12 @@ impl Scan {
         self.active[slot] = None;
         self.live -= 1;
         Ok(())
+    }
+
+    /// Compiles sources asked for at run time.
+    #[cfg(test)]
+    pub(crate) fn deferred(&self) -> u64 {
+        self.core.deferred
     }
 
     /// Ports in use.
