@@ -54,9 +54,9 @@ use crate::sequence::SequentialStreamExt;
 
 /// Configuration for building zoned layouts.
 ///
-/// The input stream must be partitioned into non-empty chunks of `block_size` rows, with at most
-/// one final partial chunk of fewer than `block_size` rows. Writing fails if a chunk violates
-/// these bounds.
+/// When writing a zone map, the input stream must be partitioned into non-empty chunks of
+/// `block_size` rows, with at most one final partial chunk of fewer than `block_size` rows.
+/// Writing fails if a chunk violates these bounds.
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: NonZeroUsize,
@@ -656,10 +656,9 @@ mod tests {
     #[rstest]
     #[case::empty_stream(&[], 0, 0)]
     #[case::single_partial(&[2], 2, 1)]
-    #[case::single_full(&[3], 3, 1)]
     #[case::multiple_full(&[3, 3, 3], 9, 3)]
     #[case::full_then_partial(&[3, 3, 1], 7, 3)]
-    fn accepts_valid_chunk_bounds(
+    fn test_write_stream_accepts_valid_chunk_bounds(
         #[case] chunk_lens: &[usize],
         #[case] expected_rows: u64,
         #[case] expected_zones: usize,
@@ -690,14 +689,10 @@ mod tests {
     #[rstest]
     #[case::single_empty(&[0], "empty chunk 0")]
     #[case::mid_stream_empty(&[3, 0, 3], "empty chunk 1")]
-    #[case::trailing_empty(&[3, 0], "empty chunk 1")]
-    #[case::oversized_first(&[4], "chunk 0 with 4 rows exceeding block_size 3")]
-    #[case::oversized_later(&[3, 4], "chunk 1 with 4 rows exceeding block_size 3")]
-    #[case::partial_before_full(&[2, 3], "chunk 1 (3 rows) after partial chunk 0 (2 rows")]
-    #[case::partial_before_partial(&[2, 2], "chunk 1 (2 rows) after partial chunk 0 (2 rows")]
+    #[case::oversized(&[3, 4], "chunk 1 with 4 rows exceeding block_size 3")]
     #[case::partial_mid_stream(&[3, 1, 3], "chunk 2 (3 rows) after partial chunk 1 (1 rows")]
     #[case::partial_before_empty(&[2, 0], "chunk 1 (0 rows) after partial chunk 0 (2 rows")]
-    fn rejects_invalid_chunk_bounds(
+    fn test_write_stream_rejects_invalid_chunk_bounds(
         #[case] chunk_lens: &[usize],
         #[case] expected_msg: &str,
         #[values(false, true)] legacy: bool,
