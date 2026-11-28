@@ -184,15 +184,24 @@ impl CascadingCompressor {
             return true;
         }
 
-        // Push rules: Check if any of our ancestors have excluded us.
+        // Push rules: Check if any of our ancestors have excluded us or restricted descendants
+        // to an allow-list that omits us.
         for (ancestor_id, child_idx) in iter {
-            if let Some(ancestor) = self.schemes.iter().find(|s| s.id() == ancestor_id)
-                && ancestor
+            if let Some(ancestor) = self.schemes.iter().find(|s| s.id() == ancestor_id) {
+                if ancestor
                     .descendant_exclusions()
                     .iter()
                     .any(|rule| rule.excluded == id && rule.children.contains(child_idx))
-            {
-                return true;
+                {
+                    return true;
+                }
+                if ancestor.descendant_allowlists().iter().any(|rule| {
+                    rule.children.contains(child_idx)
+                        && !rule.allowed.is_empty()
+                        && !rule.allowed.contains(&id)
+                }) {
+                    return true;
+                }
             }
         }
 

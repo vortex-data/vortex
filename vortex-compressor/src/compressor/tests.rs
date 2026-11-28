@@ -1900,6 +1900,219 @@ fn returning_a_compressed_child_passes_the_check() -> VortexResult<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct EmptyAllowlistParent;
+
+impl Scheme for EmptyAllowlistParent {
+    fn scheme_name(&self) -> &'static str {
+        "test.empty_allowlist_parent"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches!(canonical, Canonical::Primitive(_))
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn num_children(&self) -> usize {
+        1
+    }
+
+    fn descendant_allowlists(&self) -> Vec<crate::scheme::DescendantAllowlist> {
+        vec![crate::scheme::DescendantAllowlist {
+            allowed: Vec::new(),
+            children: crate::scheme::ChildSelection::One(0),
+        }]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(data.array().clone())
+    }
+}
+
+/// A `DescendantAllowlist` with an empty `allowed` list must impose no restriction.
+#[test]
+fn empty_descendant_allowlist_does_not_exclude_schemes() {
+    let compressor = CascadingCompressor::new(vec![&EmptyAllowlistParent, &KEEPING_DICT]);
+    let root_ctx = CompressorContext::new();
+    assert!(compressor.is_child_scheme_eligible(
+        KEEPING_DICT.id(),
+        &root_ctx,
+        EmptyAllowlistParent.id(),
+        0,
+    ));
+}
+
+/// Leaf schemes remain eligible at `allowed_cascading == 0` (matching `choose_and_compress`),
+/// while child cascading is still allowed at `allowed_cascading == 1` and blocked at `0`.
+#[test]
+fn test_scheme_eligibility_at_final_cascade_level() {
+    let compressor = CascadingCompressor::new(vec![&EmptyAllowlistParent, &KEEPING_DICT]);
+    let leaf_ctx = CompressorContext::new().as_leaf();
+    assert!(leaf_ctx.finished_cascading());
+    assert!(compressor.is_scheme_eligible(KEEPING_DICT.id(), &leaf_ctx));
+    assert!(!compressor.is_child_scheme_eligible(
+        KEEPING_DICT.id(),
+        &leaf_ctx,
+        EmptyAllowlistParent.id(),
+        0,
+    ));
+
+    // One cascade level remaining (`allowed_cascading == 1`): descending yields `finished_cascading`,
+    // yet the child level can still run leaf schemes.
+    let one_left = (0..crate::scheme::MAX_CASCADE - 1).fold(CompressorContext::new(), |ctx, i| {
+        ctx.descend_with_scheme(ROOT_SCHEME_ID, i)
+    });
+    assert!(!one_left.finished_cascading());
+    assert!(
+        one_left
+            .clone()
+            .descend_with_scheme(EmptyAllowlistParent.id(), 0)
+            .finished_cascading()
+    );
+    assert!(compressor.is_child_scheme_eligible(
+        KEEPING_DICT.id(),
+        &one_left,
+        EmptyAllowlistParent.id(),
+        0,
+    ));
+}
+
+/// When no scheme is eligible in a child context, `compress_child` returns a non-canonical child
+/// as-is without canonicalizing it, while canonical children still run through `compress_canonical`.
+#[test]
+fn non_canonical_child_skipped_when_no_scheme_eligible() -> VortexResult<()> {
+    #[derive(Debug)]
+    struct AbsentAllowedScheme;
+
+    impl Scheme for AbsentAllowedScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.absent_allowed"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(_))
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
+        }
+    }
+
+    #[derive(Debug)]
+    struct RestrictedAllowlistParent;
+
+    impl Scheme for RestrictedAllowlistParent {
+        fn scheme_name(&self) -> &'static str {
+            "test.restricted_allowlist_parent"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(_))
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn num_children(&self) -> usize {
+            1
+        }
+
+        fn descendant_allowlists(&self) -> Vec<crate::scheme::DescendantAllowlist> {
+            vec![crate::scheme::DescendantAllowlist {
+                allowed: vec![AbsentAllowedScheme.id()],
+                children: crate::scheme::ChildSelection::One(0),
+            }]
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
+        }
+    }
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let dict_compressor = CascadingCompressor::new(vec![&KEEPING_DICT]);
+    let dict_child = dict_compressor.compress(&alternating_ints(), &mut ctx)?;
+    assert!(dict_child.is::<Dict>());
+
+    let compressor = CascadingCompressor::new(vec![&RestrictedAllowlistParent, &KEEPING_DICT]);
+    let root_ctx = CompressorContext::new();
+
+    // Non-canonical child is returned unchanged when no registered scheme is eligible.
+    let result = compressor.compress_child(
+        &dict_child,
+        &root_ctx,
+        RestrictedAllowlistParent.id(),
+        0,
+        &mut ctx,
+    )?;
+    assert!(result.is::<Dict>(), "{}", result.encoding_id());
+
+    // Canonical children still go through `compress_canonical` (e.g. constant collapse).
+    let canonical_const = PrimitiveArray::from_iter([7i32; 64]).into_array();
+    let collapsed = compressor.compress_child(
+        &canonical_const,
+        &root_ctx,
+        RestrictedAllowlistParent.id(),
+        0,
+        &mut ctx,
+    )?;
+    assert!(collapsed.is::<Constant>(), "{}", collapsed.encoding_id());
+    Ok(())
+}
+
 /// Hands back its whole input, validity included, as a general-purpose compressor would store
 /// it.
 #[derive(Debug)]

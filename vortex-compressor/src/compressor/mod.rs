@@ -22,6 +22,7 @@ pub(crate) use structural::leaf_validity_slot;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildPolicy;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -120,6 +121,40 @@ impl CascadingCompressor {
     pub fn with_variant_storage_compressor(mut self, compressor: CascadingCompressor) -> Self {
         self.variant_storage = Some(Arc::new(compressor));
         self
+    }
+
+    /// Returns the compression schemes enabled in this compressor.
+    pub fn allowed_schemes(&self) -> &[&'static dyn Scheme] {
+        &self.schemes
+    }
+
+    /// Returns `true` if `scheme_id` is enabled in this compressor and not excluded in `ctx`.
+    ///
+    /// Matches `choose_and_compress`, which still evaluates leaf schemes even when
+    /// `ctx.finished_cascading()` is `true`.
+    pub fn is_scheme_eligible(&self, scheme_id: SchemeId, ctx: &CompressorContext) -> bool {
+        let Some(candidate) = self.schemes.iter().copied().find(|s| s.id() == scheme_id) else {
+            return false;
+        };
+        !self.is_excluded(candidate, ctx)
+    }
+
+    /// Returns `true` if `scheme_id` is enabled in this compressor and eligible when cascading
+    /// `parent_id`'s child `child_index` under `parent_ctx`.
+    pub fn is_child_scheme_eligible(
+        &self,
+        scheme_id: SchemeId,
+        parent_ctx: &CompressorContext,
+        parent_id: SchemeId,
+        child_index: usize,
+    ) -> bool {
+        if parent_ctx.finished_cascading() {
+            return false;
+        }
+        let child_ctx = parent_ctx
+            .clone()
+            .descend_with_scheme(parent_id, child_index);
+        self.is_scheme_eligible(scheme_id, &child_ctx)
     }
 }
 

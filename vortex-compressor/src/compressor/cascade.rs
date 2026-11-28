@@ -124,9 +124,12 @@ impl CascadingCompressor {
     /// [`Scheme::compress`] calls it for its own children.
     ///
     /// If the cascade budget is exhausted, the child is returned as-is, apart from the validity of
-    /// a canonical leaf, which is still compressed. Otherwise, the child context is created by
-    /// descending and recording the parent scheme + child index, and compression proceeds
-    /// normally.
+    /// a canonical leaf, which is still compressed. Likewise, if the child is already non-canonical
+    /// and no registered scheme is eligible in the descended child context (for example, under a
+    /// [`DescendantAllowlist`](crate::scheme::DescendantAllowlist) whose allowed schemes are not
+    /// enabled), it is returned as-is without canonicalizing or compacting it. Otherwise, the child
+    /// context is created by descending and recording the parent scheme + child index, and
+    /// compression proceeds normally.
     ///
     /// # Errors
     ///
@@ -150,12 +153,21 @@ impl CascadingCompressor {
                 .into_array());
         }
 
-        let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
-
         let child_ctx = parent_ctx
             .clone()
             .descend_with_scheme(parent_id, child_index);
+        if !child.is_canonical()
+            && !self
+                .schemes
+                .iter()
+                .any(|s| !self.is_excluded(*s, &child_ctx))
+        {
+            return Ok(child.clone());
+        }
+
+        let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
+        let compact = canonical.compact(exec_ctx)?;
+
         self.compress_canonical(compact, child_ctx, exec_ctx)
     }
 

@@ -7,6 +7,7 @@ mod bitpacking;
 mod delta;
 mod elias_fano;
 mod for_;
+mod pivco;
 mod rle;
 mod runend;
 mod sequence;
@@ -24,6 +25,7 @@ pub(crate) use for_::FOR_V1;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
+pub use pivco::PivcoScheme;
 pub use rle::IntRLEScheme;
 pub(crate) use rle::rle_encode;
 pub use runend::RunEndScheme;

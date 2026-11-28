@@ -18,8 +18,11 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
+use vortex_compressor::scheme::Child;
+use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DescendantAllowlist;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -33,6 +36,8 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Encoded;
 use crate::Scheme;
+use crate::SchemeExt;
+use crate::schemes::integer::PivcoScheme;
 use crate::schemes::patches::KeptPatches;
 
 /// ALPRD (ALP with Real Double) encoding variant.
@@ -54,6 +59,22 @@ impl Scheme for ALPRDScheme {
         vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()]
     }
 
+    /// Children: left_parts=0.
+    fn num_children(&self) -> usize {
+        1
+    }
+
+    /// `left_parts` (child 0) already holds dictionary codes `0..8` bit-packed to `<= 3` bits by
+    /// `RDEncoder`. Allow-list `PivcoScheme` as the only integer scheme on child 0 (constant
+    /// collapse to `ConstantArray` still applies) so other integer schemes never re-encode
+    /// `left_parts`, while `PivcoScheme` can compress skewed exponent codes when enabled.
+    fn descendant_allowlists(&self) -> Vec<DescendantAllowlist> {
+        vec![DescendantAllowlist {
+            allowed: vec![PivcoScheme::default().id()],
+            children: ChildSelection::One(0),
+        }]
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -68,7 +89,9 @@ impl Scheme for ALPRDScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    /// Patches, kept, from 0 on. The left parts store the input's validity, which is registered.
+    /// Child 0 is `left_parts` (compressed only if a scheme allowed by `descendant_allowlists`
+    /// is enabled and beats `RDEncoder`'s `BitPacked` output); patches are kept from child 1 on.
+    /// `left_parts` stores the input's validity, which is registered for the fallback path.
     fn encode(
         &self,
         data: &ArrayAndStats,
@@ -98,10 +121,29 @@ impl Scheme for ALPRDScheme {
         );
         let validity = left_parts.validity()?;
 
+        let has_left_child = left_parts.nbytes() > 0 && left_parts.len() >= PivcoScheme::MIN_LEN;
+        let compress = if has_left_child {
+            vec![Child::new(self, 0, left_parts.clone())]
+        } else {
+            Vec::new()
+        };
+
         // The patches are of the left parts, not of the input, so they stay inside ALP-RD.
-        let (patches, keep) = KeptPatches::interior(self, 0, left_parts_patches, exec_ctx)?;
-        Ok(Encoded::new(Vec::new(), keep, move |children, _| {
-            let left_parts = with_compressed_validity(left_parts, children.validity()?)?;
+        let (patches, keep) = KeptPatches::interior(self, 1, left_parts_patches, exec_ctx)?;
+        Ok(Encoded::new(compress, keep, move |children, _| {
+            let fallback = with_compressed_validity(left_parts, children.validity()?)?;
+            let left_parts = if has_left_child {
+                let [compressed_left] = children.compressed::<1>()?;
+                if compressed_left.nbytes() < fallback.nbytes()
+                    && compressed_left.dtype() == fallback.dtype()
+                {
+                    compressed_left
+                } else {
+                    fallback
+                }
+            } else {
+                fallback
+            };
             patches.build(children, |patches| {
                 Ok(vortex_alp::ALPRD::try_new(
                     dtype,

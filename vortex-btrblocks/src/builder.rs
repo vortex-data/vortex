@@ -12,6 +12,7 @@ use vortex_array::arrays::Masked;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
+use vortex_pivco::pivco_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -78,6 +79,7 @@ impl CompressionMode {
                 excluded.extend([
                     boolean::BoolRunEndScheme.id(),
                     boolean::BoolSparseScheme.id(),
+                    integer::PivcoScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
                     float::FloatRLEScheme.id(),
@@ -118,9 +120,15 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
-            // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
+            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references,
+            // BitPacked arrays with per-block bit widths, and PIVCO arrays have no CUDA decode
+            // kernel yet.
+            Self::Cuda => vec![
+                decimal_byte_parts_v2_id(),
+                for_v2_id(),
+                bitpacked_v2_id(),
+                pivco_id(),
+            ],
         }
     }
 }
@@ -358,6 +366,7 @@ mod tests {
     use vortex_edition::EditionSessionExt;
     use vortex_edition::declarations::core::CORE_2026_08_3;
     use vortex_edition::declarations::preview::PREVIEW_2026_11_0;
+    use vortex_edition::declarations::unstable::UNSTABLE;
     use vortex_error::VortexResult;
     use vortex_fastlanes::bitpacked_v1_id;
     use vortex_fastlanes::bitpacked_v2_id;
@@ -625,6 +634,43 @@ mod tests {
                 preview
             );
         }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::core_only(false)]
+    #[case::with_unstable(true)]
+    fn pivco_follows_unstable_edition_and_is_excluded_from_cuda(
+        #[case] unstable: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        vortex_pivco::initialize(&session);
+        for family in EDITION_FAMILIES {
+            session.editions().declare_family(family)?;
+        }
+        for declaration in EDITION_DECLARATIONS {
+            session.register_edition(declaration)?;
+        }
+        session.enable_edition(CORE_2026_08_3)?;
+        if unstable {
+            session.enable_edition(UNSTABLE)?;
+        }
+
+        let builder = BtrBlocksCompressorBuilder::from_session(&session);
+        let pivco = integer::PivcoScheme::default().id();
+        for preset in [builder.clone(), builder.clone().with_compact()] {
+            assert_eq!(
+                preset.allowed_schemes().iter().any(|s| s.id() == pivco),
+                unstable
+            );
+        }
+        assert!(
+            !builder
+                .only_cuda_compatible()
+                .allowed_schemes()
+                .iter()
+                .any(|s| s.id() == pivco)
+        );
         Ok(())
     }
 

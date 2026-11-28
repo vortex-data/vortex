@@ -77,6 +77,7 @@ use crate::codec::DecodeWorkspace;
 use crate::codec::PivcoBlockOffset;
 use crate::codec::block_header_stride;
 use crate::codec::block_len_for;
+use crate::codec::estimate_compressed_bits;
 use crate::initialize;
 use crate::pow2_bin::MAX_SYMS;
 use crate::simd::MERGE_OVERREAD;
@@ -1386,7 +1387,7 @@ fn nullable_garbage_in_null_slots_matches_canonical(
 }
 
 // ============================================================================
-// Tree Wire Format and Bernoulli rANS Unit Tests
+// Tree Wire Format, Shared Cost Estimator, and Bernoulli rANS Unit Tests
 // ============================================================================
 
 #[test]
@@ -1419,6 +1420,58 @@ fn tree_wire_roundtrip_and_validation() -> VortexResult<()> {
         too_deep.push(sym);
     }
     assert!(PivcoTree::from_bytes(&too_deep).is_err());
+    Ok(())
+}
+
+#[test]
+fn estimate_compressed_bits_tracks_modes_and_validates_inputs() -> VortexResult<()> {
+    let mut skewed = [0u64; MAX_SYMS];
+    skewed[0] = 14_700;
+    skewed[1] = 1_300;
+    skewed[2] = 384;
+    let total = 16_384usize;
+
+    let (bits_ph, _) = estimate_compressed_bits(&skewed, total, 4_096, PivcoOptions::ph())?;
+    let (bits_pha, _) = estimate_compressed_bits(&skewed, total, 4_096, PivcoOptions::pha())?;
+    let (bits_op, is_op) = estimate_compressed_bits(&skewed, total, 4_096, PivcoOptions::op_pha())?;
+    assert!(is_op);
+    assert!(
+        bits_pha < bits_ph,
+        "PHA ({bits_pha}) should estimate fewer bits than PH ({bits_ph}) on 90% skewed stream"
+    );
+    assert!(bits_op > 0);
+
+    // Cross-check estimator against real `Pivco::encode_with_options` payload sizes.
+    let mut ctx = SESSION.create_execution_ctx();
+    let real_prim = make_skewed_u64(total, 7);
+    let mut real_counts = [0u64; MAX_SYMS];
+    for &v in real_prim.as_slice::<u64>() {
+        let (sym, _) = crate::pow2_bin::pow2_sym_and_ebits(v);
+        real_counts[sym] += 1;
+    }
+    for opts in [PivcoOptions::ph(), PivcoOptions::pha()] {
+        let (est_bits, _) = estimate_compressed_bits(&real_counts, total, 4_096, opts)?;
+        let encoded = Pivco::encode_with_options(&real_prim, opts, &mut ctx)?;
+        let actual_payload_bits = (encoded.tree_payload().len() + encoded.raw_bits().len()) * 8;
+        let diff = est_bits.abs_diff(actual_payload_bits);
+        assert!(
+            diff * 100 <= actual_payload_bits * 15,
+            "estimate ({est_bits} bits) diverged from actual payload ({actual_payload_bits} bits) for {opts:?}"
+        );
+    }
+
+    // Null-fill: counts summing to < total_valid fills into best exact symbol `0..32`
+    let (bits_with_nulls, _) =
+        estimate_compressed_bits(&skewed, total + 1_000, 4_096, PivcoOptions::pha())?;
+    assert!(bits_with_nulls >= bits_pha);
+
+    // Empty input and invalid arguments
+    assert_eq!(
+        estimate_compressed_bits(&[0u64; MAX_SYMS], 0, 4_096, PivcoOptions::pha())?,
+        (0, true)
+    );
+    assert!(estimate_compressed_bits(&skewed, total, 0, PivcoOptions::pha()).is_err());
+    assert!(estimate_compressed_bits(&skewed, total - 1, 4_096, PivcoOptions::pha()).is_err());
     Ok(())
 }
 
