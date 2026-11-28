@@ -45,6 +45,9 @@ pub(crate) fn sample_valid_values<T: Copy>(
     let bit_buffer = mask.bit_buffer();
     let true_count = mask.true_count();
     let target = true_count.min(max_sample);
+    if target == 0 {
+        return Vec::new();
+    }
     let mut sample = Vec::with_capacity(target);
 
     if true_count <= max_sample {
@@ -54,34 +57,42 @@ pub(crate) fn sample_valid_values<T: Copy>(
         return sample;
     }
 
-    let len = values.len();
     let num_blocks = (max_sample / block.max(1)).max(1);
-    let quotient = len / num_blocks;
-    let remainder = len % num_blocks;
+    let stride = true_count / num_blocks;
+    let stride_rem = true_count % num_blocks;
+    let base_quota = max_sample / num_blocks;
+    let quota_rem = max_sample % num_blocks;
 
-    for block_idx in 0..num_blocks {
-        let remaining_budget = max_sample - sample.len();
-        if remaining_budget == 0 {
-            break;
-        }
-        let remaining_blocks = num_blocks - block_idx;
-        let quota = remaining_budget.div_ceil(remaining_blocks);
+    let mut block_idx = 0;
+    let mut block_rank_start = 0;
+    let mut rank = 0;
 
-        let start = quotient * block_idx + (remainder * block_idx) / num_blocks;
-        let next_idx = block_idx + 1;
-        let end = quotient * next_idx + (remainder * next_idx) / num_blocks;
+    'slices: for (slice_start, slice_end) in bit_buffer.set_slices() {
+        let slice_rank_start = rank;
+        let slice_rank_end = rank + (slice_end - slice_start);
+        rank = slice_rank_end;
 
-        if start < end {
-            let mut taken = 0;
-            for (run_start, run_end) in bit_buffer.slice(start..end).set_slices() {
-                let take = (run_end - run_start).min(quota - taken);
-                sample.extend_from_slice(&values[start + run_start..start + run_start + take]);
-                taken += take;
-                if taken == quota {
-                    break;
-                }
+        while block_idx < num_blocks {
+            let block_quota = base_quota + usize::from(block_idx < quota_rem);
+            let block_rank_end = block_rank_start + block_quota;
+            if slice_rank_end <= block_rank_start {
+                continue 'slices;
             }
+            if slice_rank_start < block_rank_end {
+                let ov_start = slice_rank_start.max(block_rank_start);
+                let ov_end = slice_rank_end.min(block_rank_end);
+                let offset = ov_start - slice_rank_start;
+                sample.extend_from_slice(
+                    &values[slice_start + offset..slice_start + offset + (ov_end - ov_start)],
+                );
+            }
+            if slice_rank_end < block_rank_end {
+                continue 'slices;
+            }
+            block_rank_start += stride + usize::from(block_idx < stride_rem);
+            block_idx += 1;
         }
+        break;
     }
 
     sample
@@ -123,4 +134,25 @@ pub fn initialize(session: &VortexSession) {
         Some(NanCount.id()),
         &compute::nan_count::ALPNanCountKernel,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_mask::Mask;
+
+    use crate::sample_valid_values;
+
+    #[test]
+    fn sample_valid_values_fills_budget_when_valid_rows_are_clustered() {
+        let values: Vec<usize> = (0..1000).collect();
+        let mask = Mask::from_iter((0..1000).map(|idx| idx < 200));
+        let Mask::Values(mask_values) = mask else {
+            panic!("expected Mask::Values");
+        };
+
+        let sample = sample_valid_values(&values, &mask_values, 64, 8);
+        assert_eq!(sample.len(), 64);
+        assert!(sample.iter().all(|&v| v < 200));
+        assert!(sample.last().copied().unwrap_or_default() >= 175);
+    }
 }
