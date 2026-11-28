@@ -8,6 +8,9 @@ dependencies = ["jinja2>=3.1"]
 [project.optional-dependencies]
 dev = ["ruff>=0.4"]
 
+[tool.setuptools]
+packages = ["fuzz_report"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

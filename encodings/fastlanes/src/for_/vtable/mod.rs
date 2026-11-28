@@ -18,10 +18,12 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::block::BlockOp;
+use vortex_array::block::BlockSource;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::require_child;
 use vortex_array::require_opt_child;
+use vortex_array::require_spine;
 use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
@@ -37,6 +39,8 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FoRData;
 use crate::FoRReferences;
+use crate::block::for_block_op;
+use crate::block::for_block_source;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 use crate::for_::array::FoRSlots;
@@ -142,9 +146,30 @@ impl VTable for FoR {
         let array = if fused {
             array
         } else {
-            require_child!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
+            require_spine!(array, array.encoded(), FoRSlots::ENCODED => Primitive)
         };
         Ok(ExecutionResult::done(decompress(array, ctx)?.into_array()))
+    }
+
+    /// FoR over BitPacked is a leaf, so it unpacks and adds its reference in one pass instead of
+    /// BitPacked's unpack followed by FoR's op.
+    fn block_source(
+        array: ArrayView<'_, Self>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        for_block_source(array, ctx)
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        _child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        if slot_idx != FoRSlots::ENCODED {
+            return Ok(None);
+        }
+        for_block_op(array)
     }
 }
 
@@ -199,6 +224,15 @@ impl FoR {
     /// Encode a primitive array using Frame of Reference encoding.
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         FoRData::encode(array, ctx)
+    }
+
+    /// Encode a primitive array using Frame of Reference encoding with an explicit reference.
+    pub fn encode_with_reference(
+        array: PrimitiveArray,
+        reference: Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<FoRArray> {
+        FoRData::encode_with_reference(array, reference, ctx)
     }
 
     /// Encode a primitive array with one Frame of Reference per 1024-element chunk.

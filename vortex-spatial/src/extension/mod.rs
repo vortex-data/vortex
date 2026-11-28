@@ -58,7 +58,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
@@ -196,18 +195,6 @@ pub(crate) fn geometries(
     } else {
         vortex_bail!("spatial: unsupported geometry extension {}", array.dtype())
     }
-}
-
-/// Decode a constant operand scalar to one geometry, a constant of any
-/// supported geometry type is decoded exactly like a column.
-pub(crate) fn single_geometry(
-    scalar: &Scalar,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Geometry<f64>> {
-    let array = ConstantArray::new(scalar.clone(), 1).into_array();
-    geometries(&array, ctx)?
-        .pop()
-        .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
 }
 
 /// Decode a WKB geometry literal (DuckDB's wire form for `GEOMETRY` constants) to its native

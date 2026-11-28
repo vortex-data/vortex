@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::Bounded;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
@@ -18,12 +15,10 @@ use vortex_error::VortexResult;
 
 use crate::ALP;
 use crate::ALPArrayExt;
-use crate::ALPArraySlotsExt;
 use crate::ALPFloat;
 use crate::alp::compute::predicate::apply_patch_predicate;
-use crate::alp::compute::predicate::constant_predicate;
-use crate::alp::compute::predicate::encode_strictly_above;
-use crate::alp::compute::predicate::encode_strictly_below;
+use crate::alp::compute::predicate::encoded_bound;
+use crate::alp::compute::predicate::encoded_range;
 use crate::match_each_alp_float_ptype;
 
 impl CompareKernel for ALP {
@@ -55,10 +50,8 @@ impl CompareKernel for ALP {
 
 /// Compares an ALP array to a constant without decoding it.
 ///
-/// A constant that round-trips through the exponents compares directly against the encoded
-/// integers. Otherwise it falls strictly between two encodable values, so an ordering compares
-/// against the nearest encodable neighbour and an equality has a constant answer. Patched rows
-/// hold floats that ALP could not encode and are re-evaluated exactly.
+/// The integer bounds follow the decoded floats in total order. Equality can cover several
+/// adjacent integers when rounding maps them to the same float. Patched rows compare directly.
 fn alp_scalar_compare<F>(
     alp: ArrayView<'_, ALP>,
     value: F,
@@ -71,39 +64,22 @@ where
     F::ALPInt: NativePType + Into<PValue>,
 {
     let exponents = alp.exponents();
-    let is_finite = !NativePType::is_infinite(value) && !NativePType::is_nan(value);
-
-    let encoded = match F::encode_single(value, exponents) {
-        Some(encoded) => compare_encoded(alp, encoded, operator, nullability)?,
-        None => match operator {
-            CompareOperator::Eq => constant_predicate(alp, false, nullability)?,
-            CompareOperator::NotEq => constant_predicate(alp, true, nullability)?,
-            CompareOperator::Gt | CompareOperator::Gte => {
-                if is_finite {
-                    compare_encoded(
-                        alp,
-                        encode_strictly_above(value, exponents),
-                        CompareOperator::Gte,
-                        nullability,
-                    )?
-                } else {
-                    constant_predicate(alp, value.is_sign_negative(), nullability)?
-                }
-            }
-            CompareOperator::Lt | CompareOperator::Lte => {
-                if is_finite {
-                    compare_encoded(
-                        alp,
-                        encode_strictly_below(value, exponents),
-                        CompareOperator::Lte,
-                        nullability,
-                    )?
-                } else {
-                    constant_predicate(alp, value.is_sign_positive(), nullability)?
-                }
-            }
-        },
+    let bound = |strict| encoded_bound(value, exponents, strict);
+    let min = Some(F::ALPInt::min_value());
+    let (start, end) = match operator {
+        CompareOperator::Lt => (min, bound(false)),
+        CompareOperator::Lte => (min, bound(true)),
+        CompareOperator::Gte => (bound(false), None),
+        CompareOperator::Gt => (bound(true), None),
+        CompareOperator::Eq | CompareOperator::NotEq => (bound(false), bound(true)),
     };
+    let encoded = encoded_range(
+        alp,
+        start,
+        end,
+        operator == CompareOperator::NotEq,
+        nullability,
+    )?;
 
     let Some(patches) = alp.patches() else {
         return Ok(encoded);
@@ -112,20 +88,9 @@ where
     apply_patch_predicate(encoded, &patches, |patch| predicate(patch, value), ctx)
 }
 
-fn compare_encoded<I: NativePType + Into<PValue>>(
-    alp: ArrayView<'_, ALP>,
-    encoded: I,
-    operator: CompareOperator,
-    nullability: Nullability,
-) -> VortexResult<ArrayRef> {
-    alp.encoded().compare(
-        ConstantArray::new(Scalar::primitive(encoded, nullability), alp.len()).into_array(),
-        operator,
-    )
-}
-
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
     use std::f32::consts::E;
     use std::f32::consts::PI;
     use std::sync::LazyLock;
@@ -143,13 +108,18 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::*;
     use crate::ALPArray;
+    use crate::ALPArraySlotsExt;
+    use crate::Exponents;
     use crate::alp_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -179,6 +149,8 @@ mod tests {
     ];
 
     /// Asserts the kernel engages for `encoded` and matches the comparison over `values`.
+    ///
+    /// The kernel compares in total order, so the comparison over `values` uses that order too.
     fn assert_matches_primitive(
         encoded: &ALPArray,
         values: &PrimitiveArray,
@@ -190,7 +162,46 @@ mod tests {
             let actual =
                 <ALP as CompareKernel>::compare(encoded.as_view(), &rhs, operator, &mut ctx)?
                     .unwrap_or_else(|| panic!("ALP compare kernel must engage for {operator:?}"));
-            let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
+            let expected = Compare::try_new_with_mode(
+                values.clone().into_array(),
+                rhs.clone(),
+                operator,
+                CompareMode::TOTAL_ORDER,
+            )?
+            .into_array();
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// A comparison in which the zeros are equal must give the same result for an ALP array as for
+    /// its values, whether the kernel engages or not.
+    #[rstest]
+    #[case::positive_zero(0.0f32)]
+    #[case::negative_zero(-0.0f32)]
+    fn zeros_equal_compare_with_zero_matches_primitive(#[case] constant: f32) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter([0.0f32, -0.0, 1.5, -1.5, 1.234, f32::NAN, -2.5]);
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
+        let rhs = ConstantArray::new(constant, array.len()).into_array();
+
+        let mode = CompareMode::new(FloatOrder::ZerosEqual);
+
+        for operator in ALL_OPERATORS {
+            let actual = Compare::try_new_with_mode(
+                encoded.clone().into_array(),
+                rhs.clone(),
+                operator,
+                mode,
+            )?
+            .into_array();
+            let expected = Compare::try_new_with_mode(
+                array.clone().into_array(),
+                rhs.clone(),
+                operator,
+                mode,
+            )?
+            .into_array();
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
@@ -238,6 +249,35 @@ mod tests {
         let r_neq = test_alp_compare(encoded.as_view(), 1.234444f32, CompareOperator::NotEq);
         let expected = BoolArray::from_iter([true; 1025]);
         assert_arrays_eq!(r_neq, expected, &mut ctx);
+    }
+
+    #[rstest]
+    #[case::invoice(Exponents { e: 6, f: 4 }, [198_611, 198_612, 198_613], 1986.12, Ordering::Less)]
+    #[case::saturation(Exponents { e: 0, f: 0 }, [i32::MIN, 0, i32::MAX], 1e10, Ordering::Greater)]
+    #[case::forward_rounding(Exponents { e: 0, f: 0 }, [4_194_304, 4_194_305, 4_194_306], 4_194_305.0, Ordering::Equal)]
+    #[case::shared_float(Exponents { e: 0, f: 0 }, [1 << 24, (1 << 24) + 1, (1 << 24) + 2], (1 << 24) as f32, Ordering::Equal)]
+    fn compare_encoded_boundaries(
+        #[case] exponents: Exponents,
+        #[case] ints: [i32; 3],
+        #[case] cutoff: f32,
+        #[case] order: Ordering,
+    ) -> VortexResult<()> {
+        let array = ALP::try_new(
+            PrimitiveArray::from_iter(ints).into_array(),
+            exponents,
+            None,
+        )?;
+        let expected = BoolArray::from_iter(
+            ints.map(|i| f32::decode_single(i, exponents).total_cmp(&cutoff) == order),
+        );
+        let op = match order {
+            Ordering::Less => CompareOperator::Lt,
+            Ordering::Equal => CompareOperator::Eq,
+            Ordering::Greater => CompareOperator::Gt,
+        };
+        let result = test_alp_compare(array.as_view(), cutoff, op);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]

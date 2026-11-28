@@ -116,6 +116,7 @@ impl LayoutStrategy for ConstantStrategy {
 
             match run.as_mut() {
                 None => {
+                    ctx.size_scope().record_constant(chunk.nbytes());
                     run = Some(ConstantRun {
                         sequence_id,
                         scalar,
@@ -123,6 +124,7 @@ impl LayoutStrategy for ConstantStrategy {
                     });
                 }
                 Some(current) if current.scalar == scalar => {
+                    ctx.size_scope().record_constant(chunk.nbytes());
                     // Replacing the sequence ID drops the earlier one.
                     current.sequence_id = sequence_id;
                     current.len += chunk.len();
@@ -186,7 +188,8 @@ fn supports_constant_detection(dtype: &DType) -> bool {
         }
         DType::Struct(fields, _) => fields.fields().all(|f| supports_constant_detection(&f)),
         DType::Extension(ext) => supports_constant_detection(ext.storage_dtype()),
-        DType::Union(..) | DType::Variant(_) => false,
+        // TODO(FixedSizeBinary): enable once `is_constant` supports fixed-size binary.
+        DType::FixedSizeBinary(..) | DType::Union(..) | DType::Variant(_) => false,
     }
 }
 

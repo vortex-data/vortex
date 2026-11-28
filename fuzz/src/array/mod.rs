@@ -34,6 +34,9 @@ use arbitrary::Arbitrary;
 use arbitrary::Error::EmptyChoose;
 use arbitrary::Unstructured;
 use itertools::Itertools;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::Xoshiro256PlusPlus;
 use strum::EnumCount;
 use strum::EnumDiscriminants;
 use strum::EnumIter;
@@ -79,6 +82,8 @@ use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
 
+const ACTION_ENTROPY_BYTES: usize = 16 * 1024;
+
 #[derive(Debug)]
 pub struct FuzzArrayAction {
     pub array: ArrayRef,
@@ -114,19 +119,19 @@ impl<'a> Arbitrary<'a> for CompressorStrategy {
 #[strum_discriminants(derive(Hash, EnumIter))]
 #[strum_discriminants(name(ActionType))]
 pub enum Action {
-    Compress(CompressorStrategy),
-    Slice(Range<usize>),
-    Take(ArrayRef),
-    SearchSorted(Scalar, SearchSortedSide),
-    Filter(Mask),
-    Compare(Scalar, CompareOperator),
-    Cast(DType),
-    Sum,
     MinMax,
-    FillNull(Scalar),
-    Mask(Mask),
     // Here we want to try multiple values.
     ScalarAt(Vec<usize>),
+    Slice(Range<usize>),
+    Sum,
+    Filter(Mask),
+    FillNull(Scalar),
+    Mask(Mask),
+    Cast(DType),
+    Take(ArrayRef),
+    Compare(Scalar, CompareOperator),
+    SearchSorted(Scalar, SearchSortedSide),
+    Compress(CompressorStrategy),
 }
 
 #[derive(Debug, Clone)]
@@ -177,6 +182,7 @@ impl ExpectedValue {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let seed: u32 = u.arbitrary()?;
         let array = ArbitraryArray::arbitrary_with_config(
             u,
             &ArbitraryArrayConfig {
@@ -185,6 +191,17 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
             },
         )?
         .0;
+        let mut entropy = [0u8; ACTION_ENTROPY_BYTES];
+        Xoshiro256PlusPlus::seed_from_u64(u64::from(seed)).fill(&mut entropy);
+        Self::with_random_actions(array, &mut Unstructured::new(&entropy))
+    }
+}
+
+impl FuzzArrayAction {
+    pub fn with_random_actions(
+        array: ArrayRef,
+        u: &mut Unstructured<'_>,
+    ) -> arbitrary::Result<Self> {
         let mut current_array = array.clone();
 
         let mut ctx = SESSION.create_execution_ctx();
@@ -463,6 +480,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => {
             // Null arrays support most operations but not Sum or MinMax (return None for dtype)
             [

@@ -22,6 +22,11 @@ native = [
     "zstd",
     "vortex-file",
     "vortex/files",
+    "dep:prost",
+    "vortex/parquet-variant",
+    "dep:arrow-array",
+    "dep:arrow-schema",
+    "dep:parquet-variant-compute",
     "dep:vortex-arrow",
     "dep:parquet-variant",
     "dep:vortex-json",
@@ -37,10 +42,14 @@ cuda = ["vortex-cuda", "tokio"]
 [dependencies]
 # Always needed - arbitrary is used for input generation
 arbitrary = { workspace = true }
+arrow-array = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 parquet-variant = { workspace = true, optional = true }
+parquet-variant-compute = { workspace = true, optional = true }
+rand = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
@@ -60,6 +69,7 @@ vortex-utils = { workspace = true }
 
 # Native-only: libfuzzer harness and file IO (won't compile to WASM)
 libfuzzer-sys = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
 vortex-file = { workspace = true, optional = true }
 
 vortex-arrow = { workspace = true, features = [
@@ -79,6 +89,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+hegeltest = { workspace = true }
 rstest = { workspace = true }
 
 [lints]
@@ -111,9 +122,17 @@ required-features = ["native"]
 [[bin]]
 bench = false
 doc = false
+name = "file_session"
+path = "fuzz_targets/file_session.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
 name = "array_ops_wasm"
 path = "fuzz_targets/array_ops_wasm.rs"
-test = false
+test = true
 required-features = ["wasmfuzz"]
 
 [[bin]]
@@ -153,5 +172,21 @@ bench = false
 doc = false
 name = "arrow_roundtrip"
 path = "fuzz_targets/arrow_roundtrip.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "wire_safety"
+path = "fuzz_targets/wire_safety.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "variant_file"
+path = "fuzz_targets/variant_file.rs"
 test = false
 required-features = ["native"]

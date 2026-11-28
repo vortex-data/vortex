@@ -111,7 +111,7 @@ where
             pos += take;
         }
 
-        vector.reuse_dictionary(&self.values, &selection_vec, len);
+        vector.reuse_dictionary(&self.values, &selection_vec, len)?;
         Ok(())
     }
 }

@@ -70,6 +70,7 @@ impl ToArrowDatum for Scalar {
     fn to_arrow_datum(&self) -> Result<Arc<dyn Datum>, VortexError> {
         let value = self;
         match value.dtype() {
+            DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
             DType::Null => Ok(Arc::new(NullArray::new(SCALAR_ARRAY_LEN))),
             DType::Bool(_) => bool_to_arrow(value.as_bool()),
             DType::Primitive(..) => primitive_to_arrow(value.as_primitive()),
@@ -309,6 +310,23 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
             }
             TimeUnit::Seconds => {
                 value_to_arrow_scalar!(primitive.as_::<i32>(), Time32SecondArray)
+            }
+            TimeUnit::Days => {
+                vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
+            }
+        },
+        TemporalMetadata::Duration(unit) => match unit {
+            TimeUnit::Nanoseconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationNanosecondArray)
+            }
+            TimeUnit::Microseconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationMicrosecondArray)
+            }
+            TimeUnit::Milliseconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationMillisecondArray)
+            }
+            TimeUnit::Seconds => {
+                value_to_arrow_scalar!(primitive.as_::<i64>(), DurationSecondArray)
             }
             TimeUnit::Days => {
                 vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())

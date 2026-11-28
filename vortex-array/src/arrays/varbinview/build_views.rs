@@ -492,6 +492,69 @@ mod tests {
         build_views(0, MAX_BUFFER_LEN, bytes, &[31u32]);
     }
 
+    /// Regression for the single-buffer fast-path guard and multi-buffer rollover.
+    ///
+    /// Once the byte heap exceeds `max_buffer_len`, `build_views` must take the rolling path,
+    /// split the heap into multiple zero-copy buffers each at most `max_buffer_len` bytes, reset
+    /// the per-buffer offset to zero on each rollover, and preserve exact data integrity across
+    /// every row (including rows straddling each rollover boundary).
+    #[rstest]
+    #[case::exact_boundary(1024, 256, 10)]
+    #[case::non_divisible_boundary(1000, 256, 10)]
+    fn build_views_multi_buffer_rollover(
+        #[case] max_buffer_len: usize,
+        #[case] string_len: usize,
+        #[case] count: usize,
+    ) {
+        let nth_string = |i: usize| {
+            let mut s = vec![b'x'; string_len];
+            s[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            s
+        };
+
+        let expected: Vec<Vec<u8>> = (0..count).map(nth_string).collect();
+        let mut bytes = ByteBufferMut::with_capacity(count * string_len);
+        let mut offsets = Vec::with_capacity(count + 1);
+        offsets.push(0u32);
+        for value in &expected {
+            bytes.extend_from_slice(value);
+            offsets.push(u32::try_from(bytes.len()).unwrap());
+        }
+        let heap = bytes.freeze();
+        let lens = vec![u32::try_from(string_len).unwrap(); count];
+
+        let values_per_buf = max_buffer_len / string_len;
+        let expected_buffers = count.div_ceil(values_per_buf);
+        assert!(expected_buffers >= 3);
+
+        for (buffers, views) in [
+            build_views(0, max_buffer_len, heap.clone(), &lens),
+            build_views_from_offsets(0, max_buffer_len, heap, &offsets),
+        ] {
+            assert_eq!(views.len(), count);
+            assert_eq!(buffers.len(), expected_buffers);
+            for (i, b) in buffers.iter().enumerate() {
+                assert!(
+                    b.len() <= max_buffer_len,
+                    "buffer {i} of {} bytes exceeds max_buffer_len ({max_buffer_len})",
+                    b.len()
+                );
+            }
+
+            // Every row's buffer index and per-buffer offset must reset at each rollover boundary.
+            for (i, view) in views.iter().enumerate() {
+                let r = view.as_view();
+                let expected_buf_idx = u32::try_from(i / values_per_buf).unwrap();
+                let expected_offset = u32::try_from((i % values_per_buf) * string_len).unwrap();
+                assert_eq!(r.buffer_index, expected_buf_idx, "row {i}");
+                assert_eq!(r.offset, expected_offset, "row {i}");
+                assert_eq!(r.size as usize, string_len, "row {i}");
+            }
+
+            assert_eq!(reconstruct(&buffers, &views, 0), expected);
+        }
+    }
+
     // TODO(someone): ideally CI would run this in release mode as well, since debug builds make the
     // ~2.25 GiB allocation and fill loop substantially slower.
     /// Slow regression for the single-buffer fast-path guard. The fast path is only valid when the

@@ -76,6 +76,8 @@ suppress-none-returning = true
 "scripts/cudf-parquet-read.py" = ["ANN001"]
 "scripts/post-ingest.py" = ["ANN001"]
 "scripts/vortex_gdb.py" = ["ANN001"]
+# The triage tests load the bot by path, outside every import root, so its values are typed `Any`.
+"scripts/tests/*triage*.py" = ["ANN401"]
 
 [tool.ruff.lint.isort]
 known-first-party = [

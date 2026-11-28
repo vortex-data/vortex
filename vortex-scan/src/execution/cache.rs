@@ -50,9 +50,9 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: PlanCache<PlanRef>,
     ranges: OnceCell<SegmentRanges>,
-    /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
-    /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
-    filters: PlanCache<Arc<FilterPlans>>,
+    /// Pruning decisions and learned dynamic-filter state are shared only within the same policy.
+    strict_filters: PlanCache<Arc<FilterPlans>>,
+    skippable_filters: PlanCache<Arc<FilterPlans>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
@@ -90,13 +90,21 @@ impl ScanCache {
         Arc::clone(self.0.ranges.get_or_init(init))
     }
 
-    /// Reuses the filter plans, initializing them once across concurrent scans.
+    /// Reuses filter plans across scans with the same dynamic-skipping policy.
     pub(crate) fn filter_plans(
         &self,
         filter: &BoundExpression,
+        skip_unselective_dynamic: bool,
         init: impl FnOnce() -> VortexResult<Arc<FilterPlans>>,
     ) -> VortexResult<Arc<FilterPlans>> {
-        self.0.filters.get_or_try_init(filter, init)
+        let filters = if skip_unselective_dynamic {
+            &self.0.skippable_filters
+        } else {
+            &self.0.strict_filters
+        };
+        let plans = filters.get_or_try_init(filter, init)?;
+        debug_assert_eq!(plans.skips_unselective_dynamic(), skip_unselective_dynamic);
+        Ok(plans)
     }
 
     /// Serves `segments` through the segments the file's scans retain.

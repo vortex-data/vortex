@@ -15,6 +15,7 @@ use vortex_session::registry::Id;
 use crate::dtype::extension::ExtDTypePluginRef;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
 
@@ -35,6 +36,7 @@ impl Default for DTypeSession {
 
         // Register built-in temporal extension dtypes
         this.register(Date);
+        this.register(Duration);
         this.register(Time);
         this.register(Timestamp);
 

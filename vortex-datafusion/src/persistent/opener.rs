@@ -38,17 +38,19 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::lit;
+use vortex::expr::transform::replace;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -60,6 +62,10 @@ use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scalar_fn::builtin::compare::Compare;
+use vortex::scalar_fn::builtin::get_item::GetItem;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scan::execution::driver::ChunkBudget;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::prepare::ScanCache;
@@ -78,6 +84,8 @@ use crate::convert::to_record_batch;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::pruning::FilePruner;
+use crate::persistent::pruning::FilePruningCache;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
@@ -97,6 +105,7 @@ pub(crate) struct VortexOpener {
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
     pub file_pruning_predicate: Option<PhysicalExprRef>,
+    pub file_pruning_cache: Arc<FilePruningCache>,
     pub expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
@@ -190,6 +199,55 @@ impl VortexOpener {
     }
 }
 
+/// Replaces every expression in `projection` that one of `filters` equates to a literal with
+/// that literal.
+///
+/// The scan applies `filters` before `projection`, so in every row it projects such an expression
+/// has the literal's value. DataFusion still asks for it, because it plans the projection before
+/// the scan absorbs the filter. Folding saves computing it again, which for a `variant_get` is a
+/// pass over the Variant.
+///
+/// Only computed expressions of types whose equal values are identical are folded: floats are
+/// left alone because `0.0 = -0.0`, and plain columns because reading them is cheap.
+fn fold_filter_equalities(
+    projection: Expression,
+    filters: &[Expression],
+    scope: &DType,
+) -> Expression {
+    filters.iter().fold(projection, |projection, filter| {
+        if filter.as_opt::<Compare>().map(|options| options.operator()) != Some(CompareOperator::Eq)
+        {
+            return projection;
+        }
+        let (expr, literal) = match (
+            filter.child(0).as_opt::<Literal>(),
+            filter.child(1).as_opt::<Literal>(),
+        ) {
+            (None, Some(literal)) => (filter.child(0), literal),
+            (Some(literal), None) => (filter.child(1), literal),
+            _ => return projection,
+        };
+        if literal.is_null() || expr.is::<GetItem>() {
+            return projection;
+        }
+        let Ok(dtype) = expr.return_dtype(scope) else {
+            return projection;
+        };
+        let identical_when_equal = match &dtype {
+            DType::Bool(_) | DType::Utf8(_) | DType::Binary(_) => true,
+            DType::Primitive(ptype, _) => ptype.is_int(),
+            _ => false,
+        };
+        if !identical_when_equal {
+            return projection;
+        }
+        match literal.cast(&dtype) {
+            Ok(value) => replace(projection, expr, lit(value)),
+            Err(_) => projection,
+        }
+    })
+}
+
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         // Calculate the output schema before replacing partition columns with literals so it
@@ -229,6 +287,8 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let chunk_budget = self.chunk_budget.clone();
         let scan_v2 = self.scan_v2;
+        let file_pruning_cache = (scan_v2 && self.table_schema.table_partition_cols().is_empty())
+            .then(|| Arc::clone(&self.file_pruning_cache));
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -261,20 +321,20 @@ impl FileOpener for VortexOpener {
         }
 
         Ok(async move {
-            // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
             let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
                 FilePruner::try_new(
-                    Arc::clone(&predicate),
+                    predicate,
                     &unified_file_schema,
                     &file,
                     predicate_creation_errors,
+                    file_pruning_cache,
                 )
             });
 
             // Check if this file should be pruned based on statistics/partition values.
             // Returns empty stream if file can be skipped entirely.
             if let Some(file_pruner) = file_pruner.as_mut()
-                && file_pruner.should_prune()?
+                && file_pruner.should_prune_initial().await?
             {
                 return Ok(stream::empty().boxed());
             }
@@ -397,6 +457,8 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
+            // The scan applies these exactly, unlike the dynamic filters below.
+            let exact_filters = native_filters.clone();
             // The operator that produces a dynamic filter enforces it exactly, so the scan
             // evaluates it only where the file has every column it reads.
             native_filters.extend(
@@ -445,12 +507,15 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection = scan_projection
-                .bind(vxf.dtype())
-                .and_then(|projection| projection.optimize_recursive())
-                .map_err(|_e| {
-                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-                })?;
+            let scan_projection =
+                fold_filter_equalities(scan_projection, &exact_filters, vxf.dtype())
+                    .bind(vxf.dtype())
+                    .and_then(|projection| projection.optimize_recursive())
+                    .map_err(|_e| {
+                        exec_datafusion_err!(
+                            "Couldn't get the dtype for the underlying Vortex scan"
+                        )
+                    })?;
             let scan_dtype = scan_projection.dtype().clone();
 
             let stream_schema =
@@ -890,6 +955,17 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::expr::byte_length;
+    use vortex::expr::eq;
+    use vortex::expr::get_item;
+    use vortex::expr::gt;
+    use vortex::expr::lit as vx_lit;
+    use vortex::expr::lower;
+    use vortex::expr::pack;
+    use vortex::expr::root;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
@@ -1159,6 +1235,7 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
             limit: None,
@@ -1419,8 +1496,11 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[tokio::test]
-    async fn test_file_pruning_creation_errors_are_reported() -> anyhow::Result<()> {
+    async fn test_file_pruning_creation_errors_are_reported(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "metrics/file.vortex";
         let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -1431,6 +1511,7 @@ mod tests {
         let file = PartitionedFile::new(file_path, data_size).with_statistics(Arc::new(statistics));
 
         let mut opener = make_opener(object_store, TableSchema::from(batch.schema()), None);
+        opener.scan_v2 = scan_v2;
         opener.file_pruning_predicate = Some(Arc::new(SnapshotErrorExpr));
         let df_metrics = opener.df_metrics.clone();
 
@@ -1612,6 +1693,7 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
             limit: None,
@@ -1707,6 +1789,7 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(Arc::clone(&table_schema)),
             limit: None,
@@ -1893,6 +1976,7 @@ mod tests {
             ),
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
             limit: None,
@@ -1961,6 +2045,7 @@ mod tests {
             projection,
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(schema),
             limit: None,
@@ -2180,6 +2265,7 @@ mod tests {
             projection,
             filter: None,
             file_pruning_predicate: None,
+            file_pruning_cache: Arc::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
             limit: None,
@@ -2470,5 +2556,47 @@ mod tests {
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
+    }
+
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("s", DType::Utf8(Nullability::Nullable)),
+                ("f", DType::Primitive(PType::F64, Nullability::Nullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn lowered() -> Expression {
+        lower(get_item("s", root()))
+    }
+
+    fn projection(expr: Expression) -> Expression {
+        pack([("out", expr)], Nullability::NonNullable)
+    }
+
+    #[rstest]
+    #[case::expr_eq_literal(eq(lowered(), vx_lit("a")))]
+    #[case::literal_eq_expr(eq(vx_lit("a"), lowered()))]
+    fn folds_an_expression_the_filter_pins(#[case] filter: Expression) {
+        let folded = fold_filter_equalities(projection(lowered()), &[filter], &scope());
+
+        // The literal takes the nullable dtype of the expression it replaces.
+        let literal = vx_lit(vortex::scalar::Scalar::utf8("a", Nullability::Nullable));
+        assert_eq!(folded, projection(literal));
+    }
+
+    #[rstest]
+    // A range does not pin the value.
+    #[case::not_an_equality(byte_length(lowered()), gt(byte_length(lowered()), vx_lit(1u64)))]
+    // Reading a column is cheap.
+    #[case::plain_column(get_item("s", root()), eq(get_item("s", root()), vx_lit("a")))]
+    // `0.0 = -0.0`, so an equal float is not necessarily the same value.
+    #[case::float(get_item("f", root()), eq(get_item("f", root()), vx_lit(0.0f64)))]
+    fn keeps_other_expressions(#[case] expr: Expression, #[case] filter: Expression) {
+        let folded = fold_filter_equalities(projection(expr.clone()), &[filter], &scope());
+
+        assert_eq!(folded, projection(expr));
     }
 }

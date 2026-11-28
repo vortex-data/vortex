@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -81,11 +82,16 @@ impl ArrayPlugin for Primitive {
             "Misaligned buffer cannot be used to build PrimitiveArray of {ptype}"
         );
 
-        if buffer.len() != ptype.byte_width() * len {
+        let expected_len = ptype.byte_width().checked_mul(len).ok_or_else(|| {
+            vortex_err!(
+                "PrimitiveArray of {ptype} values has byte length overflowing usize for length {len}"
+            )
+        })?;
+        if buffer.len() != expected_len {
             vortex_bail!(
                 "Buffer length {} does not match expected length {} for {}, {}",
                 buffer.len(),
-                ptype.byte_width() * len,
+                expected_len,
                 ptype.byte_width(),
                 len,
             );

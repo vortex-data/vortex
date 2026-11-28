@@ -35,10 +35,17 @@ pub mod arrow_roundtrip;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
+#[cfg(test)]
+mod hegel_smoke;
 mod row;
+#[cfg(feature = "native")]
+mod variant;
+/// Untrusted wire-input fuzzing for IPC and protobuf boundaries.
+#[cfg(feature = "native")]
+pub mod wire;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub mod file;
 
 // GPU fuzzer module (only available when cuda feature is enabled)
@@ -52,16 +59,22 @@ pub use array::run_fuzz_action;
 pub use array::sort_canonical_array;
 pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use file::FuzzFileAction;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use file::FuzzFileCorruption;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+pub use file::FuzzFileSession;
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+pub use file::WriteSettings;
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use file::has_duplicate_field_names;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use file::has_nullable_struct;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 pub use file::run_file_corruption;
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+pub use file::run_file_session;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
 #[cfg(feature = "cuda")]
@@ -70,6 +83,10 @@ pub use gpu::FuzzCompressGpu;
 pub use gpu::run_compress_gpu;
 pub use row::FuzzRowEncode;
 pub use row::run_row_encode;
+#[cfg(feature = "native")]
+pub use wire::FuzzWireSafety;
+#[cfg(feature = "native")]
+pub use wire::run_wire_safety;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;

@@ -135,27 +135,16 @@ impl ScanBuilder {
             .transpose()?;
         let filter = self
             .filter
-            .map(|filter| -> VortexResult<_> {
+            .map(|filter| {
                 let skip = self.skip_unselective_dynamic;
-                let plans = cache.filter_plans(&filter, || {
+                cache.filter_plans(&filter, skip, || {
                     Ok(Arc::new(FilterPlans::new(
                         filter.clone(),
                         &root,
                         &self.session,
                         skip,
                     )?))
-                })?;
-                if plans.skips_unselective_dynamic() == skip {
-                    Ok(plans)
-                } else {
-                    // A scan whose skipping differs from the cached plans' plans its own.
-                    Ok(Arc::new(FilterPlans::new(
-                        filter,
-                        &root,
-                        &self.session,
-                        skip,
-                    )?))
-                }
+                })
             })
             .transpose()?;
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
@@ -214,3 +203,6 @@ pub(crate) fn filtered_rows_per_chunk(
         FILTERED_ROWS_PER_CHUNK
     })
 }
+
+#[cfg(test)]
+mod tests;

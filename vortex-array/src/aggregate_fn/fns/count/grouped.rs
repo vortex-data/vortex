@@ -41,9 +41,9 @@ impl DynGroupedAggregateKernel for CountGroupedKernel {
 
 /// Count each valid group from the element validity mask.
 ///
-/// The [`Count`] partial dtype is non-nullable `U64`, so a null outer group cannot be represented
-/// as a partial state. If any outer group is invalid, this returns `Ok(None)` and lets the caller
-/// use the existing fallback behavior.
+/// The [`Count`] partial dtype is non-nullable `U64`. If any outer group is invalid, this returns
+/// `Ok(None)` so [`GroupedAccumulator`](crate::aggregate_fn::GroupedAccumulator) falls back to
+/// flushing the empty accumulator state (`0`) for null groups.
 pub(super) fn try_grouped_count(
     groups: &GroupedArray,
     ctx: &mut ExecutionCtx,

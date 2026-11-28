@@ -13,7 +13,10 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::PushKernelArg;
 
@@ -77,17 +80,8 @@ where
     })?;
 
     let offsets = exclusive_sum_i32(&scan_input, scan_len, ctx)?;
-    let scan_len_u64 = u64::try_from(scan_len)?;
-    let validate_kernel = ctx.load_function_with_suffixes("arrow_offsets", &["validate"])?;
-    ctx.launch_kernel(&validate_kernel, scan_len, |args| {
-        args.arg(&offsets)
-            .arg(&mut offset_summary)
-            .arg(&scan_len_u64);
-    })?;
-
-    let summary = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offset_summary)?));
-    let summary = Buffer::<u32>::from_byte_buffer(summary.try_to_host()?.await?);
-    match summary[0] {
+    let [status, total] = read_offset_summary(&offsets, offset_summary, ctx).await?;
+    match status {
         0 => {}
         1 => vortex_bail!("cannot build Arrow offsets from a negative length"),
         2 => vortex_bail!("length sum exceeds Arrow i32 offset range"),
@@ -96,6 +90,26 @@ where
 
     Ok(I32Offsets {
         buffer: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)?)),
-        total: usize::try_from(summary[1])?,
+        total: usize::try_from(total)?,
     })
+}
+
+/// Check every scanned offset for overflow and read back `[status, final_offset]` together.
+/// The first word already holds the scan input's status; the total is usable only on success.
+pub(super) async fn read_offset_summary(
+    offsets: &CudaSlice<i32>,
+    mut summary: CudaSlice<u32>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<[u32; 2]> {
+    vortex_ensure_eq!(summary.len(), 2);
+    vortex_ensure!(!offsets.is_empty(), "missing final Arrow offset");
+    let scan_len = u64::try_from(offsets.len())?;
+    let kernel = ctx.load_function_with_suffixes("arrow_offsets", &["validate"])?;
+    ctx.launch_kernel(&kernel, offsets.len(), |args| {
+        args.arg(offsets).arg(&mut summary).arg(&scan_len);
+    })?;
+
+    let summary = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(summary)?));
+    let summary = Buffer::<u32>::from_byte_buffer(summary.try_to_host()?.await?);
+    Ok([summary[0], summary[1]])
 }

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import textwrap
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -304,11 +305,10 @@ _MAX_RAW_TRACE_LINES = 40
 
 def _truncate_trace(raw: str) -> str:
     """Truncate a raw stack trace to _MAX_RAW_TRACE_LINES."""
-    lines = raw.splitlines()
-    if len(lines) <= _MAX_RAW_TRACE_LINES:
-        return raw
+    lines = textwrap.dedent(raw).splitlines()
     kept = lines[:_MAX_RAW_TRACE_LINES]
-    kept.append(f"   ... ({len(lines) - _MAX_RAW_TRACE_LINES} more frames truncated)")
+    if len(lines) > _MAX_RAW_TRACE_LINES:
+        kept.append(f"... ({len(lines) - _MAX_RAW_TRACE_LINES} more frames truncated)")
     return "\n".join(kept)
 
 

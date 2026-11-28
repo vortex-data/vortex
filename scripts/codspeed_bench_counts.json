@@ -8,6 +8,7 @@
     "write_compression": 3
   },
   "vortex-alp": {
+    "alp_chain_decode": 1,
     "alp_compress": 36,
     "alp_fsl_take": 2,
     "alp_rd_take_chunked": 4,
@@ -18,6 +19,7 @@
     "aggregate_max": 15,
     "aggregate_sum": 14,
     "binary_ops": 7,
+    "block_program": 3,
     "cast_decimal": 8,
     "cast_primitive": 7,
     "chunk_array_builder": 31,
@@ -41,6 +43,7 @@
     "listview_rebuild": 9,
     "patches_lookup": 10,
     "piecewise_sequence_take_primitive": 10,
+    "primitive_majority_candidate": 3,
     "probe": 43,
     "row_fn_bool_retry": 0,
     "row_fn_output": 0,
@@ -73,7 +76,7 @@
     "widen_decimal": 9
   },
   "vortex-arrow": {
-    "to_arrow": 135
+    "to_arrow": 137
   },
   "vortex-buffer": {
     "allocation": 35,
@@ -96,6 +99,7 @@
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
+    "date_time_parts_decode": 1,
     "split_temporal": 6
   },
   "vortex-decimal-byte-parts": {
@@ -108,7 +112,8 @@
   },
   "vortex-expr": {
     "expr_large_struct_pack": 4,
-    "expr_optimize": 1
+    "expr_optimize": 1,
+    "stats_rewrite": 8
   },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
@@ -125,6 +130,7 @@
     "delta_decode": 6,
     "for_decode": 0,
     "for_encode": 0,
+    "for_stack_decode": 1,
     "patched_search": 6,
     "rle_decode": 0
   },
@@ -133,7 +139,7 @@
   },
   "vortex-fsst": {
     "chunked_dict_fsst_builder": 12,
-    "fsst_compress": 22,
+    "fsst_compress": 30,
     "fsst_like": 14,
     "fsst_take": 24,
     "fsst_url_compare": 8
@@ -145,6 +151,7 @@
     "list_contains_set": 10,
     "list_length": 6,
     "list_sum": 20,
+    "list_transform": 9,
     "listview_zip": 2,
     "primitive_zip": 2,
     "varbinview_zip": 2,
@@ -153,6 +160,7 @@
   "vortex-layout": {
     "aggregate_partial_merge": 3,
     "bloom_filter": 8,
+    "list_read": 3,
     "pipeline_scan": 9,
     "zone_map_prune": 15
   },
@@ -166,6 +174,7 @@
     "decode": 9
   },
   "vortex-parquet-variant": {
+    "parquet_variant_extract": 4,
     "parquet_variant_probe": 12
   },
   "vortex-pco": {

@@ -60,8 +60,7 @@ enum FieldDTypeInner {
     /// We cache it because it's requested for every field for every file.
     /// If there are many files with wide schemas (think clickbench),
     /// re-parsing each field is costly
-    /// This form is quite ugly because in some cases we want to panic on
-    /// parsing but return an error on others
+    /// Views come from [`DType::from_flatbuffer`], which verifies the whole buffer first.
     View(ViewedDType, Arc<OnceLock<DType>>),
 }
 

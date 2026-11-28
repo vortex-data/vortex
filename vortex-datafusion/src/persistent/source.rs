@@ -52,6 +52,7 @@ use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::opener::DynamicFilterKey;
+use crate::persistent::pruning::FilePruningCache;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -200,6 +201,8 @@ pub struct VortexSource {
     /// Combined predicate expression containing all filters from DataFusion query planning.
     /// Used with FilePruner to skip files based on statistics and partition values.
     pub(crate) full_predicate: Option<PhysicalExprRef>,
+    /// Rebuilt whenever `full_predicate` changes; dynamic predicates are cached by generation.
+    file_pruning_cache: Arc<FilePruningCache>,
     /// Accepted exact predicates, evaluated natively or as per-file residuals.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
@@ -252,6 +255,7 @@ impl VortexSource {
             table_schema,
             projection,
             full_predicate: None,
+            file_pruning_cache: Arc::default(),
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
@@ -296,6 +300,7 @@ impl VortexSource {
     /// after a filtered scan, without re-evaluating mutable dynamic filters.
     pub fn without_predicates(mut self) -> Self {
         self.full_predicate = None;
+        self.file_pruning_cache = Arc::default();
         self.vortex_predicate = None;
         self
     }
@@ -389,6 +394,7 @@ impl VortexSource {
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),
+            file_pruning_cache: Arc::clone(&self.file_pruning_cache),
             expr_adapter_factory,
             table_schema: self.table_schema.clone(),
             limit: base_config.limit.map(|l| l as u64),
@@ -531,6 +537,7 @@ impl FileSource for VortexSource {
             )),
             None => Some(conjunction(filters.clone())),
         };
+        source.file_pruning_cache = Arc::default();
 
         if !source.options.predicate_pushdown {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
@@ -636,7 +643,10 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use datafusion_common::ScalarValue;
+    use datafusion_common::Statistics;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_common::stats::Precision;
+    use datafusion_datasource::PartitionedFile;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
@@ -646,11 +656,13 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+    use datafusion_physical_plan::metrics::Count;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
 
     use super::*;
     use crate::convert::exprs::ProcessedProjection;
+    use crate::persistent::pruning::FilePruner;
 
     struct TrackingExpressionConverter {
         inner: DefaultExpressionConverter,
@@ -699,6 +711,47 @@ mod tests {
 
     fn sort_test_source(schema: Arc<Schema>) -> VortexSource {
         VortexSource::new(TableSchema::from(schema), VortexSession::default())
+    }
+
+    fn prunes_file(source: &VortexSource, file: &PartitionedFile) -> DFResult<bool> {
+        let predicate = source.full_predicate.clone().expect("pruning predicate");
+        FilePruner::try_new(
+            predicate,
+            source.table_schema.file_schema(),
+            file,
+            Count::new(),
+            Some(Arc::clone(&source.file_pruning_cache)),
+        )
+        .expect("file has pruning statistics")
+        .should_prune()
+    }
+
+    #[test]
+    fn pushing_filters_rebuilds_cached_file_pruning() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let mut source = sort_test_source(Arc::clone(&schema));
+        source.full_predicate = Some(Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Gt,
+            df_expr::lit(10i32),
+        )));
+        let mut statistics = Statistics::new_unknown(&schema);
+        statistics.column_statistics[0].min_value = Precision::Exact(ScalarValue::Int32(Some(0)));
+        statistics.column_statistics[0].max_value = Precision::Exact(ScalarValue::Int32(Some(20)));
+        let file = PartitionedFile::new("file.vortex", 100).with_statistics(Arc::new(statistics));
+        assert!(!prunes_file(&source, &file)?);
+        let added = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Lt,
+            df_expr::lit(0i32),
+        ));
+        let result = source.try_pushdown_filters(vec![added], &ConfigOptions::new())?;
+        let updated = result.updated_node.expect("filters update the source");
+        let updated = updated
+            .downcast_ref::<VortexSource>()
+            .expect("VortexSource");
+        assert!(prunes_file(updated, &file)?);
+        Ok(())
     }
 
     fn octet_length_filter(schema: &Schema) -> PhysicalExprRef {
@@ -857,22 +910,32 @@ mod tests {
 
     #[test]
     fn test_without_predicates_clears_scan_and_pruning_filters() -> anyhow::Result<()> {
-        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let schema = sort_test_schema();
         let source = sort_test_source(Arc::clone(&schema));
-        let result = source
-            .try_pushdown_filters(vec![octet_length_filter(&schema)], &ConfigOptions::new())?;
-        let filtered = result.updated_node.expect("expected updated source");
-        let filtered = filtered
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Gt,
+            df_expr::lit(10i32),
+        ));
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+        let updated = result.updated_node.expect("expected updated source");
+        let filtered = updated
             .downcast_ref::<VortexSource>()
             .expect("VortexSource");
-        assert!(filtered.full_predicate.is_some());
-        assert!(filtered.vortex_predicate.is_some());
+        let predicate = filtered.full_predicate.as_ref().expect("pruning predicate");
+        let mut stats = Statistics::new_unknown(&schema);
+        stats.column_statistics[0].max_value = Precision::Exact(ScalarValue::Int32(Some(5)));
+        let file = PartitionedFile::new("file.vortex", 100).with_statistics(Arc::new(stats));
+        assert!(prunes_file(filtered, &file)?);
+        let original_predicate = Arc::downgrade(predicate);
 
         let cleared = filtered.clone().without_predicates();
         assert!(cleared.full_predicate.is_none());
         assert!(cleared.vortex_predicate.is_none());
         assert!(filtered.full_predicate.is_some());
         assert!(filtered.vortex_predicate.is_some());
+        drop(updated);
+        assert!(original_predicate.upgrade().is_none());
         let config = FileScanConfigBuilder::new(
             ObjectStoreUrl::local_filesystem(),
             Arc::new(cleared.clone()),

@@ -501,6 +501,51 @@ mod tests {
         Ok(())
     }
 
+    /// Deterministically exercises `Scratch::push` with `cursor == 16` by encoding
+    /// all bytes as 1-byte escaped literals instead of relying on compressor training.
+    #[crate::test]
+    async fn test_cuda_fsst_scratch_cursor_16_boundary() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let escape = |bytes: &[u8]| -> Vec<u8> { bytes.iter().flat_map(|&b| [255u8, b]).collect() };
+        let row0 = b"x";
+        let row1 = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let row0_codes = escape(row0);
+        let row1_codes = escape(row1);
+        let codes = VarBinArray::from_iter(
+            [Some(row0_codes.as_slice()), Some(row1_codes.as_slice())],
+            DType::Binary(Nullability::NonNullable),
+        );
+        let uncompressed_lengths =
+            PrimitiveArray::from_iter([u32::try_from(row0.len())?, u32::try_from(row1.len())?])
+                .into_array();
+        let fsst_array = FSST::try_new(
+            DType::Binary(Nullability::NonNullable),
+            Buffer::empty(),
+            Buffer::empty(),
+            codes,
+            uncompressed_lengths,
+            cuda_ctx.execution_ctx(),
+        )?
+        .into_array();
+
+        let gpu_result = FSSTExecutor
+            .execute(fsst_array.clone(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+        assert_eq!(gpu_result.dtype(), &DType::Binary(Nullability::NonNullable));
+        assert_device_resident(&gpu_result);
+
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(host_result, fsst_array, &mut ctx);
+        Ok(())
+    }
+
     /// Verifies that the view kernel applies a sliced validity bitmap's nonzero bit offset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_sliced_validity() -> VortexResult<()> {

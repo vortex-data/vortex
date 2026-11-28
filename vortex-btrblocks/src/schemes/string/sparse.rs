@@ -27,7 +27,9 @@ use vortex_sparse::SparseExt as _;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::integer::IntDictScheme;
@@ -148,51 +150,50 @@ impl Scheme for NullDominatedSparseScheme {
         )))
     }
 
-    fn compress(
+    /// Children: values=0, indices=1. The values are the valid strings alone, so the other string
+    /// schemes apply to them.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         // We pass None as we only run this pathway for NULL-dominated string arrays.
         let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
+        let Some(sparse) = sparse_encoded.as_opt::<Sparse>() else {
+            return Ok(Encoded::leaf(sparse_encoded));
+        };
 
-        if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            // The values are the valid strings alone, so the other string schemes apply to them.
-            let compressed_values = compressor.compress_child(
-                sparse.patches().values(),
-                &compress_ctx,
-                self.id(),
-                0,
-                exec_ctx,
-            )?;
+        let indices = sparse
+            .patches()
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .narrow(exec_ctx)?;
+        let len = sparse.len();
+        let fill = sparse.fill_scalar().clone();
+        Ok(Encoded::new(
+            vec![
+                Child::new(self, 0, sparse.patches().values().clone()),
+                Child::new(self, 1, indices.into_array()),
+            ],
+            Vec::new(),
+            move |children, exec_ctx| {
+                let [values, indices] = children.compressed()?;
+                Sparse::try_new(indices, values, len, fill, exec_ctx).map(|a| a.into_array())
+            },
+        ))
+    }
 
-            let indices = sparse
-                .patches()
-                .indices()
-                .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow(exec_ctx)?;
-            let compressed_indices = compressor.compress_child(
-                &indices.into_array(),
-                &compress_ctx,
-                self.id(),
-                1,
-                exec_ctx,
-            )?;
-
-            Sparse::try_new(
-                compressed_indices,
-                compressed_values,
-                sparse.len(),
-                sparse.fill_scalar().clone(),
-                exec_ctx,
-            )
-            .map(|a| a.into_array())
-        } else {
-            Ok(sparse_encoded)
-        }
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

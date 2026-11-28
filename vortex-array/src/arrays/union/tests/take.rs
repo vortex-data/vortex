@@ -146,7 +146,7 @@ fn take_keeps_outer_and_inner_nulls_distinct() -> VortexResult<()> {
 fn take_from_empty_union_is_all_null() -> VortexResult<()> {
     let variants = variants()?;
     let nullability = Nullability::Nullable;
-    let empty = UnionArray::empty(variants.clone(), nullability).into_array();
+    let empty = UnionArray::try_empty(variants.clone(), nullability)?.into_array();
     let indices = PrimitiveArray::from_option_iter([None::<u64>, None]).into_array();
 
     let via_take = empty

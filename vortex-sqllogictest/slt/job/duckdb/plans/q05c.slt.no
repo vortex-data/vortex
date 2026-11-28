@@ -1,0 +1,367 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT MIN(t.title) AS american_movie
+FROM company_type AS ct,
+     info_type AS it,
+     movie_companies AS mc,
+     movie_info AS mi,
+     title AS t
+WHERE ct.kind = 'production companies'
+  AND mc.note NOT LIKE '%(TV)%'
+  AND mc.note LIKE '%(USA)%'
+  AND mi.info IN ('Sweden',
+                  'Norway',
+                  'Germany',
+                  'Denmark',
+                  'Swedish',
+                  'Denish',
+                  'Norwegian',
+                  'German',
+                  'USA',
+                  'American')
+  AND t.production_year > 1990
+  AND t.id = mi.movie_id
+  AND t.id = mc.movie_id
+  AND mc.movie_id = mi.movie_id
+  AND ct.id = mc.company_type_id
+  AND it.id = mi.info_type_id;
+----
+logical_plan [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "AGGREGATE",
+                "children": [
+                    {
+                        "name": "FILTER",
+                        "children": [
+                            {
+                                "name": "CROSS_PRODUCT",
+                                "children": [
+                                    {
+                                        "name": "CROSS_PRODUCT",
+                                        "children": [
+                                            {
+                                                "name": "CROSS_PRODUCT",
+                                                "children": [
+                                                    {
+                                                        "name": "CROSS_PRODUCT",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "id",
+                                                                        "kind"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "id",
+                                                                        "info"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": ""
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "",
+                                                                    "Function": "Vortex Scan"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "id",
+                                                                "movie_id",
+                                                                "company_id",
+                                                                "company_type_id",
+                                                                "note"
+                                                            ]
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": ""
+                                                }
+                                            },
+                                            {
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "",
+                                                            "Function": "Vortex Scan"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Expressions": [
+                                                        "id",
+                                                        "movie_id",
+                                                        "info_type_id",
+                                                        "info",
+                                                        "note"
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": [
+                                                "id",
+                                                "title",
+                                                "imdb_index",
+                                                "kind_id",
+                                                "production_year",
+                                                "imdb_id",
+                                                "phonetic_code",
+                                                "episode_of_id",
+                                                "season_nr",
+                                                "episode_nr",
+                                                "series_years",
+                                                "md5sum"
+                                            ]
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": ""
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Expressions": [
+                                "(kind = CAST('production companies' AS VARCHAR))",
+                                "(note !~~ '%(TV)%')",
+                                "(note ~~ '%(USA)%')",
+                                "(info IN (CAST('Sweden' AS VARCHAR), CAST('Norway' AS VARCHAR), CAST('Germany' AS VARCHAR), CAST('Denmark' AS VARCHAR), CAST('Swedish' AS VARCHAR), CAST('Denish' AS VARCHAR), CAST('Norwegian' AS VARCHAR), CAST('German' AS VARCHAR), CAST('USA' AS VARCHAR), CAST('American' AS VARCHAR)))",
+                                "(production_year > CAST(1990 AS DOUBLE))",
+                                "(id = movie_id)",
+                                "(id = movie_id)",
+                                "(movie_id = movie_id)",
+                                "(id = company_type_id)",
+                                "(id = info_type_id)"
+                            ]
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "",
+                    "Expressions": "min(title)"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": "american_movie"
+        }
+    }
+]
+logical_opt [
+    {
+        "name": "PROJECTION",
+        "children": [
+            {
+                "name": "AGGREGATE",
+                "children": [
+                    {
+                        "name": "COMPARISON_JOIN",
+                        "children": [
+                            {
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": "($.id = 4i32)",
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "113"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Expressions": "id",
+                                    "Estimated Cardinality": "113"
+                                }
+                            },
+                            {
+                                "name": "COMPARISON_JOIN",
+                                "children": [
+                                    {
+                                        "name": "EMPTY_RESULT",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Expressions": ""
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": [
+                                                        "($.kind = \"production companies\")",
+                                                        "($.id <= 1i32)"
+                                                    ],
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "id",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "(company_type_id = id)",
+                                    "Estimated Cardinality": "8"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "(id = info_type_id)",
+                            "Estimated Cardinality": "8"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Groups": "",
+                    "Expressions": "min(title)",
+                    "Estimated Cardinality": "1"
+                }
+            }
+        ],
+        "extra_info": {
+            "Expressions": "american_movie",
+            "Estimated Cardinality": "1"
+        }
+    }
+]
+physical_plan [
+    {
+        "name": "UNGROUPED_AGGREGATE",
+        "children": [
+            {
+                "name": "PROJECTION",
+                "children": [
+                    {
+                        "name": "HASH_JOIN",
+                        "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Filters": "($.id = 4i32)",
+                                    "Projections": "id",
+                                    "Estimated Cardinality": "113"
+                                }
+                            },
+                            {
+                                "name": "HASH_JOIN",
+                                "children": [
+                                    {
+                                        "name": "EMPTY_RESULT",
+                                        "children": [],
+                                        "extra_info": {}
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": [
+                                                "($.kind = \"production companies\")",
+                                                "($.id <= 1i32)"
+                                            ],
+                                            "Projections": "id",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    }
+                                ],
+                                "extra_info": {
+                                    "Join Type": "INNER",
+                                    "Conditions": "company_type_id = id",
+                                    "Estimated Cardinality": "8"
+                                }
+                            }
+                        ],
+                        "extra_info": {
+                            "Join Type": "INNER",
+                            "Conditions": "id = info_type_id",
+                            "Estimated Cardinality": "8"
+                        }
+                    }
+                ],
+                "extra_info": {
+                    "Projections": "title",
+                    "Estimated Cardinality": "8"
+                }
+            }
+        ],
+        "extra_info": {
+            "Aggregates": "min(#0)",
+            "Estimated Cardinality": "1"
+        }
+    }
+]
