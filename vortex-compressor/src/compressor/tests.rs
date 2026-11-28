@@ -1390,9 +1390,12 @@ mod fsl_sparse_vs_dense {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::Dict;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::FixedSizeList;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -1408,9 +1411,9 @@ mod fsl_sparse_vs_dense {
     use crate::scheme::Scheme;
     use crate::stats::ArrayAndStats;
 
-    /// A mock `FixedSizeList` scheme that returns a payload half the raw list size so it beats
-    /// `exact_uncompressed_size` while still losing to a dense list whose elements compress to a
-    /// constant.
+    /// A mock `FixedSizeList` scheme that dictionary-encodes only the valid rows so a 50%-null
+    /// list shrinks to roughly half its raw size, beating `exact_uncompressed_size` while still
+    /// losing to a dense list whose elements compress to a constant.
     #[derive(Debug)]
     struct HalfSizeFslScheme;
 
@@ -1441,24 +1444,50 @@ mod fsl_sparse_vs_dense {
             _compressor: &CascadingCompressor,
             data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
-            _exec_ctx: &mut ExecutionCtx,
+            exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
-            let target_bytes = (usize::try_from(data.array().nbytes())? / 2).max(1);
-            Ok(PrimitiveArray::new(
-                Buffer::from_iter(iter::repeat_n(0u8, target_bytes)),
+            let array = data.array();
+            let mask = array.validity()?.execute_mask(array.len(), exec_ctx)?;
+            let filtered = array
+                .filter(mask.clone())?
+                .execute::<FixedSizeListArray>(exec_ctx)?;
+            let filtered_elems = filtered
+                .elements()
+                .clone()
+                .execute::<Canonical>(exec_ctx)?
+                .compact(exec_ctx)?
+                .into_array();
+            let values = FixedSizeListArray::try_new(
+                filtered_elems,
+                filtered.list_size(),
                 Validity::NonNullable,
-            )
-            .into_array())
+                filtered.len(),
+            )?
+            .into_array();
+            let mut next_code: u16 = 0;
+            let codes: Buffer<u16> = (0..array.len())
+                .map(|i| {
+                    if mask.value(i) {
+                        let code = next_code;
+                        next_code += 1;
+                        code
+                    } else {
+                        0
+                    }
+                })
+                .collect();
+            let codes = PrimitiveArray::new(codes, array.validity()?).into_array();
+            Ok(DictArray::try_new(codes, values)?.into_array())
         }
     }
 
     #[test]
-    fn fsl_compares_scheme_output_against_dense_compressed_size() -> VortexResult<()> {
+    fn test_fsl_compares_scheme_output_against_dense_compressed_size() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let comp = CascadingCompressor::new(vec![&HalfSizeFslScheme]);
 
         // Constant elements with 50% nulls: dense FSL compresses elements to Constant (~8B) +
-        // validity (128B) << HalfSizeFslScheme (~16 KiB).
+        // validity (128B) << HalfSizeFslScheme (~18 KiB).
         let rows = 1024;
         let list_size: u32 = 4;
         let num_elems = rows * list_size as usize;
@@ -1477,21 +1506,23 @@ mod fsl_sparse_vs_dense {
         );
         assert_arrays_eq!(&result, &compressible, &mut exec_ctx);
 
-        // Incompressible elements: dense FSL stays ~32 KiB, so HalfSizeFslScheme (~16 KiB) wins.
+        // Incompressible elements: dense FSL stays ~32 KiB, so HalfSizeFslScheme (~18 KiB) wins.
         let distinct_elems = PrimitiveArray::from_iter(0..num_elems as u64).into_array();
         let incompressible =
             FixedSizeListArray::new(distinct_elems, list_size, validity, rows).into_array();
         let scheme_result = comp.compress(&incompressible, &mut exec_ctx)?;
         assert!(
-            !scheme_result.is::<FixedSizeList>(),
-            "smaller scheme output should still beat dense FixedSizeList"
+            scheme_result.is::<Dict>(),
+            "smaller scheme output should still beat dense FixedSizeList, got {}",
+            scheme_result.encoding_id()
         );
         assert!(scheme_result.nbytes() < incompressible.nbytes());
+        assert_arrays_eq!(&scheme_result, &incompressible, &mut exec_ctx);
         Ok(())
     }
 
     #[test]
-    fn fsl_dense_elements_preserve_is_sample() -> VortexResult<()> {
+    fn test_fsl_dense_elements_preserve_is_sample() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let comp = CascadingCompressor::new(Vec::new());
         let rows = 1024;
