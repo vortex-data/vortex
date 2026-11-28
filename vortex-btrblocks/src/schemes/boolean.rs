@@ -48,9 +48,9 @@ fn runend_bytes_per_run(len: usize) -> f64 {
     PType::min_unsigned_ptype_for_value(len as u64).byte_width() as f64 + 0.125
 }
 
-/// Byte width of narrowed 0-based patch indices (`0..len`) for `BoolSparseScheme`.
-fn sparse_index_width(len: usize) -> usize {
-    PType::min_unsigned_ptype_for_value(len.saturating_sub(1) as u64).byte_width()
+/// Byte width of narrowed 0-based patch indices (`0..=last_index`) for `BoolSparseScheme`.
+fn sparse_index_width(last_index: usize) -> usize {
+    PType::min_unsigned_ptype_for_value(last_index as u64).byte_width()
 }
 
 /// Descendant exclusions for strictly increasing, unique position children at child index 0.
@@ -188,11 +188,30 @@ impl Scheme for BoolSparseScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         let stats = data.bool_stats(exec_ctx);
-        let exceptions = stats
-            .true_count()
-            .min(stats.value_count() - stats.true_count());
-        // `encode` narrows 0-based indices (`0..len`) to the tightest unsigned type.
-        let index_width = sparse_index_width(data.array_len());
+        let fill = stats.true_count() > stats.value_count() / 2;
+        let exceptions = if fill {
+            stats.value_count() - stats.true_count()
+        } else {
+            stats.true_count()
+        };
+        // `encode` narrows 0-based indices (`0..=last_index`) to the tightest unsigned type.
+        let last_index = exceptions
+            .checked_sub(1)
+            .map(|nth| {
+                let bits = data
+                    .array()
+                    .as_opt::<Bool>()
+                    .vortex_expect("boolean input")
+                    .to_bit_buffer();
+                if fill {
+                    bits.select_unset(nth as usize)
+                } else {
+                    bits.select(nth as usize)
+                }
+                .vortex_expect("exception count matches bitmap")
+            })
+            .unwrap_or(0);
+        let index_width = sparse_index_width(last_index);
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
             data.array().nbytes() as f64 / (exceptions as f64 * index_width as f64 + 2.0),
         ))
@@ -315,19 +334,43 @@ mod tests {
     }
 
     #[rstest]
+    #[case::false_fill(false)]
+    #[case::true_fill(true)]
+    fn test_bool_sparse_prices_clustered_prefix_by_last_patch(
+        #[case] fill: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 192 exceptions all within 0..255 (u8 indices -> ~196 B) followed by a long fill tail.
+        // Pricing from array_len (64,000 -> u16) ranked RunEnd (272 B) ahead of Sparse.
+        let input =
+            BoolArray::from_iter((0..64_000).map(|i| (i < 256 && i % 4 != 3) ^ fill)).into_array();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
+
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<Sparse>(),
+            "expected Sparse, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < 250);
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
     #[case::u8_max(255, 1.125, 1)]
-    #[case::u8_to_u16(256, 2.125, 1)]
-    #[case::u16_min_sparse(257, 2.125, 2)]
+    #[case::u8_to_u16(256, 2.125, 2)]
     #[case::u16_max(65_535, 2.125, 2)]
-    #[case::u16_to_u32(65_536, 4.125, 2)]
-    #[case::u32_min_sparse(65_537, 4.125, 4)]
+    #[case::u16_to_u32(65_536, 4.125, 4)]
     fn test_bool_index_width_boundaries(
-        #[case] len: usize,
+        #[case] max_pos: usize,
         #[case] expected_runend_bytes: f64,
         #[case] expected_sparse_width: usize,
     ) {
-        assert!((runend_bytes_per_run(len) - expected_runend_bytes).abs() < 1e-12);
-        assert_eq!(sparse_index_width(len), expected_sparse_width);
+        assert!((runend_bytes_per_run(max_pos) - expected_runend_bytes).abs() < 1e-12);
+        assert_eq!(sparse_index_width(max_pos), expected_sparse_width);
     }
 
     #[test]
