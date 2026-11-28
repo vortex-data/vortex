@@ -229,6 +229,20 @@ pub(super) fn frequency_code_bit_width_histogram(
     (histogram, max_bw)
 }
 
+/// Bit width of the narrowest unsigned integer type (`u8`, `u16`, `u32`, or `u64`) that can
+/// represent `max_value` (used to price `RunEnd`'s narrowed `ends` when no cascade levels remain).
+fn narrow_unsigned_bits(max_value: u64) -> u64 {
+    if max_value <= u64::from(u8::MAX) {
+        u64::from(u8::BITS)
+    } else if max_value <= u64::from(u16::MAX) {
+        u64::from(u16::BITS)
+    } else if max_value <= u64::from(u32::MAX) {
+        u64::from(u32::BITS)
+    } else {
+        u64::from(u64::BITS)
+    }
+}
+
 /// Estimates the compressed bit size of dictionary `codes` (excluding validity).
 ///
 /// Considers uncompressed narrowed codes (`u8`/`u16`/`u32`), patched FastLanes bit-packing
@@ -241,11 +255,11 @@ pub(super) fn estimate_codes_bits(
     distinct_count: u32,
     run_count: u32,
     histogram: Option<&[u64; 33]>,
-    finished_cascading: bool,
+    allowed_cascading: usize,
 ) -> u64 {
     let ptype_bits = codes_ptype_bits(distinct_count);
     let uncompressed_bits = array_len.saturating_mul(ptype_bits);
-    if finished_cascading {
+    if allowed_cascading == 0 {
         return uncompressed_bits;
     }
 
@@ -318,7 +332,14 @@ pub(super) fn estimate_codes_bits(
     if effective_avg_run_len >= u64::from(RLE_MIN_RUN_LENGTH)
         && u64::from(distinct_count) <= rle_runs / 2
     {
-        let rle_bits = rle_runs.saturating_mul(max_bw + u64::from(u32::BITS));
+        // With only one cascade level left, `IntRLEScheme` skips and `RunEndScheme`'s own children
+        // cannot cascade, so `RunEnd` keeps raw `codes` (`ptype_bits`) and narrowed `ends`.
+        let bits_per_run = if allowed_cascading == 1 {
+            ptype_bits + narrow_unsigned_bits(array_len)
+        } else {
+            max_bw + u64::from(u32::BITS)
+        };
+        let rle_bits = rle_runs.saturating_mul(bits_per_run);
         best_bits = best_bits.min(rle_bits);
     }
 

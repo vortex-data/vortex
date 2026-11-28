@@ -119,15 +119,17 @@ impl Scheme for FloatDictScheme {
 
         let array_len = u64::from(value_count) + u64::from(stats.null_count());
         let validity_bits = if stats.null_count() > 0 { array_len } else { 0 };
+        let allowed_cascading = compress_ctx.allowed_cascading();
         let values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
-        let (histogram, _max_bw) = float_code_bit_width_histogram(&stats, distinct_values_count);
+        let histogram = (allowed_cascading > 0)
+            .then(|| float_code_bit_width_histogram(&stats, distinct_values_count).0);
         let codes_bits = super::estimate_codes_bits(
             array_len,
             u64::from(value_count),
             distinct_values_count,
             stats.run_count(),
-            Some(&histogram),
-            compress_ctx.finished_cascading(),
+            histogram.as_ref(),
+            allowed_cascading,
         );
 
         let before = array_len

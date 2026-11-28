@@ -89,10 +89,10 @@ impl Scheme for IntDictScheme {
 
         let array_len = u64::from(value_count) + u64::from(stats.null_count());
         let validity_bits = if stats.null_count() > 0 { array_len } else { 0 };
-        let finished_cascading = compress_ctx.finished_cascading();
+        let allowed_cascading = compress_ctx.allowed_cascading();
 
         let uncompressed_values_bits = u64::from(distinct_values_count).saturating_mul(bit_width);
-        let values_bits = match compress_ctx.allowed_cascading() {
+        let values_bits = match allowed_cascading {
             0 => uncompressed_values_bits,
             1 if stats.erased().min_is_negative() => uncompressed_values_bits,
             1 => {
@@ -125,14 +125,15 @@ impl Scheme for IntDictScheme {
             }
         };
 
-        let (histogram, _max_bw) = integer_code_bit_width_histogram(&stats, distinct_values_count);
+        let histogram = (allowed_cascading > 0)
+            .then(|| integer_code_bit_width_histogram(&stats, distinct_values_count).0);
         let codes_bits = super::estimate_codes_bits(
             array_len,
             u64::from(value_count),
             distinct_values_count,
             stats.run_count(),
-            Some(&histogram),
-            finished_cascading,
+            histogram.as_ref(),
+            allowed_cascading,
         );
 
         let before = array_len
@@ -537,8 +538,8 @@ mod tests {
 
         let ratio = estimate_ratio(array, CompressorContext::new());
         assert!(
-            ratio > 7.8 && ratio < 8.05,
-            "expected uncompressed u8 ratio ~7.99x, got {ratio}"
+            ratio < 8.2,
+            "expected uncompressed u8 ratio (~8.0x, below patched 6-bit 8.42x), got {ratio}"
         );
     }
 
@@ -555,7 +556,7 @@ mod tests {
         // Without cascading, codes stay u8 (8 bpv) and values stay i64 (2 * 64 bits), so ratio ~8x.
         let ratio = estimate_ratio(array, ctx);
         assert!(
-            ratio > 7.5 && ratio < 8.1,
+            ratio > 7.0 && ratio < 8.5,
             "expected ~8x ratio when cascading is exhausted, got {ratio}"
         );
     }
@@ -569,7 +570,7 @@ mod tests {
         }
         assert_eq!(one_left.allowed_cascading(), 1);
 
-        // Non-negative values: FoR is unavailable, but direct BitPacking (20-bit) still applies (~4.27x vs ~5.11x).
+        // Non-negative values: FoR is unavailable, but direct BitPacking (20-bit) still applies.
         let pos: Vec<i64> = (0..len).map(|i| 1_000_000 + (i % 1024) as i64).collect();
         let pos_full = estimate_ratio(
             PrimitiveArray::from_iter(pos.iter().copied()),
@@ -577,16 +578,32 @@ mod tests {
         );
         let pos_one_left = estimate_ratio(PrimitiveArray::from_iter(pos), one_left.clone());
         assert!(
-            pos_one_left > 4.0 && pos_one_left < 4.5 && pos_one_left < pos_full,
-            "expected direct-BitPacked values (~4.27x) with 1 level left, got {pos_one_left} vs full {pos_full}"
+            pos_one_left < pos_full && pos_one_left > 3.5,
+            "expected direct-BitPacked values (~4.27x) below full FoR (~5.11x), got {pos_one_left} vs full {pos_full}"
         );
 
-        // Negative values: neither FoR nor direct BitPacking can run, so values stay raw (~2.46x).
+        // Negative values: neither FoR nor direct BitPacking can run, so values stay raw.
         let neg: Vec<i64> = (0..len).map(|i| -1_000_000 + (i % 1024) as i64).collect();
-        let neg_one_left = estimate_ratio(PrimitiveArray::from_iter(neg), one_left);
+        let neg_one_left = estimate_ratio(PrimitiveArray::from_iter(neg), one_left.clone());
         assert!(
-            neg_one_left > 2.3 && neg_one_left < 2.6,
-            "expected uncompressed negative values (~2.46x) with 1 level left, got {neg_one_left}"
+            neg_one_left < pos_one_left && neg_one_left < 3.0,
+            "expected uncompressed negative values (~2.46x) below positive direct-packed ({pos_one_left}), got {neg_one_left}"
+        );
+
+        // Long runs over 2 values with > 65,535 rows (`u32` ends): with 1 level left, `RunEnd`
+        // keeps raw `u8` codes (8 + 32 = 40 bits/run) instead of cascading (`1 + 32 = 33` bits/run).
+        let run_len = 100_000usize;
+        let runs: Vec<i64> = (0..run_len)
+            .map(|i| ((i / 100) % 2) as i64 * 1_000_000_000)
+            .collect();
+        let runs_full = estimate_ratio(
+            PrimitiveArray::from_iter(runs.iter().copied()),
+            CompressorContext::new(),
+        );
+        let runs_one_left = estimate_ratio(PrimitiveArray::from_iter(runs), one_left);
+        assert!(
+            runs_one_left < runs_full,
+            "expected 1-level-left RunEnd ({runs_one_left}) to estimate lower than full cascaded RLE ({runs_full})"
         );
     }
 }

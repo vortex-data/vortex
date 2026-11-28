@@ -133,7 +133,7 @@ impl Scheme for DecimalDictScheme {
             distinct_values_count,
             run_count,
             None,
-            compress_ctx.finished_cascading(),
+            compress_ctx.allowed_cascading(),
         );
 
         let before = array_len
