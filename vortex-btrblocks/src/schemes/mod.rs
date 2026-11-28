@@ -81,7 +81,7 @@ fn rle_ancestor_exclusions() -> Vec<AncestorExclusion> {
     ]
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "pco"))]
 pub(crate) mod test_utils {
     use vortex_array::ArrayId;
     use vortex_array::ArrayRef;
