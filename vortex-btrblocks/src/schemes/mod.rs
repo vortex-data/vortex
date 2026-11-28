@@ -91,6 +91,7 @@ pub(crate) mod test_utils {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_compressor::CascadingCompressor;
     use vortex_compressor::scheme::CompressionEstimate;
+    use vortex_compressor::scheme::EstimateVerdict;
     use vortex_error::VortexResult;
     use vortex_pco::Pco;
 
@@ -99,7 +100,8 @@ pub(crate) mod test_utils {
     use crate::Encoded;
     use crate::Scheme;
 
-    /// Delegates every [`Scheme`] method to `S` except `fixed_nbytes`, which stays at the default `0`.
+    /// Delegates every [`Scheme`] method to `S` except `fixed_nbytes` and `fixed_nbytes_chunk_len`,
+    /// which stay at their defaults (`0` and `None`).
     #[derive(Debug, Copy, Clone)]
     pub(crate) struct UnamortizedScheme<S>(pub(crate) S);
 
@@ -143,6 +145,46 @@ pub(crate) mod test_utils {
             exec_ctx: &mut ExecutionCtx,
         ) -> VortexResult<ArrayRef> {
             self.0.compress(compressor, data, compress_ctx, exec_ctx)
+        }
+    }
+
+    /// Reports a fixed compression ratio verdict and returns the input unchanged on `compress`,
+    /// letting tests compare another scheme's sampled estimate against a measured ratio.
+    #[derive(Debug, Copy, Clone)]
+    pub(crate) struct TargetRatioScheme {
+        pub(crate) ratio: f64,
+    }
+
+    impl Scheme for TargetRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.target_ratio"
+        }
+
+        fn matches(&self, _canonical: &Canonical) -> bool {
+            true
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(self.ratio))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
         }
     }
 

@@ -15,6 +15,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::num::NonZeroUsize;
 
 pub use encoded::Child;
 pub use encoded::ChildDecision;
@@ -191,6 +192,17 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// The default is `0`, which charges the sample for every byte it produced.
     fn fixed_nbytes(&self, _compressed: &ArrayRef) -> u64 {
         0
+    }
+
+    /// Maximum number of rows over which [`Scheme::fixed_nbytes`] is amortized before the fixed
+    /// cost repeats in another chunk, or `None` if it is paid once for the whole array.
+    ///
+    /// When `Some(chunk_len)`, the compressor scales `fixed_nbytes` by
+    /// `full_len.div_ceil(chunk_len) / sample_len.div_ceil(chunk_len)` before amortizing over
+    /// `full_len`. Using `full_len` rather than non-null count biases nullable multi-chunk arrays
+    /// toward a slight overestimate rather than an underestimate.
+    fn fixed_nbytes_chunk_len(&self) -> Option<NonZeroUsize> {
+        None
     }
 
     /// Cheaply estimate the compression ratio for this scheme on the given array.

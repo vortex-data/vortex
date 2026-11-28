@@ -1168,6 +1168,83 @@ fn sampling_charges_fixed_nbytes_in_full_without_subsampling() -> VortexResult<(
     Ok(())
 }
 
+#[derive(Debug, Copy, Clone)]
+struct ChunkedFixedTableScheme;
+
+impl ChunkedFixedTableScheme {
+    const TABLE_NBYTES: usize = 4096;
+    const CHUNK_LEN: usize = 262_144;
+}
+
+impl Scheme for ChunkedFixedTableScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.chunked_fixed_table"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn fixed_nbytes(&self, _compressed: &ArrayRef) -> u64 {
+        Self::TABLE_NBYTES as u64
+    }
+
+    fn fixed_nbytes_chunk_len(&self) -> Option<std::num::NonZeroUsize> {
+        std::num::NonZeroUsize::new(Self::CHUNK_LEN)
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let nbytes = Self::TABLE_NBYTES + data.array().len();
+        Ok(PrimitiveArray::new(
+            Buffer::from_iter(iter::repeat_n(0u8, nbytes)),
+            Validity::NonNullable,
+        )
+        .into_array())
+    }
+}
+
+/// Above `fixed_nbytes_chunk_len`, the compressor charges one fixed table per chunk of `full_len`
+/// rather than spreading a single table across the whole array.
+#[test]
+fn sampling_scales_fixed_nbytes_by_chunk_count_above_chunk_len() -> VortexResult<()> {
+    let array =
+        PrimitiveArray::new(Buffer::from_iter(0..300_000_i32), Validity::NonNullable).into_array();
+    let compressor = CascadingCompressor::new(vec![&ChunkedFixedTableScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let score = estimate_compression_ratio_with_sampling(
+        &compressor,
+        &ChunkedFixedTableScheme,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
+        CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
+
+    // 300,000 rows span ceil(300,000 / 262,144) = 2 chunks, and production sampling picks
+    // 3 * 1024 = 3072 rows: ceil(4096 * 2 * 3072 / 300,000) = 84 bytes of fixed overhead.
+    assert_eq!(score, EstimateScore::from_sample_sizes(4 * 3072, 3072 + 84));
+    Ok(())
+}
+
 type MapEntryFixture<'a> = (i32, Option<&'a str>);
 type MapRowFixture<'a> = Option<Vec<MapEntryFixture<'a>>>;
 

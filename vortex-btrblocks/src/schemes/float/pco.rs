@@ -3,6 +3,8 @@
 
 //! Pco (pcodec) float compression.
 
+use std::num::NonZeroUsize;
+
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -42,13 +44,17 @@ impl Scheme for PcoScheme {
     /// The per-chunk tANS tables and bin metadata, written once per Pco chunk of up to
     /// `pco::DEFAULT_MAX_PAGE_N` (262,144) valid values rather than growing with row count inside
     /// a sample.
-    ///
-    /// Arrays exceeding one Pco chunk pay `ceil(n_valid / 262_144)` chunk metas, so treating this
-    /// as a single fixed cost slightly under-charges Pco on very long arrays.
     fn fixed_nbytes(&self, compressed: &ArrayRef) -> u64 {
         compressed
             .as_opt::<Pco>()
             .map_or(0, |pco| pco.chunk_metas_nbytes())
+    }
+
+    /// Pco starts a new chunk every `pco::DEFAULT_MAX_PAGE_N` (262,144) valid values. Scaling by
+    /// `full_len.div_ceil(262_144)` is exact for non-null arrays and slightly overestimates when
+    /// nulls reduce the valid count below `full_len`.
+    fn fixed_nbytes_chunk_len(&self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(pco::DEFAULT_MAX_PAGE_N)
     }
 
     fn expected_compression_ratio(

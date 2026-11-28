@@ -3,6 +3,7 @@
 
 //! Sampling utilities for compression ratio estimation.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use rand::RngExt;
@@ -306,17 +307,35 @@ fn sample_rows(array: &ArrayRef) -> ArrayRef {
 /// the share that the sample's `sample_len` rows make up of the full array's `full_len` rows.
 ///
 /// A sample pays in full for bytes that do not grow with the input, such as a symbol table, which
-/// makes a scheme look worse than it is at full size. The amortized share rounds up, so a
-/// non-empty output never becomes a zero-byte one.
-fn amortize_fixed_nbytes(total: u64, fixed: u64, sample_len: usize, full_len: usize) -> u64 {
+/// makes a scheme look worse than it is at full size. When `fixed_chunk_len` is `Some(chunk_len)`,
+/// the fixed cost repeats once per `chunk_len` rows so the full array is charged for
+/// `full_len.div_ceil(chunk_len)` chunks (relative to `sample_len.div_ceil(chunk_len)` in the
+/// sample). The amortized share rounds up, so a non-empty output never becomes a zero-byte one.
+fn amortize_fixed_nbytes(
+    total: u64,
+    fixed: u64,
+    fixed_chunk_len: Option<NonZeroUsize>,
+    sample_len: usize,
+    full_len: usize,
+) -> u64 {
     if sample_len >= full_len {
         return total;
     }
 
     let fixed = fixed.min(total);
-    let amortized = (u128::from(fixed) * sample_len as u128).div_ceil(full_len as u128);
-    // The share is at most `fixed` because `sample_len < full_len`.
-    (total - fixed) + u64::try_from(amortized).unwrap_or(fixed)
+    let (sample_chunks, full_chunks) = match fixed_chunk_len {
+        Some(chunk_len) => (
+            sample_len.div_ceil(chunk_len.get()) as u128,
+            full_len.div_ceil(chunk_len.get()) as u128,
+        ),
+        None => (1u128, 1u128),
+    };
+    let numerator = u128::from(fixed)
+        .saturating_mul(full_chunks)
+        .saturating_mul(sample_len as u128);
+    let denominator = sample_chunks.saturating_mul(full_len as u128);
+    let amortized = numerator.div_ceil(denominator);
+    (total - fixed).saturating_add(u64::try_from(amortized).unwrap_or(u64::MAX))
 }
 
 /// Estimates a scheme's compression ratio by compressing the array's compression sample.
@@ -357,6 +376,7 @@ pub(crate) fn estimate_compression_ratio_with_sampling(
     let after = amortize_fixed_nbytes(
         compressed.nbytes(),
         scheme.fixed_nbytes(&compressed),
+        scheme.fixed_nbytes_chunk_len(),
         sample.data.array().len(),
         data.array().len(),
     );
