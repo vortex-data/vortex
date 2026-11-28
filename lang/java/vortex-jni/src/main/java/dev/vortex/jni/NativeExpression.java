@@ -43,6 +43,16 @@ public final class NativeExpression {
 
     public static native long like(long childPointer, long patternPointer, boolean negated, boolean caseInsensitive);
 
+    public static native long dynamic(byte operator, long lhsPointer, long dynamicValuePointer, boolean defaultResult);
+
+    public static native long dynamicValueCreate(long prototypePointer);
+
+    public static native long variantGet(long childPointer, String[] fields, long[] indexes);
+
+    public static native void dynamicValueSet(long dynamicValuePointer, long literalPointer);
+
+    public static native void dynamicValueFree(long dynamicValuePointer);
+
     public static native long between(
             long valuePointer, long lowerPointer, long upperPointer, boolean lowerStrict, boolean upperStrict);
 

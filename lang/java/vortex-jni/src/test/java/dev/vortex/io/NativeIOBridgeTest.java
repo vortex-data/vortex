@@ -10,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.api.DataSource;
+import dev.vortex.api.DynamicValue;
+import dev.vortex.api.Expression;
 import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
@@ -292,6 +294,39 @@ public final class NativeIOBridgeTest {
             assertEquals(25, statistics.get(1).lowerBound().orElseThrow());
             assertEquals(40, statistics.get(1).upperBound().orElseThrow());
         }
+    }
+
+    @Test
+    public void testDynamicComparisonFollowsItsValue() throws IOException {
+        Path path = tempDir.resolve("bridge_dynamic.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        writePeopleFile(session, allocator, path);
+
+        DynamicValue threshold = DynamicValue.create(Expression.nullLiteral(Expression.DType.I32));
+        Expression filter = Expression.dynamic(Expression.BinaryOp.LT, Expression.column("age"), threshold, true);
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            DataSource source = DataSource.open(session, readable);
+            // Unset, the comparison keeps every row.
+            assertEquals(3, countRows(source, filter, allocator));
+            threshold.set(Expression.literal(35));
+            assertEquals(2, countRows(source, filter, allocator));
+            threshold.set(Expression.literal(26));
+            assertEquals(1, countRows(source, filter, allocator));
+        }
+    }
+
+    private static int countRows(DataSource source, Expression filter, BufferAllocator allocator) throws IOException {
+        Scan scan = source.scan(ScanOptions.builder().filter(filter).build());
+        int rows = 0;
+        while (scan.hasNext()) {
+            try (ArrowReader reader = scan.next().scanArrow(allocator)) {
+                while (reader.loadNextBatch()) {
+                    rows += reader.getVectorSchemaRoot().getRowCount();
+                }
+            }
+        }
+        return rows;
     }
 
     @Test
