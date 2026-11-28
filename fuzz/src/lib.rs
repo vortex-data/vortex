@@ -38,6 +38,8 @@ pub mod fsst_like;
 #[cfg(test)]
 mod hegel_smoke;
 mod row;
+#[cfg(feature = "native")]
+mod variant;
 /// Untrusted wire-input fuzzing for IPC and protobuf boundaries.
 #[cfg(feature = "native")]
 pub mod wire;
