@@ -140,7 +140,10 @@ def _extract_panic_reason(stderr_txt: str, label: str) -> str:
 def _run_isolated(fn: Callable[[], dict], timeout_s: float = 120.0) -> dict:
     """Run `fn()` in a forked child on POSIX so Rust FFI aborts or hangs cannot kill the worker."""
     if not hasattr(os, "fork"):
-        return fn()
+        try:
+            return fn()
+        except BaseException as e:
+            return {"ok": False, "error": _clean_error(f"{type(e).__name__}: {e}")}
 
     with (
         tempfile.NamedTemporaryFile("w+", delete=False) as tf,
