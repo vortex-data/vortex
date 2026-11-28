@@ -99,6 +99,12 @@ const OBJECT_HEADERS: &str =
 /// Matches `ObjectStoreWrite`'s internal 16 MiB part threshold in `vortex-io`.
 const MULTIPART_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 
+#[derive(Debug, Default)]
+struct ConnectStats {
+    attempts: AtomicUsize,
+    timeouts: AtomicUsize,
+}
+
 /// `object_store::client::HttpConnector` backed by `turmoil::net::TcpStream` and `hyper` HTTP/1.1.
 ///
 /// Captures the turmoil client host's Tokio handle so requests initiated off-host (such as
@@ -107,7 +113,7 @@ const MULTIPART_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 struct TurmoilHttpConnector {
     runtime: TokioHandle,
     connect_timeout: Duration,
-    connect_attempts: Arc<AtomicUsize>,
+    connect_stats: Arc<ConnectStats>,
 }
 
 impl TurmoilHttpConnector {
@@ -115,12 +121,12 @@ impl TurmoilHttpConnector {
         Self {
             runtime: TokioHandle::current(),
             connect_timeout,
-            connect_attempts: Arc::new(AtomicUsize::new(0)),
+            connect_stats: Arc::new(ConnectStats::default()),
         }
     }
 
-    fn with_connect_attempts(mut self, connect_attempts: Arc<AtomicUsize>) -> Self {
-        self.connect_attempts = connect_attempts;
+    fn with_connect_stats(mut self, connect_stats: Arc<ConnectStats>) -> Self {
+        self.connect_stats = connect_stats;
         self
     }
 }
@@ -185,8 +191,10 @@ async fn send_over_turmoil(
     host: &str,
     port: u16,
     connect_timeout: Duration,
+    connect_stats: &ConnectStats,
     req: HttpRequest,
 ) -> Result<(Parts, Incoming, JoinHandle<()>), HttpError> {
+    connect_stats.attempts.fetch_add(1, Ordering::Relaxed);
     let stream = match time::timeout(connect_timeout, TcpStream::connect((host, port))).await {
         Ok(Ok(stream)) => stream,
         Ok(Err(err)) => {
@@ -195,6 +203,7 @@ async fn send_over_turmoil(
             return Err(HttpError::new(HttpErrorKind::Connect, detail));
         }
         Err(_) => {
+            connect_stats.timeouts.fetch_add(1, Ordering::Relaxed);
             let detail = io::Error::new(
                 ErrorKind::TimedOut,
                 format!("connect timeout to {host}:{port}"),
@@ -259,14 +268,14 @@ impl HttpService for TurmoilHttpConnector {
             .parse::<Uri>()
             .map_err(|err| HttpError::new(HttpErrorKind::Request, err))?;
 
-        self.connect_attempts.fetch_add(1, Ordering::Relaxed);
         let connect_timeout = self.connect_timeout;
+        let connect_stats = Arc::clone(&self.connect_stats);
         let (parts_tx, parts_rx) = oneshot::channel();
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
 
         let worker = self.runtime.spawn(async move {
             let (parts, mut body, conn_task) =
-                match send_over_turmoil(&host, port, connect_timeout, req).await {
+                match send_over_turmoil(&host, port, connect_timeout, &connect_stats, req).await {
                     Ok(res) => res,
                     Err(err) => {
                         drop(parts_tx.send(Err(err)));
@@ -833,10 +842,10 @@ mod tests {
         Ok(())
     }
 
-    /// Mid-stream TCP drop after a partial `206` body fails cleanly with a transport error when
-    /// retries are disabled (`max_retries = 0`).
+    /// Mid-stream body truncation (early FIN after a partial `206` body) fails cleanly with a
+    /// transport error when retries are disabled (`max_retries = 0`).
     #[test]
-    fn test_mid_stream_tcp_reset_fails_when_retries_disabled() -> turmoil::Result {
+    fn test_mid_stream_truncation_fails_when_retries_disabled() -> turmoil::Result {
         let mut sim = make_sim();
         let state = Arc::new(ServerState {
             object: Bytes::from((0u8..200).collect::<Vec<_>>()),
@@ -861,10 +870,10 @@ mod tests {
         Ok(())
     }
 
-    /// Mid-stream TCP drop with retries enabled resumes from the offset already delivered and
-    /// reconstructs the exact requested range.
+    /// Mid-stream body truncation (early FIN) with retries enabled resumes from the offset already
+    /// delivered and reconstructs the exact requested range.
     #[test]
-    fn test_mid_stream_tcp_reset_resumes_range_on_retry() -> turmoil::Result {
+    fn test_mid_stream_truncation_resumes_range_on_retry() -> turmoil::Result {
         let mut sim = make_sim();
         let payload = Bytes::from((0u8..200).collect::<Vec<_>>());
         let expected = payload.slice(10..110);
@@ -927,8 +936,9 @@ mod tests {
         Ok(())
     }
 
-    /// Both an active network partition (`partition`/`repair`) and a blackhole packet hold
-    /// (`hold`/`release` hitting connect timeout) retry and recover once connectivity is restored.
+    /// Both an active network partition (`partition`/`repair`, where turmoil rejects SYN
+    /// immediately) and a blackhole packet hold (`hold`/`release`, hitting the connect timeout)
+    /// retry and recover once connectivity is restored.
     #[rstest]
     #[case::partition_repair(false, 80)]
     #[case::blackhole_hold_timeout(true, 300)]
@@ -946,8 +956,8 @@ mod tests {
         attach_server(&mut sim, "server", &state);
 
         let heal_after = Duration::from_millis(heal_after_ms);
-        let connect_attempts = Arc::new(AtomicUsize::new(0));
-        let client_attempts = Arc::clone(&connect_attempts);
+        let connect_stats = Arc::new(ConnectStats::default());
+        let client_stats = Arc::clone(&connect_stats);
         sim.client("healer", async move {
             time::sleep(heal_after).await;
             if use_hold {
@@ -964,10 +974,11 @@ mod tests {
             } else {
                 turmoil::partition("client", "server");
             }
+            let start = time::Instant::now();
             // Exceeds turmoil's default 200 ms max SYN+SYN-ACK handshake latency so healthy
             // post-heal connects never spuriously time out.
             let connector = TurmoilHttpConnector::current(Duration::from_millis(250))
-                .with_connect_attempts(client_attempts);
+                .with_connect_stats(client_stats);
             let store = http_store_with_connector("http://server:80", 6, connector)?;
             let reader = ObjectStoreReadAt::new(
                 store,
@@ -976,16 +987,33 @@ mod tests {
             );
             let buffer = reader.read_at(0, expected.len(), Alignment::new(1)).await?;
             assert_eq!(buffer.to_host().await.as_slice(), expected.as_ref());
+            assert!(
+                start.elapsed() >= heal_after,
+                "client completed in {:?} before heal_after {:?}",
+                start.elapsed(),
+                heal_after
+            );
             Ok(())
         });
 
         sim.run()?;
         assert_eq!(state.requests.lock().len(), 1);
         assert!(
-            connect_attempts.load(Ordering::Relaxed) >= 2,
-            "expected at least one failed connect attempt before recovery"
+            connect_stats.attempts.load(Ordering::Relaxed) >= 2,
+            "expected at least one failed TCP connect attempt before recovery"
         );
-        assert!(sim.elapsed() >= heal_after);
+        if use_hold {
+            assert!(
+                connect_stats.timeouts.load(Ordering::Relaxed) >= 1,
+                "expected hold case to hit connect timeout before recovery"
+            );
+        } else {
+            assert_eq!(
+                connect_stats.timeouts.load(Ordering::Relaxed),
+                0,
+                "expected partition case to fail connect immediately without timing out"
+            );
+        }
         Ok(())
     }
 
@@ -1000,18 +1028,18 @@ mod tests {
         });
 
         sim.client("client", async move {
-            let msg = read_range_err(
+            let err = read_range_err(
                 "http://closed-server:80",
                 1,
                 Duration::from_millis(50),
                 0,
                 16,
             )
-            .await?
-            .to_string();
-            assert!(
-                msg.contains("connection refused"),
-                "unexpected error message: {msg}"
+            .await?;
+            assert_eq!(
+                find_source::<io::Error>(&err).map(io::Error::kind),
+                Some(ErrorKind::ConnectionRefused),
+                "expected ConnectionRefused io::Error, got: {err}"
             );
             Ok(())
         });
