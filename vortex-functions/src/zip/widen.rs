@@ -70,6 +70,7 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::half::f16;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -206,6 +207,95 @@ mod tests {
             .execute::<Canonical>(&mut ctx)?;
 
         assert_arrays_eq!(actual, expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Nullable `f64` values stored in an `f16` `Widen`, including `-0.0`, canonical `NaN`, and nulls.
+    fn float_widen_f16() -> WidenArray {
+        let values = [
+            Some(f16::from_f32(-0.0)),
+            None,
+            Some(f16::from_f32(1.5)),
+            Some(f16::NAN),
+            None,
+            Some(f16::from_f32(-4.0)),
+        ];
+        widen(PrimitiveArray::from_option_iter(values), PType::F64)
+    }
+
+    #[rstest]
+    #[case::widen_both(
+        float_widen_f16().into_array(),
+        widen(buffer![100_000.0_f32, -0.0, 2.5, 3.0, 4.0, -5.0], PType::F64).into_array(),
+        PType::F32,
+    )]
+    #[case::constant_fits_f16(
+        float_widen_f16().into_array(),
+        ConstantArray::new(2.5_f64, 6).into_array(),
+        PType::F16,
+    )]
+    #[case::constant_fits_f32(
+        float_widen_f16().into_array(),
+        ConstantArray::new(100_000.0_f64, 6).into_array(),
+        PType::F32,
+    )]
+    #[case::constant_requires_f64(
+        float_widen_f16().into_array(),
+        ConstantArray::new(0.1_f64, 6).into_array(),
+        PType::F64,
+    )]
+    #[case::constant_non_canonical_nan(
+        float_widen_f16().into_array(),
+        ConstantArray::new(f64::from_bits(0x7ff8_0000_0000_0001), 6).into_array(),
+        PType::F64,
+    )]
+    fn test_float_zip(
+        #[case] if_true: ArrayRef,
+        #[case] if_false: ArrayRef,
+        #[case] expected_stored: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Row 1 has a null mask (taking `if_false`) and row 4 selects a null from the `if_true`
+        // `Widen` branch.
+        let mask = BoolArray::from_iter([
+            Some(true),
+            None,
+            Some(false),
+            Some(true),
+            Some(true),
+            Some(false),
+        ])
+        .into_array();
+
+        let zipped = mask
+            .zip(if_true.clone(), if_false.clone())?
+            .execute::<ArrayRef>(&mut ctx)?;
+
+        assert_eq!(stored_ptype(&zipped), expected_stored);
+        let expected = mask.zip(
+            canonical(&if_true, &mut ctx)?,
+            canonical(&if_false, &mut ctx)?,
+        )?;
+        assert_arrays_eq!(zipped, expected, &mut ctx);
+
+        // Verify `-0.0` sign bit and NaN payload are preserved bit-for-bit on valid lanes, and
+        // that the selected null row from `if_true` remains null.
+        let actual_prim = zipped.execute::<PrimitiveArray>(&mut ctx)?;
+        let expected_prim = expected.execute::<PrimitiveArray>(&mut ctx)?;
+        let valid = expected_prim
+            .validity()?
+            .execute_mask(expected_prim.len(), &mut ctx)?;
+        assert!(!valid.value(4), "row 4 must select the null from if_true");
+        for i in 0..expected_prim.len() {
+            if valid.value(i) {
+                assert_eq!(
+                    actual_prim.as_slice::<f64>()[i].to_bits(),
+                    expected_prim.as_slice::<f64>()[i].to_bits(),
+                    "bit mismatch at row {i}",
+                );
+            }
+        }
 
         Ok(())
     }

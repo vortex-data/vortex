@@ -10,8 +10,10 @@ use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::Widen;
 use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::decimal::DecimalArrayExt;
+use vortex::array::arrays::widen::WidenArraySlotsExt;
 use vortex::array::assert_arrays_eq;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
@@ -244,4 +246,31 @@ async fn test_kernel_boundaries(#[case] len: usize) -> VortexResult<()> {
     let device_child = upload(child.clone(), &mut ctx).await?;
 
     check_widen(child, device_child, PType::I64.into(), &mut ctx).await
+}
+
+#[rstest]
+#[crate::test]
+async fn test_float_host_fallback(
+    #[values(false, true)] nullable: bool,
+    #[values(CudaDispatchMode::Auto, CudaDispatchMode::StandaloneOnly)] mode: CudaDispatchMode,
+) -> VortexResult<()> {
+    let values = Buffer::from_iter([0.0_f64, -0.0, 1.5, f64::NAN, -42.25, 100_000.0]);
+    let input = PrimitiveArray::new(values, validity(nullable, 6));
+    let expected = input.clone().into_array();
+    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?.with_dispatch_mode(mode);
+    let encoded = WidenArray::encode_float(input, ctx.execution_ctx())?;
+    let widen = encoded
+        .as_opt::<Widen>()
+        .expect("f64 array fits losslessly in f32");
+    assert_eq!(widen.values().dtype().as_ptype(), PType::F32);
+
+    let device_child = upload(widen.values().clone(), &mut ctx).await?;
+    let device = WidenArray::try_new(device_child, widen.dtype().clone())?.into_array();
+    assert!(!device.is_host());
+
+    let result = device.execute_cuda(&mut ctx).await?;
+    let actual = result.into_host(ctx.execution_ctx()).await?.into_array();
+    assert_arrays_eq!(actual, expected, ctx.execution_ctx());
+
+    Ok(())
 }

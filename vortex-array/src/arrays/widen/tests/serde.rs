@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests for the `Widen` wire formats.
+//! Tests for the `Widen` wire format.
 //!
 //! A decimal leaf can use the `vortex.decimal` wire ID while preserving the values of the original
 //! `Widen`. The tests check the wire ID and the decoded values separately.
@@ -43,6 +43,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::half::f16;
 use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
@@ -233,6 +234,24 @@ fn serialization_keeps_parent_statistics() -> VortexResult<()> {
     DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable),
     [16, 9],
 )]
+#[case::f32_to_f64(
+    buffer![-0.0_f32, 0.0_f32, 1.5_f32, f32::INFINITY, f32::NAN].into_array(),
+    DType::from(PType::F64),
+    [8, 9], // Field 1, PType::F32 = 9.
+)]
+#[case::f16_to_f64(
+    buffer![f16::NEG_ZERO, f16::ZERO, f16::ONE, f16::NEG_INFINITY, f16::NAN].into_array(),
+    DType::from(PType::F64),
+    [8, 8], // Field 1, PType::F16 = 8.
+)]
+#[case::f16_to_f32_dict(
+    DictArray::try_new(
+        buffer![2u8, 0, 1, 2].into_array(),
+        buffer![f16::NEG_ZERO, f16::from_f32(1.5), f16::INFINITY].into_array(),
+    )?.into_array(),
+    DType::from(PType::F32),
+    [8, 8], // Field 1, PType::F16 = 8.
+)]
 fn test_widen_wire_round_trip(
     #[case] child: ArrayRef,
     #[case] dtype: DType,
@@ -261,9 +280,14 @@ fn test_widen_wire_round_trip(
     Ok(())
 }
 
-#[test]
-fn test_widen_wire_id_requires_permission() -> VortexResult<()> {
-    let widen = widen_over(buffer![1i8, 2, 3], DType::from(PType::I64))?;
+#[rstest]
+#[case::int(buffer![1i8, 2, 3].into_array(), DType::from(PType::I64))]
+#[case::float(buffer![1.0_f32, -0.0_f32].into_array(), DType::from(PType::F64))]
+fn test_widen_wire_id_requires_permission(
+    #[case] child: ArrayRef,
+    #[case] dtype: DType,
+) -> VortexResult<()> {
+    let widen = widen_over(child, dtype)?;
     let restricted =
         ArrayContext::empty().with_allowed_ids([ArrayVTable::id(&Primitive)].into_iter().collect());
     let error = serialize_blob(&widen, &restricted, &SESSION)
@@ -292,6 +316,12 @@ fn test_widen_wire_id_requires_permission() -> VortexResult<()> {
     &[16, 1],
     "scale",
 )]
+#[case::float_parent_int_child(PType::F64.into(), &[8, 6], "does not match the parent")]
+#[case::int_parent_float_child(PType::I64.into(), &[8, 9], "does not match the parent")]
+#[case::float_parent_decimal_tag(PType::F64.into(), &[16, 9], "does not match the parent")]
+#[case::float_same_width(PType::F64.into(), &[8, 10], "narrower")]
+#[case::float_wider_child(PType::F32.into(), &[8, 10], "narrower")]
+#[case::float_unknown_tag(PType::F64.into(), &[24, 9], "must name the child type")]
 fn test_widen_wire_rejects_invalid_child_metadata(
     #[case] dtype: DType,
     #[case] metadata: &[u8],

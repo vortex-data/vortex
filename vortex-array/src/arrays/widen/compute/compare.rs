@@ -16,9 +16,15 @@ use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::compute::constant_fits_values;
 use crate::arrays::widen::compute::constant_in_values_dtype;
 use crate::arrays::widen::compute::ptype_holding_both_values;
+use crate::arrays::widen::encode::f32_fits_in_f16;
+use crate::arrays::widen::encode::f64_fits_in_f16;
+use crate::arrays::widen::encode::f64_fits_in_f32;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::PType;
+use crate::dtype::half::f16;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::compare::CompareKernel;
 use crate::scalar_fn::builtin::operators::CompareOperator;
@@ -43,6 +49,9 @@ impl CompareKernel for Widen {
             return Ok(None);
         };
         let values = lhs.values();
+        if values.dtype().is_float() {
+            return compare_float_constant(lhs, constant, operator);
+        }
         let Some(fits) = constant_fits_values(constant, values.dtype()) else {
             return Ok(None);
         };
@@ -93,6 +102,49 @@ fn compare_narrow_values(
     let rhs_values = rhs_values.cast(dtype.with_nullability(rhs_values.dtype().nullability()))?;
 
     lhs_values.compare(rhs_values, operator).map(Some)
+}
+
+/// Compares a floating-point `Widen` against a non-null floating-point constant.
+///
+/// Pushes the comparison down to the narrow child when the non-NaN constant is represented
+/// bit-for-bit in the child type. In-between constants and NaNs decline to canonical execution.
+fn compare_float_constant(
+    lhs: ArrayView<'_, Widen>,
+    constant: &Scalar,
+    operator: CompareOperator,
+) -> VortexResult<Option<ArrayRef>> {
+    let values = lhs.values();
+    let DType::Primitive(values_ptype, _) = values.dtype() else {
+        return Ok(None);
+    };
+    let Some(pvalue) = constant.as_primitive().pvalue() else {
+        return Ok(None);
+    };
+    if pvalue.is_nan() {
+        return Ok(None);
+    }
+
+    let nullability = constant.dtype().nullability();
+    let narrow_scalar = match (pvalue, *values_ptype) {
+        (PValue::F64(c), PType::F32) if f64_fits_in_f32(c) =>
+        {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "f64_fits_in_f32 verified bit-exact representation"
+            )]
+            Scalar::primitive(c as f32, nullability)
+        }
+        (PValue::F64(c), PType::F16) if f64_fits_in_f16(c) => {
+            Scalar::primitive(f16::from_f64(c), nullability)
+        }
+        (PValue::F32(c), PType::F16) if f32_fits_in_f16(c) => {
+            Scalar::primitive(f16::from_f32(c), nullability)
+        }
+        _ => return Ok(None),
+    };
+
+    let constant = ConstantArray::new(narrow_scalar, lhs.len()).into_array();
+    values.compare(constant, operator).map(Some)
 }
 
 /// Answers a compare of `lhs` with a valid `constant` outside the range of its values.
