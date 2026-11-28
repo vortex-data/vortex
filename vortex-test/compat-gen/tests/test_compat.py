@@ -562,3 +562,6 @@ def test_edition_reader_probe_column_causes_isolates_corrupt_expected_ipc(editio
     corrupt_ipc.write_bytes(b"not a valid arrow ipc file")
     monkeypatch.setattr(edition_reader, "_get_struct_columns", lambda _p: {"ok": True, "columns": ["a", "b"]})
     assert edition_reader._probe_column_causes(tmp_path / "broken.vortex", corrupt_ipc) == []
+
+    monkeypatch.delattr(edition_reader.os, "fork", raising=False)
+    assert edition_reader._probe_column_causes(tmp_path / "broken.vortex", corrupt_ipc) == []

@@ -142,6 +142,8 @@ def _run_isolated(fn: Callable[[], dict], timeout_s: float = 120.0) -> dict:
     if not hasattr(os, "fork"):
         try:
             return fn()
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except BaseException as e:
             return {"ok": False, "error": _clean_error(f"{type(e).__name__}: {e}")}
 
