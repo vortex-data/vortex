@@ -760,6 +760,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
+        // Five lists of two elements each, of which we append only the middle three.
         let source = ListArray::from_iter_slow::<u32, _>(
             (0..5).map(|i| vec![2 * i, 2 * i + 1]),
             Arc::clone(&dtype),
@@ -775,6 +776,7 @@ mod tests {
             BufferAllocatorRef::static_ref(),
         );
         builder.append_listview_array(middle.as_view(), &mut ctx)?;
+        // A second append has to rebase onto the elements already in the builder.
         builder.append_listview_array(middle.as_view(), &mut ctx)?;
         let listview = builder.finish_into_listview();
 
@@ -824,6 +826,7 @@ mod tests {
         builder.append_listview_array(source.as_view(), &mut ctx)?;
 
         let listview = builder.finish_into_listview();
+        // The builder kept the source's overlapping layout.
         assert!(!listview.is_zero_copy_to_list());
         // List 1 is null, so the builder keeps its source size without rewriting it to zero.
         assert_eq!(listview.size_at(1, &mut ctx), source.size_at(1, &mut ctx));

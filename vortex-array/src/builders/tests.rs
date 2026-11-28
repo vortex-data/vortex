@@ -1438,6 +1438,8 @@ fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
     Ok(())
 }
 
+/// An arbitrary array length. Nested builders treat no length specially, so the tests only need a
+/// length long enough to tell chunks apart.
 const CHUNK_LEN: usize = 64;
 
 /// A nested builder's own validity is accumulated the same way its children are: an appended
@@ -1470,10 +1472,12 @@ fn test_appended_validity_is_not_materialized() -> VortexResult<()> {
     Ok(())
 }
 
+/// A non-canonical array of [`CHUNK_LEN`] `i32` values.
 fn constant_i32() -> ArrayRef {
     ConstantArray::new(0i32, CHUNK_LEN).into_array()
 }
 
+/// Two lists of [`CHUNK_LEN`] elements each, so that appending them chunks the elements.
 fn two_lists_of_chunk_len() -> ListViewArray {
     let mut ctx = SESSION.create_execution_ctx();
     ListViewArray::new(
@@ -1485,6 +1489,7 @@ fn two_lists_of_chunk_len() -> ListViewArray {
     )
 }
 
+/// `0..n` as an `i32` array, so that the values of one chunk are distinguishable from the next.
 fn iota(n: usize) -> ArrayRef {
     (0..n)
         .map(|i| i32::try_from(i).vortex_expect("iota value fits in an i32"))
@@ -1492,6 +1497,7 @@ fn iota(n: usize) -> ArrayRef {
         .into_array()
 }
 
+/// A `u64` array of list offsets or sizes.
 fn u64s(values: impl IntoIterator<Item = usize>) -> ArrayRef {
     values
         .into_iter()
@@ -1502,6 +1508,9 @@ fn u64s(values: impl IntoIterator<Item = usize>) -> ArrayRef {
 
 /// Once a list builder keeps its elements as chunks, `elements_builder.len()` is a running total
 /// across those chunks — every offset appended afterwards has to be rebased onto it.
+///
+/// The two cases cover the two bulk paths into the elements builder: appending a `ListViewArray`
+/// rebases the view's own offsets, while appending a `ListArray` slices the elements first.
 #[rstest]
 #[case::from_listview(two_lists_of_chunk_len().into_array())]
 #[case::from_list(
