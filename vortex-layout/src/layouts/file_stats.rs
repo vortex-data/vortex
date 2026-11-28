@@ -20,6 +20,7 @@ use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSorted;
 use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
@@ -155,8 +156,13 @@ impl SelectionNode {
 ///
 /// # Errors
 ///
-/// Returns an error if nested stats are written and `stats` contains an aggregate `ctx` forbids,
-/// or if `stats` overrides a field that is not in the stream's dtype.
+/// Returns an error if:
+///
+/// - Nested stats are written and `stats` contains an aggregate that `ctx` forbids.
+/// - The `stats` overrides a field that is not in the stream's dtype
+/// - The `stats` contains an aggregate that can only be stored on the root struct, such as
+///   [`IsCompoundSorted`], and the file statistics have no root entry. Only nested stats over a
+///   nullable root have one.
 pub fn accumulate_stats(
     stream: SendableSequentialStream,
     stats: FileStatsSelection,
@@ -843,9 +849,28 @@ impl FileStatsAccumulator {
             )
         };
 
+        // Nested stats have a root entry, legacy stats don't.
+        // This is only true if the root is nullable. If it is non-nullable,
+        // the nested stats don't have a root entry either.
+        let has_root_entry = write_nested_stats && dtype.is_nullable();
         for aggregate_fn in stats.aggregate_fns() {
             if !accumulates(aggregate_fn) {
                 vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
+            }
+
+            // Aggregates fns like `IsCompoundSorted` can only be stored in the root entry.
+            // This is because the stat doesn’t belong to a single column but to different
+            // columns at the same time. If the root entry doesn't exist, the stat
+            // would be dropped and never written, which is not what someone would expect.
+            if !has_root_entry
+                && aggregate_fn.is::<IsCompoundSorted>()
+                && aggregate_fn.return_dtype(dtype).is_some()
+            {
+                vortex_bail!(
+                    "Aggregate {} applies only to the root struct, which has no file statistics \
+                     entry: one is written only with nested statistics and a nullable root",
+                    aggregate_fn.id()
+                );
             }
         }
 
@@ -978,6 +1003,9 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSorted;
+    use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSortedOptions;
+    use vortex_array::aggregate_fn::fns::is_compound_sorted::SortDirection;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
@@ -1739,6 +1767,42 @@ mod tests {
                 .and_then(Scalar::into_value),
             Precision::Absent
         );
+        Ok(())
+    }
+
+    /// A compound sort key applies only to the root struct, so it needs the root entry that only
+    /// nested stats over a nullable root have. Field aggregates never need it.
+    #[rstest]
+    #[case::nullable_nested(Nullability::Nullable, true, true)]
+    #[case::nullable_legacy_only(Nullability::Nullable, false, false)]
+    #[case::non_nullable_nested(Nullability::NonNullable, true, false)]
+    #[case::non_nullable_legacy_only(Nullability::NonNullable, false, false)]
+    fn root_only_aggregate_requires_a_root_entry(
+        #[case] nullability: Nullability,
+        #[case] write_nested_stats: bool,
+        #[case] has_root_entry: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::struct_([("a", i32_dtype())], nullability);
+        let ctx = LayoutWriterContext::new(ArrayContext::empty());
+        let sort_key =
+            IsCompoundSorted.bind(IsCompoundSortedOptions::new([("a", SortDirection::Asc)]));
+
+        let result = FileStatsAccumulator::try_new(
+            &dtype,
+            FileStatsSelection::new().with_default(vec![sort_key]),
+            write_nested_stats,
+            true,
+            &ctx,
+        );
+        assert_eq!(result.is_ok(), has_root_entry);
+
+        FileStatsAccumulator::try_new(
+            &dtype,
+            FileStatsSelection::new().with_default(vec![agg(Stat::NullCount), agg(Stat::Min)]),
+            write_nested_stats,
+            true,
+            &ctx,
+        )?;
         Ok(())
     }
 
