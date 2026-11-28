@@ -171,10 +171,11 @@ impl Scheme for DeltaScheme {
                 let full_width = data.array().dtype().as_ptype().bit_width() as f64;
                 let len = data.array_len();
 
-                // Delta's best case is residuals collapsing to a single bit. If even that, after
-                // the penalty, can't beat the incumbent, skip before doing the encode work.
+                // Delta's best case is constant residuals (0 delta bits, paying only for bases).
+                // If even that, after the penalty, can't beat the incumbent, skip before doing the
+                // encode work.
                 let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| penalized_ratio(len, full_width, 1.0) <= t) {
+                if threshold.is_some_and(|t| penalized_ratio(len, full_width, 0.0) <= t) {
                     return Ok(EstimateVerdict::Skip);
                 }
 
@@ -201,11 +202,12 @@ impl Scheme for DeltaScheme {
                     ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default());
                 let span = delta_stats.integer_stats(exec_ctx).erased().max_minus_min();
 
-                // Bits needed to FoR-pack the residuals. A zero span means constant deltas, which
-                // SequenceScheme already captures more cheaply, so defer to it.
+                // Bits needed to FoR-pack the residuals. A zero span means all sampled residuals
+                // are identical (e.g. piecewise-constant chunks), so `deltas` collapses to a
+                // constant (0 delta bits) and only the bases child costs space.
                 let delta_bits = match span.checked_ilog2() {
                     Some(l) => (l + 1) as f64,
-                    None => return Ok(EstimateVerdict::Skip),
+                    None => 0.0,
                 };
 
                 let ratio = penalized_ratio(len, full_width, delta_bits);
@@ -252,5 +254,87 @@ impl Scheme for DeltaScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexResult;
+    use vortex_fastlanes::Delta;
+    use vortex_fastlanes::delta_compress;
+
+    use super::DeltaScheme;
+    use crate::ArrayAndStats;
+    use crate::BtrBlocksCompressorBuilder;
+    use crate::GenerateStatsOptions;
+    use crate::SESSION;
+    use crate::schemes::integer::SequenceScheme;
+
+    static DELTA: DeltaScheme = DeltaScheme::new(1.25);
+
+    #[test]
+    fn test_delta_compresses_zero_span_step_function() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = PrimitiveArray::from_iter((0..65_536u64).map(|i| (i / 1024) * 1_000_000));
+
+        let (_bases, deltas) = delta_compress(&input, &mut ctx)?;
+        let span = ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default())
+            .integer_stats(&mut ctx)
+            .erased()
+            .max_minus_min();
+        assert_eq!(span, 0);
+
+        let input = input.into_array();
+        // With Delta and Sequence competing, Sequence skips (non-unique values) and Delta must
+        // score `span == 0` with `delta_bits = 0` rather than skipping.
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&SequenceScheme)
+            .with_new_scheme(&DELTA)
+            .build();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<Delta>(),
+            "expected Delta, got {}",
+            compressed.encoding_id()
+        );
+        // `deltas` collapses to a constant and `bases` holds 16 u64s per 1024-row chunk (~64x).
+        assert!(compressed.nbytes() < input.nbytes() / 50);
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_delta_wins_full_compressor_on_zero_span_constant_lanes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Each 1024-row FastLanes u64 chunk has 16 lanes of 64 elements, so holding each 64-row
+        // lane constant at a distinct pseudo-random value gives `span == 0`.
+        let input = PrimitiveArray::from_iter(
+            (0..65_536u64).map(|i| (i / 64).wrapping_mul(0x9e37_79b9_7f4a_7c15)),
+        );
+
+        let (_bases, deltas) = delta_compress(&input, &mut ctx)?;
+        let span = ArrayAndStats::new(deltas.into_array(), GenerateStatsOptions::default())
+            .integer_stats(&mut ctx)
+            .erased()
+            .max_minus_min();
+        assert_eq!(span, 0);
+
+        let input = input.into_array();
+        let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .build();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<Delta>(),
+            "expected Delta, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < input.nbytes() / 50);
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
     }
 }
