@@ -16,6 +16,7 @@ use vortex_array::dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
@@ -215,6 +216,26 @@ where
         });
     }
 
+    let buffer = array.to_buffer::<T>();
+    let slice = buffer.as_slice();
+
+    // Fast path when all values are valid and distinct counts are not requested:
+    // avoids per-chunk closure/mask dispatch so LLVM emits a tight vectorized loop.
+    if !count_distinct_values && matches!(validity.bit_buffer(), AllOr::All) {
+        let mut equal_pairs: u32 = 0;
+        for (&a, &b) in slice.iter().zip(&slice[1..]) {
+            equal_pairs += u32::from(a.is_eq(b));
+        }
+        let runs = u32::try_from(slice.len())? - equal_pairs;
+        return Ok(FloatStats {
+            null_count,
+            value_count,
+            average_run_length: value_count / runs,
+            run_count: runs,
+            erased: TypedStats::<T> { distinct: None }.into(),
+        });
+    }
+
     let mut distinct_values = if count_distinct_values {
         HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
     } else {
@@ -222,8 +243,6 @@ where
     };
 
     let mut runs: u32 = 1;
-    let buffer = array.to_buffer::<T>();
-    let slice = buffer.as_slice();
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");
