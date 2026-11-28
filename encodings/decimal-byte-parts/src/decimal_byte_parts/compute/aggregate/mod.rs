@@ -19,10 +19,8 @@ use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::WidenArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::PType;
@@ -108,14 +106,9 @@ fn sum_partial(
     let decimal_dtype = *dtype
         .as_decimal_opt()
         .vortex_expect("the Sum state dtype of a decimal input is a decimal");
-    let state_width = decimal_dtype.canonical_values_type();
-    // A flat i64 MSP can be summed directly in the wider decimal state. Keep using cached
-    // integer sums and let compressed children use their own aggregate kernels.
-    let total = if matches!(state_width, DecimalType::I128 | DecimalType::I256)
-        && msp
-            .as_opt::<Primitive>()
-            .is_some_and(|p| p.ptype() == PType::I64 && p.buffer_handle().is_on_host())
-    {
+    // An i64 MSP implies decimal precision >= 10, so its sum state is at least i128.
+    // Accumulate flat host values directly in i128 to avoid a second scan on i64 overflow.
+    let total = if msp.dtype().as_ptype() == PType::I64 && msp.is_canonical() && msp.is_host() {
         msp.statistics().get(Stat::Sum).as_exact()
     } else {
         Some(sum(msp, ctx)?)
@@ -124,7 +117,9 @@ fn sum_partial(
         Some(total) if !total.is_null() => DecimalValue::from(i64::try_from(&total)?),
         // A decimal state at i64 width also overflows at this point. Retrying in a wider
         // accumulator could hide that overflow when later values cancel it.
-        _ if state_width == DecimalType::I64 => return Ok(Some(Scalar::null(dtype))),
+        _ if decimal_dtype.canonical_values_type() == DecimalType::I64 => {
+            return Ok(Some(Scalar::null(dtype)));
+        }
         _ => DecimalValue::from(sum_msp_i128(msp, ctx)?),
     };
     let partial = if value.fits_in_precision(decimal_dtype) {
