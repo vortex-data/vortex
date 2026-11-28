@@ -13,6 +13,7 @@ use datafusion::arrow::array::ListArray;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::array::RunArray;
 use datafusion::arrow::array::StringArray;
+use datafusion::arrow::array::TimestampNanosecondArray;
 use datafusion::arrow::array::UInt32Array;
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::datatypes::Field;
@@ -1435,18 +1436,19 @@ async fn test_string_function_filter_pushdown(
     Ok(())
 }
 
-/// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
-/// the scan and return the same rows as DataFusion.
+/// String comparisons on `REE<Dict<Utf8>>` (#10634) and `REE<Utf8>` columns are pushed into the
+/// scan and return the same rows as DataFusion.
 #[rstest]
-#[case::eq("ree_dict = 'x'")]
-#[case::not_eq("ree_dict <> 'x'")]
-#[case::or("ree_dict = 'x' OR ree_dict = 'y'")]
-#[case::in_list("ree_dict IN ('y', 'unused')")]
-#[case::and("ree_dict = 'x' AND id > 1")]
+#[case::eq("ree = 'x'")]
+#[case::not_eq("ree <> 'x'")]
+#[case::or("ree = 'x' OR ree = 'y'")]
+#[case::in_list("ree IN ('y', 'unused')")]
+#[case::and("ree = 'x' AND id > 1")]
 #[tokio::test]
-async fn test_ree_dict_predicate_memtable_oracle(
+async fn test_ree_predicate_memtable_oracle(
     #[case] predicate: &str,
     #[values(false, true)] pushdown: bool,
+    #[values(false, true)] dictionary: bool,
 ) -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
         projection_pushdown: pushdown,
@@ -1461,18 +1463,23 @@ async fn test_ree_dict_predicate_memtable_oracle(
         UInt32Array::from(vec![Some(0), None, Some(1), Some(0)]),
         Arc::new(StringArray::from(vec!["x", "y", "unused"])),
     )?;
-    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), &values)?;
+    let values: Arc<dyn Array> = if dictionary {
+        Arc::new(values)
+    } else {
+        cast(&values, &DataType::Utf8)?
+    };
+    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), values.as_ref())?;
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int32, false),
-        Field::new("ree_dict", ree.data_type().clone(), true),
+        Field::new("ree", ree.data_type().clone(), true),
     ]));
     let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![Arc::new(Int32Array::from_iter_values(0..6)), Arc::new(ree)],
     )?;
-    ctx.write_arrow_batch("ree_dict.vortex", &batch).await?;
+    ctx.write_arrow_batch("ree.vortex", &batch).await?;
     let actual_table = ctx
-        .table_provider("actual", "/ree_dict.vortex", schema.as_ref().clone())
+        .table_provider("actual", "/ree.vortex", schema.as_ref().clone())
         .await?;
     ctx.session.register_table("actual", actual_table)?;
     ctx.session.register_table(
@@ -1495,5 +1502,216 @@ async fn test_ree_dict_predicate_memtable_oracle(
     let actual = actual.collect().await?;
     let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
     assert_eq!(batch_values(&actual), batch_values(&expected));
+    Ok(())
+}
+
+/// Checks that each of `queries` returns the same rows from a Vortex file of `batch`, read as
+/// `table_schema`, as from an in-memory table that holds `batch` cast to `table_schema` by Arrow.
+/// Each query names its table `{table}`.
+async fn assert_matches_memtable(
+    batch: &RecordBatch,
+    table_schema: Arc<Schema>,
+    queries: &[&str],
+) -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: true,
+        predicate_pushdown: true,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    ctx.write_arrow_batch("data.vortex", batch).await?;
+    let actual = ctx
+        .table_provider("actual", "/data.vortex", table_schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual)?;
+
+    let columns = batch
+        .columns()
+        .iter()
+        .zip(table_schema.fields())
+        .map(|(column, field)| cast(column, field.data_type()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let oracle = RecordBatch::try_new(Arc::clone(&table_schema), columns)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            table_schema,
+            vec![vec![oracle]],
+        )?),
+    )?;
+
+    for query in queries {
+        let actual = ctx.session.sql(&query.replace("{table}", "actual")).await?;
+        let expected = ctx.session.sql(&query.replace("{table}", "oracle")).await?;
+        let schema = Arc::new(expected.schema().as_arrow().clone());
+        assert_eq!(
+            concat_batches(&schema, &actual.collect().await?)?,
+            concat_batches(&schema, &expected.collect().await?)?,
+            "{query}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_timestamp_casts_match_memtable() -> anyhow::Result<()> {
+    let naive = TimestampNanosecondArray::from(vec![
+        Some(-750_000),      // Truncates to 0 ms, so the filter keeps it. A floor gives -1 ms.
+        Some(0),             // The filter keeps the epoch.
+        Some(1_000_000_000), // Truncates to 1,000 ms, so the filter drops it.
+        None,                // The filter drops a null.
+    ]);
+    let aware = naive.clone().with_timezone("UTC");
+    let batch = RecordBatch::try_from_iter([
+        (
+            "id",
+            Arc::new(Int32Array::from(vec![0, 1, 2, 3])) as Arc<dyn Array>,
+        ),
+        ("instant", Arc::new(aware)),
+        ("local_time", Arc::new(naive)),
+    ])?;
+
+    // With a filter, DataFusion evaluates a computed projection after the scan, so the projection
+    // gets its own query.
+    assert_matches_memtable(
+        &batch,
+        batch.schema(),
+        &[
+            "SELECT id, CAST(instant AS BIGINT) AS ticks, CAST(local_time AS TIMESTAMP(3)) AS ms \
+             FROM {table} ORDER BY id",
+            "SELECT id FROM {table} \
+             WHERE CAST(local_time AS TIMESTAMP(3)) = TIMESTAMP '1970-01-01 00:00:00' ORDER BY id",
+        ],
+    )
+    .await
+}
+
+/// A table that declares a coarser, nullable timestamp over a non-nullable file column makes
+/// DataFusion's schema adapter cast the file column on every read.
+#[tokio::test]
+async fn test_coarser_table_timestamp_matches_memtable() -> anyhow::Result<()> {
+    let file_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new(
+            "ts",
+            DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None),
+            false,
+        ),
+    ]));
+    let batch = RecordBatch::try_new(
+        file_schema,
+        vec![
+            Arc::new(Int32Array::from(vec![0, 1, 2])),
+            Arc::new(TimestampNanosecondArray::from(vec![
+                -750_000,      // Truncates to 0 ms, so the filter keeps it. A floor gives -1 ms.
+                0,             // The filter keeps the epoch.
+                1_000_000_000, // Truncates to 1,000 ms, so the filter drops it.
+            ])),
+        ],
+    )?;
+    let table_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new(
+            "ts",
+            DataType::Timestamp(arrow_schema::TimeUnit::Millisecond, None),
+            true,
+        ),
+    ]));
+
+    assert_matches_memtable(
+        &batch,
+        table_schema,
+        &["SELECT id, ts FROM {table} WHERE ts = TIMESTAMP '1970-01-01 00:00:00' ORDER BY id"],
+    )
+    .await
+}
+
+#[tokio::test]
+async fn test_projection_keeps_utf8_and_utf8view_aliases_separate() -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: true,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let schema = Arc::new(Schema::new(vec![Field::new("s", DataType::Utf8, true)]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(StringArray::from(vec![
+            Some("alpha"),
+            None,
+            Some("beta"),
+        ]))],
+    )?;
+    ctx.write_arrow_batch("mixed_utf8.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/mixed_utf8.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query =
+        |table: &str| format!("SELECT s AS plain, arrow_cast(s, 'Utf8View') AS view FROM {table}");
+    let actual = ctx.session.sql(&query("actual")).await?.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+    assert_eq!(actual, expected);
+    Ok(())
+}
+
+/// The filter pins `lower(s)` to a literal, so the scan projects only that literal and no column.
+/// The scan must still return one row for each row that passes the filter.
+#[tokio::test]
+async fn test_projection_folded_to_literal_keeps_filtered_rows() -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: true,
+        predicate_pushdown: true,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let schema = Arc::new(Schema::new(vec![Field::new("s", DataType::Utf8, true)]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(StringArray::from(vec![
+            Some("A"),
+            Some("b"),
+            None,
+            Some("a"),
+            Some("B"),
+            Some("a"),
+        ]))],
+    )?;
+    ctx.write_arrow_batch("folded.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/folded.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT lower(s) AS out FROM {table} WHERE lower(s) = 'a'");
+    let actual = ctx.session.sql(&query("actual")).await?.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+
+    assert_eq!(
+        pretty_format_batches(&actual)?.to_string(),
+        pretty_format_batches(&expected)?.to_string()
+    );
+    assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 3);
     Ok(())
 }

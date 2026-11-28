@@ -50,7 +50,12 @@ def main() -> None:
         "duckdb",
         "lance",
         "litdata",
+        # A format is named by its directory, not by its codec: `parquet` is the suite's base
+        # Parquet, which is zstd level 3 where the benchmarks write it, and the dataset's own files
+        # where the suite prescribes them, as ClickBench's are Snappy.
         "parquet",
+        # The base Parquet with Snappy in place of zstd level 3, written only for its size.
+        "parquet-snappy",
         "vortex-compact",
         "vortex-file-compressed",
         "vortex-spatial-native",

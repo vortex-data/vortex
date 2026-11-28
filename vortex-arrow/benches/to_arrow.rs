@@ -33,7 +33,6 @@ use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
@@ -267,9 +266,7 @@ const STRING_VALIDITIES: &[StringValidity] =
 const ARROW_STRING_LAYOUTS: &[ArrowStringLayout] =
     &[ArrowStringLayout::Offset, ArrowStringLayout::View];
 
-// CPU simulation charges each instrumented 100,000-row case far more than the 1 ms per-iteration
-// budget. 32,768 rows still span four zstd frames when flat and fill four 8,192-row chunks.
-const STRING_ROWS: usize = if cfg!(codspeed) { 32_768 } else { 100_000 };
+const STRING_ROWS: usize = 32_768;
 const STRING_CHUNKS: usize = 4;
 const DICTIONARY_SIZE: usize = 2_048;
 const SPARSE_DICTIONARY_ROWS: usize = 1_024;
@@ -504,234 +501,133 @@ fn append_to_view_builder(bencher: Bencher, case: StringCase) {
         });
 }
 
-/// The values of a dictionary export case.
-#[derive(Clone, Copy)]
-enum DictValues {
-    Utf8,
-    I64,
-}
-
-impl DictValues {
-    fn dtype(self, nullability: Nullability) -> DType {
-        match self {
-            Self::Utf8 => DType::Utf8(nullability),
-            Self::I64 => DType::Primitive(PType::I64, nullability),
-        }
-    }
-
-    fn arrow_type(self) -> DataType {
-        match self {
-            Self::Utf8 => DataType::Utf8,
-            Self::I64 => DataType::Int64,
-        }
-    }
-
-    /// `len` distinct values. Every chunk draws on the same values, as the per-block
-    /// dictionaries of one column do.
-    fn array(self, len: usize) -> ArrayRef {
-        match self {
-            Self::Utf8 => structured_strings(len, StringValidity::NonNullable).into_array(),
-            Self::I64 => PrimitiveArray::from_iter(
-                (0..len).map(|index| i64::try_from(index).unwrap() * 1_000_003),
-            )
-            .into_array(),
-        }
-    }
-
-    fn scalar(self, nullability: Nullability) -> Scalar {
-        match self {
-            Self::Utf8 => Scalar::utf8(
-                "https://example.com/common/path/000000/shared-suffix",
-                nullability,
-            ),
-            Self::I64 => Scalar::primitive(0i64, nullability),
-        }
-    }
-}
-
-impl Display for DictValues {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Utf8 => "utf8",
-            Self::I64 => "i64",
-        })
-    }
-}
-
-/// How a dictionary export case arranges its dictionaries.
 #[derive(Clone, Copy)]
 enum DictStructure {
-    /// One dictionary over every row.
     Dict,
-    /// Chunks that each hold their own dictionary, as a chunked layout of dictionary chunks reads.
-    Chunked(usize),
-    /// Dictionary chunks alternating with constant chunks.
-    ChunkedWithConstants(usize),
-    /// Chunks of chunks of dictionaries, as a scan that concatenates chunked batches produces.
-    Nested(usize),
-    /// Chunks of canonical arrays, which leave the export no dictionaries to join.
-    ChunkedFlat(usize),
+    Chunked,
+    Flat,
+    Nested,
+    ChunkedWithConstants,
 }
 
 impl Display for DictStructure {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Dict => f.write_str("dict"),
-            Self::Chunked(chunks) => write!(f, "chunked{chunks}"),
-            Self::ChunkedWithConstants(chunks) => write!(f, "chunked{chunks}_constants"),
-            Self::Nested(chunks) => write!(f, "nested{chunks}"),
-            Self::ChunkedFlat(chunks) => write!(f, "flat{chunks}"),
-        }
+        f.write_str(match self {
+            Self::Dict => "dict",
+            Self::Chunked => "chunked",
+            Self::Flat => "flat",
+            Self::Nested => "nested",
+            Self::ChunkedWithConstants => "chunked_constants",
+        })
     }
 }
 
 #[derive(Clone, Copy)]
 struct DictExportCase {
-    values: DictValues,
     structure: DictStructure,
-    /// Whether the codes hold nulls. The values never do.
     validity: StringValidity,
 }
 
 impl Display for DictExportCase {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}/{}", self.values, self.structure, self.validity)
+        write!(f, "{}/{}", self.structure, self.validity)
     }
 }
 
-const DICT_VALUES: &[DictValues] = &[DictValues::Utf8, DictValues::I64];
-const DICT_STRUCTURES: &[DictStructure] = &[
-    DictStructure::Dict,
-    DictStructure::Chunked(16),
-    DictStructure::Chunked(1024),
-    DictStructure::ChunkedWithConstants(1024),
-    DictStructure::Nested(1024),
-    DictStructure::ChunkedFlat(16),
+const DICT_EXPORT_CASES: &[DictExportCase] = &[
+    DictExportCase {
+        structure: DictStructure::Dict,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Chunked,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Chunked,
+        validity: StringValidity::Nullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Flat,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Nested,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::ChunkedWithConstants,
+        validity: StringValidity::NonNullable,
+    },
 ];
+const DICT_ROWS: usize = 2048;
+const DICT_CHUNKS: usize = 4;
+const DICT_VALUES: usize = 64;
 
-const DICT_ROWS: usize = 100_000;
-/// Leaves per inner chunk of a nested case.
-const NESTED_LEAVES: usize = 16;
-
-fn dict_export_cases() -> Vec<DictExportCase> {
-    iproduct!(
-        DICT_VALUES.iter().copied(),
-        DICT_STRUCTURES.iter().copied(),
-        STRING_VALIDITIES.iter().copied()
-    )
-    .map(|(values, structure, validity)| DictExportCase {
-        values,
-        structure,
-        validity,
-    })
-    .collect()
-}
-
-/// The lengths of `chunks` chunks that split `DICT_ROWS` evenly.
-fn chunk_lens(chunks: usize) -> impl Iterator<Item = usize> {
-    (0..chunks).map(move |chunk| (chunk + 1) * DICT_ROWS / chunks - chunk * DICT_ROWS / chunks)
-}
-
-/// Codes over `dict_size` values in the narrowest type that holds them, with every seventh code
-/// null when `validity` is nullable.
-fn dict_codes(len: usize, dict_size: usize, validity: StringValidity) -> ArrayRef {
-    fn codes<T: NativePType + TryFrom<usize>>(
-        len: usize,
-        dict_size: usize,
-        validity: StringValidity,
-    ) -> ArrayRef {
-        let code = |index: usize| T::try_from(index % dict_size).ok().unwrap();
-        match validity {
-            StringValidity::NonNullable => {
-                PrimitiveArray::from_iter((0..len).map(code)).into_array()
-            }
-            StringValidity::Nullable => PrimitiveArray::from_option_iter(
-                (0..len).map(|index| (!index.is_multiple_of(7)).then(|| code(index))),
-            )
-            .into_array(),
-        }
-    }
-    if dict_size <= 1 << u8::BITS {
-        codes::<u8>(len, dict_size, validity)
-    } else {
-        codes::<u16>(len, dict_size, validity)
-    }
-}
-
-/// A dictionary of up to `DICTIONARY_SIZE` values over `len` rows.
-fn dict_chunk(values: DictValues, len: usize, validity: StringValidity) -> ArrayRef {
-    let dict_size = (len / 2).clamp(1, DICTIONARY_SIZE);
-    DictArray::try_new(
-        dict_codes(len, dict_size, validity),
-        values.array(dict_size),
-    )
-    .unwrap()
-    .into_array()
-}
-
-/// A constant chunk of one value, or of nulls when `validity` is nullable.
-fn constant_chunk(values: DictValues, len: usize, validity: StringValidity) -> ArrayRef {
-    let scalar = match validity {
-        StringValidity::NonNullable => values.scalar(Nullability::NonNullable),
-        StringValidity::Nullable => Scalar::null(values.dtype(Nullability::Nullable)),
+fn dict_chunk(len: usize, validity: StringValidity) -> ArrayRef {
+    let code = |index: usize| u8::try_from(index % DICT_VALUES).unwrap();
+    let codes = match validity {
+        StringValidity::NonNullable => PrimitiveArray::from_iter((0..len).map(code)).into_array(),
+        StringValidity::Nullable => PrimitiveArray::from_option_iter(
+            (0..len).map(|index| (!index.is_multiple_of(7)).then(|| code(index))),
+        )
+        .into_array(),
     };
-    ConstantArray::new(scalar, len).into_array()
+    let values = structured_strings(DICT_VALUES, StringValidity::NonNullable);
+    DictArray::try_new(codes, values.into_array())
+        .unwrap()
+        .into_array()
 }
 
 fn dict_array(case: DictExportCase) -> ArrayRef {
-    let DictExportCase {
-        values,
-        structure,
-        validity,
-    } = case;
-    let dtype = values.dtype(validity.nullability());
-    let chunked = |chunks: Vec<ArrayRef>| {
-        ChunkedArray::try_new(chunks, dtype.clone())
+    let dtype = DType::Utf8(case.validity.nullability());
+    // The existing 2,048-row chunked export takes about 1 ms under CodSpeed.
+    let rows = match case.structure {
+        DictStructure::Nested | DictStructure::ChunkedWithConstants => 1024,
+        _ => DICT_ROWS,
+    };
+    let chunk_len = rows / DICT_CHUNKS;
+    let dict_chunks = |count| {
+        ChunkedArray::try_new(
+            (0..count).map(|_| dict_chunk(chunk_len, case.validity)),
+            dtype.clone(),
+        )
+        .unwrap()
+        .into_array()
+    };
+    let array = match case.structure {
+        DictStructure::Dict => dict_chunk(rows, case.validity),
+        DictStructure::Chunked => dict_chunks(DICT_CHUNKS),
+        DictStructure::Nested => ChunkedArray::try_new(
+            [dict_chunks(DICT_CHUNKS / 2), dict_chunks(DICT_CHUNKS / 2)],
+            dtype,
+        )
+        .unwrap()
+        .into_array(),
+        DictStructure::ChunkedWithConstants => {
+            let constant = Scalar::utf8("constant", case.validity.nullability());
+            let chunks = (0..DICT_CHUNKS).map(|i| {
+                if i.is_multiple_of(2) {
+                    dict_chunk(chunk_len, case.validity)
+                } else {
+                    ConstantArray::new(constant.clone(), chunk_len).into_array()
+                }
+            });
+            ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
+        }
+        DictStructure::Flat => {
+            let mut ctx = SESSION.create_execution_ctx();
+            ChunkedArray::try_new(
+                (0..DICT_CHUNKS).map(|_| {
+                    dict_chunk(chunk_len, case.validity)
+                        .execute::<Canonical>(&mut ctx)
+                        .unwrap()
+                        .into_array()
+                }),
+                dtype,
+            )
             .unwrap()
             .into_array()
-    };
-    let array = match structure {
-        DictStructure::Dict => dict_chunk(values, DICT_ROWS, validity),
-        DictStructure::Chunked(chunks) => chunked(
-            chunk_lens(chunks)
-                .map(|len| dict_chunk(values, len, validity))
-                .collect(),
-        ),
-        DictStructure::ChunkedWithConstants(chunks) => chunked(
-            chunk_lens(chunks)
-                .enumerate()
-                .map(|(chunk, len)| {
-                    if chunk.is_multiple_of(2) {
-                        dict_chunk(values, len, validity)
-                    } else {
-                        constant_chunk(values, len, validity)
-                    }
-                })
-                .collect(),
-        ),
-        DictStructure::Nested(chunks) => {
-            let leaves = chunk_lens(chunks)
-                .map(|len| dict_chunk(values, len, validity))
-                .collect::<Vec<_>>();
-            chunked(
-                leaves
-                    .chunks(NESTED_LEAVES)
-                    .map(|leaves| chunked(leaves.to_vec()))
-                    .collect(),
-            )
-        }
-        DictStructure::ChunkedFlat(chunks) => {
-            let mut ctx = SESSION.create_execution_ctx();
-            chunked(
-                chunk_lens(chunks)
-                    .map(|len| {
-                        dict_chunk(values, len, validity)
-                            .execute::<Canonical>(&mut ctx)
-                            .unwrap()
-                            .into_array()
-                    })
-                    .collect(),
-            )
         }
     };
     // Marked as a reader marks what it returns, so the export sees the chunks a scan hands it.
@@ -740,17 +636,12 @@ fn dict_array(case: DictExportCase) -> ArrayRef {
     array
 }
 
-/// Measures export to an Arrow dictionary with `Int32` keys, the key type that DataFusion and
-/// Arrow-sourced schemas request.
-#[divan::bench(args = dict_export_cases())]
+#[divan::bench(args = DICT_EXPORT_CASES)]
 fn dictionary_export(bencher: Bencher, case: DictExportCase) {
     let array = dict_array(case);
     let field = Field::new(
         "value",
-        DataType::Dictionary(
-            Box::new(DataType::Int32),
-            Box::new(case.values.arrow_type()),
-        ),
+        DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
         array.dtype().is_nullable(),
     );
     bencher

@@ -45,8 +45,10 @@ vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
@@ -106,6 +108,11 @@ harness = false
 [[bench]]
 name = "pipeline_scan"
 harness = false
+
+[[bench]]
+name = "list_read"
+harness = false
+required-features = ["_test-harness"]
 
 [lints]
 workspace = true

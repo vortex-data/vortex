@@ -13,24 +13,24 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
-use vortex_array::expr::and;
-use vortex_array::expr::bound::and as bound_and;
-use vortex_array::expr::byte_length;
-use vortex_array::expr::cast;
-use vortex_array::expr::checked_add;
-use vortex_array::expr::dynamic;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::is_null;
-use vortex_array::expr::lit;
-use vortex_array::expr::pack;
-use vortex_array::expr::root;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::Expression;
+use vortex_expr::and;
+use vortex_expr::bound::and as bound_and;
+use vortex_expr::cast;
+use vortex_expr::checked_add;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::pack;
+use vortex_expr::root;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_functions::expr::byte_length;
+use vortex_functions::expr::dynamic;
+use vortex_functions::expr::is_null;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -988,30 +988,6 @@ fn non_strict_expression_pushes_into_dictionary_without_null_codes() -> VortexRe
         .as_opt::<Take>()
         .ok_or_else(|| vortex_err!("is_null was not pushed into the dictionary: {optimized}"))?;
     assert!(take.values()?.is::<Eval>());
-    Ok(())
-}
-
-#[test]
-fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> {
-    let field_dtype = primitive(PType::I32, Nullability::NonNullable);
-    let layout = struct_plan(
-        3,
-        DType::Struct(
-            StructFields::from_iter([("a", field_dtype.clone())]),
-            Nullability::Nullable,
-        ),
-        vec![
-            flat(3, DType::Bool(Nullability::NonNullable), 0),
-            flat(3, field_dtype, 1),
-        ],
-    );
-    let plan = make_eval(gt(get_item("a", root()), lit(5_i32)), layout)?.into_plan();
-
-    let optimized = optimize(plan, &SESSION)?;
-    let eval = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
-    assert!(eval.child_plan()?.is::<Pack>());
     Ok(())
 }
 

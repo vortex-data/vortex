@@ -21,19 +21,20 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::dynamic;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::Expression;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::or;
+use vortex_expr::root;
+use vortex_functions::expr::dynamic;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -53,6 +54,7 @@ use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::WorkScope;
 use crate::prepare::ScanBuilder;
 use crate::prepare::filtered_rows_per_chunk;
+use crate::row_idx::row_idx;
 use crate::source::ScanInput;
 use crate::strict_sorted_buffer::StrictSortedBuffer;
 use crate::test::SESSION;
@@ -64,7 +66,9 @@ const CHUNK_ROWS: usize = 1000;
 const CHUNKS: usize = 4;
 
 fn new_session() -> VortexSession {
-    VortexSession::empty()
+    let session = VortexSession::empty();
+    vortex_functions::initialize(&session);
+    session
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -830,7 +834,7 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     file.cache = Some(cache.clone());
     let filter = || gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype());
     let projection = || get_item("ints", root()).bind(layout.dtype());
-    assert!(cache.filter_plans(&filter()?).is_none());
+    assert!(cache.filter_plans(&filter()?, false).is_none());
 
     let mut reads = Vec::new();
     for _ in 0..2 {
@@ -844,10 +848,105 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
         reads.push(counted.requests() - before);
     }
     let plans = cache
-        .filter_plans(&filter()?)
+        .filter_plans(&filter()?, false)
         .expect("the first scan kept its filter plans");
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
+    Ok(())
+}
+
+/// Strict (`skip_unselective_dynamic = false`) and permissive (`skip_unselective_dynamic = true`)
+/// scans sharing a `ScanCache` keep separate filter plans even under a cold-miss insertion race.
+#[tokio::test]
+async fn strict_and_permissive_filter_plans_are_isolated_in_cache() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = source(&session, Strategy::ZonedTable).await?;
+    let cache = ScanCache::default();
+    let mut file = scan_input(&segments, &layout)?;
+    file.cache = Some(cache.clone());
+    let ints = get_item("ints", root());
+    let filter = dynamic(
+        CompareOperator::Gt,
+        || Some(0i32.into()),
+        ints.return_dtype(layout.dtype())?,
+        true,
+        ints,
+    )
+    .bind(layout.dtype())?;
+
+    // A permissive scan populates the cache and learns to switch off the dynamic conjunct.
+    let hint = Arc::new(
+        ScanBuilder::new(session.clone(), file.clone())
+            .with_some_filter(Some(filter.clone()))
+            .with_skip_unselective_dynamic(true)
+            .prepare()?,
+    );
+    for _ in 0..5 {
+        drop(run_rows(&hint, hint.rows().clone()).await?);
+    }
+    assert!(hint.filter().expect("hint filter").is_switched_off(0));
+
+    // Simulate a strict scan losing a cold-miss insertion race after the permissive entry exists:
+    // `insert_filter_plans` must keep the strict plan instead of returning the permissive one.
+    let strict_plans = Arc::new(FilterPlans::new(filter.clone(), &layout, &session, false)?);
+    let inserted = cache.insert_filter_plans(filter.clone(), Arc::clone(&strict_plans));
+    assert!(Arc::ptr_eq(&inserted, &strict_plans));
+    assert!(!inserted.skips_unselective_dynamic());
+
+    let strict = Arc::new(
+        ScanBuilder::new(session.clone(), file.clone())
+            .with_some_filter(Some(filter.clone()))
+            .prepare()?,
+    );
+    assert!(!strict.filter().expect("strict filter").is_switched_off(0));
+    let rows: usize = run_rows(&strict, strict.rows().clone())
+        .await?
+        .iter()
+        .map(|array| array.len())
+        .sum();
+    assert_eq!(rows, CHUNK_ROWS * CHUNKS - 1);
+
+    // Preparing another permissive scan after both entries exist still hits the warm permissive
+    // plan rather than the strict one.
+    let hint_again = ScanBuilder::new(session, file)
+        .with_some_filter(Some(filter))
+        .with_skip_unselective_dynamic(true)
+        .prepare()?;
+    assert!(hint_again.filter().expect("hint filter").is_switched_off(0));
+    Ok(())
+}
+
+/// Filters referencing `row_idx()` are excluded from metadata-only pruning so `PrunePlanner`
+/// neither materializes `[0..file_rows)` nor attempts to execute unresolved `StatFn` nodes.
+#[rstest]
+#[case::row_idx_only(gt(row_idx(), lit(3_990u64)), 9)]
+#[case::row_idx_or_zoned(
+    or(
+        gt(row_idx(), lit(3_995u64)),
+        gt(get_item("ints", root()), lit(3_995i32))
+    ),
+    4
+)]
+#[tokio::test]
+async fn row_idx_filters_bypass_metadata_only_pruning(
+    #[case] filter: Expression,
+    #[case] expected_rows: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = source(&session, Strategy::ZonedTable).await?;
+    let scan = Arc::new(
+        builder(&session, &segments, &layout)?
+            .with_projection(get_item("ints", root()).bind(layout.dtype())?)
+            .with_some_filter(Some(filter.bind(layout.dtype())?))
+            .prepare()?,
+    );
+    assert_eq!(scan.filter().expect("filter plans").pruning().count(), 0);
+    let rows: usize = run_rows(&scan, scan.rows().clone())
+        .await?
+        .iter()
+        .map(|array| array.len())
+        .sum();
+    assert_eq!(rows, expected_rows);
     Ok(())
 }

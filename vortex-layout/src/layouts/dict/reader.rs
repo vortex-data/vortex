@@ -4,7 +4,6 @@
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
@@ -19,21 +18,21 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::bound::pack as bound_pack;
-use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::BoundExpression;
+use vortex_expr::ExactBoundExpr;
+use vortex_expr::bound::pack as bound_pack;
 use vortex_expr::direct_bound_annotations;
 use vortex_expr::label_bound_tree;
+use vortex_expr::root;
 use vortex_expr::transform::partition_bound_annotations;
+use vortex_functions::is_negative_cost;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::LayoutReader;
@@ -41,7 +40,10 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::arrays::shared::Shared;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::SharedArrayFuture;
+use crate::layouts::SharedFutureSlot;
+use crate::layouts::is_shared_future_usable;
 use crate::segments::SegmentSource;
 
 pub struct DictReader {
@@ -52,9 +54,9 @@ pub struct DictReader {
     /// Length of the values array
     values_len: usize,
     /// Cached dict values array
-    values_array: OnceLock<SharedArrayFuture>,
+    values_array: SharedFutureSlot<ArrayRef>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExactBoundExpr, SharedArrayFuture>,
+    values_evals: WeakExprCache<SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -94,7 +96,7 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
-            values_evals: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            values_evals: WeakExprCache::with_shard_amount(8),
             values,
             codes,
         })
@@ -107,21 +109,19 @@ impl DictReader {
         let root = root()
             .bind(self.values.dtype())
             .vortex_expect("root must bind against the dictionary values dtype");
-        self.values_array
-            .get_or_init(move || {
-                self.values
-                    .projection_evaluation(
-                        &(0..values_len as u64),
-                        &root,
-                        MaskFuture::new_true(values_len),
-                    )
-                    .vortex_expect("must construct dict values array evaluation")
-                    .map_err(Arc::new)
-                    .map(move |array| Ok(Shared::new(array?).into_array()))
-                    .boxed()
-                    .shared()
-            })
-            .clone()
+        self.values_array.get_or_init(move || {
+            self.values
+                .projection_evaluation(
+                    &(0..values_len as u64),
+                    &root,
+                    MaskFuture::new_true(values_len),
+                )
+                .vortex_expect("must construct dict values array evaluation")
+                .map_err(Arc::new)
+                .map(move |array| Ok(Shared::new(array?).into_array()))
+                .boxed()
+                .shared()
+        })
     }
 
     // This is the dict values array without canonicalization, if not already canonical
@@ -132,7 +132,7 @@ impl DictReader {
         let root = root()
             .bind(self.values.dtype())
             .vortex_expect("root must bind against the dictionary values dtype");
-        self.values_array.get().cloned().unwrap_or_else(|| {
+        self.values_array.get().unwrap_or_else(|| {
             self.values
                 .projection_evaluation(
                     &(0..values_len as u64),
@@ -146,22 +146,15 @@ impl DictReader {
         })
     }
 
-    fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
+    fn values_eval(&self, expr: &BoundExpression) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
 
-        let key = ExactBoundExpr(expr.clone());
-
-        // Check cache first with read-only lock
-        if let Some(fut) = self.values_evals.get(&key) {
-            return fut.clone();
-        }
-
         self.values_evals
-            .entry(key)
-            .or_insert_with(|| {
+            .get_or_insert_valid_with(expr, is_shared_future_usable, || {
+                let expr = expr.detach_identity();
                 self.values_array_uncanonical()
                     .map(move |array| {
                         let array = array?.apply_bound(&expr)?;
@@ -170,7 +163,6 @@ impl DictReader {
                     .boxed()
                     .shared()
             })
-            .clone()
     }
 }
 
@@ -260,7 +252,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallibility and strictness annotations
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_eval(expr);
 
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
@@ -327,14 +319,23 @@ impl LayoutReader for DictReader {
         } else {
             self.values_array()
         };
-        let all_values_referenced = self.layout.has_all_values_referenced();
+        let total_row_count = self.layout.row_count();
+        let is_full_range = row_range.start == 0 && row_range.end == total_row_count;
+        let layout_all_values_referenced = self.layout.has_all_values_referenced();
         let session = self.session.clone();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY: Layout was validated at write time.
+            // `codes.len() == total_row_count` also rules out a selective mask on a full-range read.
+            let all_values_referenced = layout_all_values_referenced
+                && is_full_range
+                && codes.len() as u64 == total_row_count;
+
+            // SAFETY:
             //  * The codes dtype is guaranteed to be an integer type from the layout
             //  * The codes child reader ensures the correct dtype.
+            //  * The codes come from the file and are not checked here. Each operation that
+            //    uses a code as an index into the values does its own bounds check.
             //  * The layout stores `all_values_referenced` and if this is malicious then it must
             //    only affect correctness not memory safety.
             let array = unsafe {
@@ -358,16 +359,25 @@ impl LayoutReader for DictReader {
 mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::FutureExt;
+    use futures::future;
+    use futures::join;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Dict;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::dict::DictArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
@@ -375,30 +385,38 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::bound::pack as bound_pack;
-    use vortex_array::expr::byte_length;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::like;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::Expression;
+    use vortex_expr::bound::pack as bound_pack;
+    use vortex_expr::cast;
+    use vortex_expr::eq;
+    use vortex_expr::get_item;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_expr::pack;
+    use vortex_expr::root;
+    use vortex_functions::expr::byte_length;
+    use vortex_functions::expr::like;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::segments::SegmentFuture;
+    use vortex_io::segments::SegmentId;
+    use vortex_io::segments::SegmentSource;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::layouts::dict::DictLayout;
     use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
     use crate::layouts::dict::reader::split_expression_for_pushdown;
     use crate::layouts::dict::writer::DictLayoutOptions;
@@ -842,5 +860,198 @@ mod tests {
         let (outer, inner) = split_bound(expr.clone(), &dtype).unwrap();
         assert_eq!(outer, expr.bind(&dtype).unwrap());
         assert_eq!(inner, None);
+    }
+
+    struct FailOnceSegmentSource {
+        inner: Arc<TestSegments>,
+        target: SegmentId,
+        calls: AtomicUsize,
+    }
+
+    impl SegmentSource for FailOnceSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            if id == self.target && self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return future::ready(Err(vortex_err!("transient dict values read error"))).boxed();
+            }
+            self.inner.request(id)
+        }
+    }
+
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
+    async fn setup_fail_once_dict_reader(
+        input: ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<(crate::LayoutReaderRef, Arc<FailOnceSegmentSource>)> {
+        let (layout, segments) = write_dict_layout(input, session).await;
+        assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
+
+        let values_segment = layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("dict layout missing values child"))?
+            .segment_ids()[0];
+        let source = Arc::new(FailOnceSegmentSource {
+            inner: segments,
+            target: values_segment,
+            calls: AtomicUsize::new(0),
+        });
+
+        let reader = layout.new_reader(
+            "dict".into(),
+            Arc::clone(&source) as Arc<dyn SegmentSource>,
+            session,
+            &Default::default(),
+        )?;
+        Ok((reader, source))
+    }
+
+    #[test]
+    fn transient_values_projection_recovers_and_caches_success() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let input = VarBinArray::from_iter(
+                [Some("abc"), Some("def"), None]
+                    .into_iter()
+                    .cycle()
+                    .take(120),
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array();
+            let (reader, source) = setup_fail_once_dict_reader(input.clone(), &session).await?;
+            let expr = root().bind(reader.dtype())?;
+            let range = 0..reader.row_count();
+
+            assert!(
+                reader
+                    .projection_evaluation(&range, &expr, MaskFuture::new_true(input.len()))?
+                    .await
+                    .is_err()
+            );
+            assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+
+            // Concurrent retries share one successful load and cache it.
+            let fut1 =
+                reader.projection_evaluation(&range, &expr, MaskFuture::new_true(input.len()))?;
+            let fut2 =
+                reader.projection_evaluation(&range, &expr, MaskFuture::new_true(input.len()))?;
+            let (res1, res2) = join!(fut1, fut2);
+            let mut ctx = session.create_execution_ctx();
+            assert_arrays_eq!(res1?, input.clone(), &mut ctx);
+            assert_arrays_eq!(res2?, input.clone(), &mut ctx);
+            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+
+            // Subsequent reads hit the cached successful values without another segment request.
+            let res3 = reader
+                .projection_evaluation(&range, &expr, MaskFuture::new_true(input.len()))?
+                .await?;
+            assert_arrays_eq!(res3, input, &mut ctx);
+            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn transient_values_filter_recovers_on_same_expression() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let input = VarBinArray::from_iter(
+                [Some("abc"), Some("def"), None].into_iter().cycle().take(9),
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array();
+            let (reader, source) = setup_fail_once_dict_reader(input, &session).await?;
+            let filter = eq(
+                root(),
+                lit(vortex_array::scalar::Scalar::utf8(
+                    "abc",
+                    Nullability::Nullable,
+                )),
+            )
+            .bind(reader.dtype())?;
+            let expected = Mask::from_iter([true, false, false].into_iter().cycle().take(9));
+
+            assert!(
+                reader
+                    .filter_evaluation(&(0..9), &filter, MaskFuture::new_true(9))?
+                    .await
+                    .is_err()
+            );
+            assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+
+            let retried = reader
+                .filter_evaluation(&(0..9), &filter, MaskFuture::new_true(9))?
+                .await?;
+            assert_eq!(retried, expected);
+            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+
+            let cached = reader
+                .filter_evaluation(&(0..9), &filter, MaskFuture::new_true(9))?
+                .await?;
+            assert_eq!(cached, expected);
+            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+            Ok(())
+        })
+    }
+
+    async fn write_flat_layout(
+        array: ArrayRef,
+        segments: &Arc<TestSegments>,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutRef> {
+        let (ptr, eof) = SequenceId::root().split();
+        FlatLayoutStrategy::default()
+            .write_stream(
+                ArrayContext::empty().into(),
+                Arc::<TestSegments>::clone(segments),
+                array.to_array_stream().sequenced(ptr),
+                eof,
+                session,
+            )
+            .await
+    }
+
+    #[test]
+    fn subset_projection_clears_all_values_referenced() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let values =
+                write_flat_layout(buffer![10i32, 20, 30].into_array(), &segments, &session).await?;
+            let codes =
+                write_flat_layout(buffer![0u32, 0, 1, 2].into_array(), &segments, &session).await?;
+            let layout =
+                DictLayout::new_with_all_values_referenced(values, codes, true).into_layout();
+            let reader =
+                layout.new_reader("dict".into(), segments, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let mut ctx = session.create_execution_ctx();
+
+            // Full-range, all-true read preserves `all_values_referenced = true`.
+            let full = reader
+                .projection_evaluation(&(0..4), &expr, MaskFuture::new_true(4))?
+                .await?;
+            assert!(full.as_::<Dict>().has_all_values_referenced());
+
+            // Sliced range read must not claim all values are referenced.
+            let sliced = reader
+                .projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?
+                .await?;
+            assert!(!sliced.as_::<Dict>().has_all_values_referenced());
+            let sliced_mm = min_max(&sliced, &mut ctx, NumericalAggregateOpts::default())?
+                .expect("non-empty min_max");
+            assert_eq!(i32::try_from(&sliced_mm.min)?, 10);
+            assert_eq!(i32::try_from(&sliced_mm.max)?, 10);
+
+            // Selective mask over full range must not claim all values are referenced.
+            let mask = Mask::from_iter([true, true, false, false]);
+            let masked = reader
+                .projection_evaluation(&(0..4), &expr, MaskFuture::ready(mask))?
+                .await?;
+            assert!(!masked.as_::<Dict>().has_all_values_referenced());
+            let masked_mm = min_max(&masked, &mut ctx, NumericalAggregateOpts::default())?
+                .expect("non-empty min_max");
+            assert_eq!(i32::try_from(&masked_mm.min)?, 10);
+            assert_eq!(i32::try_from(&masked_mm.max)?, 10);
+            Ok(())
+        })
     }
 }

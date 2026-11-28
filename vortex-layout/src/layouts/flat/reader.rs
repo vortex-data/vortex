@@ -16,10 +16,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -203,7 +204,7 @@ impl LayoutReader for FlatReader {
             // Wait for the mask first: a chunk without selected rows needs no decode.
             let mask = mask.await?;
             if mask.all_false() {
-                return Ok(Canonical::empty(expr.dtype()).into_array());
+                return Canonical::try_empty(expr.dtype()).map(IntoArray::into_array);
             }
 
             let mut array = array.clone().await?;
@@ -245,12 +246,12 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
 

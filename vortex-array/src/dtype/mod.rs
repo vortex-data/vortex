@@ -16,6 +16,10 @@
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
 mod bigint;
+mod claim;
+pub use claim::Claim;
+pub use claim::Claims;
+
 mod decimal;
 mod dtype_impl;
 pub mod extension;
@@ -90,6 +94,13 @@ pub enum DType {
     /// Logical binary data.
     Binary(Nullability),
 
+    /// Logical binary data where every value has the same number of bytes.
+    ///
+    /// The `u32` is the byte width of each value. Values are stored contiguously as
+    /// fixed-width records, which lets this type share the structural compute of the other
+    /// fixed-width types.
+    FixedSizeBinary(u32, Nullability),
+
     /// A logical variable-length list type.
     ///
     /// This is parameterized by a single `DType` that represents the element type of the inner
@@ -147,6 +158,7 @@ impl PartialEq for DType {
             (Self::Decimal(da, na), Self::Decimal(db, nb)) => da == db && na == nb,
             (Self::Utf8(a), Self::Utf8(b)) => a == b,
             (Self::Binary(a), Self::Binary(b)) => a == b,
+            (Self::FixedSizeBinary(sa, na), Self::FixedSizeBinary(sb, nb)) => sa == sb && na == nb,
             (Self::List(da, na), Self::List(db, nb)) => {
                 na == nb && (Arc::ptr_eq(da, db) || da == db)
             }
@@ -168,6 +180,7 @@ impl PartialEq for DType {
             | (Self::Decimal(..), _)
             | (Self::Utf8(_), _)
             | (Self::Binary(_), _)
+            | (Self::FixedSizeBinary(..), _)
             | (Self::List(..), _)
             | (Self::FixedSizeList(..), _)
             | (Self::Map(..), _)
@@ -210,6 +223,9 @@ pub mod flatbuffers {
 
     pub use crate::flatbuffers::dtype::*;
 }
+
+#[cfg(test)]
+pub(crate) mod generate;
 
 #[cfg(test)]
 mod test {

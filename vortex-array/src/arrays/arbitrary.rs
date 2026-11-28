@@ -12,6 +12,7 @@ use arbitrary::Unstructured;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -72,7 +73,11 @@ impl<'a> ArbitraryWith<'a, ArbitraryArrayConfig> for ArbitraryArray {
             Some(dtype) => dtype.clone(),
             None => u.arbitrary()?,
         };
-        let len = u.int_in_range(config.len.clone())?;
+        // When the input runs out, every value reads as zero. Rows past the remaining input
+        // bytes are therefore not controlled by the input, so they only make each run slower.
+        let min_len = *config.len.start();
+        let max_len = (*config.len.end()).min(u.len()).max(min_len);
+        let len = u.int_in_range(min_len..=max_len)?;
 
         random_array(u, &dtype, Some(len)).map(ArbitraryArray)
     }
@@ -114,6 +119,7 @@ fn random_array_chunk(
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
     match dtype {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Ok(NullArray::new(
             chunk_len
                 .map(Ok)

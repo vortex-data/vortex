@@ -4,10 +4,10 @@
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
-use vortex_array::scalar_fn::fns::cast::Cast;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::list_contains::ListContains;
-use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
+use vortex_functions::list_contains::ListContains;
+use vortex_functions::list_contains::ListContainsElementReduceAdaptor;
 use vortex_session::VortexSession;
 
 use crate::Sequence;

@@ -24,9 +24,10 @@ use vortex_fastlanes::RLEArraySlotsExt;
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
 use crate::schemes::rle_ancestor_exclusions;
 use crate::schemes::rle_descendant_exclusions;
 
@@ -34,67 +35,50 @@ use crate::schemes::rle_descendant_exclusions;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IntRLEScheme;
 
-/// Shared compression logic for RLE schemes.
-pub(crate) fn rle_compress(
+/// Shared encoding logic for RLE schemes.
+///
+/// Children: values=0, indices=1, offsets=2. The indices carry the validity.
+pub(crate) fn rle_encode(
     scheme: &dyn Scheme,
-    compressor: &CascadingCompressor,
     data: &ArrayAndStats,
-    compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<Encoded> {
     let rle_array = RLE::encode(data.array_as_primitive(), exec_ctx)?;
 
-    let rle_values_primitive = rle_array
+    let values = rle_array
         .values()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?;
-    let compressed_values = compressor.compress_child(
-        &rle_values_primitive.into_array(),
-        &compress_ctx,
-        scheme.id(),
-        0,
-        exec_ctx,
-    )?;
 
     // TODO(joe): re-apply Delta to these monotone indices once the compressor can say whether a
     // scheme is eligible for a given child; applying it by hand bypassed the exclusion rules.
-    let rle_indices_primitive = rle_array
+    let indices = rle_array
         .indices()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?
         .narrow(exec_ctx)?;
-    let compressed_indices = compressor.compress_child(
-        &rle_indices_primitive.into_array(),
-        &compress_ctx,
-        scheme.id(),
-        1,
-        exec_ctx,
-    )?;
 
-    let rle_offsets_primitive = rle_array
+    let offsets = rle_array
         .values_idx_offsets()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?
         .narrow(exec_ctx)?;
-    let compressed_offsets = compressor.compress_child(
-        &rle_offsets_primitive.into_array(),
-        &compress_ctx,
-        scheme.id(),
-        2,
-        exec_ctx,
-    )?;
 
-    // SAFETY: Recursive compression doesn't affect the invariants.
-    unsafe {
-        Ok(RLE::new_unchecked(
-            compressed_values,
-            compressed_indices,
-            compressed_offsets,
-            rle_array.offset(),
-            rle_array.len(),
-        )
-        .into_array())
-    }
+    let offset = rle_array.offset();
+    let len = rle_array.len();
+    Ok(Encoded::new(
+        vec![
+            Child::new(scheme, 0, values.into_array()),
+            Child::new(scheme, 1, indices.into_array()),
+            Child::new(scheme, 2, offsets.into_array()),
+        ],
+        Vec::new(),
+        move |children, _| {
+            let [values, indices, offsets] = children.compressed()?;
+            // SAFETY: Recursive compression doesn't affect the invariants.
+            Ok(unsafe { RLE::new_unchecked(values, indices, offsets, offset, len) }.into_array())
+        },
+    ))
 }
 
 impl Scheme for IntRLEScheme {
@@ -140,13 +124,24 @@ impl Scheme for IntRLEScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    /// Children: values=0, indices=1, offsets=2. The indices carry the validity.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        rle_encode(self, data, exec_ctx)
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        rle_compress(self, compressor, data, compress_ctx, exec_ctx)
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

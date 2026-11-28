@@ -245,6 +245,8 @@ mod tests {
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::DictArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::stats::Precision;
+    use vortex::array::stats::Stat;
     use vortex::dtype::PType;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::sparse::Sparse;
@@ -260,10 +262,25 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[crate::test]
+    fn device_stats_are_cache_only() -> VortexResult<()> {
+        let cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let values = cuda_ctx.stream().copy_to_device(&[3i64, -4])?;
+        let array = PrimitiveArray::from_buffer_handle(values, PType::I64, Validity::NonNullable);
+        let stats = array.statistics();
+        let mut ctx = SESSION.create_execution_ctx();
+        for stat in Stat::all() {
+            assert!(stats.compute_stat(stat, &mut ctx)?.is_none(), "{stat}");
+        }
+        stats.set(Stat::Min, Precision::exact(-4i64));
+        assert_eq!(stats.compute_min::<i64>(&mut ctx), Some(-4));
+        Ok(())
+    }
+
+    #[crate::test]
     async fn test_into_host_rejects_out_of_bounds_device_list_view() -> VortexResult<()> {
         let cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let offsets = cuda_ctx.stream().copy_to_device(vec![0u32, 2])?.await?;
-        let sizes = cuda_ctx.stream().copy_to_device(vec![2u32, 5])?.await?;
+        let offsets = cuda_ctx.stream().copy_to_device(&[0u32, 2])?;
+        let sizes = cuda_ctx.stream().copy_to_device(&[2u32, 5])?;
         let mut ctx = SESSION.create_execution_ctx();
         // The second list reads elements 2..7 of 3. The range check is skipped while the offsets
         // and sizes are on the device, so it must run once they are copied to the host.
@@ -298,7 +315,7 @@ mod tests {
         }
         let mut buffers = Vec::new();
         for buffer in array.buffer_handles() {
-            buffers.push(cuda_ctx.ensure_on_device_sync(buffer)?);
+            buffers.push(cuda_ctx.ensure_on_device(buffer)?);
         }
         // SAFETY: the buffers are byte-for-byte copies; only their placement changes.
         unsafe { array.with_buffers(buffers) }
@@ -318,10 +335,7 @@ mod tests {
         )
         .into_array();
         let mask = encoded_on_device(mask, &cuda_ctx)?;
-        let values = cuda_ctx
-            .stream()
-            .copy_to_device(vec![1i32, 2, 3, 4, 5, 6])?
-            .await?;
+        let values = cuda_ctx.stream().copy_to_device(&[1i32, 2, 3, 4, 5, 6])?;
         let array = PrimitiveArray::from_buffer_handle(values, PType::I32, Validity::Array(mask));
 
         let host = Canonical::Primitive(array)
@@ -350,10 +364,7 @@ mod tests {
         )?
         .into_array();
         let mask = encoded_on_device(mask, &cuda_ctx)?;
-        let values = cuda_ctx
-            .stream()
-            .copy_to_device(vec![1i32, 2, 3, 4, 5, 6])?
-            .await?;
+        let values = cuda_ctx.stream().copy_to_device(&[1i32, 2, 3, 4, 5, 6])?;
         let array = PrimitiveArray::from_buffer_handle(values, PType::I32, Validity::Array(mask));
 
         let host = Canonical::Primitive(array)

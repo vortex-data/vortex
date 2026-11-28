@@ -103,7 +103,7 @@ async fn list_views_typed<O: DeviceRepr + NativePType>(
         ..
     } = offsets.into_data_parts();
 
-    let offsets_device = ctx.ensure_on_device(offsets_buffer).await?;
+    let offsets_device = ctx.ensure_on_device(offsets_buffer)?;
     let offsets_view = offsets_device.cuda_view::<O>()?;
 
     let mut view_offsets = ctx.device_alloc::<O>(list_len)?;

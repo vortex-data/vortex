@@ -27,14 +27,14 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
-use vortex::expr::eq;
 use vortex::expr::get_item;
-use vortex::expr::in_list_of;
+use vortex::expr::in_list_of_with_mode;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
@@ -43,18 +43,17 @@ use vortex::expr::not;
 use vortex::expr::or;
 use vortex::expr::or_collect;
 use vortex::expr::root;
+use vortex::functions::between::Between;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::between::Between;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::literal::Literal;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::compare::Compare;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
 use vortex_spatial::extension::MultiPoint;
@@ -68,6 +67,9 @@ use vortex_spatial::scalar_fn::distance::SpatialDistance;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::SESSION;
+use crate::convert::compare::between_with_mode;
+use crate::convert::compare::compare;
+use crate::convert::compare::compare_mode;
 use crate::convert::dtype::FromLogicalType;
 use crate::convert::table_filter::dynamic_filter_expr;
 use crate::cpp::DUCKDB_TYPE;
@@ -242,7 +244,10 @@ fn try_from_spatial_function(
                 return Ok(None);
             };
             let spatial_distance = SpatialDistance.new_expr(ScalarEmptyOptions, operands);
-            Binary.new_expr(Operator::Lte, [spatial_distance, lit(distance)])
+            Compare.new_expr(
+                CompareOperator::Lte.into(),
+                [spatial_distance, lit(distance)],
+            )
         }
         "st_distance" => {
             if children.len() != 2 {
@@ -427,25 +432,24 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
 }
 
 /// Lower `IS NOT DISTINCT FROM`, which unlike `=` is never NULL.
-fn not_distinct_from(left: Expression, right: Expression) -> Expression {
+///
+/// The equality compares operands of `dtype` with the float semantics of DuckDB.
+fn not_distinct_from(dtype: &DType, left: Expression, right: Expression) -> Expression {
     // TODO(ayush): use NULL-safe equality once `eq` has a mode for it.
     let both_null = and(is_null(left.clone()), is_null(right.clone()));
     let both_equal = and(
         and(is_not_null(left.clone()), is_not_null(right.clone())),
-        eq(left, right),
+        compare(CompareOperator::Eq, dtype, left, right),
     );
     or(both_null, both_equal)
 }
 
-// We limit casting to Primitive types, because some conversions yield an error
-// like vortex.date[days](i32) -> vortex.timestamp[µs](i64?). However, when we
-// push down the cast, we don't have access to column's dtype, so we need to
-// be overly restrictive.
-// TODO(myrrc) change after https://github.com/vortex-data/vortex/issues/8570
-// is resolved
-//
-// We also don't push floats and doubles because Vortex truncates to zero and
-// Duckdb rounds the result
+// DuckDB can truncate a timestamp from nanoseconds to microseconds. Vortex requires an explicit
+// rounding mode for that conversion, and this check has only the DuckDB types. DuckDB and Vortex
+// also round casts from floats to integers differently.
+// TODO(connor): Send extension literals from the DuckDB and DataFusion converters, and map
+// truncating DuckDB casts to named functions, as the DataFusion converter does for timestamps
+// (item RU3 of https://github.com/vortex-data/vortex/issues/11114).
 fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) -> bool {
     !cast.is_try && target.is_primitive_integer() && cast.child.return_type().is_primitive_integer()
 }
@@ -696,50 +700,27 @@ fn try_from_expression_inner(
             col(name)
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
-        BoundComparison(compare) => {
-            let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
+        BoundComparison(comparison) => {
+            let dtype = operand_dtype(comparison.left);
+
+            let Some(left) = try_from_expression_inner(comparison.left, ctx)? else {
                 return Ok(None);
             };
-            let Some(right) = try_from_expression_inner(compare.right, ctx)? else {
+            let Some(right) = try_from_expression_inner(comparison.right, ctx)? else {
                 return Ok(None);
             };
 
-            match compare.op {
+            match comparison.op {
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_DISTINCT_FROM => {
-                    not_distinct_from(left, right)
+                    not_distinct_from(&dtype, left, right)
                 }
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_DISTINCT_FROM => {
-                    not(not_distinct_from(left, right))
+                    not(not_distinct_from(&dtype, left, right))
                 }
-                op => Binary.new_expr(Operator::try_from(op)?, [left, right]),
+                op => compare(CompareOperator::try_from(op)?, &dtype, left, right),
             }
         }
-        BoundBetween(between) => {
-            let Some(array) = try_from_expression_inner(between.input, ctx)? else {
-                return Ok(None);
-            };
-            let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
-                return Ok(None);
-            };
-            let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
-                return Ok(None);
-            };
-            Between.new_expr(
-                BetweenOptions {
-                    lower_strict: if between.lower_inclusive {
-                        StrictComparison::NonStrict
-                    } else {
-                        StrictComparison::Strict
-                    },
-                    upper_strict: if between.upper_inclusive {
-                        StrictComparison::NonStrict
-                    } else {
-                        StrictComparison::Strict
-                    },
-                },
-                [array, lower, upper],
-            )
-        }
+        BoundBetween(between) => return try_from_between(&between, ctx),
         ExpressionClass::BoundOperator(operator) => match operator.op {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
@@ -808,6 +789,56 @@ fn try_from_expression_inner(
     }))
 }
 
+/// Returns the dtype of a comparison operand, or [`DType::Null`] when it has no Vortex dtype. The
+/// dtype only selects the float semantics of the comparison.
+fn operand_dtype(operand: &ExpressionRef) -> DType {
+    DType::from_logical_type(operand.return_type(), Nullability::Nullable).unwrap_or(DType::Null)
+}
+
+fn try_from_between(
+    between: &duckdb::BoundBetween<'_>,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<Expression>> {
+    let Some(array) = try_from_expression_inner(between.input, ctx)? else {
+        return Ok(None);
+    };
+    let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
+        return Ok(None);
+    };
+    let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
+        return Ok(None);
+    };
+
+    let dtype = operand_dtype(between.input);
+    let mode = compare_mode(&dtype);
+    if !mode.is_total_order() {
+        return Ok(Some(between_with_mode(
+            mode,
+            array,
+            lower,
+            between.lower_inclusive,
+            upper,
+            between.upper_inclusive,
+        )));
+    }
+
+    let strict = |inclusive: bool| {
+        if inclusive {
+            StrictComparison::NonStrict
+        } else {
+            StrictComparison::Strict
+        }
+    };
+
+    Ok(Some(Between.new_expr(
+        BetweenOptions {
+            lower_strict: strict(between.lower_inclusive),
+            upper_strict: strict(between.upper_inclusive),
+        },
+        [array, lower, upper],
+    )))
+}
+
 fn try_from_compare_in(
     operator: BoundOperator,
     ctx: ConvertCtx<'_>,
@@ -834,11 +865,12 @@ fn try_from_compare_in(
         return Ok(None);
     };
     let element_dtype = list_elements[0].dtype().clone();
-    let expr = in_list_of(element, element_dtype, list_elements)?;
+    let mode = compare_mode(&element_dtype);
+    let expr = in_list_of_with_mode(element, element_dtype, list_elements, mode)?;
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 
-impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
+impl TryFrom<DUCKDB_VX_EXPR_TYPE> for CompareOperator {
     type Error = VortexError;
 
     fn try_from(value: DUCKDB_VX_EXPR_TYPE) -> VortexResult<Self> {
@@ -846,12 +878,16 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => {
                 vortex_bail!("invalid expression")
             }
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => Operator::Gt,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => Operator::Lte,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => Operator::Gte,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => CompareOperator::Eq,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => CompareOperator::NotEq,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => CompareOperator::Lt,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => CompareOperator::Gt,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => {
+                CompareOperator::Lte
+            }
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
+                CompareOperator::Gte
+            }
             _ => vortex_bail!("cannot convert {:?}", value),
         })
     }

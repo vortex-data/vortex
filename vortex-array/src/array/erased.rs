@@ -27,6 +27,7 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::VTable;
 use crate::aggregate_fn::fns::sum::sum;
@@ -41,17 +42,19 @@ use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
+use crate::block::BlockOp;
+use crate::block::BlockSource;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProviderExt;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -399,6 +402,9 @@ impl ArrayRef {
     }
 
     /// Writes the array into the canonical builder.
+    ///
+    /// If this returns `Err`, the builder's contents are unspecified and callers must discard it
+    /// (see [`ArrayBuilder`]).
     pub fn append_to_builder(
         &self,
         builder: &mut dyn ArrayBuilder,
@@ -544,7 +550,7 @@ impl ArrayRef {
     /// # Safety
     /// The caller must put back a slot with the same logical dtype and length before exposing the
     /// parent array, and must only use this for physical rewrites.
-    pub(crate) unsafe fn take_slot_unchecked(
+    pub unsafe fn take_slot_unchecked(
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
@@ -578,7 +584,7 @@ impl ArrayRef {
     /// # Safety
     /// The replacement must have the same logical dtype and length as the taken slot, and this
     /// must only be used for physical rewrites.
-    pub(crate) unsafe fn put_slot_unchecked(
+    pub unsafe fn put_slot_unchecked(
         mut self,
         slot_idx: usize,
         replacement: ArrayRef,
@@ -678,10 +684,47 @@ impl ArrayRef {
         self.0.data.reduce(self)
     }
 
+    /// See [`VTable::block_source`].
+    pub(crate) fn block_source(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockSource>>> {
+        self.0.data.block_source(self, ctx)
+    }
+
+    /// See [`VTable::block_op`].
+    pub(crate) fn block_op(
+        &self,
+        slot_idx: usize,
+        child_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        self.0.data.block_op(self, slot_idx, child_dtype, ctx)
+    }
+
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: the Arc outlives the DynArrayData function call
-        unsafe { (&*inner).data.execute(self, ctx) }
+        let len = self.len();
+        let dtype = self.dtype().clone();
+        let stats = self.statistics().share_existing();
+        let encoding_id = self.encoding_id();
+        let result = self.execute_encoding_unchecked(ctx)?;
+
+        if matches!(result.step(), ExecutionStep::Done) {
+            if cfg!(debug_assertions) {
+                vortex_ensure_eq!(
+                    result.array().len(),
+                    len,
+                    "Result length mismatch for {encoding_id}"
+                );
+                vortex_ensure_eq!(
+                    result.array().dtype(),
+                    &dtype,
+                    "Executed canonical dtype mismatch for {encoding_id}"
+                );
+            }
+            result.array().statistics().transfer_from(&stats);
+        }
+        Ok(result)
     }
 
     /// Execute a single encoding step without applying `Done`-result postconditions.
@@ -693,11 +736,12 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
-        // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
-        // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
-        unsafe { (&*inner).data.execute_unchecked(self, ctx) }
+        // Take the step as a function first, so no borrow of the array's data is live while the
+        // step runs and possibly drops the last reference. Moving `self` in without an extra
+        // `Arc` clone preserves uniqueness, so execute-time metadata cursors can use
+        // `Arc::get_mut`.
+        let execute = self.0.data.execute_fn();
+        execute(self, ctx)
     }
 
     // ArrayVisitor delegation methods

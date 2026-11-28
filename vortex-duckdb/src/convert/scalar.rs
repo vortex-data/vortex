@@ -84,6 +84,9 @@ impl ToDuckDBScalar for Scalar {
             DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
+            DType::FixedSizeBinary(..) => {
+                vortex_bail!("Vortex FixedSizeBinary scalars aren't supported yet")
+            }
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().try_to_duckdb_scalar(),
             DType::Map(..) => self.as_map().try_to_duckdb_scalar(),
             DType::Variant(_) => {
@@ -267,12 +270,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         Ok(match temporal {
             TemporalMetadata::Timestamp(unit, tz) => {
                 if tz.is_some() {
-                    // TIMESTAMP_TZ stores time in UTC microseconds, tz is
-                    // a display sign
-                    return Ok(Value::new_timestamp_tz(timestamp_tz_micros(
-                        *unit,
-                        value()?,
-                    )?));
+                    // TIMESTAMP_TZ stores time in UTC microseconds and
+                    // TIMESTAMP_TZ_NS in UTC nanoseconds, tz is a display sign
+                    return timestamp_tz_value(*unit, value()?);
                 }
                 match unit {
                     TimeUnit::Nanoseconds => Value::new_timestamp_ns(value()?),
@@ -302,6 +302,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     vortex_bail!("cannot convert timeunit {unit} to a duckdb time")
                 }
             },
+            TemporalMetadata::Duration(_) => {
+                vortex_bail!("DuckDB does not support Duration extension scalar")
+            }
         })
     }
 }
@@ -310,15 +313,19 @@ fn ext_logical_type(scalar: &ExtScalar<'_>) -> VortexResult<LogicalType> {
     LogicalType::try_from(&DType::Extension(scalar.ext_dtype().clone()))
 }
 
-fn timestamp_tz_micros(unit: TimeUnit, raw: i64) -> VortexResult<i64> {
+fn timestamp_tz_value(unit: TimeUnit, raw: i64) -> VortexResult<Value> {
     let overflow = || vortex_err!("timestamp_tz overflow rescaling {raw}{unit} to micros");
-    match unit {
-        TimeUnit::Seconds => raw.checked_mul(1_000_000).ok_or_else(overflow),
-        TimeUnit::Milliseconds => raw.checked_mul(1_000).ok_or_else(overflow),
-        TimeUnit::Microseconds => Ok(raw),
-        TimeUnit::Nanoseconds => Ok(raw / 1_000),
+    Ok(match unit {
+        TimeUnit::Seconds => {
+            Value::new_timestamp_tz(raw.checked_mul(1_000_000).ok_or_else(overflow)?)
+        }
+        TimeUnit::Milliseconds => {
+            Value::new_timestamp_tz(raw.checked_mul(1_000).ok_or_else(overflow)?)
+        }
+        TimeUnit::Microseconds => Value::new_timestamp_tz(raw),
+        TimeUnit::Nanoseconds => Value::new_timestamp_tz_ns(raw),
         TimeUnit::Days => vortex_bail!("timestamp_tz cannot have a day time unit"),
-    }
+    })
 }
 
 impl TryFrom<Value> for Scalar {
@@ -455,6 +462,16 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                 Scalar::try_new(
                     DType::Primitive(I64, Nullable),
                     Some(ScalarValue::from(micros)),
+                )?,
+            )),
+            ExtractedValue::TimestampTzNs(nanos) => Ok(Scalar::extension::<Timestamp>(
+                TimestampOptions {
+                    unit: TimeUnit::Nanoseconds,
+                    tz: Some("UTC".into()),
+                },
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(nanos)),
                 )?,
             )),
             ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
@@ -772,12 +789,6 @@ mod tests {
         "UTC",
         1_704_088_800_000_000,
         1_704_088_800_000_000
-    )]
-    #[case::nanos_utc(
-        TimeUnit::Nanoseconds,
-        "UTC",
-        1_704_088_800_123_456_789,
-        1_704_088_800_123_456
     )]
     fn try_from_timestamp_tz_scalar(
         #[case] unit: TimeUnit,

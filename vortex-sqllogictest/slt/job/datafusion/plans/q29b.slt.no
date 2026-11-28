@@ -1,0 +1,211 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(chn.name) AS voiced_char,
+       MIN(n.name) AS voicing_actress,
+       MIN(t.title) AS voiced_animation
+FROM aka_name AS an,
+     complete_cast AS cc,
+     comp_cast_type AS cct1,
+     comp_cast_type AS cct2,
+     char_name AS chn,
+     cast_info AS ci,
+     company_name AS cn,
+     info_type AS it,
+     info_type AS it3,
+     keyword AS k,
+     movie_companies AS mc,
+     movie_info AS mi,
+     movie_keyword AS mk,
+     name AS n,
+     person_info AS pi,
+     role_type AS rt,
+     title AS t
+WHERE cct1.kind ='cast'
+  AND cct2.kind ='complete+verified'
+  AND chn.name = 'Queen'
+  AND ci.note IN ('(voice)',
+                  '(voice) (uncredited)',
+                  '(voice: English version)')
+  AND cn.country_code ='[us]'
+  AND it.info = 'release dates'
+  AND it3.info = 'height'
+  AND k.keyword = 'computer-animation'
+  AND mi.info LIKE 'USA:%200%'
+  AND n.gender ='f'
+  AND n.name LIKE '%An%'
+  AND rt.role ='actress'
+  AND t.title = 'Shrek 2'
+  AND t.production_year BETWEEN 2000 AND 2005
+  AND t.id = mi.movie_id
+  AND t.id = mc.movie_id
+  AND t.id = ci.movie_id
+  AND t.id = mk.movie_id
+  AND t.id = cc.movie_id
+  AND mc.movie_id = ci.movie_id
+  AND mc.movie_id = mi.movie_id
+  AND mc.movie_id = mk.movie_id
+  AND mc.movie_id = cc.movie_id
+  AND mi.movie_id = ci.movie_id
+  AND mi.movie_id = mk.movie_id
+  AND mi.movie_id = cc.movie_id
+  AND ci.movie_id = mk.movie_id
+  AND ci.movie_id = cc.movie_id
+  AND mk.movie_id = cc.movie_id
+  AND cn.id = mc.company_id
+  AND it.id = mi.info_type_id
+  AND n.id = ci.person_id
+  AND rt.id = ci.role_id
+  AND n.id = an.person_id
+  AND ci.person_id = an.person_id
+  AND chn.id = ci.person_role_id
+  AND n.id = pi.person_id
+  AND ci.person_id = pi.person_id
+  AND it3.id = pi.info_type_id
+  AND k.id = mk.keyword_id
+  AND cct1.id = cc.subject_id
+  AND cct2.id = cc.status_id;
+----
+logical_plan
+01)Projection: min(chn.name) AS voiced_char, min(n.name) AS voicing_actress, min(t.title) AS voiced_animation
+02)--Aggregate: groupBy=[[]], aggr=[[min(chn.name), min(n.name), min(t.title)]]
+03)----Projection: chn.name, n.name, t.title
+04)------Inner Join: mi.movie_id = t.id, mc.movie_id = t.id, ci.movie_id = t.id, mk.movie_id = t.id, cc.movie_id = t.id
+05)--------Projection: ci.movie_id, cc.movie_id, chn.name, mc.movie_id, mi.movie_id, mk.movie_id, n.name
+06)----------Inner Join: ci.role_id = rt.id
+07)------------Projection: ci.movie_id, ci.role_id, cc.movie_id, chn.name, mc.movie_id, mi.movie_id, mk.movie_id, n.name
+08)--------------Inner Join: pi.info_type_id = it3.id
+09)----------------Projection: ci.movie_id, ci.role_id, cc.movie_id, chn.name, mc.movie_id, mi.movie_id, mk.movie_id, n.name, pi.info_type_id
+10)------------------Inner Join: n.id = pi.person_id, ci.person_id = pi.person_id
+11)--------------------Projection: ci.person_id, ci.movie_id, ci.role_id, cc.movie_id, chn.name, mc.movie_id, mi.movie_id, mk.movie_id, n.id, n.name
+12)----------------------Inner Join: ci.person_id = n.id, an.person_id = n.id
+13)------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id, cc.movie_id, chn.name, mc.movie_id, mi.movie_id, mk.movie_id
+14)--------------------------Inner Join: mk.keyword_id = k.id
+15)----------------------------Inner Join: mc.movie_id = mk.movie_id, mi.movie_id = mk.movie_id, ci.movie_id = mk.movie_id, cc.movie_id = mk.movie_id
+16)------------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id, cc.movie_id, chn.name, mc.movie_id, mi.movie_id
+17)--------------------------------Inner Join: mi.info_type_id = it.id
+18)----------------------------------Inner Join: mc.movie_id = mi.movie_id, ci.movie_id = mi.movie_id, cc.movie_id = mi.movie_id
+19)------------------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id, cc.movie_id, chn.name, mc.movie_id
+20)--------------------------------------Inner Join: mc.company_id = cn.id
+21)----------------------------------------Inner Join: ci.movie_id = mc.movie_id, cc.movie_id = mc.movie_id
+22)------------------------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.role_id, cc.movie_id, chn.name
+23)--------------------------------------------Inner Join: ci.person_role_id = CAST(chn.id AS Float64)
+24)----------------------------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.person_role_id, ci.role_id, cc.movie_id
+25)------------------------------------------------Inner Join: cc.status_id = cct2.id
+26)--------------------------------------------------Projection: an.person_id, ci.person_id, ci.movie_id, ci.person_role_id, ci.role_id, cc.movie_id, cc.status_id
+27)----------------------------------------------------Inner Join: cc.subject_id = cct1.id
+28)------------------------------------------------------Inner Join: ci.movie_id = cc.movie_id
+29)--------------------------------------------------------Inner Join: an.person_id = ci.person_id
+30)----------------------------------------------------------SubqueryAlias: an
+31)------------------------------------------------------------TableScan: aka_name projection=[person_id]
+32)----------------------------------------------------------SubqueryAlias: ci
+33)------------------------------------------------------------Projection: cast_info.person_id, cast_info.movie_id, cast_info.person_role_id, cast_info.role_id
+34)--------------------------------------------------------------Filter: cast_info.note = Utf8View("(voice)") OR cast_info.note = Utf8View("(voice) (uncredited)") OR cast_info.note = Utf8View("(voice: English version)")
+35)----------------------------------------------------------------TableScan: cast_info projection=[person_id, movie_id, person_role_id, note, role_id], partial_filters=[cast_info.note = Utf8View("(voice)") OR cast_info.note = Utf8View("(voice) (uncredited)") OR cast_info.note = Utf8View("(voice: English version)")]
+36)--------------------------------------------------------SubqueryAlias: cc
+37)----------------------------------------------------------TableScan: complete_cast projection=[movie_id, subject_id, status_id]
+38)------------------------------------------------------SubqueryAlias: cct1
+39)--------------------------------------------------------Projection: comp_cast_type.id
+40)----------------------------------------------------------Filter: comp_cast_type.kind = Utf8View("cast")
+41)------------------------------------------------------------TableScan: comp_cast_type projection=[id, kind], partial_filters=[comp_cast_type.kind = Utf8View("cast")]
+42)--------------------------------------------------SubqueryAlias: cct2
+43)----------------------------------------------------Projection: comp_cast_type.id
+44)------------------------------------------------------Filter: comp_cast_type.kind = Utf8View("complete+verified")
+45)--------------------------------------------------------TableScan: comp_cast_type projection=[id, kind], partial_filters=[comp_cast_type.kind = Utf8View("complete+verified")]
+46)----------------------------------------------SubqueryAlias: chn
+47)------------------------------------------------Filter: char_name.name = Utf8View("Queen")
+48)--------------------------------------------------TableScan: char_name projection=[id, name], partial_filters=[char_name.name = Utf8View("Queen")]
+49)------------------------------------------SubqueryAlias: mc
+50)--------------------------------------------TableScan: movie_companies projection=[movie_id, company_id]
+51)----------------------------------------SubqueryAlias: cn
+52)------------------------------------------Projection: company_name.id
+53)--------------------------------------------Filter: company_name.country_code = Utf8View("[us]")
+54)----------------------------------------------TableScan: company_name projection=[id, country_code], partial_filters=[company_name.country_code = Utf8View("[us]")]
+55)------------------------------------SubqueryAlias: mi
+56)--------------------------------------Projection: movie_info.movie_id, movie_info.info_type_id
+57)----------------------------------------Filter: movie_info.info LIKE Utf8View("USA:%200%")
+58)------------------------------------------TableScan: movie_info projection=[movie_id, info_type_id, info], partial_filters=[movie_info.info LIKE Utf8View("USA:%200%")]
+59)----------------------------------SubqueryAlias: it
+60)------------------------------------Projection: info_type.id
+61)--------------------------------------Filter: info_type.info = Utf8View("release dates")
+62)----------------------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("release dates")]
+63)------------------------------SubqueryAlias: mk
+64)--------------------------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+65)----------------------------SubqueryAlias: k
+66)------------------------------Projection: keyword.id
+67)--------------------------------Filter: keyword.keyword = Utf8View("computer-animation")
+68)----------------------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword = Utf8View("computer-animation")]
+69)------------------------SubqueryAlias: n
+70)--------------------------Projection: name.id, name.name
+71)----------------------------Filter: name.gender = Utf8View("f") AND name.name LIKE Utf8View("%An%")
+72)------------------------------TableScan: name projection=[id, name, gender], partial_filters=[name.gender = Utf8View("f"), name.name LIKE Utf8View("%An%")]
+73)--------------------SubqueryAlias: pi
+74)----------------------TableScan: person_info projection=[person_id, info_type_id]
+75)----------------SubqueryAlias: it3
+76)------------------Projection: info_type.id
+77)--------------------Filter: info_type.info = Utf8View("height")
+78)----------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("height")]
+79)------------SubqueryAlias: rt
+80)--------------Projection: role_type.id
+81)----------------Filter: role_type.role = Utf8View("actress")
+82)------------------TableScan: role_type projection=[id, role], partial_filters=[role_type.role = Utf8View("actress")]
+83)--------SubqueryAlias: t
+84)----------Projection: title.id, title.title
+85)------------Filter: title.production_year >= Float64(2000) AND title.production_year <= Float64(2005) AND title.title = Utf8View("Shrek 2")
+86)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year >= Float64(2000), title.production_year <= Float64(2005), title.title = Utf8View("Shrek 2")]
+physical_plan
+01)ProjectionExec: expr=[min(chn.name)@0 as voiced_char, min(n.name)@1 as voicing_actress, min(t.title)@2 as voiced_animation]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(chn.name), min(n.name), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(chn.name), min(n.name), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@4, id@0), (movie_id@3, id@0), (movie_id@0, id@0), (movie_id@5, id@0), (movie_id@1, id@0)], projection=[name@2, name@6, title@8]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(role_id@1, id@0)], projection=[movie_id@0, movie_id@2, name@3, movie_id@4, movie_id@5, movie_id@6, name@7]
+08)--------------CoalescePartitionsExec
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(info_type_id@8, id@0)], projection=[movie_id@0, role_id@1, movie_id@2, name@3, movie_id@4, movie_id@5, movie_id@6, name@7]
+10)------------------CoalescePartitionsExec
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@8, person_id@0), (person_id@0, person_id@0)], projection=[movie_id@1, role_id@2, movie_id@3, name@4, movie_id@5, movie_id@6, movie_id@7, name@9, info_type_id@11]
+12)----------------------CoalescePartitionsExec
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@1, id@0), (person_id@0, id@0)], projection=[person_id@1, movie_id@2, role_id@3, movie_id@4, name@5, movie_id@6, movie_id@7, movie_id@8, id@9, name@10]
+14)--------------------------CoalescePartitionsExec
+15)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(keyword_id@9, id@0)], projection=[person_id@0, person_id@1, movie_id@2, role_id@3, movie_id@4, name@5, movie_id@6, movie_id@7, movie_id@8]
+16)------------------------------CoalescePartitionsExec
+17)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@6, movie_id@0), (movie_id@7, movie_id@0), (movie_id@2, movie_id@0), (movie_id@4, movie_id@0)]
+18)----------------------------------CoalescePartitionsExec
+19)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@8)], projection=[person_id@1, person_id@2, movie_id@3, role_id@4, movie_id@5, name@6, movie_id@7, movie_id@8]
+20)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = release dates
+21)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@6, movie_id@0), (movie_id@2, movie_id@0), (movie_id@4, movie_id@0)]
+22)----------------------------------------CoalescePartitionsExec
+23)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@7)], projection=[person_id@1, person_id@2, movie_id@3, role_id@4, movie_id@5, name@6, movie_id@7]
+24)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id], file_type=vortex, predicate: country_code@2 = [us]
+25)--------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@2, movie_id@0), (movie_id@4, movie_id@0)]
+26)----------------------------------------------CoalescePartitionsExec
+27)------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_role_id@3, CAST(chn.id AS Float64)@2)], projection=[person_id@0, person_id@1, movie_id@2, role_id@4, movie_id@5, name@7]
+28)--------------------------------------------------CoalescePartitionsExec
+29)----------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, status_id@6)], projection=[person_id@1, person_id@2, movie_id@3, person_role_id@4, role_id@5, movie_id@6]
+30)------------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/comp_cast_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = complete+verified
+31)------------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, subject_id@6)], projection=[person_id@1, person_id@2, movie_id@3, person_role_id@4, role_id@5, movie_id@6, status_id@8]
+32)--------------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/comp_cast_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = cast
+33)--------------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@2)], projection=[person_id@3, person_id@4, movie_id@5, person_role_id@6, role_id@7, movie_id@0, subject_id@1, status_id@2]
+34)----------------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/complete_cast.vortex]]}, projection=[movie_id, subject_id, status_id], file_type=vortex
+35)----------------------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, person_id@0)]
+36)------------------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/aka_name.vortex]]}, projection=[person_id], file_type=vortex
+37)------------------------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[person_id, movie_id, person_role_id, role_id], file_type=vortex, predicate: note@4 = (voice) OR note@4 = (voice) (uncredited) OR note@4 = (voice: English version)
+38)--------------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/char_name.vortex:0..321254], [${WORK_DIR}/char_name.vortex:321254..642508], [${WORK_DIR}/char_name.vortex:642508..963762], [${WORK_DIR}/char_name.vortex:963762..1285016]]}, projection=[id, name, CAST(id@0 AS Float64) as CAST(chn.id AS Float64)], file_type=vortex, predicate: name@1 = Queen
+39)----------------------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+40)------------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id], file_type=vortex
+41)----------------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+42)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info.vortex]]}, projection=[movie_id, info_type_id], file_type=vortex, predicate: info@3 LIKE USA:%200%
+43)----------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+44)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+45)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+46)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 = computer-animation
+47)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/name.vortex:0..423440], [${WORK_DIR}/name.vortex:423440..846880], [${WORK_DIR}/name.vortex:846880..1270320], [${WORK_DIR}/name.vortex:1270320..1693760]]}, projection=[id, name], file_type=vortex, predicate: gender@4 = f AND name@1 LIKE %An%
+48)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/person_info.vortex:0..528942], [${WORK_DIR}/person_info.vortex:528942..1057884], [${WORK_DIR}/person_info.vortex:1057884..1586826], [${WORK_DIR}/person_info.vortex:1586826..2115768]]}, projection=[person_id, info_type_id], file_type=vortex
+49)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+50)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = height
+51)--------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+52)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/role_type.vortex]]}, projection=[id], file_type=vortex, predicate: role@1 = actress
+53)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 >= 2000 AND production_year@4 <= 2005 AND title@1 = Shrek 2

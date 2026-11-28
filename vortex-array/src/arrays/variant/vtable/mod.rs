@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod kernel;
 mod operations;
 mod plugin;
 mod validity;
@@ -12,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -41,10 +39,6 @@ use crate::scalar::ScalarValue;
 
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
-
-pub(crate) fn initialize(session: &VortexSession) {
-    kernel::initialize(session);
-}
 
 #[derive(Clone, Debug)]
 pub struct Variant;
@@ -149,7 +143,9 @@ impl VTable for Variant {
     }
 }
 
-fn merge_typed_scalar_as_variant(
+/// Merges a shredded `typed_scalar` with the unshredded `fallback_scalar` of the same row into a
+/// variant scalar of `dtype`.
+pub fn merge_typed_scalar_as_variant(
     typed_scalar: Scalar,
     fallback_scalar: Option<Scalar>,
     dtype: &DType,
@@ -177,6 +173,7 @@ fn merge_typed_scalar_as_variant(
 }
 
 fn typed_list_as_variant_payload(typed_scalar: Scalar) -> VortexResult<Scalar> {
+    let element_dtype = DType::Variant(Nullability::NonNullable);
     let list = typed_scalar.as_list();
     let elements = list
         .elements()
@@ -184,14 +181,18 @@ fn typed_list_as_variant_payload(typed_scalar: Scalar) -> VortexResult<Scalar> {
         .into_iter()
         .map(|element| {
             if element.dtype().is_variant() {
-                element
+                if element.is_null() {
+                    Ok(Scalar::variant(Scalar::null(DType::Null)))
+                } else {
+                    element.cast(&element_dtype)
+                }
             } else {
-                Scalar::variant(element)
+                Ok(Scalar::variant(element))
             }
         })
-        .collect();
+        .collect::<VortexResult<Vec<_>>>()?;
     Ok(Scalar::list(
-        DType::Variant(Nullability::NonNullable),
+        element_dtype,
         elements,
         Nullability::NonNullable,
     ))
@@ -205,11 +206,9 @@ fn merge_typed_object_as_variant(
         .as_ref()
         .and_then(|scalar| scalar.as_variant().value())
         .filter(|scalar| scalar.dtype().is_struct() && !scalar.is_null());
-    let Some(fallback_inner) = fallback_inner else {
-        return Ok(Scalar::variant(typed_scalar));
-    };
-
-    merge_struct_payload(&typed_scalar, Some(fallback_inner)).map(Scalar::variant)
+    // A null shredded field is absent even when the entire object is shredded. An explicit
+    // Variant null is a present field and is retained by the merge.
+    merge_struct_payload(&typed_scalar, fallback_inner).map(Scalar::variant)
 }
 
 fn merge_struct_payload(typed: &Scalar, raw: Option<&Scalar>) -> VortexResult<Scalar> {
@@ -237,9 +236,7 @@ fn merge_struct_payload(typed: &Scalar, raw: Option<&Scalar>) -> VortexResult<Sc
                 Some(scalar)
             }
         });
-        let field = if typed_field.dtype().is_struct()
-            && raw_payload.is_some_and(|raw| raw.dtype().is_struct() && !raw.is_null())
-        {
+        let field = if typed_field.dtype().is_struct() {
             Scalar::variant(merge_struct_payload(&typed_field, raw_payload)?)
         } else if typed_field.dtype().is_variant() {
             typed_field.cast(&DType::Variant(Nullability::NonNullable))?
@@ -284,4 +281,40 @@ fn merge_struct_payload(typed: &Scalar, raw: Option<&Scalar>) -> VortexResult<Sc
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use vortex_error::VortexResult;
+
+    use super::merge_typed_scalar_as_variant;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
+
+    /// A typed list of nullable Variants merges into a list of Variants that are not nullable, so
+    /// a null element becomes a Variant null and a present element keeps its value.
+    #[test]
+    fn merge_typed_list_turns_null_variant_elements_into_variant_nulls() -> VortexResult<()> {
+        let nullable_variant = DType::Variant(Nullability::Nullable);
+        let typed = Scalar::list(
+            nullable_variant.clone(),
+            vec![
+                Scalar::variant(Scalar::from(1i32)).cast(&nullable_variant)?,
+                Scalar::null(nullable_variant.clone()),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let merged = merge_typed_scalar_as_variant(typed, None, &nullable_variant)?;
+
+        let expected = Scalar::variant(Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::from(1i32)),
+                Scalar::variant(Scalar::null(DType::Null)),
+            ],
+            Nullability::NonNullable,
+        ))
+        .cast(&nullable_variant)?;
+        assert_eq!(merged, expected);
+        Ok(())
+    }
+}

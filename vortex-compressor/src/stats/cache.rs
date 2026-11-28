@@ -12,11 +12,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Bool;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
 use vortex_error::VortexExpect;
 
 use super::BoolStats;
+use super::DecimalStats;
 use super::FloatStats;
 use super::GenerateStatsOptions;
 use super::IntegerStats;
@@ -49,24 +51,32 @@ impl StatsCache {
         }
     }
 
-    /// Returns a cached value, computing it on first access.
+    /// Returns a cached value, computing it outside the lock on a miss.
+    ///
+    /// Concurrent or re-entrant misses for the same type may each invoke `f`; the first
+    /// published value is retained and returned.
     fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
+        if let Some(existing) = self.get::<T>() {
+            return existing;
+        }
+
+        // Compute outside the lock so `f` may re-enter the cache to derive dependent stats.
+        let new_arc: Arc<T> = {
+            let _span = trace::generate_stats_span(std::any::type_name::<T>()).entered();
+            Arc::new(f())
+        };
+
         let type_id = TypeId::of::<T>();
         let mut guard = self.entries.lock();
-
         if let Some(pos) = guard.iter().position(|(id, _)| *id == type_id) {
-            Arc::clone(&guard[pos].1)
+            return Arc::clone(&guard[pos].1)
                 .downcast::<T>()
                 .ok()
-                .vortex_expect("we just checked the TypeID")
-        } else {
-            let new_arc: Arc<T> = {
-                let _span = trace::generate_stats_span(std::any::type_name::<T>()).entered();
-                Arc::new(f())
-            };
-            guard.push((type_id, Arc::clone(&new_arc) as Arc<dyn Any + Send + Sync>));
-            new_arc
+                .vortex_expect("we just checked the TypeID");
         }
+
+        guard.push((type_id, Arc::clone(&new_arc) as Arc<dyn Any + Send + Sync>));
+        new_arc
     }
 
     /// Returns a cached value when one exists.
@@ -90,7 +100,7 @@ impl StatsCache {
 /// original array are not reused.
 ///
 /// Built-in stats are accessed via typed methods ([`integer_stats`], [`float_stats`],
-/// [`varbinview_stats`]) which generate stats lazily on first access using the stored
+/// [`decimal_stats`], [`varbinview_stats`]) which generate stats lazily on first access using the stored
 /// [`GenerateStatsOptions`].
 ///
 /// Extension schemes can use [`get_or_insert_with`] for custom stats types.
@@ -99,6 +109,7 @@ impl StatsCache {
 ///
 /// [`integer_stats`]: ArrayAndStats::integer_stats
 /// [`float_stats`]: ArrayAndStats::float_stats
+/// [`decimal_stats`]: ArrayAndStats::decimal_stats
 /// [`varbinview_stats`]: ArrayAndStats::varbinview_stats
 /// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
 #[derive(Clone)]
@@ -145,6 +156,17 @@ impl ArrayAndStats {
     pub fn array_as_primitive(&self) -> ArrayView<'_, Primitive> {
         self.array
             .as_opt::<Primitive>()
+            .vortex_expect("the array is guaranteed to already be canonical by construction")
+    }
+
+    /// Returns the array as an [`ArrayView<Decimal>`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a decimal array.
+    pub fn array_as_decimal(&self) -> ArrayView<'_, Decimal> {
+        self.array
+            .as_opt::<Decimal>()
             .vortex_expect("the array is guaranteed to already be canonical by construction")
     }
 
@@ -212,6 +234,19 @@ impl ArrayAndStats {
         })
     }
 
+    /// Returns decimal stats, generating them lazily on first access.
+    pub fn decimal_stats(&self, ctx: &mut ExecutionCtx) -> Arc<DecimalStats> {
+        let array = self.array.clone();
+        let opts = self.opts;
+        self.cache.get_or_insert_with::<DecimalStats>(|| {
+            let decimal = array
+                .as_opt::<Decimal>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            DecimalStats::generate_opts(&decimal, opts, ctx)
+        })
+    }
+
     /// Returns varbinview stats, generating them lazily on first access.
     pub fn varbinview_stats(&self, ctx: &mut ExecutionCtx) -> Arc<StringStats> {
         let array = self.array.clone();
@@ -225,7 +260,10 @@ impl ArrayAndStats {
         })
     }
 
-    /// For extension schemes with custom stats types.
+    /// Returns a cached custom stats value for extension schemes, computing it with `f` on a miss.
+    ///
+    /// Computed outside the cache lock so `f` may re-enter the cache; concurrent or re-entrant
+    /// misses for the same type may each run `f`, with the first published value retained.
     pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         self.cache.get_or_insert_with::<T>(f)
     }
@@ -233,5 +271,93 @@ impl ArrayAndStats {
     /// Returns a custom cached value when one exists.
     pub(crate) fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.cache.get::<T>()
+    }
+
+    /// Returns the array's null count if statistics generated so far already hold it, without
+    /// generating any.
+    pub(crate) fn cached_null_count(&self) -> Option<u32> {
+        self.cache
+            .get::<IntegerStats>()
+            .map(|stats| stats.null_count())
+            .or_else(|| {
+                self.cache
+                    .get::<FloatStats>()
+                    .map(|stats| stats.null_count())
+            })
+            .or_else(|| {
+                self.cache
+                    .get::<DecimalStats>()
+                    .map(|stats| stats.null_count())
+            })
+            .or_else(|| {
+                self.cache
+                    .get::<StringStats>()
+                    .map(|stats| stats.null_count())
+            })
+            .or_else(|| {
+                self.cache
+                    .get::<BoolStats>()
+                    .map(|stats| stats.null_count())
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
+
+    use super::ArrayAndStats;
+    use crate::stats::GenerateStatsOptions;
+    use crate::stats::IntegerStats;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct DerivedStats {
+        value_count: u32,
+    }
+
+    #[test]
+    fn test_get_or_insert_with_allows_reentrant_stat_derivation() {
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        let array = PrimitiveArray::from_iter(buffer![1i32, 2, 3, 4]).into_array();
+        let data = ArrayAndStats::new(array, GenerateStatsOptions::default());
+
+        let derived = data.get_or_insert_with::<DerivedStats>(|| {
+            let int_stats = data.integer_stats(&mut ctx);
+            DerivedStats {
+                value_count: int_stats.value_count(),
+            }
+        });
+
+        assert_eq!(derived.value_count, 4);
+        assert!(data.get::<IntegerStats>().is_some());
+        assert!(Arc::ptr_eq(
+            &derived,
+            &data.get_or_insert_with::<DerivedStats>(|| panic!("should return cached entry")),
+        ));
+    }
+
+    #[test]
+    fn test_get_or_insert_with_same_type_reentrancy_keeps_first_published_entry() {
+        let array = PrimitiveArray::from_iter(buffer![1i32, 2]).into_array();
+        let data = ArrayAndStats::new(array, GenerateStatsOptions::default());
+
+        let result = data.get_or_insert_with::<u32>(|| {
+            let inner = data.get_or_insert_with::<u32>(|| 1);
+            assert_eq!(*inner, 1);
+            2
+        });
+
+        assert_eq!(*result, 1);
+        assert!(Arc::ptr_eq(
+            &result,
+            &data.get_or_insert_with::<u32>(|| panic!("should return cached entry")),
+        ));
     }
 }

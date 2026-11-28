@@ -18,21 +18,22 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
+use vortex_expr::root;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::Layout;
 use crate::LazyReaderChildren;
 use crate::VTable;
+use crate::expr_cache::WeakExprCache;
+use crate::layouts::SharedFutureSlot;
+use crate::layouts::is_shared_future_usable;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::zone_map::ZoneMap;
 
@@ -49,9 +50,9 @@ pub(super) struct PruningState {
     aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
-    pruning_result: LazyLock<DashMap<ExactBoundExpr, Option<SharedPruningResult>>>,
-    zone_map: OnceLock<SharedZoneMap>,
-    pruning_predicates: LazyLock<Arc<DashMap<ExactBoundExpr, PredicateCache>>>,
+    pruning_result: LazyLock<WeakExprCache<Option<SharedPruningResult>>>,
+    zone_map: SharedFutureSlot<ZoneMap>,
+    pruning_predicates: LazyLock<WeakExprCache<PredicateCache>>,
 }
 
 impl PruningState {
@@ -73,34 +74,29 @@ impl PruningState {
             aggregate_fns,
             lazy_children,
             session,
-            pruning_result: LazyLock::new(|| {
-                DashMap::with_hasher_and_shard_amount(Default::default(), 8)
-            }),
+            pruning_result: LazyLock::new(|| WeakExprCache::with_shard_amount(8)),
             zone_map: Default::default(),
-            pruning_predicates: LazyLock::new(|| {
-                Arc::new(DashMap::with_hasher_and_shard_amount(Default::default(), 8))
-            }),
+            pruning_predicates: LazyLock::new(|| WeakExprCache::with_shard_amount(8)),
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        let key = ExactBoundExpr(expr.clone());
-
-        if let Some(result) = self.pruning_result.get(&key) {
-            return result.value().clone();
-        }
-
-        self.pruning_result
-            .entry(key)
-            .or_insert_with(|| {
-                let dynamic_updates = DynamicExprUpdates::new(&expr);
-                match self.pruning_predicate(expr.clone()) {
+    pub(super) fn pruning_mask_future(
+        &self,
+        expr: &BoundExpression,
+    ) -> Option<SharedPruningResult> {
+        self.pruning_result.get_or_insert_valid_with(
+            expr,
+            |entry| entry.as_ref().is_none_or(is_shared_future_usable),
+            || {
+                let dynamic_updates = DynamicExprUpdates::new(expr);
+                match self.pruning_predicate(expr) {
                     None => {
                         trace!(%expr, "no pruning predicate");
                         None
                     }
                     Some(predicate) => {
                         trace!(%expr, ?predicate, "constructed pruning predicate");
+                        let expr = expr.detach_identity();
                         let zone_map = self.zone_map();
                         let session = self.session.clone();
 
@@ -134,18 +130,15 @@ impl PruningState {
                         )
                     }
                 }
-            })
-            .clone()
+            },
+        )
     }
 
-    fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
-        let key = ExactBoundExpr(expr.clone());
-
+    fn pruning_predicate(&self, expr: &BoundExpression) -> Option<BoundExpression> {
         self.pruning_predicates
-            .entry(key)
-            .or_default()
-            .get_or_init(move || match expr.falsify(&self.session) {
-                Ok(predicate) => predicate,
+            .get_or_insert_with(expr, || Arc::new(OnceLock::new()))
+            .get_or_init(|| match expr.falsify(&self.session) {
+                Ok(predicate) => predicate.map(|p| p.detach_identity()),
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
                     None
@@ -155,49 +148,41 @@ impl PruningState {
     }
 
     fn zone_map(&self) -> SharedZoneMap {
-        self.zone_map
-            .get_or_init(move || {
-                let zone_count = self.zone_count;
-                let zones_reader = self
-                    .lazy_children
-                    .get(1)
-                    .vortex_expect("failed to get zone child");
-                let root = root()
-                    .bind(zones_reader.dtype())
-                    .vortex_expect("root must bind against the zone-map dtype");
-                let zones_eval = zones_reader
-                    .projection_evaluation(
-                        &(0..zone_count as u64),
-                        &root,
-                        MaskFuture::new_true(zone_count),
-                    )
-                    .vortex_expect("Failed construct zone map evaluation");
-                let session = self.session.clone();
-                let zone_len = self.zone_len;
-                let row_count = self.row_count;
-                let dtype = self.dtype.clone();
-                let aggregate_fns = Arc::clone(&self.aggregate_fns);
+        self.zone_map.get_or_init(move || {
+            let zone_count = self.zone_count;
+            let zones_reader = self
+                .lazy_children
+                .get(1)
+                .vortex_expect("failed to get zone child");
+            let root = root()
+                .bind(zones_reader.dtype())
+                .vortex_expect("root must bind against the zone-map dtype");
+            let zones_eval = zones_reader
+                .projection_evaluation(
+                    &(0..zone_count as u64),
+                    &root,
+                    MaskFuture::new_true(zone_count),
+                )
+                .vortex_expect("Failed construct zone map evaluation");
+            let session = self.session.clone();
+            let zone_len = self.zone_len;
+            let row_count = self.row_count;
+            let dtype = self.dtype.clone();
+            let aggregate_fns = Arc::clone(&self.aggregate_fns);
 
-                async move {
-                    let mut ctx = session.create_execution_ctx();
-                    let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
-                    // SAFETY: zoned layout validation checked that this zones child was
-                    // written from the same column dtype and aggregate stats-table schema.
-                    Ok(unsafe {
-                        ZoneMap::new_unchecked(
-                            dtype,
-                            zones_array,
-                            aggregate_fns,
-                            zone_len,
-                            row_count,
-                        )
-                    })
-                }
-                .map_err(Arc::new)
-                .boxed()
-                .shared()
-            })
-            .clone()
+            async move {
+                let mut ctx = session.create_execution_ctx();
+                let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
+                // SAFETY: zoned layout validation checked that this zones child was
+                // written from the same column dtype and aggregate stats-table schema.
+                Ok(unsafe {
+                    ZoneMap::new_unchecked(dtype, zones_array, aggregate_fns, zone_len, row_count)
+                })
+            }
+            .map_err(Arc::new)
+            .boxed()
+            .shared()
+        })
     }
 }
 

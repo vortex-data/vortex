@@ -12,14 +12,17 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_mask::Mask;
 
+use crate::execution::pipeline::Scan;
+use crate::execution::pipeline::Split;
+use crate::execution::pipeline::Turn;
 use crate::execution::pipeline::synthetic::SyntheticPlan;
 use crate::execution::zone_map::ZoneMap;
 use crate::plan::*;
@@ -106,5 +109,68 @@ fn zoned_pruning_plan_with_new_zones_proves_them_again() -> VortexResult<()> {
     );
     assert_eq!(rebuilt_proof.get(&falsifier, &SESSION)?, Some(updated));
     assert_eq!(proof.get(&falsifier, &SESSION)?, Some(original));
+    Ok(())
+}
+
+/// Pruning a zoned plan with a final short zone expands to the exact requested row count without
+/// panicking, and a truncated zone map returns an error instead of panicking on slice.
+#[test]
+fn zoned_pruning_handles_final_short_zone_and_truncated_zones() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let (max, zones_dtype) = max_zones_dtype(&dtype)?;
+    let falsifier = gt(root(), lit(5_i32))
+        .bind(&dtype)?
+        .falsify(&SESSION)?
+        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+
+    let build_pruning = |num_zones: u64, bounds: Vec<i32>| -> VortexResult<PlanRef> {
+        let zones = placeholder(zones_dtype.clone(), num_zones);
+        let source = ZonedPlan::new(
+            placeholder(dtype.clone(), 5),
+            zones,
+            3,
+            vec![max.clone()].into(),
+        )
+        .into_plan();
+        let pruning = optimize(
+            EvalPlan::try_new(falsifier.clone(), source)?.into_plan(),
+            &SESSION,
+        )?;
+        let zoned = pruning
+            .as_opt::<Zoned>()
+            .ok_or_else(|| vortex_err!("predicate did not become a pruning plan"))?;
+        let table = StructArray::from_fields(&[(
+            max.to_string().as_str(),
+            PrimitiveArray::from_option_iter(bounds.into_iter().map(Some)).into_array(),
+        )])?;
+        let zone_map = ZoneMap::try_new(dtype.clone(), table, vec![max.clone()].into(), 3, 5)?;
+        zoned
+            .pruned_zones()
+            .ok_or_else(|| vortex_err!("missing proof"))?
+            .init(zone_map, &falsifier, &SESSION)?;
+        Ok(pruning)
+    };
+
+    // Final short zone (rows 3..5 of a 5-row plan with zone_len=3).
+    let pruning = build_pruning(2, vec![3, 9])?;
+    let mut scan = Scan::try_new(
+        SESSION.clone(),
+        pruning,
+        vec![Split::all(0..5), Split::all(3..5)],
+    )?;
+    let mut outputs = Vec::new();
+    loop {
+        match scan.step()? {
+            Turn::Output(split, array) => outputs.push((split, array.len())),
+            Turn::Done => break,
+            other => panic!("unexpected turn: {other:?}"),
+        }
+    }
+    assert_eq!(outputs, vec![(0, 5), (1, 2)]);
+
+    // Truncated zone table (only 1 zone for 5 rows with zone_len=3) returns an error cleanly.
+    let truncated = build_pruning(1, vec![3])?;
+    let mut scan = Scan::try_new(SESSION.clone(), truncated, vec![Split::all(3..5)])?;
+    assert!(scan.step().is_err());
     Ok(())
 }

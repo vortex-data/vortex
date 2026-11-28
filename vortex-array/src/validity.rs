@@ -16,6 +16,7 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -32,8 +33,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::boolean::Boolean;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 
 /// Validity information for an array.
 #[derive(Clone)]
@@ -309,7 +310,7 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                Validity::Array(Binary::try_new(lhs, rhs, Operator::And)?.into_array())
+                Validity::Array(Boolean::try_new(lhs, rhs, BooleanOperator::And)?.into_array())
             }
         })
     }
@@ -381,6 +382,11 @@ impl Validity {
     /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
     /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
     /// `false`.
+    ///
+    /// The result depends on the statistics of the validity array, which can come from untrusted
+    /// input. An encoding must not depend on this result for memory safety. An encoding that does
+    /// not validate the values at null rows, such as `VarBin`, must read the validity values
+    /// itself before it makes those rows valid.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
@@ -430,8 +436,8 @@ impl Validity {
     /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
     /// invalid values are present).
     ///
-    /// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
-    /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+    /// [`CastKernel`]: crate::scalar_fn::builtin::cast::CastKernel
+    /// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
     #[inline]
     pub fn cast_nullability(
         self,
@@ -469,7 +475,7 @@ impl Validity {
     /// };
     /// ```
     ///
-    /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+    /// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
     #[inline]
     pub fn trivially_cast_nullability(
         self,
@@ -540,36 +546,52 @@ impl From<&Nullability> for Validity {
 impl Validity {
     /// Concatenate one or more validities together.
     ///
-    /// Returns None if the vector is empty.
-    pub fn concat(validities: Vec<(Validity, usize)>) -> Option<Self> {
+    /// Returns `Ok(None)` if the vector is empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any [`Validity::Array`] does not have dtype
+    /// [`DType::Bool(Nullability::NonNullable)`](DType::Bool) or has a length different from its
+    /// paired chunk length.
+    pub fn concat(validities: Vec<(Validity, usize)>) -> VortexResult<Option<Self>> {
         let mut validity_kinds = validities
             .iter()
             .map(|(v, _)| std::mem::discriminant(v))
             .unique();
-        let validity_kind = validity_kinds.next()?;
+        let Some(validity_kind) = validity_kinds.next() else {
+            return Ok(None);
+        };
         if validity_kinds.next().is_none() {
             // If there is only one kind of validity and its not Validity::Array, avoid constructing
             // a Validity::Array.
             if validity_kind == std::mem::discriminant(&Validity::AllValid) {
-                return Some(Validity::AllValid);
+                return Ok(Some(Validity::AllValid));
             }
             if validity_kind == std::mem::discriminant(&Validity::AllInvalid) {
-                return Some(Validity::AllInvalid);
+                return Ok(Some(Validity::AllInvalid));
             }
             if validity_kind == std::mem::discriminant(&Validity::NonNullable) {
-                return Some(Validity::NonNullable);
+                return Ok(Some(Validity::NonNullable));
             }
         }
 
-        Some(Validity::Array(
-            unsafe {
-                ChunkedArray::new_unchecked(
-                    validities.into_iter().map(|(v, len)| v.to_array(len)),
-                    DType::Bool(Nullability::NonNullable),
-                )
-            }
-            .into_array(),
-        ))
+        let chunks = validities
+            .into_iter()
+            .map(|(v, len)| {
+                if let Validity::Array(a) = &v {
+                    vortex_ensure_eq!(
+                        a.len(),
+                        len,
+                        "Validity::Array length must equal chunk length",
+                    );
+                }
+                Ok(v.to_array(len))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(Some(Validity::Array(
+            ChunkedArray::try_new(chunks, Self::DTYPE)?.into_array(),
+        )))
     }
 }
 
@@ -827,5 +849,28 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
+    }
+
+    #[test]
+    fn concat_rejects_non_bool_validity_array() {
+        let bad = Validity::Array(PrimitiveArray::from_iter([1i32, 2]).into_array());
+        assert!(Validity::concat(vec![(bad, 2)]).is_err());
+    }
+
+    #[test]
+    fn concat_rejects_nullable_bool_validity_array() {
+        let bad = Validity::Array(BoolArray::from_iter([Some(true), None]).into_array());
+        assert!(Validity::concat(vec![(bad, 2)]).is_err());
+    }
+
+    #[test]
+    fn concat_rejects_mismatched_validity_array_length() {
+        let bad = Validity::Array(BoolArray::from_iter([true, false]).into_array());
+        let err = Validity::concat(vec![(bad, 5)]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Validity::Array length must equal chunk length"),
+            "{err}"
+        );
     }
 }

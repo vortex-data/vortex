@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod between;
 mod cast;
 mod fill_null;
 mod fixed_width;
+pub(crate) mod integer_cast;
 mod mask;
 pub(crate) mod rules;
 mod slice;
-mod zip;
 
 #[cfg(test)]
 mod tests {
@@ -22,6 +21,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::half::f16;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -50,6 +50,18 @@ mod tests {
     #[case::i32(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]))]
     #[case::nullable_i32(PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]))]
     #[case::i64(PrimitiveArray::from_iter([10i64, 20, 30, 40, 50]))]
+    #[case::f16(PrimitiveArray::from_iter([
+        f16::from_f32(1.5),
+        f16::from_f32(-2.5),
+        f16::ZERO,
+        f16::from_f32(4.5),
+    ]))]
+    #[case::nullable_f16(PrimitiveArray::from_option_iter([
+        Some(f16::from_f32(1.5)),
+        None,
+        Some(f16::from_f32(-2.5)),
+        Some(f16::from_f32(4.5)),
+    ]))]
     #[case::f32(PrimitiveArray::from_iter([1.5f32, 2.5, 3.5, 4.5, 5.5]))]
     #[case::f64(PrimitiveArray::from_iter([10.1f64, 20.2, 30.3, 40.4, 50.5]))]
     fn test_primitive_binary_numeric(#[case] array: PrimitiveArray) {

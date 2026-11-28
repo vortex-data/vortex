@@ -3,25 +3,93 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import json
 import operator
 from collections.abc import Callable, Iterator
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import polars as pl
 import pyarrow as pa
+from polars.io.plugins import register_io_source
 
 import vortex.expr as ve
 
 from ._lib import dtype as _dtype
+from ._lib import expr as _expr
 from ._lib.arrays import Array
+from .arrays import array
+
+
+def lazy_frame(
+    schema: pa.Schema,
+    read: Callable[[list[str] | None, ve.Expr | None, int | None], pa.RecordBatchReader],
+) -> pl.LazyFrame:
+    """A Polars LazyFrame over Vortex data, pushing column selection and predicates into ``read``.
+
+    ``read(columns, predicate, limit)`` returns the batches of ``columns`` whose rows pass
+    ``predicate``. It may stop after ``limit`` rows or read past them: the frame trims the batches
+    to the rows Polars asked for either way.
+    """
+    # Type-checks translated predicates against the schema before scanning.
+    scope = array(schema.empty_table())
+
+    def _io_source(
+        with_columns: list[str] | None,
+        predicate: pl.Expr | None,
+        n_rows: int | None,
+        _batch_size: int | None,
+    ) -> Iterator[pl.DataFrame]:
+        # Push the convertible AND-conjuncts of the predicate into the Vortex scan and
+        # evaluate the residual conjuncts with Polars per batch. Polars will not
+        # re-apply a predicate it handed to the source, so both parts must be applied.
+        vx_predicate: ve.Expr | None = None
+        pl_predicate: pl.Expr | None = None
+        if predicate is not None:
+            vx_predicate, pl_predicate = decompose_predicate(predicate, scope)
+
+        # A row limit only commutes with the residual filter if there is none.
+        limit = n_rows if pl_predicate is None else None
+
+        reader = read(with_columns, vx_predicate, limit)
+
+        remaining = n_rows
+        try:
+            for batch in reader:
+                df = pl.DataFrame(batch)
+                if pl_predicate is not None:
+                    df = df.filter(pl_predicate)
+                if remaining is not None:
+                    df = df.head(remaining)
+                    remaining -= df.height
+                # TODO(ngates): set sortedness on DataFrame based on stats?
+                yield df
+                if remaining == 0:
+                    break
+        except pa.ArrowException as e:
+            # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
+            # re-raises them unchanged. Raise a ComputeError on both.
+            raise pl.exceptions.ComputeError(str(e)) from e
+
+        # Make sure we always yield at least one empty DataFrame
+        yield pl.DataFrame(
+            pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in reader.schema],
+                schema=reader.schema,
+            ),
+        )
+
+    # https://github.com/pola-rs/polars/pull/24125
+    return register_io_source(_io_source, schema=schema)  # ty: ignore[invalid-argument-type]
 
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
     data = json.loads(expr.meta.serialize(format="json"))
     assert isinstance(data, dict)
+    if _has_lost_float(data):
+        raise NotImplementedError(f"Polars writes the NaN and infinite float literals of {expr} as null")
     return _polars_to_vortex(data)
 
 
@@ -48,6 +116,9 @@ def decompose_predicate(predicate: pl.Expr, scope: Array | None = None) -> tuple
     data = json.loads(predicate.meta.serialize(format="json"))
     assert isinstance(data, dict)
 
+    if _has_lost_float(data):
+        return None, predicate
+
     pushed: ve.Expr | None = None
     residual: pl.Expr | None = None
     for conjunct in _conjuncts(data):
@@ -58,6 +129,28 @@ def decompose_predicate(predicate: pl.Expr, scope: Array | None = None) -> tuple
             expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
             residual = expr if residual is None else residual & expr
     return pushed, residual
+
+
+_FLOAT_LITERAL_TYPES = ("Float", "Float32", "Float64")
+
+
+def _has_lost_float(expr: object) -> bool:
+    """True if the JSON form of a Polars expression has lost a float literal.
+
+    The JSON form writes NaN and the infinities as ``null``, and writes a null literal as a
+    ``Null`` scalar. So a float literal of ``null`` is one of the lost values. Neither Vortex nor
+    an expression that Polars reads back from this JSON can then evaluate the predicate, so Polars
+    evaluates all of it.
+    """
+    if isinstance(expr, dict):
+        for key, value in expr.items():
+            if key in _FLOAT_LITERAL_TYPES and value is None:
+                return True
+            if _has_lost_float(value):
+                return True
+    elif isinstance(expr, list):
+        return any(_has_lost_float(value) for value in expr)
+    return False
 
 
 def _conjuncts(expr: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -114,13 +207,34 @@ def _bool_op(expr: dict[str, Any]) -> Literal["and", "or"] | None:
     return None
 
 
-_OPS = {
-    "Eq": operator.eq,
-    "NotEq": operator.ne,
-    "Lt": operator.lt,
-    "LtEq": operator.le,
-    "Gt": operator.gt,
-    "GtEq": operator.ge,
+def _comparison(
+    op: Literal["eq", "not_eq", "gt", "gt_eq", "lt", "lt_eq"],
+) -> Callable[[ve.Expr, ve.Expr], ve.Expr]:
+    """A comparison that orders floats as Polars does.
+
+    Polars makes ``-0.0`` equal to ``+0.0``, and makes all NaNs equal and greater than all other
+    values.
+    """
+
+    def compare(left: ve.Expr, right: ve.Expr) -> ve.Expr:
+        return _expr.compare(op, left, right, float_order="canonical")
+
+    return compare
+
+
+_EQ = _comparison("eq")
+_GT = _comparison("gt")
+_GT_EQ = _comparison("gt_eq")
+_LT = _comparison("lt")
+_LT_EQ = _comparison("lt_eq")
+
+_OPS: dict[str, Callable[[ve.Expr, ve.Expr], ve.Expr]] = {
+    "Eq": _EQ,
+    "NotEq": _comparison("not_eq"),
+    "Lt": _LT,
+    "LtEq": _LT_EQ,
+    "Gt": _GT,
+    "GtEq": _GT_EQ,
     "And": operator.and_,
     "Or": operator.or_,
     "LogicalAnd": operator.and_,
@@ -157,7 +271,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
         if op not in _OPS:
             raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
-        return cast(ve.Expr, _OPS[op](lhs, rhs))
+        return _OPS[op](lhs, rhs)
 
     if "Ternary" in expr:
         node = expr["Ternary"]
@@ -281,9 +395,9 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
             if "IsBetween" in fn:
                 closed = fn["IsBetween"]["closed"]
-                lower = operator.ge if closed in ("Both", "Left") else operator.gt
-                upper = operator.le if closed in ("Both", "Right") else operator.lt
-                return cast(ve.Expr, lower(_inputs[0], _inputs[1]) & upper(_inputs[0], _inputs[2]))
+                lower = _GT_EQ if closed in ("Both", "Left") else _GT
+                upper = _LT_EQ if closed in ("Both", "Right") else _LT
+                return lower(_inputs[0], _inputs[1]) & upper(_inputs[0], _inputs[2])
 
             if fn == "IsNotNull":
                 return ve.is_not_null(_inputs[0])
@@ -314,12 +428,19 @@ def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve
     """
     values = _literal_list(members)
     has_null = values.null_count > 0
+
     dtype = _dtype.list_(_dtype.DType.from_arrow(values.type))
     members_expr = ve.literal(dtype, values.to_pylist())
 
+    # Polars makes -0.0 equal to +0.0 and makes all NaNs equal, as in its comparisons.
+    if pa.types.is_floating(values.type):
+        contains = functools.partial(_expr.list_contains, float_order="canonical")
+    else:
+        contains = ve.list_contains
+
     if nulls_equal:
-        return ve.fill_null(ve.list_contains(members_expr, needle), has_null)
-    return ve.list_contains(members_expr, needle, sql_null_semantics=not has_null)
+        return ve.fill_null(contains(members_expr, needle), has_null)
+    return contains(members_expr, needle, sql_null_semantics=not has_null)
 
 
 def _literal_list(expr: dict[str, Any]) -> pa.Array[pa.Scalar[Any]]:
@@ -358,10 +479,11 @@ def _cast_datetime_literal(node: dict[str, Any]) -> ve.Expr:
     """Fold a Polars cast of a datetime literal into the literal.
 
     Polars 1.x serializes a time zone aware datetime literal as its wall-clock time labelled UTC,
-    cast to a naive datetime, and then given its time zone with ``replace_time_zone``. Vortex does
-    not cast between temporal dtypes, so the cast is applied to the literal here. Like Polars,
-    Arrow changes the time zone without changing the stored value. Unlike Polars, it rejects a
-    change of unit that loses precision, which leaves that predicate to Polars.
+    cast to a naive datetime, and then given its time zone with ``replace_time_zone``. Vortex casts
+    a timestamp only to a finer unit in the same time zone, so Arrow applies the cast to the
+    literal here. Like Polars, Arrow removes the time zone without changing the stored value.
+    Unlike Polars, it rejects a change of unit that loses precision, which leaves that predicate
+    to Polars.
     """
     try:
         value, unit, tz = node["expr"]["Literal"]["Scalar"]["Datetime"]

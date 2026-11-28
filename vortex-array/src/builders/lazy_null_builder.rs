@@ -57,6 +57,9 @@ impl LazyBitBufferBuilder {
     /// Appends `n` null values to the builder.
     #[inline]
     pub fn append_n_nulls(&mut self, n: usize) {
+        if n == 0 {
+            return;
+        }
         self.materialize_if_needed();
         self.inner
             .as_mut()
@@ -98,6 +101,10 @@ impl LazyBitBufferBuilder {
 
     /// Sets the validity bit at the given index.
     pub fn set_bit(&mut self, index: usize, v: bool) {
+        if self.inner.is_none() && v {
+            assert!(index < self.len, "index {index} exceeds len {}", self.len);
+            return;
+        }
         self.materialize_if_needed();
         self.inner
             .as_mut()
@@ -105,13 +112,28 @@ impl LazyBitBufferBuilder {
             .set_to(index, v);
     }
 
+    /// Truncates the builder to `len` entries. No-op if `len >= self.len()`.
+    pub fn truncate(&mut self, len: usize) {
+        if let Some(buf) = self.inner.as_mut() {
+            buf.truncate(len);
+        } else {
+            self.len = self.len.min(len);
+        }
+    }
+
     /// Returns the current length of the builder.
+    /// Whether no entries have been appended.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
     }
 
-    fn finish(&mut self) -> Option<BitBuffer> {
+    /// The validity bits appended so far, or `None` when every entry is valid.
+    pub fn finish(&mut self) -> Option<BitBuffer> {
         self.len = 0;
         self.inner.take().map(|b| b.freeze())
     }
@@ -122,9 +144,10 @@ impl LazyBitBufferBuilder {
 
         match (nullability, nulls) {
             (NonNullable, None) => Validity::NonNullable,
+            (NonNullable, Some(arr)) if arr.true_count() == arr.len() => Validity::NonNullable,
             (Nullable, None) => Validity::AllValid,
             (Nullable, Some(arr)) => Validity::from(arr),
-            _ => vortex_panic!("Invalid nullability/nulls combination"),
+            (NonNullable, Some(_)) => vortex_panic!("Invalid nullability/nulls combination"),
         }
     }
 
@@ -156,5 +179,34 @@ impl LazyBitBufferBuilder {
             bit_mut.append_n(true, self.len);
             self.inner = Some(bit_mut);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::BitBuffer;
+    use vortex_buffer::BufferAllocatorRef;
+
+    use super::LazyBitBufferBuilder;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::validity::Validity;
+
+    #[rstest]
+    #[case::all_true_buffer(false)]
+    #[case::cleared_with_set_bit(true)]
+    fn test_finish_non_nullable_with_materialized_all_true_bits(#[case] via_set_bit: bool) {
+        let mut builder = LazyBitBufferBuilder::new(4, BufferAllocatorRef::statically_allocated());
+        if via_set_bit {
+            builder.append_n_nulls(2);
+            builder.set_bit(0, true);
+            builder.set_bit(1, true);
+        } else {
+            builder.append_buffer(&BitBuffer::new_set(3));
+        }
+        assert!(matches!(
+            builder.finish_with_nullability(NonNullable),
+            Validity::NonNullable
+        ));
     }
 }

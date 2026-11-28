@@ -22,6 +22,7 @@ use vortex_array::arrays::Widen;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::hegel::serialize_and_decode;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
@@ -29,16 +30,13 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::DecimalBytePartsArray;
@@ -138,24 +136,6 @@ fn deserialize_stored_msp(
             &[],
             &children,
         ),
-        session,
-    )
-}
-
-/// Writes `array` with the serializers of `session` and reads it back.
-fn serialize_and_decode(array: &ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
-    let array_ctx = ArrayContext::empty();
-    let serialized = array.serialize(&array_ctx, session, &SerializeOptions::default())?;
-    let mut concat = ByteBufferMut::empty();
-    for buf in serialized {
-        concat.extend_from_slice(buf.as_ref());
-    }
-    let parts = SerializedArray::try_from(concat.freeze())?;
-
-    parts.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(array_ctx.to_ids()),
         session,
     )
 }
@@ -365,13 +345,7 @@ fn take_keeps_widen_msp_on_top(
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::U64 as i32]),
     vec![msp()],
-    "v2 expects the msp child plus one child per lower part"
-)]
-#[case::v2_extra_child(
-    decimal_byte_parts_v2_id(),
-    v2_metadata(vec![PType::U64 as i32]),
-    vec![msp(), lower_part(), lower_part()],
-    "v2 expects the msp child plus one child per lower part"
+    "v2 expects at least the msp child plus one child per lower part"
 )]
 #[case::v2_too_many_lower_parts(
     decimal_byte_parts_v2_id(),
@@ -412,12 +386,15 @@ fn decoder_rejects_malformed_payloads(
     );
 }
 
+/// A later writer may append children and node buffers that do not change the decoded values, so
+/// a reader ignores everything after the declared children.
 #[test]
-fn v2_rejects_node_buffers() {
+fn v2_ignores_trailing_children_and_node_buffers() -> VortexResult<()> {
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
     let metadata = v2_metadata(vec![PType::U64 as i32]);
     let buffers = [BufferHandle::new_host(ByteBuffer::copy_from([1]))];
-    let children = vec![msp(), lower_part()];
+    // In-memory children assert the requested dtype, so decoding this `i32` child would panic.
+    let children = vec![msp(), lower_part(), buffer![7i32, 8, 9].into_array()];
     let parts = ArrayDeserialization::new(
         decimal_byte_parts_v2_id(),
         &dtype,
@@ -426,10 +403,16 @@ fn v2_rejects_node_buffers() {
         &buffers,
         &children,
     );
-    let error = DecimalBytePartsPlugin
-        .deserialize(parts, &SESSION)
-        .expect_err("v2 has only child arrays");
-    assert!(error.to_string().contains("v2 must not carry node buffers"));
+    let actual = DecimalBytePartsPlugin.deserialize(parts, &SESSION)?;
+
+    let expected = deserialize_with(
+        decimal_byte_parts_v2_id(),
+        &metadata,
+        vec![msp(), lower_part()],
+    )?;
+    assert_eq!(actual.as_::<DecimalByteParts>().lower_parts().len(), 1);
+    assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+    Ok(())
 }
 
 #[test]

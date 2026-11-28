@@ -13,6 +13,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -24,10 +25,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
-use crate::compress_patches;
+use crate::schemes::patches::KeptPatches;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -43,7 +45,8 @@ impl Scheme for ALPScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![ALP.id()];
+        // `compress_patches` stores constant patch values as a Constant array.
+        let mut encodings = vec![ALP.id(), Constant.id()];
         if use_experimental_patches() {
             encodings.push(Patched.id());
         }
@@ -75,46 +78,41 @@ impl Scheme for ALPScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    /// Children: encoded ints=0, which carry the validity; patches, kept, from 1 on.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let alp_encoded = alp_encode(data.array_as_primitive(), None, exec_ctx)?;
-
-        // Compress the ALP ints.
-        let compressed_alp_ints = compressor.compress_child(
-            alp_encoded.encoded(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-
         let alp_stats = alp_encoded.as_array().statistics().to_owned();
         let exponents = alp_encoded.exponents();
 
-        if use_experimental_patches() {
-            let patches = alp_encoded.patches();
+        let (patches, keep) =
+            KeptPatches::new(self, 1, data.array(), alp_encoded.patches(), exec_ctx)?;
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, alp_encoded.encoded().clone())],
+            keep,
+            move |children, _| {
+                let [encoded] = children.compressed()?;
+                let array = patches.build(children, |patches| {
+                    Ok(ALP::new(encoded, exponents, patches).into_array())
+                })?;
+                array.statistics().set_all(alp_stats);
+                Ok(array)
+            },
+        ))
+    }
 
-            // Create ALP array without interior patches.
-            let alp_array = ALP::new(compressed_alp_ints, exponents, None).into_array();
-
-            match patches {
-                None => Ok(alp_array),
-                Some(p) => Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?
-                    .with_stats_set(alp_stats)
-                    .into_array()),
-            }
-        } else {
-            let patches = alp_encoded
-                .patches()
-                .map(|p| compress_patches(p, exec_ctx))
-                .transpose()?;
-
-            Ok(ALP::new(compressed_alp_ints, exponents, patches).into_array())
-        }
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

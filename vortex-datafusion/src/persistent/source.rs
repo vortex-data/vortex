@@ -40,9 +40,11 @@ use vortex::layout::scan::metrics::ScanMetrics;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::execution::driver::ChunkBudget;
 use vortex::scan::prepare::WeakScanCache;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
@@ -209,6 +211,8 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// The chunks in flight that the V2 scans of all partitions share: about four per core.
+    chunk_budget: ChunkBudget,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -253,6 +257,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            chunk_budget: ChunkBudget::new(4 * get_available_parallelism().unwrap_or(1)),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             dynamic_filters: Arc::new(DashMap::default()),
@@ -402,7 +407,7 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
-            partitions: base_config.file_groups.len(),
+            chunk_budget: self.chunk_budget.clone(),
         };
 
         Ok(opener)

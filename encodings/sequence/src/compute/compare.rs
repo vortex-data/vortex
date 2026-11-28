@@ -8,8 +8,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
@@ -225,9 +225,8 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::binary::CompareKernel;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -246,7 +245,7 @@ mod tests {
         let rhs = ConstantArray::new(4i64, lhs.len());
         let result = lhs
             .into_array()
-            .binary(rhs.into_array(), Operator::Eq)
+            .compare(rhs.into_array(), CompareOperator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -258,7 +257,7 @@ mod tests {
         let rhs = ConstantArray::new(8i64, lhs.len());
         let result = lhs
             .into_array()
-            .binary(rhs.into_array(), Operator::Eq)
+            .compare(rhs.into_array(), CompareOperator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -270,7 +269,7 @@ mod tests {
         let rhs = ConstantArray::new(1i64, lhs.len());
         let result = lhs
             .into_array()
-            .binary(rhs.into_array(), Operator::Eq)
+            .compare(rhs.into_array(), CompareOperator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -286,7 +285,9 @@ mod tests {
             5,
         )?;
         let rhs = ConstantArray::new(80u8, lhs.len());
-        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq)?;
+        let result = lhs
+            .into_array()
+            .compare(rhs.into_array(), CompareOperator::Eq)?;
         let expected = BoolArray::from_iter([false, false, true, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
@@ -305,15 +306,16 @@ mod tests {
             2,
         )?;
 
-        let hit = lhs.clone().into_array().binary(
+        let hit = lhs.clone().into_array().compare(
             ConstantArray::new((1u64 << 62) + step, lhs.len()).into_array(),
-            Operator::Eq,
+            CompareOperator::Eq,
         )?;
         assert_arrays_eq!(hit, BoolArray::from_iter([false, true]), &mut ctx);
 
-        let miss = lhs
-            .into_array()
-            .binary(ConstantArray::new(u64::MAX, 2).into_array(), Operator::Eq)?;
+        let miss = lhs.into_array().compare(
+            ConstantArray::new(u64::MAX, 2).into_array(),
+            CompareOperator::Eq,
+        )?;
         assert_arrays_eq!(miss, BoolArray::from_iter([false, false]), &mut ctx);
 
         Ok(())
@@ -324,15 +326,16 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let lhs = Sequence::try_new_typed(100i32, 0i32, NonNullable, 5)?;
 
-        let matches = lhs.clone().into_array().binary(
+        let matches = lhs.clone().into_array().compare(
             ConstantArray::new(100i32, lhs.len()).into_array(),
-            Operator::Eq,
+            CompareOperator::Eq,
         )?;
         assert_arrays_eq!(matches, BoolArray::from_iter([true; 5]), &mut ctx);
 
-        let misses = lhs
-            .into_array()
-            .binary(ConstantArray::new(7i32, 5).into_array(), Operator::Eq)?;
+        let misses = lhs.into_array().compare(
+            ConstantArray::new(7i32, 5).into_array(),
+            CompareOperator::Eq,
+        )?;
         assert_arrays_eq!(misses, BoolArray::from_iter([false; 5]), &mut ctx);
 
         Ok(())
@@ -368,10 +371,7 @@ mod tests {
                     &mut ctx,
                 )?
                 .unwrap_or_else(|| panic!("sequence compare must engage for {operator:?}"));
-                let expected = values
-                    .clone()
-                    .into_array()
-                    .binary(rhs.clone(), Operator::from(operator))?;
+                let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
                 assert_arrays_eq!(actual, expected, &mut ctx);
             }
         }

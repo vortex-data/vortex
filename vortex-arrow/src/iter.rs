@@ -9,16 +9,17 @@ use vortex_array::dtype::DType;
 use vortex_array::iter::ArrayIterator;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrowSession;
 
-/// An adapter for converting an `ArrowArrayStreamReader` into a Vortex `ArrayIterator`.
+/// An adapter for converting an `RecordBatchStreamReader` into a Vortex `ArrayIterator`.
 ///
 /// The stream's schema and batches are imported through the [`ArrowSession`], so Arrow extension
 /// types are routed to their registered import plugins instead of being flattened into their
 /// storage types.
 pub struct ArrowArrayStreamAdapter {
-    stream: ffi_stream::ArrowArrayStreamReader,
+    stream: ffi_stream::RecordBatchStreamReader,
     session: ArrowSession,
     schema: SchemaRef,
     dtype: DType,
@@ -28,14 +29,16 @@ impl ArrowArrayStreamAdapter {
     /// Adapt `stream`, importing its schema and each of its batches through `session`.
     ///
     /// The adapter holds a clone of `session`, which shares the plugin registries with it, so
-    /// plugins registered after construction are still observed.
+    /// plugins registered after construction are still observed. If a later registration changes
+    /// the dtype resolved for a batch, [`Iterator::next`] returns an error rather than yielding a
+    /// batch whose dtype disagrees with [`ArrayIterator::dtype`].
     ///
     /// The schema declared by the stream is the authoritative schema for the import: every batch
     /// is converted against it, so extension metadata survives even if an individual batch has
     /// lost it.
     pub fn try_new(
         session: &ArrowSession,
-        stream: ffi_stream::ArrowArrayStreamReader,
+        stream: ffi_stream::RecordBatchStreamReader,
     ) -> VortexResult<Self> {
         let schema = stream.schema();
         let dtype = session.from_arrow_schema(schema.as_ref())?;
@@ -61,8 +64,15 @@ impl Iterator for ArrowArrayStreamAdapter {
         let batch = self.stream.next()?;
 
         Some(batch.map_err(VortexError::from).and_then(|b| {
-            self.session
-                .from_arrow_record_batch(b, self.schema.as_ref())
+            let array = self
+                .session
+                .from_arrow_record_batch(b, self.schema.as_ref())?;
+            vortex_ensure_eq!(
+                array.dtype(),
+                &self.dtype,
+                "Arrow stream batch dtype changed from declared stream dtype"
+            );
+            Ok(array)
         }))
     }
 }

@@ -15,19 +15,25 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::expr;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
+use vortex::expr::binary;
 use vortex::expr::lit;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::list_contains::ListContainsOptions;
+use vortex::functions::merge::DuplicateHandling;
+use vortex::functions::replace_time_zone::ReplaceTimeZoneOptions;
+use vortex::functions::variant_get::VariantPath;
+use vortex::functions::variant_get::VariantPathElement;
 use vortex::proto::expr as pb;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
-use vortex::scalar_fn::fns::merge::DuplicateHandling;
-use vortex::scalar_fn::fns::operators::Operator;
-use vortex::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
-use vortex::scalar_fn::fns::variant_get::VariantPath;
-use vortex::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex::scalar::NumericOperator;
+use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareMode;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
+use vortex::scalar_fn::builtin::operators::FloatOrder;
 
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
@@ -64,6 +70,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sub, &m)?)?;
     m.add_function(wrap_pyfunction!(mul, &m)?)?;
     m.add_function(wrap_pyfunction!(div, &m)?)?;
+    m.add_function(wrap_pyfunction!(compare, &m)?)?;
     m.add_function(wrap_pyfunction!(between, &m)?)?;
 
     // Nullability
@@ -175,14 +182,14 @@ fn coerce_expression(value: &Bound<'_, PyAny>) -> PyResult<Expression> {
 
 fn py_binary_operator<'py>(
     left: PyRef<'py, PyExpr>,
-    operator: Operator,
+    operator: impl Into<BinaryOperator>,
     right: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
     let right = coerce_expression(right)?;
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left.inner.clone(), right]),
+            inner: binary(operator, left.inner.clone(), right),
         },
     )
 }
@@ -190,14 +197,14 @@ fn py_binary_operator<'py>(
 /// The reflected form of [`py_binary_operator`], used for `<literal> <op> <expr>`.
 fn py_reflected_operator<'py>(
     right: PyRef<'py, PyExpr>,
-    operator: Operator,
+    operator: impl Into<BinaryOperator>,
     left: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
     let left = coerce_expression(left)?;
     Bound::new(
         right.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left, right.inner.clone()]),
+            inner: binary(operator, left, right.inner.clone()),
         },
     )
 }
@@ -270,70 +277,70 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Eq, right)
+        py_binary_operator(self_, CompareOperator::Eq, right)
     }
 
     fn __ne__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::NotEq, right)
+        py_binary_operator(self_, CompareOperator::NotEq, right)
     }
 
     fn __gt__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Gt, right)
+        py_binary_operator(self_, CompareOperator::Gt, right)
     }
 
     fn __ge__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Gte, right)
+        py_binary_operator(self_, CompareOperator::Gte, right)
     }
 
     fn __lt__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Lt, right)
+        py_binary_operator(self_, CompareOperator::Lt, right)
     }
 
     fn __le__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Lte, right)
+        py_binary_operator(self_, CompareOperator::Lte, right)
     }
 
     fn __and__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::And, right)
+        py_binary_operator(self_, BooleanOperator::And, right)
     }
 
     fn __rand__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::And, left)
+        py_reflected_operator(self_, BooleanOperator::And, left)
     }
 
     fn __or__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Or, right)
+        py_binary_operator(self_, BooleanOperator::Or, right)
     }
 
     fn __ror__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Or, left)
+        py_reflected_operator(self_, BooleanOperator::Or, left)
     }
 
     fn __invert__(self_: PyRef<'_, Self>) -> PyExpr {
@@ -346,56 +353,56 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Add, right)
+        py_binary_operator(self_, NumericOperator::Add, right)
     }
 
     fn __radd__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Add, left)
+        py_reflected_operator(self_, NumericOperator::Add, left)
     }
 
     fn __sub__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Sub, right)
+        py_binary_operator(self_, NumericOperator::Sub, right)
     }
 
     fn __rsub__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Sub, left)
+        py_reflected_operator(self_, NumericOperator::Sub, left)
     }
 
     fn __mul__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Mul, right)
+        py_binary_operator(self_, NumericOperator::Mul, right)
     }
 
     fn __rmul__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Mul, left)
+        py_reflected_operator(self_, NumericOperator::Mul, left)
     }
 
     fn __truediv__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Div, right)
+        py_binary_operator(self_, NumericOperator::Div, right)
     }
 
     fn __rtruediv__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Div, left)
+        py_reflected_operator(self_, NumericOperator::Div, left)
     }
 
     // Special methods docstrings cannot be defined in Rust. Write a docstring in the corresponding
@@ -767,15 +774,86 @@ binary_fn!(mul, mul_expr, "The product of the arguments.");
 binary_fn!(div, div_expr, "`left` divided by `right`.");
 
 fn sub_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Sub, [left, right])
+    Numeric.new_expr(NumericOperator::Sub, [left, right])
 }
 
 fn mul_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Mul, [left, right])
+    Numeric.new_expr(NumericOperator::Mul, [left, right])
 }
 
 fn div_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Div, [left, right])
+    Numeric.new_expr(NumericOperator::Div, [left, right])
+}
+
+/// Compares the arguments, and orders floats with the given semantics.
+///
+/// By default, floats compare by their bits, so ``-0.0`` is less than ``+0.0``. Use another order to
+/// match the query engine that gave the predicate. Arguments that do not contain floats ignore the
+/// order.
+///
+/// Parameters
+/// ----------
+/// operator : :class:`str`
+///     One of ``"eq"``, ``"not_eq"``, ``"gt"``, ``"gt_eq"``, ``"lt"`` or ``"lt_eq"``.
+/// left : :class:`Any`
+/// right : :class:`Any`
+/// float_order : :class:`str`
+///     ``"total_order"`` compares the bits of floats, so ``-0.0`` is less than ``+0.0``.
+///     ``"zeros_equal"`` makes ``-0.0`` equal to ``+0.0`` and orders NaNs by their bits.
+///     ``"canonical"`` makes the zeros equal, and makes all NaNs equal and greater than all other
+///     values. ``"ieee754"`` makes the zeros equal, and makes each comparison with a NaN false,
+///     except ``"not_eq"``, which is true.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+#[pyfunction]
+#[pyo3(signature = (operator, left, right, *, float_order = "total_order"))]
+pub fn compare(
+    operator: &str,
+    left: PyIntoExpr,
+    right: PyIntoExpr,
+    float_order: &str,
+) -> PyResult<PyExpr> {
+    let operator = match operator {
+        "eq" => CompareOperator::Eq,
+        "not_eq" => CompareOperator::NotEq,
+        "gt" => CompareOperator::Gt,
+        "gt_eq" => CompareOperator::Gte,
+        "lt" => CompareOperator::Lt,
+        "lt_eq" => CompareOperator::Lte,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown comparison operator: {other}"
+            )));
+        }
+    };
+
+    Ok(PyExpr {
+        inner: expr::compare_with_mode(
+            operator,
+            compare_mode(float_order)?,
+            left.into_inner(),
+            right.into_inner(),
+        ),
+    })
+}
+
+/// Parses the float semantics of a comparison.
+fn compare_mode(float_order: &str) -> PyResult<CompareMode> {
+    let float_order = match float_order {
+        "total_order" => FloatOrder::TotalOrder,
+        "zeros_equal" => FloatOrder::ZerosEqual,
+        "canonical" => FloatOrder::Canonical,
+        "ieee754" => FloatOrder::Ieee754,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown float_order: {other}"
+            )));
+        }
+    };
+
+    Ok(CompareMode::new(float_order))
 }
 
 /// True where `child` lies between `lower` and `upper`.
@@ -1106,20 +1184,36 @@ pub fn merge(exprs: &Bound<'_, PyAny>, duplicate_handling: &str) -> PyResult<PyE
 /// sql_null_semantics : :class:`bool`
 ///     If ``True``, a non-match against a list containing null produces null, and a null value
 ///     produces null even against an empty list. Defaults to ``False``.
+/// float_order : :class:`str`
+///     How the value and the elements compare floats, as for :func:`.compare`.
 ///
 /// Returns
 /// -------
 /// :class:`vortex.Expr`
 #[pyfunction]
-#[pyo3(signature = (child, value, *, sql_null_semantics = false))]
-pub fn list_contains(child: PyIntoExpr, value: PyIntoExpr, sql_null_semantics: bool) -> PyExpr {
-    PyExpr {
+#[pyo3(signature = (
+    child,
+    value,
+    *,
+    sql_null_semantics = false,
+    float_order = "total_order"
+))]
+pub fn list_contains(
+    child: PyIntoExpr,
+    value: PyIntoExpr,
+    sql_null_semantics: bool,
+    float_order: &str,
+) -> PyResult<PyExpr> {
+    Ok(PyExpr {
         inner: expr::list_contains_opts(
             child.into_inner(),
             value.into_inner(),
-            ListContainsOptions { sql_null_semantics },
+            ListContainsOptions {
+                sql_null_semantics,
+                compare_mode: compare_mode(float_order)?,
+            },
         ),
-    }
+    })
 }
 
 /// SQL ``value IN (list)`` with SQL null semantics.

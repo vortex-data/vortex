@@ -217,6 +217,9 @@ impl<T> BufferMut<T> {
         allocator: BufferAllocatorRef,
     ) -> Self {
         const { assert!(size_of::<T>() != 0, "ZSTs are not supported") };
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
+        }
         let preferred_alignment = preferred_alignment.unwrap_or(Alignment::of::<u8>());
         let actual_alignment = max(preferred_alignment, alignment);
         let size = len
@@ -952,6 +955,9 @@ impl<T> BufferMut<T> {
     where
         T: Copy,
     {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            misaligned_scalar_type(alignment, Alignment::of::<T>());
+        }
         if self.as_ptr().align_offset(alignment.as_usize()) == 0 {
             Self { alignment, ..self }
         } else {
@@ -1227,6 +1233,7 @@ mod tests {
     use crate::BitBuffer;
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
+    use crate::assert_panics_with;
     use crate::buffer_mut;
 
     #[track_caller]
@@ -1504,5 +1511,65 @@ mod tests {
     fn fill_where_rejects_positions_of_another_length() {
         let mut buffer = BufferMut::from_iter([1u32, 2, 3]);
         buffer.fill_where::<false>(&BitBuffer::from_iter([true, false]), 0);
+    }
+
+    #[rstest]
+    #[case::none(Alignment::none())]
+    #[case::half(Alignment::new(4))]
+    #[should_panic(expected = "must align to the scalar type's alignment")]
+    fn test_aligned_rejects_alignment_smaller_than_type(#[case] alignment: Alignment) {
+        let buffer = BufferMut::<u64>::from_iter([1, 2, 3]);
+        drop(buffer.aligned(alignment));
+    }
+
+    #[rstest]
+    #[case::none(Alignment::none())]
+    #[case::half(Alignment::new(4))]
+    #[should_panic(expected = "must align to the scalar type's alignment")]
+    fn test_zeroed_preferred_aligned_rejects_alignment_smaller_than_type(
+        #[case] alignment: Alignment,
+    ) {
+        drop(BufferMut::<u64>::zeroed_preferred_aligned(
+            4, alignment, None,
+        ));
+    }
+
+    #[test]
+    fn transmute_preserves_ptr_capacity_alignment_and_mutability() {
+        let mut buf = BufferMut::<u32>::with_capacity_aligned(16, Alignment::new(64));
+        buf.extend_from_slice(&[1, u32::MAX, 42]);
+        let ptr = buf.as_ptr();
+        let cap = buf.capacity();
+
+        // SAFETY: all bit patterns of u32 are valid i32 values.
+        let mut transmuted: BufferMut<i32> = unsafe { buf.transmute() };
+        assert_eq!(transmuted.as_ptr().cast::<u32>(), ptr);
+        assert_eq!(transmuted.capacity(), cap);
+        assert_eq!(transmuted.alignment(), Alignment::new(64));
+        assert_eq!(transmuted.as_slice(), &[1, -1, 42]);
+
+        transmuted.push(-7);
+        assert_eq!(transmuted.as_slice(), &[1, -1, 42, -7]);
+    }
+
+    #[test]
+    fn transmute_invalid_type_panics() {
+        assert_panics_with(
+            || {
+                let buf = buffer_mut![1u32, 2];
+                // SAFETY: panics on size check before reinterpreting memory.
+                drop(unsafe { buf.transmute::<u16>() });
+            },
+            "Buffer type size mismatch",
+        );
+
+        assert_panics_with(
+            || {
+                let buf = buffer_mut![1u32, 2];
+                // SAFETY: same size (4) but different alignment (4 vs 1); panics before reinterpreting.
+                drop(unsafe { buf.transmute::<[u8; 4]>() });
+            },
+            "Buffer type alignment mismatch",
+        );
     }
 }

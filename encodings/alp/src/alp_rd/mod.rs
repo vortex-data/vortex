@@ -24,6 +24,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -67,6 +68,17 @@ impl RDEncoderExt for RDEncoder {
     }
 }
 
+/// Returns the index of the first exception in each `PATCH_CHUNK_SIZE`-row chunk of a
+/// `len`-row array, so a reader can find one chunk's patches without scanning the others.
+fn patch_chunk_offsets(exception_positions: &[u64], len: usize) -> Buffer<u64> {
+    (0..len.div_ceil(PATCH_CHUNK_SIZE))
+        .map(|chunk| {
+            let chunk_start = (chunk * PATCH_CHUNK_SIZE) as u64;
+            exception_positions.partition_point(|&position| position < chunk_start) as u64
+        })
+        .collect()
+}
+
 fn encode_generic<T>(encoder: &RDEncoder, array: ArrayView<'_, Primitive>) -> ALPRDArray
 where
     T: ALPRDFloat + NativePType,
@@ -100,6 +112,7 @@ where
 
     // Patches for the left-parts that could not be dictionary encoded.
     let exceptions = (!exceptions_pos.is_empty()).then(|| {
+        let chunk_offsets = patch_chunk_offsets(&exceptions_pos, len);
         let max_exc_pos = exceptions_pos.last().copied().unwrap_or_default();
         let bw = bit_width(max_exc_pos);
 
@@ -113,16 +126,15 @@ where
         };
 
         // SAFETY: the exception positions are collected in increasing order from positions in
-        // the input, with one exception value each.
+        // the input, with one exception value each, and `chunk_offsets` is built from them.
         unsafe {
             Patches::new_unchecked(
                 len,
                 0,
                 packed_pos,
                 Buffer::from(exceptions).into_array(),
-                // TODO(0ax1): handle chunk offsets
-                None,
-                None,
+                Some(chunk_offsets.into_array()),
+                Some(0),
             )
         }
     });
@@ -156,10 +168,70 @@ pub fn alp_rd_decode<T: ALPRDFloat + NativePType>(
     left_parts: BufferMut<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    mut right_parts: BufferMut<T::UINT>,
+    right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>>
+where
+    T::UINT: NativePType,
+{
+    let left_parts_patches = left_parts_patches
+        .map(|patches| PrimitivePatches::execute(patches, ctx))
+        .transpose()?;
+
+    Ok(alp_rd_decode_primitive(
+        left_parts,
+        left_parts_dict,
+        right_bit_width,
+        right_parts,
+        left_parts_patches,
+    ))
+}
+
+/// Left-part patches whose indices and values are already primitive arrays.
+pub(crate) struct PrimitivePatches {
+    indices: PrimitiveArray,
+    values: PrimitiveArray,
+    offset: usize,
+}
+
+impl PrimitivePatches {
+    fn execute(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let parts = patches.into_parts();
+
+        Ok(Self {
+            indices: parts.indices.execute::<PrimitiveArray>(ctx)?,
+            values: parts.values.execute::<PrimitiveArray>(ctx)?,
+            offset: parts.offset,
+        })
+    }
+
+    /// Downcasts the patch children, which must already be primitive arrays.
+    pub(crate) fn downcast(patches: Patches) -> Self {
+        let parts = patches.into_parts();
+
+        Self {
+            indices: parts.indices.downcast::<Primitive>(),
+            values: parts.values.downcast::<Primitive>(),
+            offset: parts.offset,
+        }
+    }
+}
+
+/// Decode ALP-RD encoded values with patches that are already primitive arrays.
+///
+/// The caller must check that each code is in `left_parts_dict`.
+///
+/// # Panics
+///
+/// Panics if `left_parts` and `right_parts` differ in length, or if a patch index is out of bounds.
+pub(crate) fn alp_rd_decode_primitive<T: ALPRDFloat + NativePType>(
+    left_parts: BufferMut<u16>,
+    left_parts_dict: &[u16],
+    right_bit_width: u8,
+    mut right_parts: BufferMut<T::UINT>,
+    left_parts_patches: Option<PrimitivePatches>,
+) -> Buffer<T>
 where
     T::UINT: NativePType,
 {
@@ -178,21 +250,19 @@ where
     );
 
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(indices.ptype(), |I| {
+        match_each_integer_ptype!(patches.indices.ptype(), |I| {
             apply_left_patches::<T, I>(
                 right_parts.as_mut_slice(),
-                indices.as_slice::<I>(),
-                patch_values.as_slice::<u16>(),
-                patches.offset(),
+                patches.indices.as_slice::<I>(),
+                patches.values.as_slice::<u16>(),
+                patches.offset,
                 right_bit_width,
             )
         });
     }
 
     // SAFETY: all bit patterns of T::UINT are valid T (u32↔f32 or u64↔f64).
-    Ok(unsafe { right_parts.transmute::<T>() }.freeze())
+    unsafe { right_parts.transmute::<T>() }.freeze()
 }
 
 /// Runs [`RDEncoder::split_parts`] compiled for the best SIMD level the CPU supports.
@@ -308,11 +378,127 @@ fn code_not_in_dictionary(code: u16, dict_len: usize) -> VortexError {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
+    use std::ops::Range;
+    use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
+
+    use super::ALPRD;
     use super::ALPRDArrayExt;
+    use super::Primitive;
     use super::RDEncoder;
     use super::RDEncoderExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        vortex_fastlanes::initialize(&session);
+        session
+    });
+
+    /// `len` copies of 0.1 with an outlier, which can't be dictionary encoded, at each of `outliers`.
+    fn with_outliers(len: usize, outliers: &[usize]) -> PrimitiveArray {
+        PrimitiveArray::from_iter(
+            (0..len).map(|row| if outliers.contains(&row) { 3e100 } else { 0.1 }),
+        )
+    }
+
+    /// Reads the patch chunk offsets of an encoded ALP-RD array.
+    fn chunk_offsets(array: &super::ALPRDArray) -> VortexResult<Vec<u64>> {
+        let patches = array
+            .left_parts_patches()
+            .expect("outliers produce patches");
+        let offsets = patches
+            .chunk_offsets()
+            .clone()
+            .expect("the encoder writes chunk offsets")
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+        Ok(offsets.as_slice::<u64>().to_vec())
+    }
+
+    #[rstest]
+    #[case::several_chunks(3000, &[5, 1500, 1600, 2999], &[0, 1, 3])]
+    #[case::only_the_last_chunk(3000, &[2500], &[0, 0, 0])]
+    #[case::first_and_last_row_of_one_chunk(1024, &[0, 1023], &[0])]
+    #[case::first_row_of_the_second_chunk(1025, &[1024], &[0, 0])]
+    #[case::either_side_of_a_boundary(2048, &[1023, 1024], &[0, 1])]
+    fn test_encode_writes_patch_chunk_offsets(
+        #[case] len: usize,
+        #[case] outliers: &[usize],
+        #[case] expected: &[u64],
+    ) -> VortexResult<()> {
+        let array = with_outliers(len, outliers);
+        let encoded = RDEncoder::new(&[0.1f64]).encode(array.as_view());
+        assert_eq!(chunk_offsets(&encoded)?, expected);
+        assert_arrays_eq!(encoded, array, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::whole(0..3000)]
+    #[case::inside_one_chunk(5..1000)]
+    #[case::across_a_boundary(1023..1025)]
+    #[case::from_a_chunk_start(1024..2048)]
+    #[case::middle(1500..1601)]
+    #[case::tail(2000..3000)]
+    fn test_slice_with_patch_chunk_offsets(#[case] range: Range<usize>) -> VortexResult<()> {
+        // Slicing and single-value lookups both use the chunk offsets to find patches.
+        let array = with_outliers(3000, &[5, 1023, 1024, 1500, 1600, 2999]).into_array();
+        let encoded = RDEncoder::new(&[0.1f64])
+            .encode(array.as_::<Primitive>())
+            .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let sliced = encoded.slice(range.clone())?;
+        let expected = array.slice(range)?;
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        for index in 0..sliced.len() {
+            assert_eq!(
+                sliced.execute_scalar(index, &mut ctx)?,
+                expected.execute_scalar(index, &mut ctx)?
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_serde_roundtrip_keeps_patch_chunk_offsets() -> VortexResult<()> {
+        let array = with_outliers(3000, &[5, 1500, 1600, 2999]);
+        let encoded = RDEncoder::new(&[0.1f64]).encode(array.as_view());
+        let expected_offsets = chunk_offsets(&encoded)?;
+
+        let context = ArrayContext::empty();
+        let serialized = encoded.clone().into_array().serialize(
+            &context,
+            &SESSION,
+            &SerializeOptions::default(),
+        )?;
+        let mut bytes = ByteBufferMut::empty();
+        for buffer in serialized {
+            bytes.extend_from_slice(buffer.as_ref());
+        }
+        let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+            encoded.dtype(),
+            encoded.len(),
+            &ReadContext::new(context.to_ids()),
+            &SESSION,
+        )?;
+
+        let decoded_rd = decoded.as_::<ALPRD>();
+        assert_eq!(chunk_offsets(&decoded_rd.into_owned())?, expected_offsets);
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
 
     #[test]
     fn rd_encoder_uses_deterministic_codes_for_tied_prefixes() {

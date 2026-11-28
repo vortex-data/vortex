@@ -24,9 +24,9 @@ use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -74,8 +74,7 @@ fn compare_constant_narrow(
         Ok(value) => {
             let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
             let encoded_const = ConstantArray::new(encoded_scalar, lhs.len());
-            lhs.msp()
-                .binary(encoded_const.into_array(), Operator::from(operator))
+            lhs.msp().compare(encoded_const.into_array(), operator)
         }
         Err(sign) => {
             let answer =
@@ -138,22 +137,24 @@ fn lexicographic_step(
     operator: CompareOperator,
     rest: ArrayRef,
 ) -> VortexResult<ArrayRef> {
-    let compare = |operator: Operator| {
-        part.binary(
+    let compare = |operator: CompareOperator| {
+        part.compare(
             ConstantArray::new(constant.clone(), part.len()).into_array(),
             operator,
         )
     };
     match operator {
-        CompareOperator::Eq => compare(Operator::Eq)?.binary(rest, Operator::And),
-        CompareOperator::NotEq => compare(Operator::NotEq)?.binary(rest, Operator::Or),
-        CompareOperator::Lt | CompareOperator::Lte => compare(Operator::Lt)?.binary(
-            compare(Operator::Eq)?.binary(rest, Operator::And)?,
-            Operator::Or,
+        CompareOperator::Eq => compare(CompareOperator::Eq)?.boolean(rest, BooleanOperator::And),
+        CompareOperator::NotEq => {
+            compare(CompareOperator::NotEq)?.boolean(rest, BooleanOperator::Or)
+        }
+        CompareOperator::Lt | CompareOperator::Lte => compare(CompareOperator::Lt)?.boolean(
+            compare(CompareOperator::Eq)?.boolean(rest, BooleanOperator::And)?,
+            BooleanOperator::Or,
         ),
-        CompareOperator::Gt | CompareOperator::Gte => compare(Operator::Gt)?.binary(
-            compare(Operator::Eq)?.binary(rest, Operator::And)?,
-            Operator::Or,
+        CompareOperator::Gt | CompareOperator::Gte => compare(CompareOperator::Gt)?.boolean(
+            compare(CompareOperator::Eq)?.boolean(rest, BooleanOperator::And)?,
+            BooleanOperator::Or,
         ),
     }
 }
@@ -164,9 +165,9 @@ fn compare_lower_part(
     word: u64,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
-    part.binary(
+    part.compare(
         ConstantArray::new(Scalar::from(word), part.len()).into_array(),
-        Operator::from(operator),
+        operator,
     )
 }
 
@@ -315,9 +316,8 @@ mod tests {
     use vortex_array::dtype::i256;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::binary::CompareKernel;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -352,7 +352,7 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
+        let res = lhs.compare(rhs.into_array(), CompareOperator::Eq).unwrap();
 
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
@@ -380,7 +380,7 @@ mod tests {
         )
         .into_array();
 
-        let res = lhs.into_array().binary(rhs, Operator::Lte)?;
+        let res = lhs.into_array().compare(rhs, CompareOperator::Lte)?;
         let expected =
             BoolArray::from_iter([None, Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
@@ -412,14 +412,17 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         for (operator, predicate) in [
-            (Operator::Eq, (|v, p| v == p) as fn(i128, i128) -> bool),
-            (Operator::NotEq, |v, p| v != p),
-            (Operator::Lt, |v, p| v < p),
-            (Operator::Lte, |v, p| v <= p),
-            (Operator::Gt, |v, p| v > p),
-            (Operator::Gte, |v, p| v >= p),
+            (
+                CompareOperator::Eq,
+                (|v, p| v == p) as fn(i128, i128) -> bool,
+            ),
+            (CompareOperator::NotEq, |v, p| v != p),
+            (CompareOperator::Lt, |v, p| v < p),
+            (CompareOperator::Lte, |v, p| v <= p),
+            (CompareOperator::Gt, |v, p| v > p),
+            (CompareOperator::Gte, |v, p| v >= p),
         ] {
-            let res = lhs.clone().binary(rhs.clone(), operator)?;
+            let res = lhs.clone().compare(rhs.clone(), operator)?;
             let expected =
                 BoolArray::from_iter(values.iter().map(|v| predicate(*v, pivot))).into_array();
             assert_arrays_eq!(res, expected, &mut ctx);
@@ -452,15 +455,19 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Gt)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
+        let res = lhs.compare(rhs.into_array(), CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
@@ -470,15 +477,19 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Gt)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
+        let res = lhs.compare(rhs.into_array(), CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
     }
@@ -519,7 +530,7 @@ mod tests {
                 let expected = baseline
                     .clone()
                     .into_array()
-                    .binary(rhs.clone(), Operator::from(operator))?;
+                    .compare(rhs.clone(), operator)?;
                 assert_arrays_eq!(actual, expected, &mut ctx);
             }
         }

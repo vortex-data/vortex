@@ -5,32 +5,48 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use fsst::Decompressor;
+use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
+use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::FSST;
-use crate::FSSTArrayExt;
 use crate::FSSTArraySlotsExt;
 
+/// Decodes an FSST array into a `VarBinViewArray`.
+///
+/// The codes offsets and uncompressed lengths must already be primitive arrays.
 pub(super) fn canonicalize_fsst(
     array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (uncompressed_bytes, uncompressed_lens) = fsst_decode_bytes(array, ctx)?;
+    let offsets = array.codes_offsets().as_::<Primitive>();
+    let lengths = array.uncompressed_lengths().clone().downcast::<Primitive>();
+    let plan = FsstDecodePlan::new(array.codes_bytes(), offsets, lengths)?;
+    let (uncompressed_bytes, uncompressed_lens) = decode_bytes(&array.decompressor(), plan)?;
+    let validity = array.validity()?;
+    if matches!(array.dtype(), DType::Utf8(_)) {
+        let mask = validity.execute_mask(array.len(), ctx)?;
+        validate_utf8_rows(uncompressed_bytes.as_slice(), &uncompressed_lens, &mask)?;
+    }
     let (buffers, views) = match_each_integer_ptype!(uncompressed_lens.ptype(), |P| {
         build_views(
             0,
@@ -39,17 +55,86 @@ pub(super) fn canonicalize_fsst(
             uncompressed_lens.as_slice::<P>(),
         )
     });
-    // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
-    //  top of them, so the view pointers will all be valid.
+
+    // SAFETY: `build_views` produces valid views over `buffers`, and for `DType::Utf8` every
+    // valid row was validated above.
     Ok(unsafe {
-        VarBinViewArray::new_unchecked(
-            views,
-            Arc::from(buffers),
-            array.dtype().clone(),
-            array.codes().validity()?,
-        )
-        .into_array()
+        VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
+            .into_array()
     })
+}
+
+/// Validates that every valid row in `bytes` (partitioned by `lengths`) is valid UTF-8.
+///
+/// Caller must ensure `lengths` are non-negative and sum to `bytes.len()`.
+pub(crate) fn validate_utf8_rows(
+    bytes: &[u8],
+    lengths: &PrimitiveArray,
+    validity: &Mask,
+) -> VortexResult<()> {
+    if validity.all_false() || bytes.is_ascii() {
+        return Ok(());
+    }
+    match_each_integer_ptype!(lengths.ptype(), |P| {
+        validate_utf8_rows_typed(bytes, lengths.as_slice::<P>(), validity)
+    })
+}
+
+#[inline]
+fn is_char_boundary(byte: u8) -> bool {
+    byte & 0b1100_0000 != 0b1000_0000
+}
+
+fn validate_utf8_rows_typed<P: AsPrimitive<usize>>(
+    bytes: &[u8],
+    lengths: &[P],
+    validity: &Mask,
+) -> VortexResult<()> {
+    if simdutf8::basic::from_utf8(bytes).is_ok() {
+        let mut offset = 0usize;
+        match validity.bit_buffer() {
+            AllOr::All => {
+                for len in lengths {
+                    offset += len.as_();
+                    vortex_ensure!(
+                        offset == bytes.len() || is_char_boundary(bytes[offset]),
+                        "FSST decoded UTF-8 row does not fall on a UTF-8 character boundary"
+                    );
+                }
+            }
+            AllOr::None => {}
+            AllOr::Some(bits) => {
+                for (len, valid) in lengths.iter().zip(bits.iter()) {
+                    let end = offset + len.as_();
+                    if valid && offset < end {
+                        vortex_ensure!(
+                            is_char_boundary(bytes[offset])
+                                && (end == bytes.len() || is_char_boundary(bytes[end])),
+                            "FSST decoded UTF-8 row does not fall on a UTF-8 character boundary"
+                        );
+                    }
+                    offset = end;
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    match validity.bit_buffer() {
+        AllOr::All => vortex_bail!("FSST decoded bytes are not valid UTF-8"),
+        AllOr::None => Ok(()),
+        AllOr::Some(bits) => {
+            let mut offset = 0usize;
+            for (len, valid) in lengths.iter().zip(bits.iter()) {
+                let end = offset + len.as_();
+                if valid && simdutf8::basic::from_utf8(&bytes[offset..end]).is_err() {
+                    vortex_bail!("FSST decoded bytes are not valid UTF-8");
+                }
+                offset = end;
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Extra headroom that keeps [`Decompressor::decompress_into`] on its fast path.
@@ -86,15 +171,33 @@ pub(crate) struct FsstDecodePlan {
 }
 
 impl FsstDecodePlan {
-    pub(crate) fn new(
+    /// Builds the plan for an array whose children can still be encoded.
+    ///
+    /// Builder paths bypass `FSST::execute`, so they execute the codes offsets and uncompressed
+    /// lengths here.
+    pub(crate) fn execute(
         fsst_array: ArrayView<'_, FSST>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        // Builder paths can bypass `FSST::execute`, so their offsets may still be encoded.
         let offsets = fsst_array
             .codes_offsets()
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
+        let lengths = fsst_array
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+
+        Self::new(fsst_array.codes_bytes(), offsets.as_view(), lengths)
+    }
+
+    /// Builds the plan from the codes bytes and the primitive codes offsets and uncompressed
+    /// lengths.
+    fn new(
+        codes: &ByteBuffer,
+        offsets: ArrayView<'_, Primitive>,
+        lengths: PrimitiveArray,
+    ) -> VortexResult<Self> {
         let (first_offset, last_offset) = match_each_integer_ptype!(offsets.ptype(), |P| {
             let offsets = offsets.as_slice::<P>();
             (
@@ -105,7 +208,6 @@ impl FsstDecodePlan {
         let (first_offset, last_offset) = first_offset.zip(last_offset).ok_or_else(|| {
             vortex_err!("FSST codes offsets are missing, negative or overflow usize")
         })?;
-        let codes = fsst_array.codes_bytes();
         vortex_ensure!(
             first_offset <= last_offset,
             "FSST first codes offset {first_offset} exceeds last codes offset {last_offset}"
@@ -116,10 +218,6 @@ impl FsstDecodePlan {
             codes.len()
         );
         let codes = codes.slice(first_offset..last_offset);
-        let lengths = fsst_array
-            .uncompressed_lengths()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
 
         let total_size = total_uncompressed_len(&lengths)?;
 
@@ -159,12 +257,16 @@ pub(crate) fn fsst_decode_bytes(
     fsst_array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
-    let plan = FsstDecodePlan::new(fsst_array, ctx)?;
+    let plan = FsstDecodePlan::execute(fsst_array, ctx)?;
+    decode_bytes(&fsst_array.decompressor(), plan)
+}
+
+fn decode_bytes(
+    decompressor: &Decompressor<'_>,
+    plan: FsstDecodePlan,
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(plan.total_size + FSST_DECODE_SLACK);
-    let len = plan.decode_into(
-        &fsst_array.decompressor(),
-        uncompressed_bytes.spare_capacity_mut(),
-    )?;
+    let len = plan.decode_into(decompressor, uncompressed_bytes.spare_capacity_mut())?;
     // SAFETY: `decode_into` initialized the first `len` bytes.
     unsafe { uncompressed_bytes.set_len(len) };
     Ok((uncompressed_bytes, plan.lengths))
@@ -174,6 +276,7 @@ pub(crate) fn fsst_decode_bytes(
 mod tests {
     use std::sync::LazyLock;
 
+    use fsst::Symbol;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
@@ -193,6 +296,8 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -474,6 +579,205 @@ mod tests {
             )?;
             assert!(fsst_decode_bytes(invalid.as_view(), &mut ctx).is_err());
         }
+        Ok(())
+    }
+
+    fn assert_utf8_err<T>(result: VortexResult<T>) {
+        let err = result.err().expect("expected UTF-8 validation error");
+        assert!(
+            err.to_string().to_ascii_lowercase().contains("utf-8"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn assert_decode_rejects_invalid_utf8(array: &ArrayRef, ctx: &mut vortex_array::ExecutionCtx) {
+        assert_utf8_err(array.clone().execute::<VarBinViewArray>(ctx));
+
+        let mut view_builder = VarBinViewBuilder::with_capacity_in(
+            array.dtype().clone(),
+            array.len(),
+            ctx.allocator().clone(),
+        );
+        assert_utf8_err(array.append_to_builder(&mut view_builder, ctx));
+        assert_eq!(view_builder.len(), 0);
+
+        let mut bin_builder = VarBinBuilder::<i32>::with_capacity_in(
+            array.dtype().clone(),
+            array.len(),
+            ctx.allocator(),
+        );
+        assert_utf8_err(array.append_to_builder(&mut bin_builder, ctx));
+        assert_eq!(bin_builder.len(), 0);
+    }
+
+    #[rstest]
+    #[case::corrupted_symbol_table(
+        vec![Symbol::from_slice(&[0xFF, 0xFE, 0, 0, 0, 0, 0, 0])],
+        vec![2u8],
+        vec![0u8],
+        vec![0u32, 1],
+        vec![2u32],
+    )]
+    #[case::corrupted_escape_byte(
+        vec![],
+        vec![],
+        vec![0xFFu8, 0x80],
+        vec![0u32, 2],
+        vec![1u32],
+    )]
+    #[case::split_multibyte_char_boundary(
+        vec![Symbol::from_slice(&[0xC3, 0xA9, 0, 0, 0, 0, 0, 0])],
+        vec![2u8],
+        vec![0u8],
+        vec![0u32, 1, 1],
+        vec![1u32, 1],
+    )]
+    fn test_utf8_rejects_corrupted_decoded_bytes(
+        #[case] symbols: Vec<Symbol>,
+        #[case] symbol_lengths: Vec<u8>,
+        #[case] code_bytes: Vec<u8>,
+        #[case] code_offsets: Vec<u32>,
+        #[case] uncompressed_lengths: Vec<u32>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes = VarBinArray::new(
+            PrimitiveArray::from_iter(code_offsets).into_array(),
+            ByteBuffer::from(code_bytes),
+            DType::Binary(Nullability::NonNullable),
+            Validity::NonNullable,
+            &mut ctx,
+        );
+        let lengths = PrimitiveArray::from_iter(uncompressed_lengths).into_array();
+
+        let utf8_array = FSST::try_new(
+            DType::Utf8(Nullability::NonNullable),
+            Buffer::from(symbols.clone()),
+            Buffer::from(symbol_lengths.clone()),
+            codes.clone(),
+            lengths.clone(),
+            &mut ctx,
+        )?
+        .into_array();
+        assert_decode_rejects_invalid_utf8(&utf8_array, &mut ctx);
+        if utf8_array.len() == 1 {
+            assert_utf8_err(utf8_array.execute_scalar(0, &mut ctx));
+        }
+
+        // The same byte stream remains valid when typed as Binary.
+        let binary_array = FSST::try_new(
+            DType::Binary(Nullability::NonNullable),
+            Buffer::from(symbols),
+            Buffer::from(symbol_lengths),
+            codes,
+            lengths,
+            &mut ctx,
+        )?
+        .into_array();
+        binary_array.execute::<VarBinViewArray>(&mut ctx)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_utf8_allows_valid_multibyte_and_invalid_bytes_in_null_slot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Row 0: "héllo" (6 bytes), Row 1 (null): invalid [0xFF, 0xFE], Row 2: "🦀" (4 bytes).
+        let row0 = "héllo".as_bytes();
+        let row1 = &[0xFFu8, 0xFE];
+        let row2 = "🦀".as_bytes();
+
+        let mut code_bytes = Vec::new();
+        let mut offsets = vec![0u32];
+        for row in [row0, row1, row2] {
+            for &b in row {
+                code_bytes.push(0xFF);
+                code_bytes.push(b);
+            }
+            offsets.push(u32::try_from(code_bytes.len())?);
+        }
+
+        let codes = VarBinArray::new(
+            PrimitiveArray::from_iter(offsets).into_array(),
+            ByteBuffer::from(code_bytes),
+            DType::Binary(Nullability::Nullable),
+            Validity::from_iter([true, false, true]),
+            &mut ctx,
+        );
+        let array = FSST::try_new(
+            DType::Utf8(Nullability::Nullable),
+            Buffer::empty(),
+            Buffer::empty(),
+            codes,
+            PrimitiveArray::from_iter([6u32, 2, 4]).into_array(),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let expected = VarBinViewArray::from_iter_nullable_str([Some("héllo"), None, Some("🦀")]);
+        assert_arrays_eq!(array, expected, &mut ctx);
+
+        let mut view_builder = VarBinViewBuilder::with_capacity_in(
+            array.dtype().clone(),
+            array.len(),
+            ctx.allocator().clone(),
+        );
+        array.append_to_builder(&mut view_builder, &mut ctx)?;
+        assert_arrays_eq!(view_builder.finish_into_varbinview(), expected, &mut ctx);
+
+        let mut bin_builder = VarBinBuilder::<i32>::with_capacity_in(
+            array.dtype().clone(),
+            array.len(),
+            ctx.allocator(),
+        );
+        array.append_to_builder(&mut bin_builder, &mut ctx)?;
+        assert_arrays_eq!(bin_builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::invalid_bytes_in_live_row(
+        &[b"ok".as_slice(), &[0xFF, 0xFE], "héllo".as_bytes()],
+        [false, true, true],
+        &[2u32, 2, 6],
+    )]
+    #[case::split_multibyte_in_live_row(
+        &[&[0xC3u8], &[0xA9u8], b"ok".as_slice()],
+        [true, true, false],
+        &[1u32, 1, 2],
+    )]
+    fn test_utf8_rejects_invalid_live_row_in_nullable_batch(
+        #[case] rows: &[&[u8]],
+        #[case] validity: [bool; 3],
+        #[case] uncompressed_lengths: &[u32],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut code_bytes = Vec::new();
+        let mut offsets = vec![0u32];
+        for row in rows {
+            for &b in *row {
+                code_bytes.push(0xFF);
+                code_bytes.push(b);
+            }
+            offsets.push(u32::try_from(code_bytes.len())?);
+        }
+
+        let codes = VarBinArray::new(
+            PrimitiveArray::from_iter(offsets).into_array(),
+            ByteBuffer::from(code_bytes),
+            DType::Binary(Nullability::Nullable),
+            Validity::from_iter(validity),
+            &mut ctx,
+        );
+        let array = FSST::try_new(
+            DType::Utf8(Nullability::Nullable),
+            Buffer::empty(),
+            Buffer::empty(),
+            codes,
+            PrimitiveArray::from_iter(uncompressed_lengths.iter().copied()).into_array(),
+            &mut ctx,
+        )?
+        .into_array();
+
+        assert_decode_rejects_invalid_utf8(&array, &mut ctx);
         Ok(())
     }
 }

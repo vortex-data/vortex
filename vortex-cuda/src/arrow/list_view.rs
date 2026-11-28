@@ -17,6 +17,7 @@ use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_integer_ptype;
+use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
@@ -132,11 +133,9 @@ async fn export_device_list_view_offsets(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DeviceListViewOffsets> {
     if len == 0 {
-        let offsets = ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::from(vec![0i32]).into_byte_buffer(),
-            ))
-            .await?;
+        let offsets = ctx.ensure_on_device(BufferHandle::new_host(
+            Buffer::from(vec![0i32]).into_byte_buffer(),
+        ))?;
         return Ok(DeviceListViewOffsets::Contiguous(offsets));
     }
 
@@ -194,7 +193,8 @@ where
     check_list_view_rebuild_status(&status, ctx)?;
 
     let values = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)?))
-        .slice(0..output_values_bytes);
+        .slice(0..output_values_bytes)
+        .ensure_aligned(Alignment::new(value_width))?;
     Ok((output_offsets, values))
 }
 
@@ -466,7 +466,7 @@ async fn rebuild_primitive_list_view_child(
         "cannot export non-contiguous device-resident ListViewArray with nullable {child_name}: GPU child validity rebuild is not implemented"
     );
 
-    let values_buffer = ctx.ensure_on_device(buffer).await?;
+    let values_buffer = ctx.ensure_on_device(buffer)?;
     let (offsets_buffer, values_buffer) = match_each_integer_ptype!(offsets_ptype, |O| {
         match_each_integer_ptype!(sizes_ptype, |S| {
             rebuild_primitive_list_view_typed::<O, S>(
@@ -484,7 +484,7 @@ async fn rebuild_primitive_list_view_child(
 
     Ok((
         offsets_buffer,
-        PrimitiveArray::from_buffer_handle(values_buffer, ptype, validity),
+        PrimitiveArray::try_from_buffer_handle(values_buffer, ptype, validity)?,
     ))
 }
 
@@ -502,7 +502,7 @@ async fn primitive_device_buffer(
     let PrimitiveDataParts { ptype, buffer, .. } = primitive.into_data_parts();
     vortex_ensure!(ptype.is_int(), "{name} must have integer type, got {ptype}");
 
-    Ok((ptype, ctx.ensure_on_device(buffer).await?))
+    Ok((ptype, ctx.ensure_on_device(buffer)?))
 }
 
 /// Compute Arrow List offsets and report whether child values must be rebuilt.

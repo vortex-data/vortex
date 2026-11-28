@@ -32,6 +32,8 @@ const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckd
 const BUILD_MARKER: &str = ".vx-build-complete";
 const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
 const EXTRACT_MARKER: &str = ".vx-extract-complete";
+/// Marks a source tree extracted by [`extract_prebuilt_source`].
+const PARTIAL_EXTRACT_MARKER: &str = ".vx-extract-partial-complete";
 
 const SOURCE_FILES: [&str; 9] = [
     "cpp/vortex_duckdb.cpp",
@@ -47,7 +49,7 @@ const SOURCE_FILES: [&str; 9] = [
 
 // Duckdb C API function we use.
 // This lowers codegen'd src/cpp.rs by four times.
-const DUCKDB_C_API_FUNCTIONS: [&str; 139] = [
+const DUCKDB_C_API_FUNCTIONS: [&str; 141] = [
     "duckdb_array_type_array_size",
     "duckdb_array_type_child_type",
     "duckdb_array_vector_get_child",
@@ -91,6 +93,7 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 139] = [
     "duckdb_create_timestamp_ns",
     "duckdb_create_timestamp_s",
     "duckdb_create_timestamp_tz",
+    "duckdb_create_timestamp_tz_ns",
     "duckdb_create_uint16",
     "duckdb_create_uint32",
     "duckdb_create_uint64",
@@ -141,6 +144,7 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 139] = [
     "duckdb_get_timestamp_ns",
     "duckdb_get_timestamp_s",
     "duckdb_get_timestamp_tz",
+    "duckdb_get_timestamp_tz_ns",
     "duckdb_get_type_id",
     "duckdb_get_uhugeint",
     "duckdb_get_uint16",
@@ -356,6 +360,49 @@ fn extract(archive: &Path, dest: &Path) {
     );
     let file = fs::File::open(archive).unwrap();
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
+}
+
+/// Whether a source path is needed to build against a prebuilt DuckDB: the headers, and the
+/// TPC-H queries duckdb-bench reads.
+fn is_prebuilt_source_entry(path: &Path) -> bool {
+    let mut components = path.components().map(|c| c.as_os_str());
+    match components.next().and_then(|c| c.to_str()) {
+        Some("src") => components.next().is_some_and(|c| c == "include"),
+        Some("third_party") => components.nth(1).is_some_and(|c| c == "include"),
+        Some("extension") => path.starts_with("extension/tpch/dbgen/queries"),
+        _ => false,
+    }
+}
+
+/// Extracts only the entries [`is_prebuilt_source_entry`] keeps.
+fn extract_prebuilt_source(archive: &Path, dest: &Path) {
+    println!(
+        "cargo:info=Extracting the headers in {} to {}",
+        archive.display(),
+        dest.display()
+    );
+    let file = fs::File::open(archive).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).unwrap();
+        let Some(path) = entry.enclosed_name() else {
+            continue;
+        };
+        // Skip the top-level `duckdb-<version>` directory.
+        let mut components = path.components();
+        components.next();
+        if !is_prebuilt_source_entry(components.as_path()) {
+            continue;
+        }
+        let out_path = dest.join(&path);
+        if entry.is_dir() {
+            fs::create_dir_all(&out_path).unwrap();
+        } else if entry.is_file() {
+            fs::create_dir_all(out_path.parent().unwrap()).unwrap();
+            let mut out = fs::File::create(&out_path).unwrap();
+            io::copy(&mut entry, &mut out).unwrap();
+        }
+    }
 }
 
 /// Download DuckDB library archive from R2 and extract it.
@@ -720,16 +767,24 @@ fn main() {
     };
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
+    // Only building DuckDB from source needs the whole tree.
+    let needs_full_source = debug_duckdb || matches!(version, DuckDBVersion::Commit(_));
     let extract_marker = source_dir.join(EXTRACT_MARKER);
+    let partial_extract_marker = source_dir.join(PARTIAL_EXTRACT_MARKER);
     let source_archive_path = cache_root.join(format!("duckdb-source-{version}.zip"));
-    if extract_marker.exists() {
+    if extract_marker.exists() || (!needs_full_source && partial_extract_marker.exists()) {
         drop(fs::remove_file(&source_archive_path));
     } else {
         download_url(&source_archive_url, &source_archive_path);
         clear_dir(&source_dir);
-        extract(&source_archive_path, &source_dir);
+        if needs_full_source {
+            extract(&source_archive_path, &source_dir);
+            fs::write(&extract_marker, version.to_string()).unwrap();
+        } else {
+            extract_prebuilt_source(&source_archive_path, &source_dir);
+            fs::write(&partial_extract_marker, version.to_string()).unwrap();
+        }
         fs::remove_file(&source_archive_path).unwrap();
-        fs::write(&extract_marker, version.to_string()).unwrap();
     }
 
     drop(fs::remove_file(&duckdb_dir));

@@ -11,7 +11,7 @@ Guidance for Claude, Codex and other coding agents working in the Vortex reposit
 ## Overview
 
 Vortex is a Rust monorepo for columnar array processing, compression encodings, and file IO.
-The workspace also contains Java bindings in `java/`, Python bindings in `vortex-python/`,
+The workspace also contains Java bindings in `lang/java/`, Python bindings in `vortex-python/`,
 documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmarks/`.
 
 ## Repository Layout
@@ -22,6 +22,8 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 - `vortex-array` contains the core `Array` trait and the base encodings, including most
   Apache Arrow-style encodings.
 - `encodings/*` contains more specialized compressed encodings.
+- `vortex-expr` contains expression trees, their optimizer, and the analyses and rewrites built on
+  them. `vortex-functions` contains the scalar functions that `vortex-array` itself is not built on.
 - `vortex-file` implements file IO. It uses `LayoutReader` from `vortex-layout`.
 - `vortex-io` holds the core async and blocking IO traits, plus the generic `object_store`
   adapters that implement them.
@@ -45,7 +47,6 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 Before changing files in a subtree, read the closest nested `AGENTS.md`. In particular:
 
 - `.github/AGENTS.md` covers workflows and other GitHub configuration.
-- `docs/AGENTS.md` covers Sphinx documentation.
 
 ## Verification
 
@@ -87,6 +88,7 @@ cargo test --doc -p <crate-name>
 ```
 
 If needed for a requested test run, install cargo-nextest with `cargo install --locked cargo-nextest`.
+When running fuzz targets locally, pass `-s none` (for example, `cargo fuzz -s none ...`).
 
 ### Python
 
@@ -108,8 +110,9 @@ uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tes
 ```
 
 Use `uvx` for both Ruff and ty, matching CI. CI pins ty as `TY_VERSION` in
-`.github/workflows/ci.yml` and `.github/workflows/cuda.yaml`. To match CI, run
-`uvx ty@<TY_VERSION> check ...`, and update both workflows when you change the version. The
+`.github/workflows/ci.yml`, `.github/workflows/cuda.yaml` and `.github/workflows/release-checks.yml`.
+To match CI, run `uvx ty@<TY_VERSION> check ...`, and update all three workflows when you change
+the version. The
 command above covers both binding packages and the CMake and script tests. For a narrower check, pass the affected directory, such as
 `uvx ty check vortex-python` or `uvx ty check vortex-ffi/cmake/tests`. Checking the whole binding
 package covers callers affected by stub or annotation changes.
@@ -188,19 +191,21 @@ These CI checks are the ones most often missed when adding files rather than edi
 
 ## Rust Code Style
 
-- Follow `STYLE.md` for Rust formatting, documentation, API, error-handling, import, safety, and
-  performance conventions. Its hidden-cost accessor table is the reference for changes to
-  per-element loops; back such changes with the benchmarks it names.
-- Only write comments that explain non-obvious logic or important context. Do not comment
-  self-explanatory code.
-- Keep `match_each_*!` and other dispatch macro bodies to a call into a generic function, because
-  cargo-mutants cannot mutate code inside macros; see `vortex-array/src/dtype/AGENTS.md`.
-- Use `vortex_ensure_eq!(left, right)` instead of `vortex_ensure!(left == right)` whenever
-  possible so equality failures report both values.
+- Follow `STYLE.md` for Rust formatting, documentation, type signatures, error handling, imports,
+  safety, dispatch macros, and performance conventions (including the hidden-cost accessor table
+  for per-element loops, backed by the benchmarks it names).
+- Keep diffs small and focused (target under 500 lines when practical). Prefer modifying or
+  extending an existing implementation over adding a parallel one.
+- When adding or changing a serialized format (an `ArrayPlugin`, layout, or other wire ID), follow
+  `docs/specs/versioning/wire-contracts.md`.
 
 ## Tests
 
-- Strongly consider `rstest` cases when parameterizing repetitive test logic.
+- Test observable properties and behavior rather than internal implementation details. Prefer
+  property tests with `hegeltest` plus focused corner cases, and `.slt` tests over Rust unit tests
+  when testing DuckDB or DataFusion SQL behavior.
+- Keep test additions bounded: if a change adds more than 20 test cases or a parameterized test
+  monomorphizes to more than 20 cases, justify it or reduce it.
 - Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
 - Prefer test module names `tests`, not `test`.
 - Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions. Put the
@@ -212,7 +217,6 @@ These CI checks are the ones most often missed when adding files rather than edi
   dtypes. Scalar probing alone may bypass the batch kernel.
 - Derive expected errors from the input contract or a reference result; do not silently skip
   failed operations. Invalid-input fixtures should reach the specific guard they claim to test.
-- Keep tests concise and focused on behavior, edge cases, and regressions.
 - If a bug fix is requested, add or identify a regression test when practical. Leave execution
   to the user; when tests are run, a test that passes before and after the fix does not prove it.
 - If clippy lints in tests prohibit patterns that are acceptable only in test code, consider
@@ -231,7 +235,17 @@ These CI checks are the ones most often missed when adding files rather than edi
   - DuckDB: `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`
   - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
-  `--codec`, are exempt.
+  `--codec` and the Snappy Parquet whose size `compress-bench` and TPC-DS at SF1 record, are
+  exempt.
+- Every parquet-rs writer of benchmark data uses `parquet_writer_properties()` in
+  `vortex-bench/src/utils/parquet.rs`: zstd level 3, 64 KiB dictionaries, a page index, and
+  parquet-rs's default pages of at most 1 MiB and about 20,000 rows. Only the row-group size
+  differs. SQL data has row groups of 122,880 rows (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default) on
+  local disk and 1,048,576 rows (`S3_ROW_GROUP_ROWS`, parquet-rs's default) on S3: the CI matrix
+  passes `--opt row-group-rows=1048576` to `data-gen` for S3 entries. Random access uses the S3
+  size on local disk too, because its S3 job reads the files that its local job prepares. When a
+  setting changes, raise `LAYOUT_VERSION` so that local data is generated again. The suites that
+  DuckDB's `COPY` writes get DuckDB's 122,880-row groups by default.
 
 ## Common Mistakes
 

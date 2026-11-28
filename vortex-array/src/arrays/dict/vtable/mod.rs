@@ -38,11 +38,13 @@ use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::RULES;
 use crate::arrays::dict::execute::take_canonical;
+use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::dtype::OffsetBuilderPType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -165,55 +167,58 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if !array.is_empty() {
-            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
-            if !codes.validity()?.definitely_all_null() {
-                let values = array.values();
-                if array.len() <= values.len() / sparse_take_ratio(array.dtype())
-                    && !values.is::<AnyCanonical>()
-                {
-                    // A Dict with few codes over encoded values is usually a lazy `take`. Execute
-                    // it so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
-                    // gather, ...) decodes only the selected rows, rather than decoding every value
-                    // and then gathering.
-                    // SAFETY: executing the codes keeps their values, dtype and length.
-                    let taken =
-                        unsafe { DictArray::new_unchecked(codes.into_array(), values.clone()) };
-                    let canonical = taken.into_array().execute::<Canonical>(ctx)?.into_array();
-                    return canonical.append_to_builder(builder, ctx);
-                }
+        if !array.is_empty() && !array.codes().validity()?.definitely_all_null() {
+            let values = array.values();
 
-                // Decode the children without taking values to the full row count. The
-                // variable-binary builders gather directly through these dictionary codes.
-                let values = if array.values().is::<AnyCanonical>() {
-                    array.values().clone()
-                } else {
-                    array
-                        .values()
-                        .clone()
-                        .execute::<Canonical>(ctx)?
-                        .into_array()
-                };
-                let values = values.as_::<AnyCanonical>();
-                let codes = codes.as_view();
-                if let CanonicalView::VarBinView(values) = values
-                    && let Some(result) = match_each_varbin_builder!(builder, |builder| {
-                        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                        append_dict_to_varbin(codes, values, validity, builder)
-                    })
-                {
-                    return result;
-                }
-                if let CanonicalView::VarBinView(values) = values
-                    && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
-                {
-                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                    return append_dict_to_varbinview(codes, values, validity, builder);
-                }
-                let canonical = take_canonical(values, codes, ctx)?.into_array();
-                canonical.append_to_builder(builder, ctx)?;
-                return Ok(());
+            if array.len() <= values.len() / sparse_take_ratio(array.dtype())
+                && !values.is::<AnyCanonical>()
+            {
+                // A Dict with few codes over encoded values is usually a lazy `take`. Execute it
+                // so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
+                // gather, ...) decodes only the selected rows, rather than decoding every value
+                // and then gathering. The codes stay as they are: a kernel can take a structured
+                // index array, such as the runs of a `PiecewiseSequenceArray`, faster than the
+                // same indices expanded one by one.
+                let canonical = array
+                    .array()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array();
+                return canonical.append_to_builder(builder, ctx);
             }
+
+            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+
+            // Decode the children without taking values to the full row count. The
+            // variable-binary builders gather directly through these dictionary codes.
+            let values = if array.values().is::<AnyCanonical>() {
+                array.values().clone()
+            } else {
+                array
+                    .values()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array()
+            };
+            let values = values.as_::<AnyCanonical>();
+            let codes = codes.as_view();
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                    append_dict_to_varbin(codes, values, validity, builder)
+                })
+            {
+                return result;
+            }
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+            {
+                let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                return append_dict_to_varbinview(codes, values, validity, builder);
+            }
+            let canonical = take_canonical(values, codes, ctx)?.into_array();
+            canonical.append_to_builder(builder, ctx)?;
+            return Ok(());
         }
 
         let canonical = array
@@ -305,33 +310,48 @@ where
         .collect::<Vec<_>>();
 
     match_each_integer_ptype!(codes.ptype(), |C| {
-        let codes = codes.as_slice::<C>();
-        let view = |row: usize| &views[AsPrimitive::<usize>::as_(codes[row])];
+        append_dict_to_varbin_typed(codes.as_slice::<C>(), views, &buffers, &validity, builder)
+    })
+}
 
-        // Both passes below resolve a row through its code, so the byte total comes from the same
-        // walk over the valid rows that the copy will make.
-        let num_bytes = match validity.bit_buffer() {
-            AllOr::All => (0..len).map(|row| view(row).len() as usize).sum(),
-            AllOr::None => {
-                builder.push_nulls(len);
-                return Ok(());
-            }
-            AllOr::Some(bits) => {
-                let mut total = 0;
-                bits.for_each_set_index(|row| total += view(row).len() as usize);
-                total
-            }
-        };
+// Keep each code-width specialization out of the 8-way dispatch function so LLVM does not blow
+// past its inline budget and leave `BitBuffer::for_each_set_index`'s per-row closure out-of-line.
+#[inline(never)]
+fn append_dict_to_varbin_typed<C: IntegerPType, O: OffsetBuilderPType>(
+    codes: &[C],
+    views: &[BinaryView],
+    buffers: &[&[u8]],
+    validity: &Mask,
+    builder: &mut VarBinBuilder<O>,
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
+    let len = codes.len();
+    let view = |row: usize| &views[AsPrimitive::<usize>::as_(codes[row])];
 
-        builder.append_valid_slices(num_bytes, &validity, |row| {
-            // SAFETY: the byte-count pass checked every selected code against `views`, and
-            // append_valid_slices visits exactly those same rows. The slices and validity are
-            // immutable, and the length check above bounds every visited row within `codes`.
-            let value = unsafe {
-                views.get_unchecked(AsPrimitive::<usize>::as_(*codes.get_unchecked(row)))
-            };
-            value.bytes(&buffers)
-        })
+    // Both passes below resolve a row through its code, so the byte total comes from the same
+    // walk over the valid rows that the copy will make.
+    let num_bytes = match validity.bit_buffer() {
+        AllOr::All => (0..len).map(|row| view(row).len() as usize).sum(),
+        AllOr::None => {
+            builder.push_nulls(len);
+            return Ok(());
+        }
+        AllOr::Some(bits) => {
+            let mut total = 0;
+            bits.for_each_set_index(|row| total += view(row).len() as usize);
+            total
+        }
+    };
+
+    builder.append_valid_slices(num_bytes, validity, |row| {
+        // SAFETY: the byte-count pass checked every selected code against `views`, and
+        // append_valid_slices visits exactly those same rows. The slices and validity are
+        // immutable, and the length check above bounds every visited row within `codes`.
+        let value =
+            unsafe { views.get_unchecked(AsPrimitive::<usize>::as_(*codes.get_unchecked(row))) };
+        value.bytes(buffers)
     })
 }
 

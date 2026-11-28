@@ -9,6 +9,10 @@
 // into shared memory before writing to global memory, mirroring the strategy
 // used by bit_unpack. f = F10[exponents.f], e = IF10[exponents.e].
 //
+// Patch positions count from 1024-row chunks of the unsliced array, but `in` is already sliced, so
+// blocks decode chunk-aligned rows shifted by `slice_shift`, the slice start modulo 1024. The
+// caller trims the shift off the output.
+//
 // The cast from EncT to FloatT must preserve ALP's lossless contract: f32 is
 // only encoded as i32, and f64 is only encoded as i64. The i64 → double cast
 // is lossless for all values ALP can produce.
@@ -18,6 +22,7 @@ __device__ void alp_device(const EncT *__restrict in,
                            FloatT f,
                            FloatT e,
                            uint64_t array_len,
+                           uint32_t slice_shift,
                            int thread_idx,
                            GPUPatches &patches) {
     constexpr int ThreadCount = 32;
@@ -31,21 +36,21 @@ __device__ void alp_device(const EncT *__restrict in,
     constexpr int per_thread = 1024 / ThreadCount;
     uint64_t chunk_base = static_cast<uint64_t>(blockIdx.x) * 1024;
 
-    // Step 1: decode the chunk into shared memory. The tail block is bounds-checked;
-    // all interior blocks take the fast path with no per-element branch.
-    if (chunk_base + 1024 <= array_len) {
+    // The whole block can read without per-row checks when it lies inside the sliced input.
+    if (chunk_base >= slice_shift && chunk_base - slice_shift + 1024 <= array_len) {
+        const EncT *chunk_in = in + (chunk_base - slice_shift);
 #pragma unroll
         for (int i = 0; i < per_thread; i++) {
             int idx = i * ThreadCount + thread_idx;
-            shared_out[idx] = static_cast<FloatT>(in[idx]) * f * e;
+            shared_out[idx] = static_cast<FloatT>(chunk_in[idx]) * f * e;
         }
     } else {
 #pragma unroll
         for (int i = 0; i < per_thread; i++) {
             int idx = i * ThreadCount + thread_idx;
-            uint64_t global_idx = chunk_base + static_cast<uint64_t>(idx);
-            if (global_idx < array_len) {
-                shared_out[idx] = static_cast<FloatT>(in[idx]) * f * e;
+            uint64_t aligned_row = chunk_base + static_cast<uint64_t>(idx);
+            if (aligned_row >= slice_shift && aligned_row - slice_shift < array_len) {
+                shared_out[idx] = static_cast<FloatT>(in[aligned_row - slice_shift]) * f * e;
             } else {
                 shared_out[idx] = FloatT {};
             }
@@ -63,13 +68,13 @@ __device__ void alp_device(const EncT *__restrict in,
     __syncwarp();
 
 // Step 3: coalesced write-out of the full 1024-element chunk. The caller
-// allocates `full_out` rounded up to a multiple of 1024, so every block
-// writes entirely within bounds. Positions in `[array_len, rounded_len)`
-// of the tail chunk hold don't-care values; the caller slices them off.
+// allocates `out` for every aligned row of every block, so each block writes
+// entirely within bounds. Rows outside the slice hold don't-care values; the
+// caller slices them off.
 #pragma unroll
     for (int i = 0; i < per_thread; i++) {
         int idx = i * ThreadCount + thread_idx;
-        out[idx] = shared_out[idx];
+        out[chunk_base + idx] = shared_out[idx];
     }
 }
 
@@ -79,11 +84,9 @@ __device__ void alp_device(const EncT *__restrict in,
                                                                        FloatT f,                             \
                                                                        FloatT e,                             \
                                                                        uint64_t array_len,                   \
+                                                                       uint32_t slice_shift,                 \
                                                                        GPUPatches patches) {                 \
-        int thread_idx = threadIdx.x;                                                                        \
-        auto in = full_in + (blockIdx.x * 1024);                                                             \
-        auto out = full_out + (blockIdx.x * 1024);                                                           \
-        alp_device<EncT, FloatT>(in, out, f, e, array_len, thread_idx, patches);                             \
+        alp_device<EncT, FloatT>(full_in, full_out, f, e, array_len, slice_shift, threadIdx.x, patches);     \
     }
 
 // The only ALPInt bindings produced by the encoder are (f32, i32) and (f64, i64).

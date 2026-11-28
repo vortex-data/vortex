@@ -10,6 +10,7 @@ pub use compress::alp_encode;
 use vortex_session::VortexSession;
 
 mod array;
+mod block;
 mod compress;
 pub(crate) mod compute;
 mod decompress;

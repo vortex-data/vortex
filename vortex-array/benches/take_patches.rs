@@ -22,8 +22,10 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::Patches;
 use vortex_array::test_harness::mark_optimized;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -120,6 +122,39 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
                 .execute::<PrimitiveArray>(ctx)
                 .vortex_expect("operation should succeed in benchmark");
             patches.take_map(prim, false, ctx)
+        });
+}
+
+/// Patch/mask ratios cover sparse searches and denser bitmap intersections.
+const FILTER_ARGS: &[(f64, f64, bool)] = &[
+    (0.01, 0.5, false),
+    (0.01, 0.5, true),
+    (0.1, 0.05, false),
+    (0.01, 0.001, true),
+];
+
+#[divan::bench(args = FILTER_ARGS)]
+fn filter(bencher: Bencher, (patch_density, mask_density, cached): (f64, f64, bool)) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let patches = fixture(65_536, patch_density, &mut rng);
+    let mask = Mask::from_buffer(BitBuffer::from_iter(
+        (0..65_536).map(|_| rng.random_bool(mask_density)),
+    ));
+    if cached {
+        mask.values().unwrap().indices();
+    }
+
+    bencher
+        .with_inputs(|| (&patches, &mask, SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, mask, ctx)| {
+            patches.filter(mask, ctx).unwrap().map(|filtered| {
+                let values = filtered
+                    .values()
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)
+                    .unwrap();
+                (filtered, values)
+            })
         });
 }
 

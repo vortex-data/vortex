@@ -12,8 +12,12 @@ use std::num::NonZeroUsize;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
+use futures::FutureExt;
 use futures::channel::oneshot;
+use futures::future;
 use parking_lot::Mutex;
 use roaring::RoaringBitmap;
 use rstest::rstest;
@@ -26,16 +30,16 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::eq;
-use vortex_array::expr::like;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::test_harness::check_metadata;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
+use vortex_expr::eq;
+use vortex_expr::lit;
+use vortex_expr::root;
+use vortex_functions::expr::like;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -559,6 +563,73 @@ async fn index_whose_stored_dtype_no_longer_matches_its_kind_is_skipped() -> Vor
 
     let reader = text_reader(&session, &changed, segments)?;
     assert!(superset_prune_mask(&reader).await?.all_true());
+    Ok(())
+}
+
+/// A transient segment read error on an index child must not be permanently cached in either the
+/// decoded chunk cache or the partition probe cache.
+#[tokio::test]
+async fn transient_index_read_recovers_on_retry() -> VortexResult<()> {
+    struct FailOnceIndexSource {
+        inner: Arc<TestSegments>,
+        target: SegmentId,
+        calls: AtomicUsize,
+    }
+
+    impl SegmentSource for FailOnceIndexSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            if id == self.target && self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return future::ready(Err(vortex_err!("transient index read error"))).boxed();
+            }
+            self.inner.request(id)
+        }
+    }
+
+    let session = session_with_exact_index();
+    let (layout, segments) = write(&session, exact_configs()).await?;
+
+    let index_segment = layout
+        .slot(1)?
+        .ok_or_else(|| vortex_err!("indexed layout missing index child"))?
+        .segment_ids()[0];
+    let source = Arc::new(FailOnceIndexSource {
+        inner: segments,
+        target: index_segment,
+        calls: AtomicUsize::new(0),
+    });
+
+    let reader = layout.new_reader(
+        "text".into(),
+        Arc::clone(&source) as Arc<dyn SegmentSource>,
+        &session,
+        &Default::default(),
+    )?;
+    let expr = eq(root(), lit("beta")).bind(reader.dtype())?;
+    let expected = Mask::from_iter((0..ROWS.len()).map(|row| row == 2));
+
+    let err = reader
+        .pruning_evaluation(&(0..ROWS.len() as u64), &expr, Mask::new_true(ROWS.len()))?
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("transient index read error"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+
+    // A later call retries the index chunk and probe, succeeds, and caches the result.
+    let mask = reader
+        .pruning_evaluation(&(0..ROWS.len() as u64), &expr, Mask::new_true(ROWS.len()))?
+        .await?;
+    assert_eq!(mask, expected);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+
+    let cached = reader
+        .pruning_evaluation(&(0..ROWS.len() as u64), &expr, Mask::new_true(ROWS.len()))?
+        .await?;
+    assert_eq!(cached, expected);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+
     Ok(())
 }
 
@@ -1088,17 +1159,17 @@ mod exact_value {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::scalar_fn::fns::binary::Binary;
-    use vortex_array::scalar_fn::fns::literal::Literal;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::literal::Literal;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::lit;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
@@ -1210,7 +1281,8 @@ mod exact_value {
             _options: &(),
         ) -> VortexResult<Option<IndexQueryPlan<String>>> {
             // Only `<column> == <utf8 literal>`.
-            if !expr.is::<Binary>() || *expr.as_::<Binary>() != Operator::Eq {
+            // Strings compare the same in each compare mode, so only the operator matters.
+            if !expr.is::<Compare>() || expr.as_::<Compare>().operator() != CompareOperator::Eq {
                 return Ok(None);
             }
             if !expr.child(0).is_root() || !expr.child(1).is::<Literal>() {
@@ -1485,11 +1557,11 @@ mod fixed_superset {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::eq;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::layouts::indexed::IndexBuilder;

@@ -26,9 +26,9 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::OffsetBuilderPType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferAllocatorRef;
@@ -72,10 +72,21 @@ pub fn fsst_compress(
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
+    fsst_compress_with_offset_threshold(array, compressor, i32::MAX as usize, ctx)
+}
+
+/// Compress a string array using FSST, choosing `i32` codes offsets when the worst-case
+/// compressed byte count fits within `i32_offset_threshold` and `i64` offsets otherwise.
+pub(crate) fn fsst_compress_with_offset_threshold(
+    array: &ArrayRef,
+    compressor: &Compressor,
+    i32_offset_threshold: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FSSTArray> {
     if let Some(view) = array.as_opt::<VarBinView>() {
-        compress_varbinview(view, compressor, ctx)
+        compress_varbinview(view, compressor, i32_offset_threshold, ctx)
     } else if let Some(varbin) = array.as_opt::<VarBin>() {
-        compress_varbin_array(varbin, compressor, ctx)
+        compress_varbin_array(varbin, compressor, i32_offset_threshold, ctx)
     } else {
         vortex_bail!(
             "fsst_compress requires VarBinView or VarBin encoding, got {}",
@@ -103,6 +114,7 @@ pub fn fsst_train_compressor(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vortex
 fn compress_varbinview(
     strings: ArrayView<VarBinView>,
     compressor: &Compressor,
+    max_i32_output_bytes: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
@@ -119,7 +131,7 @@ fn compress_varbinview(
             .sum(),
     };
 
-    if fsst_output_fits_in_i32_offsets(total_input_bytes) {
+    if fsst_output_fits_in_i32_offsets(total_input_bytes, max_i32_output_bytes) {
         compress_views::<i32>(strings, &mask, compressor, ctx)
     } else {
         compress_views::<i64>(strings, &mask, compressor, ctx)
@@ -129,6 +141,7 @@ fn compress_varbinview(
 fn compress_varbin_array(
     strings: ArrayView<VarBin>,
     compressor: &Compressor,
+    max_i32_output_bytes: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
@@ -137,7 +150,7 @@ fn compress_varbin_array(
         offsets_byte_span(offsets.as_slice::<O>())
     });
 
-    if fsst_output_fits_in_i32_offsets(total_input_bytes) {
+    if fsst_output_fits_in_i32_offsets(total_input_bytes, max_i32_output_bytes) {
         compress_varbin::<i32>(strings, &offsets, &mask, compressor, ctx)
     } else {
         compress_varbin::<i64>(strings, &offsets, &mask, compressor, ctx)
@@ -201,9 +214,9 @@ fn offsets_byte_span<O: IntegerPType>(off: &[O]) -> usize {
 }
 
 #[inline]
-fn fsst_output_fits_in_i32_offsets(total_input_bytes: usize) -> bool {
+fn fsst_output_fits_in_i32_offsets(total_input_bytes: usize, max_i32_output_bytes: usize) -> bool {
     let worst = total_input_bytes.saturating_mul(FSST_PER_BYTE_OVERHEAD);
-    worst <= i32::MAX as usize
+    worst <= max_i32_output_bytes
 }
 
 #[inline]
@@ -463,14 +476,14 @@ mod tests {
     });
 
     /// Regression for #7833: the i32-vs-i64 codes-offsets decision must cross at
-    /// `i32::MAX` against the worst-case bound `2 * total`.
+    /// `max_i32_output_bytes` against the worst-case bound `2 * total`.
     #[test]
     fn offset_width_boundary() {
         let m = i32::MAX as usize;
-        assert!(fsst_output_fits_in_i32_offsets(m / 2));
-        assert!(!fsst_output_fits_in_i32_offsets(m / 2 + 1));
-        assert!(fsst_output_fits_in_i32_offsets(0));
-        assert!(!fsst_output_fits_in_i32_offsets(usize::MAX));
+        assert!(fsst_output_fits_in_i32_offsets(m / 2, m));
+        assert!(!fsst_output_fits_in_i32_offsets(m / 2 + 1, m));
+        assert!(fsst_output_fits_in_i32_offsets(0, m));
+        assert!(!fsst_output_fits_in_i32_offsets(usize::MAX, m));
     }
 
     /// Small inputs fit the i32 bound, so `fsst_compress` must pick i32 offsets.

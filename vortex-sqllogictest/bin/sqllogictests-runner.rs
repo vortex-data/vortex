@@ -48,13 +48,14 @@ enum Mode {
     Complete,
 }
 
-/// Builds a single-threaded Tokio runtime for one DataFusion test file.
+/// Builds a multi-threaded Tokio runtime for one DataFusion test file.
 ///
-/// `libtest-mimic` runs each trial on its own thread, so a current-thread
-/// runtime keeps async DataFusion work isolated per file instead of contending
-/// for shared multi-threaded runtime workers.
+/// Each file gets its own runtime, so files stay isolated from each other. The
+/// runtime is multi-threaded so that DataFusion executes a query's partitions in
+/// parallel: on a current-thread runtime the TPC-DS and ClickBench files, which
+/// run hundreds of queries back to back, take about 1.5x as long.
 fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
-    Ok(tokio::runtime::Builder::new_current_thread()
+    Ok(tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?)
 }
@@ -177,6 +178,8 @@ const GENERATED_DATASETS: &[(&str, &str)] = &[
     ("tpch", "tpch/data/lineitem"),
     ("tpcds", "tpcds/data/store_sales"),
     ("clickbench", "clickbench/data/hits"),
+    ("statpopgen", "statpopgen/data/statpopgen"),
+    ("job", "job/data/cast_info"),
 ];
 
 /// Whether `path` belongs to a generated-data suite whose data is absent.
@@ -248,7 +251,7 @@ fn main() -> anyhow::Result<ExitCode> {
     let mut trials = Vec::new();
     for path in files {
         let (run_datafusion, run_duckdb) = engines_for(&path);
-        // Generated-data trials (TPC-H, TPC-DS, ClickBench) are ignored (rather
+        // Generated-data trials (TPC-H, TPC-DS, ClickBench, StatPopGen, JOB) are ignored (rather
         // than removed) when the data is absent, so `--list` and the run summary
         // still account for them.
         let ignored = missing_generated_data(&path);

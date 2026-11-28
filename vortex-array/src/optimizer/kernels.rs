@@ -263,7 +263,7 @@ impl Borrow<u64> for ExecuteParentFnId {
 /// The parent that a parent-reduce rule is registered under.
 ///
 /// A parent is an array encoding, such as [`Filter`](crate::arrays::Filter), or a scalar function,
-/// such as [`Cast`](crate::scalar_fn::fns::cast::Cast), because a `ScalarFnArray` is identified by
+/// such as [`Cast`](crate::scalar_fn::builtin::cast::Cast), because a `ScalarFnArray` is identified by
 /// its function. [`AnyScalarFn`] is the parent for a rule that applies to any scalar function
 /// array. The `Kind` parameter only keeps these implementations apart, and callers never name it.
 pub trait ReduceParent<Kind> {
@@ -521,6 +521,24 @@ impl Deref for KernelSession {
     }
 }
 
+#[cfg(any(test, feature = "_test-harness"))]
+impl KernelSession {
+    pub fn retain(&self, mut keep: impl FnMut(&dyn Debug) -> bool) -> Self {
+        let mut reduce_parent = ParentReduceKernels::clone(&self.kernels.reduce_parent.load());
+        for kernels in reduce_parent.kernels.values_mut() {
+            *kernels = kernels.iter().filter(|k| keep(k)).copied().collect();
+        }
+        let mut execute_parent = ParentExecutionKernels::clone(&self.kernels.execute_parent.load());
+        for kernels in execute_parent.values_mut() {
+            *kernels = kernels.iter().filter(|k| keep(k)).cloned().collect();
+        }
+        let this = Self::empty();
+        this.kernels.reduce_parent.store(Arc::new(reduce_parent));
+        this.kernels.execute_parent.store(Arc::new(execute_parent));
+        this
+    }
+}
+
 impl Default for KernelSession {
     fn default() -> Self {
         // The built-in parent-reduce rules and execute-parent kernels are registered by the
@@ -574,25 +592,37 @@ mod tests {
     use crate::ArrayVTable;
     use crate::arrays::Bool;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::builtin::boolean::Boolean;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
     #[test]
     fn kernel_session_default_registers_builtin_kernels() {
-        assert!(SESSION.kernels().has_execute_parent(Binary.id(), Bool.id()));
+        assert!(
+            SESSION
+                .kernels()
+                .has_execute_parent(Boolean.id(), Bool.id())
+        );
     }
 
     #[test]
     fn initialize_registers_builtin_kernels_into_empty_kernel_session() {
         let session = VortexSession::empty().with_some(KernelSession::empty());
 
-        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+        assert!(
+            !session
+                .kernels()
+                .has_execute_parent(Boolean.id(), Bool.id())
+        );
 
         crate::initialize(&session);
 
-        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+        assert!(
+            session
+                .kernels()
+                .has_execute_parent(Boolean.id(), Bool.id())
+        );
     }
 
     #[test]
@@ -601,6 +631,10 @@ mod tests {
 
         // `kernels()` uses `get`, so it inserts a default `KernelSession` (with the built-in
         // kernels) rather than returning `None`.
-        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+        assert!(
+            session
+                .kernels()
+                .has_execute_parent(Boolean.id(), Bool.id())
+        );
     }
 }

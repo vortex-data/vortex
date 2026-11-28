@@ -16,19 +16,20 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
-use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
+use vortex_expr::stats::stat_fn::StatFn;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
+use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -403,6 +404,11 @@ fn expand_zones(
     let zone_len = plan.zone_len();
     let start_zone = usize::try_from(rows.start / zone_len)?;
     let end_zone = usize::try_from(rows.end.div_ceil(zone_len))?;
+    vortex_ensure!(
+        end_zone <= pruned.len(),
+        "Zoned pruning mask has {} zones, fewer than required {end_zone} for rows {rows:?}",
+        pruned.len()
+    );
     let selected_zones = pruned.slice(start_zone..end_zone);
     if selected_zones.all_true() || selected_zones.all_false() {
         let scalar = Scalar::from(selected_zones.all_true()).cast(plan.dtype())?;
@@ -412,7 +418,7 @@ fn expand_zones(
     let mut row = rows.start;
     while row < rows.end {
         let zone = usize::try_from(row / zone_len).vortex_expect("zone index must fit in usize");
-        let zone_end = ((row / zone_len) + 1) * zone_len;
+        let zone_end = (row / zone_len).saturating_add(1).saturating_mul(zone_len);
         let end = zone_end.min(rows.end);
         bits.append_n(
             pruned.value(zone),
@@ -455,26 +461,38 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
     }
 }
 
-/// Whether `eval` is a boolean expression over abstract statistics alone, which a zone table can
-/// prune without reading the data it summarises.
-pub fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
+/// Checks whether `expression` contains a [`StatFn`] node and whether any `root()` appears
+/// outside a [`StatFn`] subtree.
+fn inspect_stat_refs(expression: &BoundExpression) -> VortexResult<(bool, bool)> {
     let mut contains_stat = false;
     let mut contains_root = false;
-    eval.expression().clone().transform_down(|expression| {
-        if expression
+    expression.clone().transform_down(|node| {
+        if node
             .as_scalar()
             .is_some_and(|scalar_fn| scalar_fn.is::<StatFn>())
         {
             contains_stat = true;
             return Ok(Transformed {
-                value: expression,
+                value: node,
                 order: TraversalOrder::Skip,
                 changed: false,
             });
         }
-        contains_root |= expression.is_root();
-        Ok(Transformed::no(expression))
+        contains_root |= node.is_root();
+        Ok(Transformed::no(node))
     })?;
+    Ok((contains_stat, contains_root))
+}
+
+/// Whether `expression` contains any unresolved [`StatFn`] node.
+pub(crate) fn contains_stat_fn(expression: &BoundExpression) -> VortexResult<bool> {
+    Ok(inspect_stat_refs(expression)?.0)
+}
+
+/// Whether `eval` is a boolean expression over abstract statistics alone, which a zone table can
+/// prune without reading the data it summarises.
+pub fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
+    let (contains_stat, contains_root) = inspect_stat_refs(eval.expression())?;
     Ok(eval.dtype().is_boolean() && contains_stat && !contains_root)
 }
 

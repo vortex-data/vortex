@@ -3,15 +3,17 @@
 
 //! `ST_Contains` pruning with a geometry column and a constant in either operand order.
 
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::gt;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::lt;
-use vortex_array::expr::bound::or;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
+use vortex_expr::bound::compare_with_mode;
+use vortex_expr::bound::get_item;
+use vortex_expr::bound::lit;
+use vortex_expr::bound::or;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
 
@@ -48,6 +50,11 @@ impl StatsRewriteRule for SpatialContainsPrune {
         };
         let bounds = aabb_stat(geom);
         let field = |name| get_item(name, bounds.clone());
+        // Geometric coordinates treat `-0.0` and `+0.0` as the same position; total-order
+        // comparisons would otherwise treat `+0.0 > -0.0` as outside and prune matching zones.
+        let mode = CompareMode::new(FloatOrder::ZerosEqual);
+        let gt = |lhs, rhs| compare_with_mode(CompareOperator::Gt, mode, lhs, rhs);
+        let lt = |lhs, rhs| compare_with_mode(CompareOperator::Lt, mode, lhs, rhs);
         let outside = if is_column(expr.child(0)) {
             // Every row's box lies inside the aggregate box. If even that union cannot cover
             // the constant, no individual geometry can contain it.
@@ -83,15 +90,8 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions as AggregateOptions;
     use vortex_array::arrays::StructArray;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::fill_null;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::not;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_edition::EDITION_DECLARATIONS;
@@ -101,6 +101,14 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::ScalarFnExprExt;
+    use vortex_expr::fill_null;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::not;
+    use vortex_expr::root;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
@@ -126,6 +134,7 @@ mod tests {
     use crate::test_harness::nullable_point_column;
     use crate::test_harness::nullable_rect_column;
     use crate::test_harness::point_column;
+    use crate::test_harness::polygon_column;
     use crate::test_harness::rect_column;
     use crate::test_harness::spatial_session;
 
@@ -410,6 +419,45 @@ mod tests {
                 matches,
                 "pruning dropped matches for {predicate}"
             );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn signed_zero_rect_edge_is_not_pruned() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let session = file_session(handle)?;
+            let rects = rect_column(vec![(0.0, 0.0, 2.0, 2.0)])?;
+            let mut buffer = ByteBufferMut::empty();
+            session
+                .write_options()
+                .write(&mut buffer, rects.to_array_stream())
+                .await?;
+            let file = session
+                .open_options()
+                .open_buffer(ByteBuffer::from(buffer))?;
+
+            let mut ctx = session.create_execution_ctx();
+            let poly = polygon_column(vec![vec![vec![
+                (-0.0, 0.5),
+                (1.0, 0.5),
+                (1.0, 1.5),
+                (-0.0, 1.5),
+                (-0.0, 0.5),
+            ]]])?
+            .execute_scalar(0, &mut ctx)?;
+            let predicate = contains(root(), poly, true);
+            let matches = rects
+                .clone()
+                .apply(&fill_null(predicate.clone(), lit(false)))?
+                .execute::<Mask>(&mut ctx)?;
+            assert_eq!(matches.true_count(), 1);
+            assert!(!file.can_prune(&predicate)?);
+            let mask = file
+                .layout_reader()?
+                .pruning_evaluation(&(0..1), &predicate.bind(file.dtype())?, Mask::new_true(1))?
+                .await?;
+            assert_eq!(&mask & &matches, matches);
             Ok(())
         })
     }

@@ -29,6 +29,7 @@ use vortex::scalar::StructScalar;
 
 use crate::PyVortex;
 use crate::classes::decimal_class;
+use crate::scalar::ext_into_py::ext_scalar_into_py;
 
 impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
     type Target = PyAny;
@@ -36,6 +37,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self.0.dtype() {
+            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
+                "FixedSizeBinary scalars are not supported in Python yet",
+            )),
             DType::Null => Ok(py.None().into_pyobject(py)?),
             DType::Bool(_) => Ok(self.0.as_bool().value().as_ref().into_pyobject(py)?),
             DType::Primitive(ptype, ..) => {
@@ -91,7 +95,11 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 "Variant scalars are not supported in Python yet",
             )),
             DType::Extension(_) => {
-                PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
+                let ext = self.0.as_extension();
+                match ext_scalar_into_py(py, &ext)? {
+                    Some(value) => Ok(value),
+                    None => PyVortex(&ext.to_storage_scalar()).into_pyobject(py),
+                }
             }
         }
     }

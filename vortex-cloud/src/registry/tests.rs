@@ -189,6 +189,94 @@ fn test_hf_revisions_do_not_share_a_store() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+/// Resolving an `hf://` URL with `%2F` in the object path must still cache the store at the exact
+/// repository prefix: files in the same repository share the client, while adjacent repositories,
+/// organizations, and revisions get distinct clients and exact keys.
+#[cfg(feature = "hf")]
+#[test]
+fn test_hf_encoded_separators_cache_isolation_and_sharing() -> Result<(), Box<dyn std::error::Error>>
+{
+    let reg = registry();
+
+    // Populate the cache using a key with multiple encoded separators (which previously collapsed
+    // the computed mount depth to 0 or 1).
+    let (encoded_store, encoded_path) =
+        reg.resolve(&Url::parse("hf://datasets/org/name/a%2Fb%2Fc/d.vortex")?)?;
+    assert_eq!(encoded_path, Path::from("a/b/c/d.vortex"));
+
+    let (sibling_store, sibling_path) =
+        reg.resolve(&Url::parse("hf://datasets/org/name/plain.vortex")?)?;
+    assert_eq!(sibling_path, Path::from("plain.vortex"));
+    assert!(Arc::ptr_eq(&encoded_store, &sibling_store));
+
+    let (other_repo_store, other_repo_path) =
+        reg.resolve(&Url::parse("hf://datasets/org/other/train.vortex")?)?;
+    assert_eq!(other_repo_path, Path::from("train.vortex"));
+    assert!(!Arc::ptr_eq(&encoded_store, &other_repo_store));
+
+    let (other_rev_store, other_rev_path) =
+        reg.resolve(&Url::parse("hf://datasets/org/name@v2/train.vortex")?)?;
+    assert_eq!(other_rev_path, Path::from("train.vortex"));
+    assert!(!Arc::ptr_eq(&encoded_store, &other_rev_store));
+
+    let (other_org_store, other_org_path) =
+        reg.resolve(&Url::parse("hf://datasets/other-org/repo/train.vortex")?)?;
+    assert_eq!(other_org_path, Path::from("train.vortex"));
+    assert!(!Arc::ptr_eq(&encoded_store, &other_org_store));
+
+    Ok(())
+}
+
+/// Bucket/container-rooted `https://` URLs handled by `parse_url_opts` (such as Azure Blob) must
+/// also keep their container prefix isolated when the object key contains percent-encoded `/`.
+#[test]
+fn test_azure_encoded_separators_keep_container_isolation() -> Result<(), Box<dyn std::error::Error>>
+{
+    let reg = Registry::with_vars([("AZURE_STORAGE_SKIP_SIGNATURE".into(), "true".into())]);
+
+    let (container_a_encoded, path_a_encoded) = reg.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a/a%2Fb/c.vortex",
+    )?)?;
+    assert_eq!(path_a_encoded, Path::from("a/b/c.vortex"));
+
+    let (container_a_plain, path_a_plain) = reg.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a/plain.vortex",
+    )?)?;
+    assert_eq!(path_a_plain, Path::from("plain.vortex"));
+    assert!(Arc::ptr_eq(&container_a_encoded, &container_a_plain));
+
+    let (container_b, path_b) = reg.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-b/x.vortex",
+    )?)?;
+    assert_eq!(path_b, Path::from("x.vortex"));
+    assert!(!Arc::ptr_eq(&container_a_encoded, &container_b));
+
+    // Redundant `/` or leading `%2F` after the container name must still resolve on a cold registry.
+    let cold_double_slash =
+        Registry::with_vars([("AZURE_STORAGE_SKIP_SIGNATURE".into(), "true".into())]);
+    let (ds_store, ds_path) = cold_double_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a//dir/file.vortex",
+    )?)?;
+    assert_eq!(ds_path, Path::from("dir/file.vortex"));
+    let (ds_other, _) = cold_double_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-b/file.vortex",
+    )?)?;
+    assert!(!Arc::ptr_eq(&ds_store, &ds_other));
+
+    let cold_encoded_slash =
+        Registry::with_vars([("AZURE_STORAGE_SKIP_SIGNATURE".into(), "true".into())]);
+    let (es_store, es_path) = cold_encoded_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a/%2Fdir/file.vortex",
+    )?)?;
+    assert_eq!(es_path, Path::from("dir/file.vortex"));
+    let (es_other, _) = cold_encoded_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-b/file.vortex",
+    )?)?;
+    assert!(!Arc::ptr_eq(&es_store, &es_other));
+
+    Ok(())
+}
+
 /// The OpenDAL-backed schemes must resolve through the registry rather than falling through to
 /// `parse_url_opts`, which does not recognize them.
 ///
@@ -299,4 +387,146 @@ async fn test_resolved_key_reaches_the_object(
         "opening {key:?} must read the stored payload and reject its footer: {err}"
     );
     Ok(())
+}
+
+/// Cold resolution of an OpenDAL-backed URL must validate the URL path via `Path::from_url_path`
+/// before caching the store, so empty path segments (`a//b`) are rejected while valid paths
+/// (`a/b`) resolve normally.
+#[cfg(feature = "cos")]
+#[test]
+fn test_cos_cold_lookup_validates_url_path() -> Result<(), Box<dyn std::error::Error>> {
+    let vars = [(
+        "COS_ENDPOINT".to_string(),
+        "https://cos.ap-guangzhou.myqcloud.com".to_string(),
+    )];
+    let reg = Registry::with_vars(vars.clone());
+    assert!(
+        reg.resolve(&Url::parse("cos://bucket/a//b")?).is_err(),
+        "empty segment in cos://bucket/a//b must be rejected on cold lookup"
+    );
+
+    let fresh = Registry::with_vars(vars);
+    let (_store, path) = fresh.resolve(&Url::parse("cos://bucket/a/b")?)?;
+    assert_eq!(path, Path::from("a/b"));
+    Ok(())
+}
+
+/// Empty path segments (`//`) must be rejected on both cold and warm cache lookups.
+#[rstest::rstest]
+#[case("s3://my-bucket/a//b", "s3://my-bucket/x")]
+#[case("https://example.com/a//b", "https://example.com/x")]
+#[case(
+    "https://acct.blob.core.windows.net/container-a/dir//file.vortex",
+    "https://acct.blob.core.windows.net/container-a/other.vortex"
+)]
+#[cfg_attr(feature = "cos", case("cos://bucket/a//b", "cos://bucket/x"))]
+#[cfg_attr(
+    feature = "hf",
+    case("hf://datasets/org/name/a//b", "hf://datasets/org/name/x")
+)]
+fn test_double_slash_rejected_on_cold_and_warm(
+    #[case] double_slash_url: &str,
+    #[case] warm_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let vars = [
+        ("AWS_REGION".to_string(), "us-east-3".to_string()),
+        (
+            "AZURE_STORAGE_SKIP_SIGNATURE".to_string(),
+            "true".to_string(),
+        ),
+        (
+            "COS_ENDPOINT".to_string(),
+            "https://cos.ap-guangzhou.myqcloud.com".to_string(),
+        ),
+    ];
+    let ds_url = Url::parse(double_slash_url)?;
+    let warm = Url::parse(warm_url)?;
+
+    let cold_reg = Registry::with_vars(vars.clone());
+    assert!(
+        cold_reg.resolve(&ds_url).is_err(),
+        "cold lookup must reject empty segment in {double_slash_url}"
+    );
+
+    let warm_reg = Registry::with_vars(vars);
+    warm_reg.resolve(&warm)?;
+    assert!(
+        warm_reg.resolve(&ds_url).is_err(),
+        "warm lookup must reject empty segment in {double_slash_url}"
+    );
+    Ok(())
+}
+
+/// Empty path segments inside a registered mount prefix (e.g. `https://h//prefix/a` against a
+/// store mounted at `https://h/prefix`) must also be rejected.
+#[test]
+fn test_double_slash_in_mount_prefix_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    let reg = registry();
+    let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+    reg.register(Url::parse("https://h/prefix")?, store);
+
+    let (_, path) = reg.resolve(&Url::parse("https://h/prefix/a")?)?;
+    assert_eq!(path, Path::from("a"));
+    assert!(
+        reg.resolve(&Url::parse("https://h//prefix/a")?).is_err(),
+        "empty segment inside mount prefix must be rejected"
+    );
+    Ok(())
+}
+
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
+#[test]
+fn test_lookup_env_case_insensitive() {
+    let vars = || {
+        vec![
+            (
+                std::ffi::OsString::from("HF_TOKEN"),
+                std::ffi::OsString::from("upper"),
+            ),
+            (
+                std::ffi::OsString::from("OTHER"),
+                std::ffi::OsString::from("ignored"),
+            ),
+        ]
+    };
+
+    // Exact match wins without calling the fallback scanner.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Ok("exact".to_string()), || {
+            panic!("exact match must not scan the environment");
+            #[allow(unreachable_code)]
+            vars()
+        })
+        .as_deref(),
+        Some("exact")
+    );
+
+    // Missing exact key falls back to case-insensitive scan.
+    assert_eq!(
+        super::lookup_env_case_insensitive("hf_token", Err(std::env::VarError::NotPresent), vars)
+            .as_deref(),
+        Some("upper")
+    );
+
+    // Non-Unicode exact match returns None without scanning.
+    assert_eq!(
+        super::lookup_env_case_insensitive(
+            "hf_token",
+            Err(std::env::VarError::NotUnicode(std::ffi::OsString::from(
+                "bad"
+            ))),
+            || {
+                panic!("NotUnicode must not scan the environment");
+                #[allow(unreachable_code)]
+                vars()
+            },
+        ),
+        None
+    );
+
+    // Absent key returns None.
+    assert_eq!(
+        super::lookup_env_case_insensitive("missing", Err(std::env::VarError::NotPresent), vars),
+        None
+    );
 }

@@ -1,14 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import io
 import math
 import os
 import pickle
+import subprocess
+import sys
+import textwrap
 
+import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.fs as pafs
 import pytest
 
 import vortex as vx
+import vortex.expr as ve
 from vortex.file import VortexFile
 
 
@@ -25,9 +33,13 @@ def vxf(tmpdir_factory) -> vx.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):
-        a = pa.array([record(x) for x in range(1_000_000)])
-        arr = vx.compress(vx.array(a))
-        vx.io.write(arr, str(fname))
+        indices = np.arange(1_000_000, dtype=np.int64)
+        index = pa.array(indices)
+        a = pa.StructArray.from_arrays(
+            [index, pc.cast(index, pa.string()), pa.array((indices & 1) == 0), pa.array(np.sqrt(indices))],
+            names=["index", "string", "bool", "float"],
+        )
+        vx.io.write(vx.array(a), str(fname))
     return vx.open(str(fname), without_segment_cache=True)
 
 
@@ -42,9 +54,19 @@ def test_row_count(vxf: VortexFile) -> None:
 
 
 def test_scan(vxf: VortexFile) -> None:
+    indices = np.arange(1_000_000, dtype=np.int64)
+    expected = pa.StructArray.from_arrays(
+        [
+            pa.array(indices),
+            pa.array([str(i) for i in range(1_000_000)], type=pa.string_view()),
+            pa.array((indices & 1) == 0),
+            pa.array(np.sqrt(indices)),
+        ],
+        names=["index", "string", "bool", "float"],
+    )
     start = 0
     for batch in vxf.scan():
-        assert batch.to_pylist() == [record(x) for x in range(start, start + len(batch))]
+        assert batch.to_arrow_array() == expected.slice(start, len(batch))
         start += len(batch)
     assert start == 1_000_000
 
@@ -61,9 +83,70 @@ def test_read_url_with_indices(tmp_path) -> None:
     assert result.to_pylist() == [record(x) for x in [1, 10, 42]]
 
 
+def test_read_url_indices_relative_to_row_range(tmp_path) -> None:
+    fname = tmp_path / "ranged.vortex"
+    vx.io.write(vx.compress(vx.array(pa.array([record(x) for x in range(100)]))), str(fname))
+
+    result = vx.io.read_url(str(fname), row_range=(10, 20), indices=vx.array([0, 2, 9]))
+    assert result.to_pylist() == [record(10), record(12), record(19)]
+
+    filtered = vx.io.read_url(
+        str(fname),
+        row_range=(10, 20),
+        indices=vx.array([0, 2, 5, 9]),
+        row_filter=ve.column("index") >= 12,
+    )
+    assert filtered.to_pylist() == [record(12), record(15), record(19)]
+
+    from_zero = vx.io.read_url(str(fname), row_range=(0, 10), indices=vx.array([1, 5]))
+    assert from_zero.to_pylist() == [record(1), record(5)]
+
+    empty = vx.io.read_url(str(fname), row_range=(10, 20), indices=vx.array(pa.array([], type=pa.uint64())))
+    assert empty.to_pylist() == []
+
+    multi_dir = tmp_path / "multi"
+    multi_dir.mkdir()
+    vx.io.write(vx.array(pa.array([record(x) for x in range(0, 10)])), str(multi_dir / "a.vortex"))
+    vx.io.write(vx.array(pa.array([record(x) for x in range(10, 20)])), str(multi_dir / "b.vortex"))
+    multi = vx.io.read_url(str(multi_dir), row_range=(5, 18), indices=vx.array([0, 5, 12]))
+    assert multi.to_pylist() == [record(5), record(10), record(17)]
+
+
+@pytest.mark.parametrize(
+    ("row_range", "indices"),
+    [
+        ((4, 10), [0, 6]),
+        ((4, 10), [7]),
+        ((0, 5), [5]),
+        ((5, 5), [0]),
+        ((10, 5), [0]),
+        ((8, 20), [0, 4]),
+    ],
+)
+def test_read_url_indices_out_of_bounds_for_row_range(tmp_path, row_range: tuple[int, int], indices: list[int]) -> None:
+    fname = tmp_path / "twelve.vortex"
+    vx.io.write(vx.array(pa.array([record(x) for x in range(12)])), str(fname))
+
+    with pytest.raises(IndexError):
+        vx.io.read_url(str(fname), row_range=row_range, indices=vx.array(indices))
+
+    # Indices within both the row_range and the file length still succeed when row_range.end > len(file).
+    in_bounds = vx.io.read_url(str(fname), row_range=(8, 20), indices=vx.array([0, 3]))
+    assert in_bounds.to_pylist() == [record(8), record(11)]
+
+
 def test_to_arrow_batch_size(vxf: VortexFile) -> None:
     assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
+
+
+def test_zero_batch_size_rejected(vxf: VortexFile) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_repeated_scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_arrow(batch_size=0)
 
 
 def test_to_arrow_columns(vxf: VortexFile) -> None:
@@ -75,10 +158,8 @@ def test_to_arrow_offset_string_schema(vxf: VortexFile) -> None:
     schema = pa.schema([("string", pa.string())])
     table = vxf.to_arrow(projection=["string"], schema=schema).read_all()
     assert table.schema == schema
-    assert table.column("string").combine_chunks() == pa.array(
-        (str(i) for i in range(1_000_000)),
-        type=pa.string(),
-    )
+    expected = pc.cast(pa.array(np.arange(1_000_000, dtype=np.int64)), pa.string())
+    assert table.column("string").combine_chunks() == expected
 
 
 def test_empty_file(tmpdir_factory) -> None:
@@ -117,16 +198,71 @@ def test_stream_pyarrow(tmpdir_factory) -> None:
 
 @pytest.mark.parametrize("as_reader", [False, True])
 def test_write_reports_unsupported_arrow_type(tmp_path, as_reader: bool) -> None:
-    table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
+    table = pa.table({"elapsed": pa.array([(0, 0, 1)], pa.month_day_nano_interval())})
     source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
+    dest = tmp_path / "x.vortex"
 
-    with pytest.raises(ValueError, match="Duration"):
-        vx.io.write(source, str(tmp_path / "x.vortex"))
+    with pytest.raises(ValueError, match="Interval"):
+        vx.io.write(source, str(dest))
+    assert not dest.exists()
 
 
 def test_write_rejects_unsupported_object(tmp_path) -> None:
+    dest = tmp_path / "x.vortex"
     with pytest.raises(TypeError, match="converted to an ArrayIterator"):
-        vx.io.write(object(), str(tmp_path / "x.vortex"))  # ty: ignore[invalid-argument-type]
+        vx.io.write(object(), str(dest))  # ty: ignore[invalid-argument-type]
+    assert not dest.exists()
+
+
+def test_write_to_bytes_io() -> None:
+    source = pa.table({"id": [1, 2], "embedding": pa.array([[1, 2], [3, 4]], type=pa.list_(pa.float32(), 2))})
+    with io.BytesIO() as output:
+        vx.io.write_to(source.to_reader(max_chunksize=1), output, edition="core2025.10.0")
+        assert vx.open_readable(output).to_arrow(schema=source.schema).read_all().equals(source)
+
+
+def test_write_to_pyarrow_stream(tmp_path) -> None:
+    path = str(tmp_path / "arrow-output.vortex")
+    source = pa.table({"id": [1, 2, 3]})
+    with pafs.LocalFileSystem().open_output_stream(path) as output:
+        vx.io.VortexWriteOptions.compact().with_edition("core2025.10.0").write_to(source, output)
+        assert not output.closed
+    assert vx.open(path).to_arrow().read_all().equals(source)
+
+
+def test_write_to_retries_short_writes_and_flushes() -> None:
+    class ShortWriter:
+        def __init__(self):
+            self.buffer = io.BytesIO()
+            self.flushed = False
+
+        def write(self, data: bytes, /) -> int:
+            return self.buffer.write(data[:8])
+
+        def flush(self) -> None:
+            self.flushed = True
+
+    output = ShortWriter()
+    source = pa.table({"id": [1, 2, 3]})
+    vx.io.write_to(source, output)
+    assert output.flushed
+    assert vx.open_readable(output.buffer).to_arrow().read_all().equals(source)
+
+
+@pytest.mark.parametrize("failure", ["write", "flush"])
+def test_write_to_propagates_output_error(failure: str) -> None:
+    class FailingWriter:
+        def write(self, data: bytes, /) -> int:
+            if failure == "write":
+                raise OSError("output failed")
+            return len(data)
+
+        def flush(self) -> None:
+            if failure == "flush":
+                raise OSError("output failed")
+
+    with pytest.raises(OSError, match="output failed"):
+        vx.io.write_to(pa.table({"id": [1]}), FailingWriter())
 
 
 @pytest.mark.parametrize("with_footer", [False, True])
@@ -151,3 +287,218 @@ def test_memory_map_rejects_segment_cache(vxf: VortexFile) -> None:
 def test_memory_map_rejects_remote_url() -> None:
     with pytest.raises(ValueError, match="local path"):
         vx.open("s3://bucket/key.vortex", memory_map=True)
+
+
+@pytest.mark.parametrize("mode", ["to_arrow", "write"])
+def test_array_iterator_concurrent_transfer_does_not_deadlock(mode: str) -> None:
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        import tempfile
+        import threading
+
+        import pyarrow as pa
+        import vortex as vx
+
+        entry = threading.Event()
+        release = threading.Event()
+        transfer_started = threading.Event()
+        schema = pa.schema([pa.field("value", pa.int64())])
+        first_batch = vx.array(pa.table({"value": [10]}, schema=schema))
+        second_batch = vx.array(pa.table({"value": [20]}, schema=schema))
+
+        def delayed():
+            entry.set()
+            assert release.wait(5)
+            yield first_batch
+            yield second_batch
+
+        it = vx.ArrayIterator.from_iter(first_batch.dtype, iter(delayed()))
+        seen = []
+
+        def advance():
+            seen.append(next(it).to_arrow_table().to_pydict())
+
+        def releaser():
+            assert transfer_started.wait(5)
+            release.set()
+
+        producer = threading.Thread(target=advance)
+        watcher = threading.Thread(target=releaser)
+        producer.start()
+        watcher.start()
+        assert entry.wait(5)
+
+        # Hold the GIL until the native transfer call detaches it while waiting on
+        # the iterator mutex. Without detach(), watcher never gets the GIL to set
+        # `release`, so a lock-order regression deterministically deadlocks here.
+        sys.setswitchinterval(10.0)
+        mode = sys.argv[1]
+        if mode == "to_arrow":
+            transfer_started.set()
+            remaining = it.to_arrow().read_all().to_pydict()
+        else:
+            with tempfile.TemporaryDirectory() as td:
+                path = os.path.join(td, "out.vortex")
+                transfer_started.set()
+                vx.io.write(it, path)
+                remaining = vx.open(path).scan().read_all().to_arrow_table().to_pydict()
+
+        watcher.join(5)
+        producer.join(5)
+        assert not watcher.is_alive()
+        assert not producer.is_alive()
+        assert seen == [{"value": [10]}]
+        assert remaining == {"value": [20]}
+        assert next(it, None) is None
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script, mode],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert proc.returncode == 0, f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+
+
+@pytest.mark.parametrize("method", ["next", "read_all", "to_arrow_array", "to_arrow", "write"])
+def test_python_array_iterator_rejects_reentrant_access(tmp_path, method: str) -> None:
+    batch = vx.array(pa.table({"a": [1, 2]}))
+    holder: dict[str, vx.ArrayIterator] = {}
+
+    def gen():
+        it = holder["it"]
+        with pytest.raises(RuntimeError, match="already being advanced"):
+            if method == "next":
+                next(it)
+            elif method == "read_all":
+                it.read_all()
+            elif method == "to_arrow_array":
+                it.to_arrow_array()
+            elif method == "to_arrow":
+                it.to_arrow()
+            else:
+                vx.io.write(it, str(tmp_path / "reentrant.vortex"))
+        yield batch
+
+    it = vx.ArrayIterator.from_iter(batch.dtype, gen())
+    holder["it"] = it
+
+    assert next(it).to_pylist() == [{"a": 1}, {"a": 2}]
+    with pytest.raises(StopIteration):
+        next(it)
+
+
+@pytest.mark.parametrize("writer_kind", ["write", "options_default", "options_compact"])
+@pytest.mark.parametrize("failure", ["bad_path_type", "bad_store_type", "bad_parent", "bad_scheme"])
+def test_write_preserves_array_iterator_on_early_failure(tmp_path, writer_kind: str, failure: str) -> None:
+    existing_file = tmp_path / "existing.vortex"
+    existing_file.write_bytes(b"placeholder")
+    batch = vx.array(pa.table({"value": [1, 2, 3]}))
+    calls: list[int] = []
+
+    def source():
+        calls.append(1)
+        yield batch
+
+    it = vx.ArrayIterator.from_iter(batch.dtype, iter(source()))
+    dest = str(tmp_path / f"{writer_kind}_{failure}.vortex")
+
+    def invoke(target: object, *, store: object = None) -> None:
+        if writer_kind == "write":
+            vx.io.write(it, target, store=store)  # ty: ignore[invalid-argument-type]
+        elif writer_kind == "options_default":
+            vx.io.VortexWriteOptions.default().write(it, target, store=store)  # ty: ignore[invalid-argument-type]
+        else:
+            vx.io.VortexWriteOptions.compact().write(it, target, store=store)  # ty: ignore[invalid-argument-type]
+
+    if failure == "bad_path_type":
+        with pytest.raises(TypeError):
+            invoke(5)
+    elif failure == "bad_store_type":
+        with pytest.raises(TypeError):
+            invoke(dest, store=object())
+    elif failure == "bad_parent":
+        with pytest.raises(RuntimeError):
+            invoke(str(existing_file / "missing"))
+    else:
+        with pytest.raises(RuntimeError):
+            invoke("unknown-scheme://bucket/out.vortex")
+
+    assert calls == []
+    invoke(dest)
+    assert calls == [1]
+    assert vx.open(dest).to_arrow().read_all().to_pydict() == {"value": [1, 2, 3]}
+
+
+@pytest.mark.parametrize(
+    ("edition", "exc_type"),
+    [("unknown", RuntimeError), (123, TypeError)],
+)
+def test_write_preserves_array_iterator_on_invalid_edition(
+    tmp_path, edition: object, exc_type: type[Exception]
+) -> None:
+    batch = vx.array(pa.table({"value": [1, 2, 3]}))
+    calls: list[int] = []
+
+    def source():
+        calls.append(1)
+        yield batch
+
+    it = vx.ArrayIterator.from_iter(batch.dtype, iter(source()))
+    dest = str(tmp_path / "edition_retry.vortex")
+
+    with pytest.raises(exc_type):
+        vx.io.write(it, dest, edition=edition)  # ty: ignore[invalid-argument-type]
+
+    assert calls == []
+    vx.io.write(it, dest)
+    assert calls == [1]
+    assert vx.open(dest).to_arrow().read_all().to_pydict() == {"value": [1, 2, 3]}
+
+
+@pytest.mark.parametrize("failure", ["bad_path_type", "bad_parent", "invalid_edition"])
+def test_write_preserves_record_batch_reader_on_early_failure(tmp_path, failure: str) -> None:
+    existing_file = tmp_path / "existing.vortex"
+    existing_file.write_bytes(b"placeholder")
+    table = pa.table({"value": [1, 2, 3]})
+    reader = pa.RecordBatchReader.from_batches(table.schema, table.to_batches())
+    dest = str(tmp_path / f"rbr_{failure}.vortex")
+
+    if failure == "bad_path_type":
+        with pytest.raises(TypeError):
+            vx.io.write(reader, 5)  # ty: ignore[invalid-argument-type]
+    elif failure == "bad_parent":
+        with pytest.raises(RuntimeError):
+            vx.io.write(reader, str(existing_file / "missing"))
+    else:
+        with pytest.raises(RuntimeError):
+            vx.io.write(reader, dest, edition="unknown")
+
+    vx.io.write(reader, dest)
+    assert vx.open(dest).to_arrow().read_all().to_pydict() == {"value": [1, 2, 3]}
+
+
+def test_write_failure_after_first_poll_keeps_consumed_stream_semantics(tmp_path) -> None:
+    batch = vx.array(pa.table({"value": [1, 2, 3]}))
+    calls: list[int] = []
+
+    def failing_source():
+        calls.append(1)
+        yield batch
+        calls.append(2)
+        raise ValueError("producer failed")
+
+    it = vx.ArrayIterator.from_iter(batch.dtype, iter(failing_source()))
+    dest1 = str(tmp_path / "first.vortex")
+    dest2 = str(tmp_path / "retry.vortex")
+
+    with pytest.raises(RuntimeError, match="producer failed"):
+        vx.io.write(it, dest1)
+
+    assert calls == [1, 2]
+    vx.io.write(it, dest2)
+    assert vx.open(dest2).to_arrow().read_all().to_pydict() == {"value": []}

@@ -12,6 +12,7 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -66,6 +67,7 @@ pub(crate) fn constant_canonicalize(
     };
 
     Ok(match array.dtype() {
+        DType::FixedSizeBinary(..) => vortex_bail!("FixedSizeBinary is not supported yet"),
         DType::Null => Canonical::Null(NullArray::new(array.len())),
         DType::Bool(..) => Canonical::Bool(BoolArray::new(
             if scalar.as_bool().value().unwrap_or_default() {
@@ -542,11 +544,11 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::half::f16;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
 
     /// A shared session for these constant-array tests, used to create execution contexts.

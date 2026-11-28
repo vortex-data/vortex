@@ -8,7 +8,8 @@ extern "C" {
 #endif
 
 // Create a vector that slices another vector between a pair of offsets [offset, end)
-duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end);
+duckdb_vector
+duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end, duckdb_vx_error *error_out);
 
 /// Creates a dictionary vector for a given values vector and selection vector.
 ///
@@ -16,20 +17,27 @@ duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx
 ///
 /// `dictionary` differs from `slice_to_dictionary` in that it initializes hash caching:
 /// https://github.com/duckdb/duckdb/blob/0dcf633f603a629981d089202f93b9080cb1a3e9/src/common/types/vector.cpp#L293
-void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
-                                 duckdb_vector ffi_dict,
-                                 idx_t dictionary_size,
-                                 duckdb_selection_vector ffi_sel_vec,
-                                 idx_t count);
+duckdb_state duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
+                                         duckdb_vector ffi_dict,
+                                         idx_t dictionary_size,
+                                         duckdb_selection_vector ffi_sel_vec,
+                                         idx_t count,
+                                         duckdb_vx_error *error_out);
 
 // Reset vector's validity mask to nullptr, making all vector's elements valid.
 // vector must not be a DictionaryVector or a SequenceVector
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector);
 
 // Converts a duckdb flat vector into a Sequence vector.
-void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
+duckdb_state duckdb_vx_sequence_vector(duckdb_vector c_vector,
+                                       int64_t start,
+                                       int64_t step,
+                                       idx_t capacity,
+                                       duckdb_vx_error *error_out);
 
 void duckdb_vector_flatten(duckdb_vector vector);
+
+duckdb_state duckdb_vx_vector_set_size(duckdb_vector ffi_vector, idx_t size, duckdb_vx_error *error_out);
 
 duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index);
 

@@ -15,6 +15,7 @@ use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::mask::Mask;
 
 use crate::duckdb::ReusableDict;
@@ -32,6 +33,7 @@ struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values: ReusableDict,
     values_key: usize,
+    values_len: usize,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
 }
@@ -56,6 +58,11 @@ pub(crate) fn new_exporter_with_flatten(
             cache,
             ctx,
         );
+    }
+
+    if values.dtype().is_struct() {
+        // DuckDB does not support dictionary-encoded struct vectors.
+        flatten = true;
     }
 
     match validity.execute_mask(codes_len, ctx)? {
@@ -115,12 +122,14 @@ pub(crate) fn new_exporter_with_flatten(
         );
     }
 
+    let values_len = values.len();
     let reusable_dict = cached_values_dict(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values: reusable_dict,
             values_key,
+            values_len,
             codes,
             codes_type: PhantomData::<I>,
         }))
@@ -136,11 +145,25 @@ impl<I: IntegerPType + AsPrimitive<u32>> DictionaryParts for DictExporter<I> {
         self.values_key
     }
 
-    fn write_codes(&self, offset: usize, codes: &mut [u32]) {
+    fn write_codes(&self, offset: usize, codes: &mut [u32]) -> VortexResult<()> {
         let src = &self.codes.as_slice::<I>()[offset..offset + codes.len()];
+
+        // A negative code becomes `usize::MAX`, so the bounds check below rejects it.
+        let mut max_code = 0;
         for (dst, src) in codes.iter_mut().zip(src) {
+            max_code = max_code.max(src.to_usize().unwrap_or(usize::MAX));
             *dst = src.as_();
         }
+
+        // DuckDB does not check the selection vector of a dictionary vector, so every code must
+        // be in bounds of the values and fit in a u32.
+        vortex_ensure!(
+            codes.is_empty() || (max_code < self.values_len && u32::try_from(max_code).is_ok()),
+            "Dictionary code {max_code} out of bounds for {} values",
+            self.values_len
+        );
+
+        Ok(())
     }
 }
 
@@ -158,9 +181,9 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     ) -> VortexResult<()> {
         let mut sel_vec = SelectionVector::with_capacity(len);
         // SAFETY: the selection vector has capacity for `len` entries, and all of them are written.
-        self.write_codes(offset, unsafe { sel_vec.as_slice_mut(len) });
+        self.write_codes(offset, unsafe { sel_vec.as_slice_mut(len) })?;
 
-        vector.reuse_dictionary(&self.values, &sel_vec, len);
+        vector.reuse_dictionary(&self.values, &sel_vec, len)?;
 
         Ok(())
     }
@@ -174,7 +197,9 @@ mod tests {
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexResult;
@@ -184,6 +209,7 @@ mod tests {
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
+    use crate::exporter::ArrayExporter;
     use crate::exporter::ColumnExporter;
     use crate::exporter::ConversionCache;
     use crate::exporter::dict::new_exporter_with_flatten;
@@ -194,6 +220,28 @@ mod tests {
         cache: &ConversionCache,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
         new_exporter_with_flatten(array, cache, &mut SESSION.create_execution_ctx(), false)
+    }
+
+    #[test]
+    fn test_out_of_bounds_codes_fail() -> VortexResult<()> {
+        // SAFETY: The code 5 is out of bounds on purpose, because the exporter must reject it.
+        let arr = unsafe {
+            DictArray::new_unchecked(
+                buffer![0u32, 5].into_array(),
+                buffer![10i32, 20].into_array(),
+            )
+        };
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let result = new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        );
+
+        assert!(result.is_err_and(|err| err.to_string().contains("out of bounds for 2 values")));
+        Ok(())
     }
 
     #[test]
@@ -329,6 +377,44 @@ mod tests {
 - DICTIONARY INTEGER: 0 = [ ]
 "#
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_dict_of_struct() -> VortexResult<()> {
+        let values = StructArray::try_new(
+            ["a", "b"].into(),
+            vec![
+                PrimitiveArray::from_option_iter([Some(10i32), None]).into_array(),
+                VarBinViewArray::from_iter_str(["x", "y"]).into_array(),
+            ],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let arr = DictArray::try_new(buffer![0u32, 1, 0, 1].into_array(), values)?;
+        let table = StructArray::from_fields(&[("s", arr.into_array())])?;
+
+        let struct_type = LogicalType::struct_type(
+            [LogicalType::int32(), LogicalType::varchar()],
+            [c"a".to_owned(), c"b".to_owned()],
+        )?;
+        let mut chunk = DataChunk::new([struct_type]);
+        let mut exporter = ArrayExporter::try_new(
+            &table,
+            &ConversionCache::default(),
+            SESSION.create_execution_ctx(),
+        )?;
+
+        assert!(exporter.export(&mut chunk, None)?);
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(a INTEGER, b VARCHAR): 4 = [ {'a': 10, 'b': x}, {'a': NULL, 'b': y}, {'a': 10, 'b': x}, {'a': NULL, 'b': y}]
+"#
+        );
+        assert!(!exporter.export(&mut chunk, None)?);
 
         Ok(())
     }

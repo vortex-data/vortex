@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 
 use vortex_session::VortexSession;
 
-/// Session for the Arrow round-trip target, including every covered extension plugin.
+/// Session for the Arrow round-trip target, including every covered extension and Variant plugin.
 ///
 /// Separate registration keeps these plugins from changing other fuzz drivers' sessions.
 #[cfg(feature = "native")]
@@ -22,6 +22,7 @@ pub(crate) static ARROW_ROUND_TRIP_SESSION: LazyLock<VortexSession> = LazyLock::
     let session = VortexSession::empty();
     vortex_uuid::initialize(&session);
     vortex_json::initialize(&session);
+    vortex_parquet_variant::initialize(&session);
     vortex_tensor::initialize(&session);
     vortex_spatial::initialize(&session);
     session
@@ -34,7 +35,12 @@ pub mod arrow_roundtrip;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
+#[cfg(test)]
+mod hegel_smoke;
 mod row;
+/// Untrusted wire-input fuzzing for IPC and protobuf boundaries.
+#[cfg(feature = "native")]
+pub mod wire;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,6 +59,20 @@ pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::FuzzFileCorruption;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::FuzzFileSession;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::WriteSettings;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::has_duplicate_field_names;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::has_nullable_struct;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::run_file_corruption;
+#[cfg(not(target_arch = "wasm32"))]
+pub use file::run_file_session;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
 #[cfg(feature = "cuda")]
@@ -61,6 +81,10 @@ pub use gpu::FuzzCompressGpu;
 pub use gpu::run_compress_gpu;
 pub use row::FuzzRowEncode;
 pub use row::run_row_encode;
+#[cfg(feature = "native")]
+pub use wire::FuzzWireSafety;
+#[cfg(feature = "native")]
+pub use wire::run_wire_safety;
 
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;

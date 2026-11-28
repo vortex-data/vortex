@@ -2,6 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::RecordBatch;
+use datafusion::sql::parser::DFParserBuilder;
+use datafusion::sql::parser::Statement as DFStatement;
+use datafusion::sql::sqlparser::ast::Expr;
+use datafusion::sql::sqlparser::ast::LimitClause;
+use datafusion::sql::sqlparser::ast::Statement;
+use datafusion::sql::sqlparser::ast::Value;
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::tokenizer::Tokenizer;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
 use ratatui::layout::Layout;
@@ -146,17 +154,33 @@ impl Default for QueryState {
 }
 
 impl QueryState {
+    fn prev_char_boundary(&self) -> Option<usize> {
+        let pos = self.cursor_position.min(self.sql_input.len());
+        self.sql_input[..pos]
+            .char_indices()
+            .next_back()
+            .map(|(idx, _)| idx)
+    }
+
+    fn next_char_boundary(&self) -> Option<usize> {
+        let pos = self.cursor_position.min(self.sql_input.len());
+        self.sql_input[pos..]
+            .chars()
+            .next()
+            .map(|c| pos + c.len_utf8())
+    }
+
     /// Insert a character at the cursor position.
     pub fn insert_char(&mut self, c: char) {
         self.sql_input.insert(self.cursor_position, c);
-        self.cursor_position += 1;
+        self.cursor_position += c.len_utf8();
     }
 
     /// Delete the character before the cursor.
     pub fn delete_char(&mut self) {
-        if self.cursor_position > 0 {
-            self.cursor_position -= 1;
-            self.sql_input.remove(self.cursor_position);
+        if let Some(prev) = self.prev_char_boundary() {
+            self.cursor_position = prev;
+            self.sql_input.remove(prev);
         }
     }
 
@@ -169,13 +193,15 @@ impl QueryState {
 
     /// Move cursor left.
     pub fn move_cursor_left(&mut self) {
-        self.cursor_position = self.cursor_position.saturating_sub(1);
+        if let Some(prev) = self.prev_char_boundary() {
+            self.cursor_position = prev;
+        }
     }
 
     /// Move cursor right.
     pub fn move_cursor_right(&mut self) {
-        if self.cursor_position < self.sql_input.len() {
-            self.cursor_position += 1;
+        if let Some(next) = self.next_char_boundary() {
+            self.cursor_position = next;
         }
     }
 
@@ -206,20 +232,34 @@ impl QueryState {
     /// Prepare initial query - parses SQL, sets flags for async execution.
     pub fn prepare_initial_query(&mut self) {
         self.error = None;
-
-        // Parse the SQL to extract base query, order clause, and page size
-        let (base_sql, order_clause, limit) = self.parse_sql_parts();
-        self.base_query = base_sql;
-        self.order_clause = order_clause;
-        self.page_size = limit.unwrap_or(20);
         self.current_page = 0;
+        self.total_row_count = None;
+        self.results = None;
+        self.sort_column = None;
+        self.sort_direction = SortDirection::None;
 
-        self.needs_row_count = true;
-        self.rebuild_sql();
+        // Parse the SQL to extract base query, order clause, and page size.
+        // Non-paginatable statements execute verbatim without rewriting or COUNT(*).
+        if let Some((base_sql, order_clause, limit)) = self.parse_sql_parts() {
+            self.base_query = base_sql;
+            self.order_clause = order_clause;
+            self.page_size = limit.unwrap_or(20);
+            self.needs_row_count = true;
+            self.rebuild_sql();
+        } else {
+            self.base_query.clear();
+            self.order_clause = None;
+            self.needs_row_count = false;
+            self.running = true;
+            self.pending_execution = true;
+        }
     }
 
     /// Prepare navigation to next page.
     pub fn prepare_next_page(&mut self) {
+        if self.needs_row_count || self.base_query.is_empty() {
+            return;
+        }
         let total_pages = self.total_pages();
         if self.current_page + 1 < total_pages {
             self.current_page += 1;
@@ -229,6 +269,9 @@ impl QueryState {
 
     /// Prepare navigation to previous page.
     pub fn prepare_prev_page(&mut self) {
+        if self.needs_row_count || self.base_query.is_empty() {
+            return;
+        }
         if self.current_page > 0 {
             self.current_page -= 1;
             self.rebuild_sql();
@@ -238,7 +281,7 @@ impl QueryState {
     /// Get total number of pages.
     pub fn total_pages(&self) -> usize {
         match self.total_row_count {
-            Some(total) if total > 0 => total.div_ceil(self.page_size),
+            Some(total) if total > 0 && self.page_size > 0 => total.div_ceil(self.page_size),
             _ => 1,
         }
     }
@@ -287,7 +330,6 @@ impl QueryState {
         let sql = self.sql_input.clone();
         let base_query = self.base_query.clone();
         let needs_row_count = self.needs_row_count;
-        self.needs_row_count = false;
 
         tokio::spawn(async move {
             let row_count = match needs_row_count {
@@ -304,13 +346,31 @@ impl QueryState {
         self.pending_rx = Some(rx);
     }
 
+    /// Apply the outcome of awaiting a background query channel.
+    pub(crate) fn apply_pending_result(
+        &mut self,
+        result: Result<PendingQueryResult, oneshot::error::RecvError>,
+    ) {
+        match result {
+            Ok(result) => self.apply_query_result(result),
+            Err(_) => {
+                self.error = Some("Query task terminated unexpectedly".to_string());
+                self.needs_row_count = false;
+                self.running = false;
+            }
+        }
+    }
+
     /// Apply a completed background query result to the state.
     pub(crate) fn apply_query_result(&mut self, result: PendingQueryResult) {
         if let Some(row_count) = result.row_count {
             self.total_row_count = row_count.ok();
+            self.needs_row_count = false;
         }
         match result.query_result {
             Ok(results) => {
+                let max_col = results.column_names.len().saturating_sub(1);
+                self.horizontal_scroll = self.horizontal_scroll.min(max_col);
                 self.results = Some(results);
                 self.table_state.select(Some(0));
             }
@@ -321,63 +381,50 @@ impl QueryState {
         self.running = false;
     }
 
-    /// Parse SQL to extract base query, ORDER BY clause, and LIMIT value.
-    fn parse_sql_parts(&self) -> (String, Option<String>, Option<usize>) {
-        let sql = &self.sql_input;
-        let sql_upper = sql.to_uppercase();
-
-        // Find positions of clauses
-        let order_idx = sql_upper.find(" ORDER BY ");
-        let limit_idx = sql_upper.find(" LIMIT ");
-        let offset_idx = sql_upper.find(" OFFSET ");
-
-        // Extract limit value if present
-        let limit_value = if let Some(li) = limit_idx {
-            let after_limit = &sql[li + 7..]; // Skip " LIMIT "
-            let end_idx = after_limit
-                .find(|c: char| !c.is_ascii_digit() && c != ' ')
-                .unwrap_or(after_limit.len());
-            after_limit[..end_idx].trim().parse::<usize>().ok()
-        } else {
-            None
-        };
-
-        // Find the earliest of LIMIT or OFFSET to know where to cut
-        let cut_idx = match (limit_idx, offset_idx) {
-            (Some(li), Some(oi)) => Some(li.min(oi)),
-            (Some(li), None) => Some(li),
-            (None, Some(oi)) => Some(oi),
-            (None, None) => None,
-        };
-
-        match (order_idx, cut_idx) {
-            (Some(oi), Some(ci)) if oi < ci => {
-                // ORDER BY comes before LIMIT/OFFSET
-                let base = sql[..oi].trim().to_string();
-                let order = sql[oi..ci].trim().to_string();
-                (base, Some(order), limit_value)
-            }
-            (Some(oi), None) => {
-                // Only ORDER BY, no LIMIT/OFFSET
-                let base = sql[..oi].trim().to_string();
-                let order = sql[oi..].trim().to_string();
-                (base, Some(order), limit_value)
-            }
-            (None, Some(ci)) => {
-                // No ORDER BY, just LIMIT/OFFSET
-                let base = sql[..ci].trim().to_string();
-                (base, None, limit_value)
-            }
-            (Some(_oi), Some(ci)) => {
-                // ORDER BY comes after LIMIT (unusual) - just cut at LIMIT
-                let base = sql[..ci].trim().to_string();
-                (base, None, limit_value)
-            }
-            (None, None) => {
-                // No ORDER BY or LIMIT/OFFSET
-                (sql.clone(), None, limit_value)
-            }
+    /// Parse a paginatable SQL query into its base query, outer ORDER BY clause, and outer LIMIT.
+    ///
+    /// Returns `None` for invalid SQL, multi-statement input, non-query statements, or queries
+    /// with non-zero OFFSET, trailing, or non-literal LIMIT clauses that should execute verbatim.
+    fn parse_sql_parts(&self) -> Option<(String, Option<String>, Option<usize>)> {
+        let sql = self.sql_input.trim();
+        let dialect = GenericDialect {};
+        let tokens = Tokenizer::new(&dialect, sql)
+            .with_unescape(false)
+            .tokenize_with_location()
+            .ok()?;
+        let mut statements = DFParserBuilder::new(tokens)
+            .with_dialect(&dialect)
+            .build()
+            .ok()?
+            .parse_statements()
+            .ok()?;
+        if statements.len() != 1 {
+            return None;
         }
+
+        let DFStatement::Statement(stmt) = statements.pop_front()? else {
+            return None;
+        };
+        let Statement::Query(mut query) = *stmt else {
+            return None;
+        };
+
+        if query.fetch.is_some()
+            || !query.locks.is_empty()
+            || query.for_clause.is_some()
+            || query.settings.is_some()
+            || query.format_clause.is_some()
+            || !query.pipe_operators.is_empty()
+        {
+            return None;
+        }
+
+        let limit = match query.limit_clause.take() {
+            None => None,
+            Some(limit_clause) => parse_paginatable_limit(limit_clause)?,
+        };
+        let order_clause = query.order_by.take().map(|order_by| order_by.to_string());
+        Some((query.to_string(), order_clause, limit))
     }
 
     /// Get the currently selected column index.
@@ -394,8 +441,35 @@ impl QueryState {
             .unwrap_or(0)
     }
 
+    /// Format the results panel title for the current query state.
+    fn results_title(&self) -> String {
+        if self.running {
+            "Results (running...)".to_string()
+        } else if let Some(error) = &self.error {
+            format!("Results (error: {})", truncate_str(error, 50))
+        } else if let Some(results) = &self.results {
+            if self.base_query.is_empty() {
+                format!("Results ({} rows) [hjkl navigate]", results.total_rows)
+            } else {
+                let total_rows = self.total_row_count.unwrap_or(results.total_rows);
+                let total_pages = self.total_pages();
+                format!(
+                    "Results ({} rows, page {}/{}) [hjkl navigate, [/] pages, s sort]",
+                    total_rows,
+                    self.current_page + 1,
+                    total_pages,
+                )
+            }
+        } else {
+            "Results (press Enter to execute query)".to_string()
+        }
+    }
+
     /// Prepare sort on a column by modifying the ORDER BY clause and setting execution flag.
     pub fn prepare_sort(&mut self, column: usize) {
+        if self.needs_row_count || self.base_query.is_empty() {
+            return;
+        }
         // Get the column name from results
         let column_name = match &self.results {
             Some(results) if column < results.column_names.len() => {
@@ -430,6 +504,45 @@ impl QueryState {
         // Reset to first page and set pending execution
         self.current_page = 0;
         self.rebuild_sql();
+    }
+}
+
+fn parse_usize_literal(expr: &Expr) -> Option<usize> {
+    match expr {
+        Expr::Value(value_with_span) => match &value_with_span.value {
+            Value::Number(num, _) => num.parse::<usize>().ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn parse_paginatable_limit(limit_clause: LimitClause) -> Option<Option<usize>> {
+    match limit_clause {
+        LimitClause::LimitOffset {
+            limit,
+            offset,
+            limit_by,
+        } => {
+            if !limit_by.is_empty() {
+                return None;
+            }
+            if let Some(offset) = offset
+                && parse_usize_literal(&offset.value) != Some(0)
+            {
+                return None;
+            }
+            match limit {
+                None => Some(None),
+                Some(expr) => parse_usize_literal(&expr).map(Some),
+            }
+        }
+        LimitClause::OffsetCommaLimit { offset, limit } => {
+            if parse_usize_literal(&offset) != Some(0) {
+                return None;
+            }
+            parse_usize_literal(&limit).map(Some)
+        }
     }
 }
 
@@ -560,22 +673,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     };
 
     // Show status in title
-    let title = if app.query_state.running {
-        "Results (running...)".to_string()
-    } else if let Some(error) = &app.query_state.error {
-        format!("Results (error: {})", truncate_str(error, 50))
-    } else if let Some(_results) = &app.query_state.results {
-        let total_rows = app.query_state.total_row_count.unwrap_or(0);
-        let total_pages = app.query_state.total_pages();
-        format!(
-            "Results ({} rows, page {}/{}) [hjkl navigate, [/] pages, s sort]",
-            total_rows,
-            app.query_state.current_page + 1,
-            total_pages,
-        )
-    } else {
-        "Results (press Enter to execute query)".to_string()
-    };
+    let title = app.query_state.results_title();
 
     let block = Block::default()
         .title(title)
@@ -595,6 +693,12 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     }
 
     let Some(results) = &app.query_state.results else {
+        if app.query_state.running {
+            let running =
+                Paragraph::new("Running query...").style(Style::default().fg(Color::Gray));
+            running.render(inner, buf);
+            return;
+        }
         let help = Paragraph::new("Enter a SQL query above and press Enter to execute.\nThe table is available as 'data'.\n\nExample: SELECT * FROM data WHERE column > 10 LIMIT 100")
             .style(Style::default().fg(Color::Gray));
         help.render(inner, buf);
@@ -697,6 +801,431 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s
     } else {
-        &s[..max_len.saturating_sub(3)]
+        &s[..s.floor_char_boundary(max_len.saturating_sub(3))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::sql::parser::DFParser;
+
+    use super::*;
+
+    fn assert_cursor_valid(state: &QueryState, expected_sql: &str, expected_pos: usize) {
+        assert_eq!(state.sql_input, expected_sql);
+        assert_eq!(state.cursor_position, expected_pos);
+        assert!(
+            state.sql_input.is_char_boundary(state.cursor_position),
+            "cursor {} is not on a UTF-8 char boundary in {:?}",
+            state.cursor_position,
+            state.sql_input
+        );
+    }
+
+    #[test]
+    fn sql_cursor_handles_ascii_accented_wide_and_combining_chars() {
+        let mut state = QueryState::default();
+        state.clear_input();
+        assert_cursor_valid(&state, "", 0);
+
+        // ASCII, 2-byte accented ('é'), 3-byte wide CJK ('中'), 4-byte emoji ('🦀'),
+        // and combining mark sequence ('e' + U+0301).
+        for (ch, expected_sql, expected_pos) in [
+            ('a', "a", 1),
+            ('é', "aé", 3),
+            ('中', "aé中", 6),
+            ('🦀', "aé中🦀", 10),
+            ('e', "aé中🦀e", 11),
+            ('\u{0301}', "aé中🦀e\u{0301}", 13),
+        ] {
+            state.insert_char(ch);
+            assert_cursor_valid(&state, expected_sql, expected_pos);
+        }
+
+        // Walk left across each character boundary.
+        for expected_pos in [11, 10, 6, 3, 1, 0, 0] {
+            state.move_cursor_left();
+            assert_cursor_valid(&state, "aé中🦀e\u{0301}", expected_pos);
+        }
+
+        // Walk right across each character boundary.
+        for expected_pos in [1, 3, 6, 10, 11, 13, 13] {
+            state.move_cursor_right();
+            assert_cursor_valid(&state, "aé中🦀e\u{0301}", expected_pos);
+        }
+
+        // Home and End preserve byte boundaries.
+        state.move_cursor_start();
+        assert_cursor_valid(&state, "aé中🦀e\u{0301}", 0);
+        state.move_cursor_end();
+        assert_cursor_valid(&state, "aé中🦀e\u{0301}", 13);
+
+        // Insert in the middle after moving left across multi-byte characters.
+        state.move_cursor_left(); // before U+0301 (byte 11)
+        state.move_cursor_left(); // before 'e' (byte 10)
+        state.move_cursor_left(); // before '🦀' (byte 6)
+        state.insert_char('λ');
+        assert_cursor_valid(&state, "aé中λ🦀e\u{0301}", 8);
+
+        // Forward delete removes '🦀' (4 bytes) while keeping cursor at byte 8.
+        state.delete_char_forward();
+        assert_cursor_valid(&state, "aé中λe\u{0301}", 8);
+
+        // Backspace removes 'λ' (2 bytes), then '中' (3 bytes), then 'é' (2 bytes).
+        state.delete_char();
+        assert_cursor_valid(&state, "aé中e\u{0301}", 6);
+        state.delete_char();
+        assert_cursor_valid(&state, "aée\u{0301}", 3);
+        state.delete_char();
+        assert_cursor_valid(&state, "ae\u{0301}", 1);
+
+        // Clear resets text and cursor.
+        state.clear_input();
+        assert_cursor_valid(&state, "", 0);
+    }
+
+    #[test]
+    fn truncate_str_stays_on_utf8_char_boundary() {
+        let cell = format!("{}éabcd", "a".repeat(26));
+        assert_eq!(cell.len(), 32);
+        assert_eq!(truncate_str(&cell, 30), "a".repeat(26));
+
+        assert_eq!(truncate_str("🦀🦀", 4), "");
+        assert_eq!(truncate_str("é", 2), "é");
+    }
+
+    #[test]
+    fn test_parse_sql_parts_preserves_utf8_input() {
+        let mut state = QueryState {
+            sql_input: "SELECT * FROM data WHERE name = 'ı' LIMIT 10".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            state.parse_sql_parts(),
+            Some((
+                "SELECT * FROM data WHERE name = 'ı'".to_string(),
+                None,
+                Some(10),
+            ))
+        );
+
+        state.sql_input = "SELECT 'ı', é ORDER BY id LIMIT 5 OFFSET 0".to_string();
+        assert_eq!(
+            state.parse_sql_parts(),
+            Some((
+                "SELECT 'ı', é".to_string(),
+                Some("ORDER BY id".to_string()),
+                Some(5),
+            ))
+        );
+    }
+
+    #[test]
+    fn test_prepare_initial_query_limit_zero_pagination() {
+        let mut state = QueryState {
+            sql_input: "SELECT * FROM data LIMIT 0".to_string(),
+            ..Default::default()
+        };
+        state.prepare_initial_query();
+        assert_eq!(state.page_size, 0);
+        assert_eq!(state.sql_input, "SELECT * FROM data LIMIT 0 OFFSET 0");
+
+        state.total_row_count = Some(19);
+        state.needs_row_count = false;
+        assert_eq!(state.total_pages(), 1);
+
+        state.pending_execution = false;
+        state.prepare_next_page();
+        assert_eq!(state.current_page, 0);
+        assert!(!state.pending_execution);
+    }
+
+    #[test]
+    fn test_non_paginatable_sql_executes_verbatim() {
+        for input in [
+            "SELECT FROM",
+            "DESCRIBE data",
+            "SHOW TABLES",
+            "SELECT 1; SELECT 2",
+            "SELECT * FROM data LIMIT -1",
+            "SELECT * FROM data LIMIT 'foo'",
+            "SELECT * FROM data LIMIT 1 + 2",
+            "SELECT * FROM data LIMIT 5 BY id",
+            "SELECT * FROM data FETCH FIRST 5 ROWS ONLY",
+            "SELECT * FROM data LIMIT 10 OFFSET 100",
+            "SELECT * FROM data OFFSET 5",
+            "SELECT * FROM data LIMIT 5, 10",
+            "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 2",
+        ] {
+            let mut state = QueryState {
+                sql_input: input.to_string(),
+                total_row_count: Some(50),
+                sort_column: Some(0),
+                sort_direction: SortDirection::Ascending,
+                results: Some(QueryResults {
+                    batches: vec![],
+                    total_rows: 1,
+                    column_names: vec!["id".to_string()],
+                }),
+                ..Default::default()
+            };
+
+            state.prepare_initial_query();
+            assert_eq!(state.sql_input, input, "input must not be rewritten");
+            assert!(state.base_query.is_empty());
+            assert_eq!(state.order_clause, None);
+            assert_eq!(state.total_row_count, None);
+            assert_eq!(state.sort_column, None);
+            assert_eq!(state.sort_direction, SortDirection::None);
+            assert!(state.results.is_none());
+            assert!(!state.needs_row_count);
+            assert!(state.running);
+            assert!(state.pending_execution);
+
+            // Repeated Enter must not mutate or append LIMIT, and page/sort stay inert.
+            state.prepare_initial_query();
+            assert_eq!(state.sql_input, input);
+
+            state.pending_execution = false;
+            state.prepare_next_page();
+            state.prepare_prev_page();
+            state.prepare_sort(0);
+            assert!(!state.pending_execution);
+            assert_eq!(state.sql_input, input);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_disconnected_worker_resets_running_and_sets_error() {
+        let mut state = QueryState {
+            running: true,
+            needs_row_count: true,
+            ..Default::default()
+        };
+        let (tx, rx) = oneshot::channel::<PendingQueryResult>();
+        drop(tx);
+
+        state.apply_pending_result(rx.await);
+        assert!(!state.running);
+        assert!(!state.needs_row_count);
+        assert!(state.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_early_navigation_and_sort_preserve_pending_row_count()
+    -> vortex::error::VortexResult<()> {
+        let prev_results = QueryResults {
+            batches: vec![],
+            total_rows: 100,
+            column_names: vec!["a".to_string(), "b".to_string()],
+        };
+        let mut state = QueryState {
+            sql_input: "SELECT 1".to_string(),
+            total_row_count: Some(100),
+            results: Some(prev_results),
+            ..Default::default()
+        };
+
+        state.prepare_initial_query();
+        assert_eq!(state.total_row_count, None);
+        assert!(state.results.is_none());
+        assert!(state.needs_row_count);
+
+        // Simulate spawn_pending taking pending_execution while keeping count ownership.
+        state.pending_execution = false;
+        let (tx, rx) = oneshot::channel();
+        state.pending_rx = Some(rx);
+
+        // Early next-page and sort before the count arrives must be no-ops.
+        state.prepare_next_page();
+        state.prepare_sort(0);
+        assert!(!state.pending_execution);
+        assert_eq!(state.current_page, 0);
+        assert_eq!(state.order_clause, None);
+        assert_eq!(state.total_row_count, None);
+
+        // Deliver the initial query's count and results.
+        assert!(
+            tx.send(PendingQueryResult {
+                row_count: Some(Ok(1)),
+                query_result: Ok(QueryResults {
+                    batches: vec![],
+                    total_rows: 1,
+                    column_names: vec!["val".to_string()],
+                }),
+            })
+            .is_ok()
+        );
+        let pending_rx = state
+            .pending_rx
+            .take()
+            .ok_or_else(|| vortex::error::vortex_err!("missing pending receiver"))?;
+        state.apply_pending_result(pending_rx.await);
+
+        assert_eq!(state.total_row_count, Some(1));
+        assert_eq!(state.current_page, 0);
+        assert!(!state.needs_row_count);
+        assert!(!state.running);
+
+        // Once settled, sorting the new query's column works without re-counting.
+        state.prepare_sort(0);
+        assert!(state.pending_execution);
+        assert!(!state.needs_row_count);
+        assert_eq!(state.order_clause.as_deref(), Some("ORDER BY \"val\" ASC"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_results_title_reports_verbatim_row_count_without_paging_hints() {
+        let mut state = QueryState {
+            sql_input: "DESCRIBE data".to_string(),
+            ..Default::default()
+        };
+        state.prepare_initial_query();
+        state.apply_query_result(PendingQueryResult {
+            row_count: None,
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 4,
+                column_names: vec!["column_name".to_string()],
+            }),
+        });
+        assert_eq!(state.results_title(), "Results (4 rows) [hjkl navigate]");
+
+        let mut paginated = QueryState {
+            sql_input: "SELECT val FROM data".to_string(),
+            ..Default::default()
+        };
+        paginated.prepare_initial_query();
+        paginated.apply_query_result(PendingQueryResult {
+            row_count: Some(Ok(45)),
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 20,
+                column_names: vec!["val".to_string()],
+            }),
+        });
+        assert_eq!(
+            paginated.results_title(),
+            "Results (45 rows, page 1/3) [hjkl navigate, [/] pages, s sort]"
+        );
+
+        paginated.apply_query_result(PendingQueryResult {
+            row_count: Some(Err("count failed".to_string())),
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 12,
+                column_names: vec!["val".to_string()],
+            }),
+        });
+        assert_eq!(
+            paginated.results_title(),
+            "Results (12 rows, page 1/1) [hjkl navigate, [/] pages, s sort]"
+        );
+    }
+
+    #[test]
+    fn test_horizontal_scroll_clamps_across_narrower_queries() {
+        let mut state = QueryState {
+            horizontal_scroll: 4,
+            ..Default::default()
+        };
+
+        state.apply_query_result(PendingQueryResult {
+            row_count: Some(Ok(10)),
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 10,
+                column_names: vec!["a".to_string(), "b".to_string()],
+            }),
+        });
+        assert_eq!(state.horizontal_scroll, 1);
+
+        state.apply_query_result(PendingQueryResult {
+            row_count: Some(Ok(0)),
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 0,
+                column_names: vec![],
+            }),
+        });
+        assert_eq!(state.horizontal_scroll, 0);
+    }
+
+    #[test]
+    fn test_parse_sql_parts_preserves_literals_and_subqueries() {
+        let cases = [
+            (
+                "SELECT val FROM data LIMIT 2",
+                "SELECT val FROM data LIMIT 2 OFFSET 0",
+                2,
+            ),
+            (
+                "SELECT 'use LIMIT 3 here' AS label FROM data",
+                "SELECT 'use LIMIT 3 here' AS label FROM data LIMIT 20 OFFSET 0",
+                20,
+            ),
+            (
+                "SELECT val FROM (SELECT val FROM data LIMIT 1) AS one",
+                "SELECT val FROM (SELECT val FROM data LIMIT 1) AS one LIMIT 20 OFFSET 0",
+                20,
+            ),
+            (
+                "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 0",
+                "SELECT val FROM (SELECT val FROM data ORDER BY val DESC LIMIT 1) AS one ORDER BY val ASC LIMIT 5 OFFSET 0",
+                5,
+            ),
+            (
+                "WITH t AS (SELECT val FROM data LIMIT 3) SELECT val FROM t",
+                "WITH t AS (SELECT val FROM data LIMIT 3) SELECT val FROM t LIMIT 20 OFFSET 0",
+                20,
+            ),
+        ];
+
+        for (input, expected_sql, expected_page_size) in cases {
+            let mut state = QueryState {
+                sql_input: input.to_string(),
+                ..Default::default()
+            };
+            state.prepare_initial_query();
+            assert_eq!(state.page_size, expected_page_size, "input: {input}");
+            assert_eq!(state.sql_input, expected_sql, "input: {input}");
+            assert!(
+                DFParser::parse_sql(&state.sql_input).is_ok(),
+                "rewritten SQL must remain valid: {}",
+                state.sql_input
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_sql_parts_preserves_escaped_quotes() -> anyhow::Result<()> {
+        let ctx = datafusion::prelude::SessionContext::new();
+
+        for (sql, expected) in [
+            ("SELECT 'a''''b' AS label", "a''b"),
+            ("SELECT 'a\\''b' AS label", "a\\'b"),
+            ("SELECT 'a''b' AS \"col\"\"\"\"name\"", "a'b"),
+        ] {
+            let mut state = QueryState {
+                sql_input: sql.to_string(),
+                ..Default::default()
+            };
+            state.prepare_initial_query();
+            assert!(!state.base_query.is_empty(), "sql: {sql}");
+            assert!(state.needs_row_count, "sql: {sql}");
+
+            let orig_batches = ctx.sql(sql).await?.collect().await?;
+            let rewritten_batches = ctx.sql(&state.sql_input).await?.collect().await?;
+
+            assert_eq!(orig_batches, rewritten_batches, "sql: {sql}");
+            let col = rewritten_batches[0]
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("expected StringArray"))?;
+            assert_eq!(col.value(0), expected, "sql: {sql}");
+        }
+        Ok(())
     }
 }

@@ -53,7 +53,7 @@ use crate::memory::BufferAllocatorRef;
 use crate::scalar::Scalar;
 
 mod lazy_null_builder;
-pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
+pub use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
 mod child;
@@ -96,6 +96,12 @@ mod tests;
 /// This is equal to the default capacity for Arrow Arrays.
 pub const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
+/// Builder for constructing a canonical Vortex array.
+///
+/// # Error handling
+///
+/// If a fallible `append_*` method returns `Err`, the builder's contents are unspecified and
+/// callers must discard it rather than continuing to append or calling [`finish`](Self::finish).
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;
 
@@ -414,6 +420,7 @@ pub fn builder_with_capacity_in(
     allocator: &BufferAllocatorRef,
 ) -> Box<dyn ArrayBuilder> {
     match dtype {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Box::new(NullBuilder::new()),
         DType::Bool(n) => Box::new(BoolBuilder::with_capacity_in(*n, capacity, allocator)),
         DType::Primitive(ptype, n) => {

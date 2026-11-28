@@ -38,16 +38,12 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::lit;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::memory::MemorySessionExt;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedArray;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -63,6 +59,10 @@ use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
+use vortex_expr::col;
+use vortex_expr::eq;
+use vortex_expr::lit;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
@@ -176,7 +176,11 @@ impl IndexVTable for ReverseIndex {
         _options: &(),
     ) -> VortexResult<Option<IndexQueryPlan<Scalar>>> {
         // Only `<column> == <literal>`.
-        if !expr.is::<Binary>() || *expr.as_::<Binary>() != Operator::Eq {
+        if !expr.is::<Compare>() {
+            return Ok(None);
+        }
+        let options = expr.as_::<Compare>();
+        if options.operator() != CompareOperator::Eq {
             return Ok(None);
         }
         if !expr.child(0).is_root() || !expr.child(1).is::<Literal>() {
@@ -192,6 +196,14 @@ impl IndexVTable for ReverseIndex {
         if target.is_null() {
             // Null literal: `column == NULL` never matches under normal equality, and this index
             // does not model that, so decline rather than claim it incorrectly.
+            return Ok(None);
+        }
+        // The index looks up the bits of a value, so it only answers total-order equality. A
+        // float comparison in a mode where `-0.0 = +0.0` or where `NaN` values are equal declines.
+        if !options
+            .compare_mode()
+            .agrees_with_total_order(CompareOperator::Eq, dtype, Some(target))
+        {
             return Ok(None);
         }
         let target = target.clone();

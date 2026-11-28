@@ -45,10 +45,13 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::lit;
+use vortex::expr::transform::replace;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -60,6 +63,11 @@ use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scalar_fn::builtin::compare::Compare;
+use vortex::scalar_fn::builtin::get_item::GetItem;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
+use vortex::scan::execution::driver::ChunkBudget;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::prepare::ScanCache;
 use vortex::scan::prepare::WeakScanCache;
@@ -67,7 +75,6 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
@@ -140,9 +147,9 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
-    /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
-    /// partition only as far as the engine has not.
-    pub partitions: usize,
+    /// The chunks in flight that the V2 scans of all partitions share, unless `scan_concurrency`
+    /// bounds each file's scan instead.
+    pub chunk_budget: ChunkBudget,
 }
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
@@ -190,6 +197,55 @@ impl VortexOpener {
     }
 }
 
+/// Replaces every expression in `projection` that one of `filters` equates to a literal with
+/// that literal.
+///
+/// The scan applies `filters` before `projection`, so in every row it projects such an expression
+/// has the literal's value. DataFusion still asks for it, because it plans the projection before
+/// the scan absorbs the filter. Folding saves computing it again, which for a `variant_get` is a
+/// pass over the Variant.
+///
+/// Only computed expressions of types whose equal values are identical are folded: floats are
+/// left alone because `0.0 = -0.0`, and plain columns because reading them is cheap.
+fn fold_filter_equalities(
+    projection: Expression,
+    filters: &[Expression],
+    scope: &DType,
+) -> Expression {
+    filters.iter().fold(projection, |projection, filter| {
+        if filter.as_opt::<Compare>().map(|options| options.operator()) != Some(CompareOperator::Eq)
+        {
+            return projection;
+        }
+        let (expr, literal) = match (
+            filter.child(0).as_opt::<Literal>(),
+            filter.child(1).as_opt::<Literal>(),
+        ) {
+            (None, Some(literal)) => (filter.child(0), literal),
+            (Some(literal), None) => (filter.child(1), literal),
+            _ => return projection,
+        };
+        if literal.is_null() || expr.is::<GetItem>() {
+            return projection;
+        }
+        let Ok(dtype) = expr.return_dtype(scope) else {
+            return projection;
+        };
+        let identical_when_equal = match &dtype {
+            DType::Bool(_) | DType::Utf8(_) | DType::Binary(_) => true,
+            DType::Primitive(ptype, _) => ptype.is_int(),
+            _ => false,
+        };
+        if !identical_when_equal {
+            return projection;
+        }
+        match literal.cast(&dtype) {
+            Ok(value) => replace(projection, expr, lit(value)),
+            Err(_) => projection,
+        }
+    })
+}
+
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         // Calculate the output schema before replacing partition columns with literals so it
@@ -227,7 +283,7 @@ impl FileOpener for VortexOpener {
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
-        let partitions = self.partitions.max(1);
+        let chunk_budget = self.chunk_budget.clone();
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -397,6 +453,8 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
+            // The scan applies these exactly, unlike the dynamic filters below.
+            let exact_filters = native_filters.clone();
             // The operator that produces a dynamic filter enforces it exactly, so the scan
             // evaluates it only where the file has every column it reads.
             native_filters.extend(
@@ -445,12 +503,15 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection = scan_projection
-                .bind(vxf.dtype())
-                .and_then(|projection| projection.optimize_recursive())
-                .map_err(|_e| {
-                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-                })?;
+            let scan_projection =
+                fold_filter_equalities(scan_projection, &exact_filters, vxf.dtype())
+                    .bind(vxf.dtype())
+                    .and_then(|projection| projection.optimize_recursive())
+                    .map_err(|_e| {
+                        exec_datafusion_err!(
+                            "Couldn't get the dtype for the underlying Vortex scan"
+                        )
+                    })?;
             let scan_dtype = scan_projection.dtype().clone();
 
             let stream_schema =
@@ -514,20 +575,16 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Scale per-scan concurrency by the number of DataFusion partitions by default.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let driver = match scan_concurrency {
+                    Some(concurrency) => ScanDriver::new(handle, concurrency, has_output_ordering),
+                    None => ScanDriver::with_budget(handle, chunk_budget, has_output_ordering),
+                };
                 Ok(driver.run_prepared(scan, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -572,7 +629,7 @@ impl FileOpener for VortexOpener {
                 {
                     scan_builder = scan_builder.with_limit(limit);
                 }
-                // V1 requires positive concurrency; V2 also accepts zero.
+                // In V1, 0 means use the default concurrency rather than clamping to 1; V2 also accepts zero.
                 if let Some(concurrency) = scan_concurrency.filter(|&concurrency| concurrency > 0) {
                     scan_builder = scan_builder.with_concurrency(concurrency);
                 }
@@ -856,6 +913,7 @@ mod tests {
     use arrow_array::record_batch;
     use arrow_schema::Field;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use arrow_schema::SchemaRef;
     use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::Int32Array;
@@ -893,6 +951,17 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::expr::byte_length;
+    use vortex::expr::eq;
+    use vortex::expr::get_item;
+    use vortex::expr::gt;
+    use vortex::expr::lit as vx_lit;
+    use vortex::expr::lower;
+    use vortex::expr::pack;
+    use vortex::expr::root;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
@@ -1171,7 +1240,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1339,7 +1408,7 @@ mod tests {
             batch.schema().as_ref().clone().with_metadata(
                 [("table".to_string(), "metadata".to_string())]
                     .into_iter()
-                    .collect(),
+                    .collect::<Metadata>(),
             ),
         );
         let table_schema = TableSchema::builder(file_schema)
@@ -1347,7 +1416,7 @@ mod tests {
                 Field::new("part", DataType::Int32, false).with_metadata(
                     [("partition".to_string(), "metadata".to_string())]
                         .into_iter()
-                        .collect(),
+                        .collect::<Metadata>(),
                 ),
             )])
             .build();
@@ -1624,7 +1693,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1719,7 +1788,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1905,7 +1974,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1973,7 +2042,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2192,7 +2261,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2473,5 +2542,47 @@ mod tests {
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
+    }
+
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("s", DType::Utf8(Nullability::Nullable)),
+                ("f", DType::Primitive(PType::F64, Nullability::Nullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn lowered() -> Expression {
+        lower(get_item("s", root()))
+    }
+
+    fn projection(expr: Expression) -> Expression {
+        pack([("out", expr)], Nullability::NonNullable)
+    }
+
+    #[rstest]
+    #[case::expr_eq_literal(eq(lowered(), vx_lit("a")))]
+    #[case::literal_eq_expr(eq(vx_lit("a"), lowered()))]
+    fn folds_an_expression_the_filter_pins(#[case] filter: Expression) {
+        let folded = fold_filter_equalities(projection(lowered()), &[filter], &scope());
+
+        // The literal takes the nullable dtype of the expression it replaces.
+        let literal = vx_lit(vortex::scalar::Scalar::utf8("a", Nullability::Nullable));
+        assert_eq!(folded, projection(literal));
+    }
+
+    #[rstest]
+    // A range does not pin the value.
+    #[case::not_an_equality(byte_length(lowered()), gt(byte_length(lowered()), vx_lit(1u64)))]
+    // Reading a column is cheap.
+    #[case::plain_column(get_item("s", root()), eq(get_item("s", root()), vx_lit("a")))]
+    // `0.0 = -0.0`, so an equal float is not necessarily the same value.
+    #[case::float(get_item("f", root()), eq(get_item("f", root()), vx_lit(0.0f64)))]
+    fn keeps_other_expressions(#[case] expr: Expression, #[case] filter: Expression) {
+        let folded = fold_filter_equalities(projection(expr.clone()), &[filter], &scope());
+
+        assert_eq!(folded, projection(expr));
     }
 }

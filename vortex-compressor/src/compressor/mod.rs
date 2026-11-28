@@ -5,17 +5,22 @@
 
 mod cascade;
 mod constant;
+mod encoded;
 mod sample;
 mod select;
 mod structural;
+
+use std::sync::Arc;
 
 pub(crate) use cascade::TrialOutput;
 pub(crate) use cascade::exact_uncompressed_size;
 pub(crate) use sample::estimate_compression_ratio_with_sampling;
 pub use sample::sample_aligned_chunks;
 pub(crate) use sample::sample_slices;
+pub(crate) use structural::leaf_validity_slot;
 
 use crate::builtins::IntDictScheme;
+use crate::scheme::ChildPolicy;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -37,7 +42,8 @@ pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
 /// 1. Canonicalizing input arrays to a standard representation.
 /// 2. Pre-filtering schemes by [`Scheme::matches`] and exclusion rules.
 /// 3. Evaluating each matching scheme's compression estimate and resolving deferred work.
-/// 4. Compressing with the best scheme and verifying the result is smaller.
+/// 4. Encoding with the best scheme, compressing the children it registers, and verifying the
+///    result is smaller.
 ///
 /// No scheme may appear twice in a cascade chain. The compressor enforces this automatically
 /// along with push/pull exclusion rules declared by each scheme.
@@ -52,6 +58,18 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// Overrides schemes' decisions about which children to compress.
+    child_policy: Option<Arc<dyn ChildPolicy>>,
+
+    /// Whether built-in constant encoding (`vortex.constant`) is allowed.
+    allow_constant: bool,
+
+    /// Whether built-in masked-constant encoding (`vortex.masked`) is allowed.
+    allow_masked: bool,
+
+    /// Compresses the storage children of Variant arrays in place of this compressor, if set.
+    variant_storage: Option<Arc<CascadingCompressor>>,
 }
 
 impl CascadingCompressor {
@@ -69,7 +87,39 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            child_policy: None,
+            allow_constant: true,
+            allow_masked: true,
+            variant_storage: None,
         }
+    }
+
+    /// Sets a policy that decides, child by child, whether to compress what schemes register,
+    /// overriding the schemes' own decisions.
+    pub fn with_child_policy(mut self, policy: Arc<dyn ChildPolicy>) -> Self {
+        self.child_policy = Some(policy);
+        self
+    }
+    /// Configures whether the compressor may emit built-in constant arrays (`vortex.constant`).
+    pub fn with_allow_constant(mut self, allow: bool) -> Self {
+        self.allow_constant = allow;
+        self
+    }
+
+    /// Configures whether the compressor may wrap nullable constants in `vortex.masked`.
+    pub fn with_allow_masked(mut self, allow: bool) -> Self {
+        self.allow_masked = allow;
+        self
+    }
+
+    /// Compresses the storage children of Variant arrays with `compressor` instead of this one.
+    ///
+    /// The storage of a Variant holds opaque binary values, such as its unshredded value, which
+    /// can warrant other schemes than the binary columns of a table. Shredded children are still
+    /// compressed by this compressor.
+    pub fn with_variant_storage_compressor(mut self, compressor: CascadingCompressor) -> Self {
+        self.variant_storage = Some(Arc::new(compressor));
+        self
     }
 }
 

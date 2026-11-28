@@ -13,19 +13,20 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::dynamic_with_mode;
 use vortex::expr::get_item;
-use vortex::expr::in_list_of;
+use vortex::expr::in_list_of_with_mode;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::lit;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::CompareOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
+use super::compare::compare;
+use super::compare::compare_mode;
 use super::expr::try_from_bound_expression_with_col_sub;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::DynamicFilter;
@@ -44,8 +45,14 @@ pub fn try_from_table_filter(
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
+            let dtype = scalar.dtype().clone();
 
-            Binary.new_expr(const_.operator.try_into()?, [col.clone(), lit(scalar)])
+            compare(
+                const_.operator.try_into()?,
+                &dtype,
+                col.clone(),
+                lit(scalar),
+            )
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
@@ -89,7 +96,8 @@ pub fn try_from_table_filter(
                 "IN filter must have at least one value"
             );
             let dtype = scalars[0].dtype().clone();
-            in_list_of(col.clone(), dtype, scalars)?
+            let mode = compare_mode(&dtype);
+            in_list_of_with_mode(col.clone(), dtype, scalars, mode)?
         }
         TableFilterClass::Dynamic(dynamic) => {
             dynamic_filter_expr(dynamic, col.return_dtype(scope_dtype)?, col.clone())?
@@ -127,9 +135,11 @@ pub(super) fn dynamic_filter_expr(
         }
     };
     let data = dynamic.data;
+    let mode = compare_mode(&dtype);
 
-    Ok(vortex::expr::dynamic(
+    Ok(dynamic_with_mode(
         op,
+        mode,
         move || {
             let value = data.latest()?;
             let scalar = Scalar::try_from(&*value)
@@ -243,10 +253,12 @@ pub fn try_from_virtual_column_filter(
     match filter.as_class() {
         TableFilterClass::ExpressionRef(expr) => try_from_v2_virtual_column_filter(expr),
         TableFilterClass::InFilter(values) => {
-            let indices = values
+            let mut indices = values
                 .iter()
                 .map(nonnegative_number_from_value)
                 .collect::<VortexResult<Vec<u64>>>()?;
+            indices.sort_unstable();
+            indices.dedup();
             Ok((
                 Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from_iter(indices))?),
                 None,
@@ -260,6 +272,7 @@ pub fn try_from_virtual_column_filter(
             ))
         }
         TableFilterClass::ConjunctionAnd(conj) => {
+            let mut has_range = false;
             let mut start = 0u64;
             let mut end = u64::MAX;
             let mut indices: Option<Vec<u64>> = None;
@@ -272,11 +285,12 @@ pub fn try_from_virtual_column_filter(
                     });
                 }
                 if let Some(r) = range {
+                    has_range = true;
                     start = start.max(r.start);
                     end = end.min(r.end);
                 }
             }
-            let range = (start < end).then_some(start..end);
+            let range = has_range.then_some(if start < end { start..end } else { 0..0 });
             let sel = indices
                 .map(|v| {
                     StrictSortedBuffer::try_new(Buffer::from_iter(v)).map(Selection::IncludeByIndex)

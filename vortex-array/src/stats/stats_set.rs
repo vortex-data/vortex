@@ -14,24 +14,25 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::aggregate_fn::fns::min_max::has_nan_values;
 use crate::dtype::DType;
-use crate::expr::stats::IsConstant;
-use crate::expr::stats::IsSorted;
-use crate::expr::stats::IsStrictSorted;
-use crate::expr::stats::Max;
-use crate::expr::stats::Min;
-use crate::expr::stats::NaNCount;
-use crate::expr::stats::NullCount;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatBound;
-use crate::expr::stats::StatType;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
-use crate::expr::stats::Sum;
-use crate::expr::stats::UncompressedSizeInBytes;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::IsConstant;
+use crate::stats::IsSorted;
+use crate::stats::IsStrictSorted;
+use crate::stats::Max;
+use crate::stats::Min;
+use crate::stats::NaNCount;
+use crate::stats::NullCount;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatBound;
+use crate::stats::StatType;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
+use crate::stats::Sum;
+use crate::stats::UncompressedSizeInBytes;
 
 /// Type of the SmallVec stored inside StatsSet
 pub type StatsArray = [(Stat, Precision<ScalarValue>); 4];
@@ -558,11 +559,32 @@ impl MutTypedStatsSetRef<'_, '_> {
                 self.get_scalar_bound::<Max>().and_then(|v| v.max_value()),
                 other.get_scalar_bound::<Min>().and_then(|v| v.min_value()),
             ) {
-                return if cmp(&self_max, &other_min) {
-                    // keep value
+                if cmp(&self_max, &other_min) {
+                    // Min and Max skip nulls and NaNs, so boundary order only proves sortedness
+                    // when `other` cannot start with a null (nulls sort first) and neither chunk
+                    // can hide a NaN (+NaN sorts after max, -NaN sorts before min under total
+                    // float ordering).
+                    let other_no_nulls = !other.dtype.is_nullable()
+                        || matches!(
+                            other.values.get_usize(Stat::NullCount),
+                            Precision::Exact(0) | Precision::Inexact(0)
+                        );
+                    let no_nans = !(has_nan_values(self.dtype) || has_nan_values(other.dtype))
+                        || (matches!(
+                            self.values.get_usize(Stat::NaNCount),
+                            Precision::Exact(0) | Precision::Inexact(0)
+                        ) && matches!(
+                            other.values.get_usize(Stat::NaNCount),
+                            Precision::Exact(0) | Precision::Inexact(0)
+                        ));
+                    if other_no_nulls && no_nans {
+                        // keep value
+                        return;
+                    }
                 } else {
                     self.set(stat, Precision::inexact(false));
-                };
+                    return;
+                }
             }
         }
         self.clear(stat);
@@ -603,9 +625,13 @@ mod test {
     use itertools::Itertools;
     use rstest::rstest;
     use smallvec::smallvec;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::min_max::has_nan_values;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -613,14 +639,16 @@ mod test {
     use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ForeignExtDType;
     use crate::dtype::i256;
-    use crate::expr::stats::IsConstant;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::DecimalValue;
     use crate::scalar::ScalarValue;
+    use crate::stats::IsConstant;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
+    use crate::stats::StatsProviderExt;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
 
@@ -1205,5 +1233,99 @@ mod test {
             stats_ref.get_as::<bool>(Stat::IsSorted),
             Precision::exact(true)
         );
+    }
+
+    #[rstest]
+    #[case::leading_null_in_right(
+        PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array(),
+        PrimitiveArray::from_option_iter([None, Some(3i32)]).into_array(),
+        Precision::Absent
+    )]
+    #[case::nullable_right_proven_non_null(
+        PrimitiveArray::from_option_iter([None, Some(1i32), Some(2)]).into_array(),
+        PrimitiveArray::from_option_iter([Some(3i32), Some(4)]).into_array(),
+        Precision::exact(ScalarValue::from(true))
+    )]
+    #[case::trailing_pos_nan_in_left(
+        PrimitiveArray::from_iter([1.0f64, f64::NAN]).into_array(),
+        PrimitiveArray::from_iter([2.0f64]).into_array(),
+        Precision::Absent
+    )]
+    #[case::leading_neg_nan_in_right(
+        PrimitiveArray::from_iter([1.0f64]).into_array(),
+        PrimitiveArray::from_iter([-f64::NAN, 2.0f64]).into_array(),
+        Precision::Absent
+    )]
+    fn merge_sortedness_computed_chunks(
+        #[case] left: ArrayRef,
+        #[case] right: ArrayRef,
+        #[case] expected: Precision<ScalarValue>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let requested = if left.dtype().is_float() {
+            [Stat::Min, Stat::Max, Stat::NaNCount, Stat::IsSorted]
+        } else {
+            [Stat::Min, Stat::Max, Stat::NullCount, Stat::IsSorted]
+        };
+        let left_stats = left.statistics().compute_all(&requested, &mut ctx)?;
+        let right_stats = right.statistics().compute_all(&requested, &mut ctx)?;
+        let merged = left_stats.merge_ordered(&right_stats, left.dtype());
+        assert_eq!(merged.get(Stat::IsSorted), expected);
+        Ok(())
+    }
+
+    fn foreign_ext_dtype(id: &'static str, storage: DType) -> VortexResult<DType> {
+        #[expect(clippy::disallowed_methods, reason = "test-only extension id")]
+        let ext = ForeignExtDType::from_parts(ExtId::new(id), vec![], storage)?;
+        Ok(DType::Extension(ext))
+    }
+
+    #[rstest]
+    #[case::nullable_missing_null_count(
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        None,
+        Precision::Absent
+    )]
+    #[case::nullable_inexact_zero_null_count(
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        Some((Stat::NullCount, Precision::inexact(0u64))),
+        Precision::exact(ScalarValue::from(true))
+    )]
+    #[case::float_missing_nan_count(
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+        None,
+        Precision::Absent
+    )]
+    #[case::float_extension_missing_nan_count(
+        foreign_ext_dtype("test.float_ext", DType::Primitive(PType::F64, Nullability::NonNullable))?,
+        None,
+        Precision::Absent
+    )]
+    fn merge_sortedness_boundary_evidence(
+        #[case] dtype: DType,
+        #[case] right_extra: Option<(Stat, Precision<ScalarValue>)>,
+        #[case] expected: Precision<ScalarValue>,
+    ) -> VortexResult<()> {
+        let (max, min) = if has_nan_values(&dtype) {
+            (ScalarValue::from(1.0f64), ScalarValue::from(2.0f64))
+        } else {
+            (ScalarValue::from(2i32), ScalarValue::from(3i32))
+        };
+        let mut left = StatsSet::from_iter([
+            (Stat::Max, Precision::Exact(max)),
+            (Stat::IsSorted, Precision::exact(true)),
+        ]);
+        let mut right = StatsSet::from_iter([
+            (Stat::Min, Precision::Exact(min)),
+            (Stat::IsSorted, Precision::exact(true)),
+        ]);
+        if let Some((stat, value)) = right_extra {
+            right.set(stat, value);
+        }
+
+        left.as_mut_typed_ref(&dtype)
+            .merge_ordered(&right.as_typed_ref(&dtype));
+        assert_eq!(left.get(Stat::IsSorted), expected);
+        Ok(())
     }
 }

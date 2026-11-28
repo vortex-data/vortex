@@ -22,8 +22,11 @@ native = [
     "zstd",
     "vortex-file",
     "vortex/files",
+    "dep:prost",
     "dep:vortex-arrow",
+    "dep:parquet-variant",
     "dep:vortex-json",
+    "dep:vortex-parquet-variant",
     "dep:vortex-spatial",
     "dep:vortex-tensor",
     "dep:vortex-uuid",
@@ -35,8 +38,11 @@ cuda = ["vortex-cuda", "tokio"]
 [dependencies]
 # Always needed - arbitrary is used for input generation
 arbitrary = { workspace = true }
+flatbuffers = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+parquet-variant = { workspace = true, optional = true }
+rand = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
@@ -45,7 +51,9 @@ vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true, features = ["arbitrary"] }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true, features = ["wasm-bindgen"] }
 vortex-mask = { workspace = true }
 vortex-row = { workspace = true }
@@ -54,12 +62,14 @@ vortex-utils = { workspace = true }
 
 # Native-only: libfuzzer harness and file IO (won't compile to WASM)
 libfuzzer-sys = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
 vortex-file = { workspace = true, optional = true }
 
 vortex-arrow = { workspace = true, features = [
     "_test-harness",
 ], optional = true }
 vortex-json = { workspace = true, optional = true }
+vortex-parquet-variant = { workspace = true, optional = true }
 vortex-spatial = { workspace = true, optional = true }
 vortex-tensor = { workspace = true, optional = true }
 vortex-uuid = { workspace = true, optional = true }
@@ -72,6 +82,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+hegeltest = { workspace = true }
 rstest = { workspace = true }
 
 [lints]
@@ -90,6 +101,22 @@ bench = false
 doc = false
 name = "file_io"
 path = "fuzz_targets/file_io.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "file_corruption"
+path = "fuzz_targets/file_corruption.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "file_session"
+path = "fuzz_targets/file_session.rs"
 test = false
 required-features = ["native"]
 
@@ -138,5 +165,13 @@ bench = false
 doc = false
 name = "arrow_roundtrip"
 path = "fuzz_targets/arrow_roundtrip.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "wire_safety"
+path = "fuzz_targets/wire_safety.rs"
 test = false
 required-features = ["native"]

@@ -12,12 +12,12 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -158,7 +158,7 @@ impl LayoutReader for ZonedReader {
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
-        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
+        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr) else {
             trace!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
@@ -247,7 +247,13 @@ mod test {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use futures::FutureExt;
+    use futures::StreamExt;
+    use futures::future;
+    use futures::join;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -257,16 +263,22 @@ mod test {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_expr::and;
+    use vortex_expr::gt;
+    use vortex_expr::gt_eq;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::root;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::segments::SegmentFuture;
+    use vortex_io::segments::SegmentId;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
@@ -288,6 +300,8 @@ mod test {
     use crate::layouts::zoned::ZonedLayout;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::scan::metrics::ScanUsage;
+    use crate::scan::scan_builder::ScanBuilder;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -561,5 +575,104 @@ mod test {
             invalid_layout.new_reader("".into(), segments, &session, &Default::default())
         })
         .unwrap();
+    }
+
+    #[rstest]
+    fn minimal_session_range_scan_prunes_excluded_zones(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let usage = Arc::new(ScanUsage::default());
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let filter =
+                and(gt_eq(root(), lit(7i32)), lt(root(), lit(10i32))).bind(reader.dtype())?;
+            let mut stream = ScanBuilder::new(session.clone(), reader)
+                .with_filter(filter)
+                .with_usage(Arc::clone(&usage))
+                .into_stream()?;
+
+            let mut ctx = session.create_execution_ctx();
+            let mut values = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+                values.extend(prim.into_buffer::<i32>().iter().copied());
+            }
+
+            assert_eq!(values, vec![7, 8, 9]);
+            let snapshot = usage.snapshot();
+            assert_eq!(snapshot.splits_pruned, 2);
+            assert_eq!(snapshot.splits_empty_after_predicate, 0);
+            Ok(())
+        })
+    }
+
+    struct FailOnceZoneSource {
+        inner: Arc<dyn SegmentSource>,
+        target: SegmentId,
+        calls: AtomicUsize,
+    }
+
+    impl SegmentSource for FailOnceZoneSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            if id == self.target && self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return future::ready(Err(vortex_err!("transient zone map read error"))).boxed();
+            }
+            self.inner.request(id)
+        }
+    }
+
+    #[rstest]
+    fn transient_zone_map_read_recovers_on_retry(
+        #[from(stats_layout)] (data, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let zones_segment = layout
+                .slot(1)?
+                .ok_or_else(|| vortex_err!("zoned layout missing zones child"))?
+                .segment_ids()[0];
+            let source = Arc::new(FailOnceZoneSource {
+                inner: data,
+                target: zones_segment,
+                calls: AtomicUsize::new(0),
+            });
+            let reader = layout.new_reader(
+                "zoned".into(),
+                Arc::clone(&source) as Arc<dyn SegmentSource>,
+                &session,
+                &Default::default(),
+            )?;
+            let expr = gt(root(), lit(7)).bind(reader.dtype())?;
+            let equivalent = gt(root(), lit(7)).bind(reader.dtype())?;
+            let expected =
+                Mask::from_iter([false, false, false, false, false, false, true, true, true]);
+
+            assert!(
+                reader
+                    .pruning_evaluation(&(0..9), &expr, Mask::new_true(9))?
+                    .await
+                    .is_err()
+            );
+            assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+
+            // Retry with the same expression and an equivalent expression concurrently:
+            // both must succeed and share a single successful zone-map load.
+            let same_fut = reader.pruning_evaluation(&(0..9), &expr, Mask::new_true(9))?;
+            let equiv_fut = reader.pruning_evaluation(&(0..9), &equivalent, Mask::new_true(9))?;
+            let (same_res, equiv_res) = join!(same_fut, equiv_fut);
+            assert_eq!(same_res?, expected);
+            assert_eq!(equiv_res?, expected);
+            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+
+            // Subsequent pruning requests hit the cache without reading the zone map again.
+            let cached = reader
+                .pruning_evaluation(&(0..9), &expr, Mask::new_true(9))?
+                .await?;
+            assert_eq!(cached, expected);
+            assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+            Ok(())
+        })
     }
 }

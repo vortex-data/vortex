@@ -65,6 +65,7 @@ use crate::array::ArrayParts;
 use crate::array::ArraySlots;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
@@ -225,33 +226,46 @@ impl VTable for Interleave {
 impl OperationsVTable<Interleave> for Interleave {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Interleave>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Interleave>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // Random-access gather: read the routing pair for `index` directly, then pull that row from
         // the selected value array. No cursor walk is required.
-        let branch_idx = array
-            .array_indices()
+        let branch_idx = state
+            .slot(InterleaveSlots::ARRAY_INDICES)?
+            .vortex_expect("validated interleave array_indices slot")
             .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("interleave array_indices is non-nullable");
-        let row = array
-            .row_indices()
+        let row = state
+            .slot(InterleaveSlots::ROW_INDICES)?
+            .vortex_expect("validated interleave row_indices slot")
             .execute_scalar(index, ctx)?
             .as_primitive()
             .as_::<usize>()
             .vortex_expect("interleave row_indices is non-nullable");
 
-        let scalar = array.value(branch_idx).execute_scalar(row, ctx)?;
+        let scalar = state
+            .slot(InterleaveSlots::VALUES_OFFSET + branch_idx)?
+            .vortex_expect("validated interleave value slot")
+            .execute_scalar(row, ctx)?;
         // The value may be non-nullable while the interleaved output is nullable; align the dtype.
-        Ok(if array.as_ref().dtype().is_nullable() {
+        Ok(if state.array().as_ref().dtype().is_nullable() {
             scalar.into_nullable()
         } else {
             scalar
         })
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Interleave>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -308,6 +322,13 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
     use crate::assert_arrays_eq;
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
+    use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::compute::conformance::consistency::test_scalar_probe_consistency;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DecimalDType;
     use crate::dtype::PType;
 
@@ -571,6 +592,18 @@ mod tests {
     }
 
     #[test]
+    fn interleave_scalar_probe_with_nulls() -> VortexResult<()> {
+        let (values, array_indices, row_indices) = build(
+            &[&[None, Some(true), Some(false)], &[Some(false), None]],
+            &[(1, 1), (0, 0), (1, 0), (0, 2), (0, 1), (1, 1)],
+        );
+        let array = InterleaveArray::try_new(values, array_indices, row_indices)?.into_array();
+
+        test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
     fn interleave_empty() -> VortexResult<()> {
         check(&[&[Some(true)], &[Some(false)]], &[])
     }
@@ -709,5 +742,98 @@ mod tests {
 
         assert_arrays_eq!(interleaved, expected, &mut ctx);
         Ok(())
+    }
+
+    fn interleave_bool_fixture(nullable: bool, len: usize) -> ArrayRef {
+        let v0 = if nullable {
+            BoolArray::from_iter((0..16).map(|i| (i % 4 != 0).then_some(i % 2 == 0))).into_array()
+        } else {
+            BoolArray::from_iter((0..16).map(|i| i % 2 == 0)).into_array()
+        };
+        let v1 = BoolArray::from_iter((0..16).map(|i| i % 3 == 0)).into_array();
+        let branches =
+            PrimitiveArray::from_iter((0..len).map(|i| u8::try_from(i % 2).unwrap())).into_array();
+        let rows =
+            PrimitiveArray::from_iter((0..len).map(|i| u32::try_from((i * 5) % 16).unwrap()))
+                .into_array();
+        InterleaveArray::try_new(vec![v0, v1], branches, rows)
+            .unwrap()
+            .into_array()
+    }
+
+    fn interleave_i32_fixture(nullable: bool, len: usize) -> ArrayRef {
+        let v0 = if nullable {
+            PrimitiveArray::from_option_iter(
+                (0..16i32).map(|i| (i % 4 != 0).then_some(i * 10 - 50)),
+            )
+            .into_array()
+        } else {
+            PrimitiveArray::from_iter((0..16i32).map(|i| i * 10 - 50)).into_array()
+        };
+        let v1 = PrimitiveArray::from_iter((0..16i32).map(|i| i * 3 + 7)).into_array();
+        let branches =
+            PrimitiveArray::from_iter((0..len).map(|i| u8::try_from(i % 2).unwrap())).into_array();
+        let rows =
+            PrimitiveArray::from_iter((0..len).map(|i| u32::try_from((i * 7) % 16).unwrap()))
+                .into_array();
+        InterleaveArray::try_new(vec![v0, v1], branches, rows)
+            .unwrap()
+            .into_array()
+    }
+
+    fn interleave_constant_and_primitive_fixture() -> ArrayRef {
+        let v0 = ConstantArray::new(100i32, 8).into_array();
+        let v1 = PrimitiveArray::from_option_iter((0..8i32).map(|i| (i % 3 != 0).then_some(i * 5)))
+            .into_array();
+        let branches = PrimitiveArray::from_iter((0..12).map(|i| (i % 2) as u8)).into_array();
+        let rows = PrimitiveArray::from_iter((0..12).map(|i| ((i * 3) % 8) as u32)).into_array();
+        InterleaveArray::try_new(vec![v0, v1], branches, rows)
+            .unwrap()
+            .into_array()
+    }
+
+    fn interleave_decimal_fixture(nullable: bool) -> ArrayRef {
+        let dtype = DecimalDType::new(9, 2);
+        let v0 = if nullable {
+            DecimalArray::from_option_iter([Some(100i32), None, Some(-250), Some(500)], dtype)
+                .into_array()
+        } else {
+            DecimalArray::from_iter([100i32, 200, -250, 500], dtype).into_array()
+        };
+        let v1 = DecimalArray::from_iter([50i32, -75, 125, 300], dtype).into_array();
+        let branches = PrimitiveArray::from_iter([0u8, 1, 0, 1, 0, 1, 0, 1]).into_array();
+        let rows = PrimitiveArray::from_iter([0u32, 3, 1, 2, 2, 1, 3, 0]).into_array();
+        InterleaveArray::try_new(vec![v0, v1], branches, rows)
+            .unwrap()
+            .into_array()
+    }
+
+    #[rstest]
+    #[case::bool(interleave_bool_fixture(false, 12))]
+    #[case::bool_nullable(interleave_bool_fixture(true, 12))]
+    #[case::i32(interleave_i32_fixture(false, 12))]
+    #[case::i32_nullable(interleave_i32_fixture(true, 12))]
+    #[case::i32_constant_branch(interleave_constant_and_primitive_fixture())]
+    #[case::decimal(interleave_decimal_fixture(false))]
+    #[case::decimal_nullable(interleave_decimal_fixture(true))]
+    #[case::empty(interleave_i32_fixture(false, 0))]
+    #[case::single(interleave_i32_fixture(false, 1))]
+    #[case::large(interleave_i32_fixture(false, 1024))]
+    fn test_interleave_conformance(#[case] array: ArrayRef) {
+        let mut ctx = SESSION.create_execution_ctx();
+        test_take_conformance(&array, &mut ctx);
+        test_filter_conformance(&array, &mut ctx);
+        test_mask_conformance(&array, &mut ctx);
+        test_cast_conformance(&array, &mut ctx);
+        test_array_consistency(&array, &mut ctx);
+    }
+
+    #[rstest]
+    #[case::i32(interleave_i32_fixture(false, 12))]
+    #[case::i32_nullable(interleave_i32_fixture(true, 12))]
+    #[case::decimal(interleave_decimal_fixture(false))]
+    #[case::decimal_nullable(interleave_decimal_fixture(true))]
+    fn test_interleave_binary_numeric_conformance(#[case] array: ArrayRef) {
+        test_binary_numeric_array(&array, &mut SESSION.create_execution_ctx());
     }
 }

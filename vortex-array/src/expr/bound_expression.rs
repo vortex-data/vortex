@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
@@ -14,12 +16,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
-use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
-use crate::expr::expression::unbound_variable;
-use crate::expr::scope::Scope;
-use crate::expr::traversal::TraversalOrder;
-use crate::expr::traversal::pre_order_visit_down;
+use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNode;
@@ -27,9 +25,11 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
+use crate::scalar_fn::builtin::is_not_null::IsNotNull;
+use crate::scalar_fn::builtin::literal::Literal;
+use crate::scalar_fn::display::ExprDisplay;
 
-/// An [`Expression`] that has been type-checked against a [`Scope`].
+/// An expression that has been type-checked against a scope's root dtype.
 ///
 /// Every node carries its own dtype, so reading one is a field access rather than a walk of the
 /// subtree. Holding a `BoundExpression` is proof that the whole tree type-checked.
@@ -61,27 +61,87 @@ pub enum BoundExpression {
 #[derive(Clone, Debug)]
 pub struct ExactBoundExpr(pub BoundExpression);
 
-impl PartialEq for ExactBoundExpr {
+/// A bound expression compared by shared tree identity, as [`ExactBoundExpr`] compares it.
+///
+/// Maps keyed by [`ExactBoundExpr`] or [`WeakBoundExprKey`] can be probed with
+/// `expr as &dyn ExactKey` for a borrowed [`BoundExpression`], which spares cloning the
+/// expression for every lookup. Clones touch reference counts that every scan thread shares.
+pub trait ExactKey {
+    /// The identity of the expression that this key stands for.
+    fn identity(&self) -> ExactIdentity<'_>;
+}
+
+/// What identifies a bound expression to an [`ExactKey`]: the dtype of a root, or the function,
+/// dtype and shared children of a scalar node.
+pub enum ExactIdentity<'a> {
+    /// A root of the given dtype.
+    Root(&'a DType),
+    /// A scalar node, identified by the address of its shared children.
+    Scalar {
+        /// The address of the shared children of the node.
+        children: *const Vec<BoundExpression>,
+        /// The scalar function of the node.
+        scalar_fn: &'a ScalarFnRef,
+        /// The dtype of the node.
+        dtype: &'a DType,
+    },
+}
+
+impl BoundExpression {
+    fn exact_identity(&self) -> ExactIdentity<'_> {
+        match self {
+            BoundExpression::Root { dtype } => ExactIdentity::Root(dtype),
+            BoundExpression::Scalar {
+                dtype,
+                scalar_fn,
+                children,
+            } => ExactIdentity::Scalar {
+                children: Arc::as_ptr(children),
+                scalar_fn,
+                dtype,
+            },
+        }
+    }
+}
+
+impl ExactKey for ExactBoundExpr {
+    fn identity(&self) -> ExactIdentity<'_> {
+        self.0.exact_identity()
+    }
+}
+
+impl ExactKey for BoundExpression {
+    fn identity(&self) -> ExactIdentity<'_> {
+        self.exact_identity()
+    }
+}
+
+impl<'a> Borrow<dyn ExactKey + 'a> for ExactBoundExpr {
+    fn borrow(&self) -> &(dyn ExactKey + 'a) {
+        self
+    }
+}
+
+impl PartialEq for dyn ExactKey + '_ {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.0, &other.0) {
+        match (self.identity(), other.identity()) {
+            (ExactIdentity::Root(lhs_dtype), ExactIdentity::Root(rhs_dtype)) => {
+                lhs_dtype == rhs_dtype
+            }
             (
-                BoundExpression::Root { dtype: lhs_dtype },
-                BoundExpression::Root { dtype: rhs_dtype },
-            ) => lhs_dtype == rhs_dtype,
-            (
-                BoundExpression::Scalar {
-                    dtype: lhs_dtype,
-                    scalar_fn: lhs_fn,
+                ExactIdentity::Scalar {
                     children: lhs_children,
+                    scalar_fn: lhs_fn,
+                    dtype: lhs_dtype,
                 },
-                BoundExpression::Scalar {
-                    dtype: rhs_dtype,
-                    scalar_fn: rhs_fn,
+                ExactIdentity::Scalar {
                     children: rhs_children,
+                    scalar_fn: rhs_fn,
+                    dtype: rhs_dtype,
                 },
             ) => {
-                lhs_fn == rhs_fn
-                    && Arc::ptr_eq(lhs_children, rhs_children)
+                std::ptr::eq(lhs_children, rhs_children)
+                    && lhs_fn == rhs_fn
                     && lhs_dtype == rhs_dtype
             }
             _ => false,
@@ -89,24 +149,120 @@ impl PartialEq for ExactBoundExpr {
     }
 }
 
+impl Eq for dyn ExactKey + '_ {}
+
+impl Hash for dyn ExactKey + '_ {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Equal keys share their children, so the identity of the children is enough to hash.
+        // Omitting the function's options and the potentially lazy dtype keeps identity-keyed
+        // cache lookups from hashing literal lists or deserializing an entire schema.
+        match self.identity() {
+            ExactIdentity::Root(_) => state.write_u8(0),
+            ExactIdentity::Scalar { children, .. } => {
+                state.write_u8(1);
+                children.hash(state);
+            }
+        }
+    }
+}
+
+/// A key that identifies a bound expression as [`ExactBoundExpr`] does, without keeping the
+/// expression alive.
+///
+/// Caches that outlive the scans they serve, such as those of layout readers reused across
+/// queries, key their entries by it. A key can only be looked up while something else holds its
+/// expression, so [`Self::is_live`] tells which entries can still be hit, and the caches drop the
+/// others. The weak reference keeps the allocation of the children, so no later expression can
+/// reuse their address and match a stale key.
+#[derive(Clone, Debug)]
+pub enum WeakBoundExprKey {
+    /// A root of the given dtype.
+    Root(DType),
+    /// A scalar node, identified by its shared children.
+    Scalar {
+        /// The shared children of the node.
+        children: Weak<Vec<BoundExpression>>,
+        /// The scalar function of the node.
+        scalar_fn: ScalarFnRef,
+        /// The dtype of the node.
+        dtype: DType,
+    },
+}
+
+impl WeakBoundExprKey {
+    /// The key of `expr`.
+    pub fn new(expr: &BoundExpression) -> Self {
+        match expr {
+            BoundExpression::Root { dtype } => Self::Root(dtype.clone()),
+            BoundExpression::Scalar {
+                dtype,
+                scalar_fn,
+                children,
+            } => Self::Scalar {
+                children: Arc::downgrade(children),
+                scalar_fn: scalar_fn.clone(),
+                dtype: dtype.clone(),
+            },
+        }
+    }
+
+    /// Whether the expression of this key is still alive, so that a lookup can still hit it.
+    pub fn is_live(&self) -> bool {
+        match self {
+            Self::Root(_) => true,
+            Self::Scalar { children, .. } => children.strong_count() > 0,
+        }
+    }
+}
+
+impl ExactKey for WeakBoundExprKey {
+    fn identity(&self) -> ExactIdentity<'_> {
+        match self {
+            Self::Root(dtype) => ExactIdentity::Root(dtype),
+            Self::Scalar {
+                children,
+                scalar_fn,
+                dtype,
+            } => ExactIdentity::Scalar {
+                children: children.as_ptr(),
+                scalar_fn,
+                dtype,
+            },
+        }
+    }
+}
+
+impl<'a> Borrow<dyn ExactKey + 'a> for WeakBoundExprKey {
+    fn borrow(&self) -> &(dyn ExactKey + 'a) {
+        self
+    }
+}
+
+impl PartialEq for WeakBoundExprKey {
+    fn eq(&self, other: &Self) -> bool {
+        (self as &dyn ExactKey) == (other as &dyn ExactKey)
+    }
+}
+
+impl Eq for WeakBoundExprKey {}
+
+impl Hash for WeakBoundExprKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self as &dyn ExactKey).hash(state);
+    }
+}
+
+impl PartialEq for ExactBoundExpr {
+    fn eq(&self, other: &Self) -> bool {
+        (self as &dyn ExactKey) == (other as &dyn ExactKey)
+    }
+}
+
 impl Eq for ExactBoundExpr {}
 
 impl Hash for ExactBoundExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // DType differences are resolved by equality. Omitting the potentially lazy dtype keeps
-        // identity-keyed cache lookups from deserializing an entire schema just to compute a hash.
-        match &self.0 {
-            BoundExpression::Root { .. } => state.write_u8(0),
-            BoundExpression::Scalar {
-                scalar_fn,
-                children,
-                ..
-            } => {
-                state.write_u8(1);
-                scalar_fn.hash(state);
-                Arc::as_ptr(children).hash(state);
-            }
-        }
+        (self as &dyn ExactKey).hash(state);
     }
 }
 
@@ -164,6 +320,28 @@ impl BoundExpression {
         Self::try_new_vec(scalar_fn.clone(), children)
     }
 
+    /// Returns a copy of this node with a fresh top-level children allocation, preserving its
+    /// scalar function, dtype, and child subtrees.
+    ///
+    /// Caches keyed by [`WeakBoundExprKey`] use this when a cached output expression would
+    /// otherwise reuse the key's own children allocation and keep its weak key alive forever.
+    pub fn detach_identity(&self) -> Self {
+        match self {
+            Self::Root { dtype } => Self::Root {
+                dtype: dtype.clone(),
+            },
+            Self::Scalar {
+                dtype,
+                scalar_fn,
+                children,
+            } => Self::Scalar {
+                dtype: dtype.clone(),
+                scalar_fn: scalar_fn.clone(),
+                children: Arc::new((**children).clone()),
+            },
+        }
+    }
+
     /// The dtype this expression evaluates to.
     pub fn dtype(&self) -> &DType {
         match self {
@@ -199,15 +377,25 @@ impl BoundExpression {
 
     /// Return whether this expression tree contains a node using the given scalar-function vtable.
     pub fn contains<V: ScalarFnVTable>(&self) -> VortexResult<bool> {
-        let mut contains = false;
-        pre_order_visit_down(self, |node| {
-            if node.is::<V>() {
-                contains = true;
-                return Ok(TraversalOrder::Stop);
+        Ok(self.any_node(|node| node.is::<V>()))
+    }
+
+    /// Whether any node of this tree, visited depth-first, satisfies `predicate`.
+    fn any_node(&self, mut predicate: impl FnMut(&BoundExpression) -> bool) -> bool {
+        let mut stack = vec![self];
+        while let Some(node) = stack.pop() {
+            if predicate(node) {
+                return true;
             }
-            Ok(TraversalOrder::Continue)
-        })?;
-        Ok(contains)
+            stack.extend(node.children().iter().rev());
+        }
+        false
+    }
+
+    /// Create a bound literal node.
+    pub fn literal(value: Scalar) -> Self {
+        Self::try_new(Literal.bind(value), [])
+            .vortex_expect("literal expressions are always well-typed")
     }
 
     /// Return the typed scalar-function options when this node uses the given vtable.
@@ -234,16 +422,7 @@ impl BoundExpression {
     ///
     /// Expressions without a scope root, such as literals, match every dtype.
     pub fn is_root_bound_to(&self, dtype: &DType) -> bool {
-        let mut is_bound_to = true;
-        pre_order_visit_down(self, |node| {
-            if node.is_root() && node.dtype() != dtype {
-                is_bound_to = false;
-                return Ok(TraversalOrder::Stop);
-            }
-            Ok(TraversalOrder::Continue)
-        })
-        .vortex_expect("bound expression traversal cannot not fail");
-        is_bound_to
+        !self.any_node(|node| node.is_root() && node.dtype() != dtype)
     }
 
     /// Returns a new expression representing the validity mask output of this expression.
@@ -253,8 +432,11 @@ impl BoundExpression {
     /// "is_not_null(self)", which requires evaluating "self".
     pub fn validity(&self) -> VortexResult<BoundExpression> {
         match self {
-            // The scope is exactly as valid as itself.
-            Self::Root { .. } => Ok(self.clone()),
+            Self::Root { dtype } => match dtype {
+                DType::Null => Ok(BoundExpression::literal(false.into())),
+                dtype if !dtype.is_nullable() => Ok(BoundExpression::literal(true.into())),
+                _ => BoundExpression::try_new(IsNotNull.bind(EmptyOptions), [self.clone()]),
+            },
             Self::Scalar { .. } => {
                 let node = ExpressionReduceNode::new(self);
                 Ok(match node.validity()? {
@@ -262,7 +444,7 @@ impl BoundExpression {
                     // IsNotNull(x) -> x.validity() symbolic reduction rule works only
                     // when node's.validity is Reduced to avoid infinite recursion.
                     ReduceNodeValidity::Irreducible => {
-                        IsNotNull.try_new_bound_expr(EmptyOptions, [self.clone()])?
+                        BoundExpression::try_new(IsNotNull.bind(EmptyOptions), [self.clone()])?
                     }
                 })
             }
@@ -281,37 +463,6 @@ impl Display for BoundExpression {
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
             Self::Root { .. } => f.write_str("$"),
         }
-    }
-}
-
-impl Expression {
-    /// Bind this expression against a root dtype, type-checking every node in a single walk.
-    ///
-    /// The returned tree carries a dtype on each node, so callers needing types at more than one
-    /// node should bind once and read fields rather than calling
-    /// [`return_dtype`](Expression::return_dtype) repeatedly.
-    pub fn bind(&self, dtype: &DType) -> VortexResult<BoundExpression> {
-        self.bind_scope(&Scope::new(dtype.clone()))
-    }
-
-    /// Bind this expression against an explicit [`Scope`].
-    pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is_root() {
-            return Ok(BoundExpression::new_root(scope.root().clone()));
-        }
-        if let Expression::Variable(name) = self {
-            return Err(unbound_variable(name));
-        }
-
-        let children: Vec<_> = self
-            .children()
-            .iter()
-            .map(|child| child.bind_scope(scope))
-            .try_collect()?;
-        let scalar_fn = self
-            .as_scalar()
-            .vortex_expect("leaves were handled above, so this is a scalar node");
-        BoundExpression::try_new(scalar_fn.clone(), children)
     }
 }
 
@@ -336,158 +487,52 @@ impl Drop for BoundExpression {
     }
 }
 
+impl ExprDisplay for BoundExpression {
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay {
+        &self.children()[index]
+    }
+
+    fn display_children_count(&self) -> usize {
+        self.children().len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
-    use super::*;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::lit;
-    use crate::expr::root;
-    use crate::expr::test_harness::struct_dtype;
-    use crate::scalar_fn::fns::literal::Literal;
+    use crate::expr::BoundExpression;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::builtin::is_not_null::IsNotNull;
 
-    fn scope() -> Scope {
-        Scope::new(struct_dtype())
-    }
+    #[rstest]
+    #[case::non_nullable_int(DType::Primitive(PType::I32, Nullability::NonNullable), Some(true))]
+    #[case::non_nullable_bool(DType::Bool(Nullability::NonNullable), Some(true))]
+    #[case::null_dtype(DType::Null, Some(false))]
+    #[case::nullable_int(DType::Primitive(PType::I32, Nullability::Nullable), None)]
+    #[case::nullable_bool(DType::Bool(Nullability::Nullable), None)]
+    fn test_root_validity_returns_non_nullable_bool(
+        #[case] dtype: DType,
+        #[case] expected_literal: Option<bool>,
+    ) -> VortexResult<()> {
+        let root = BoundExpression::new_root(dtype);
+        let validity = root.validity()?;
 
-    #[test]
-    fn root_binds_to_the_scope() -> VortexResult<()> {
-        let bound = root().bind_scope(&scope())?;
-        assert!(bound.is_root());
-        assert_eq!(bound.dtype(), &struct_dtype());
-        assert_eq!(bound, BoundExpression::new_root(struct_dtype()));
-        Ok(())
-    }
-
-    #[test]
-    fn every_node_carries_its_dtype() -> VortexResult<()> {
-        let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-
-        assert_eq!(bound.dtype(), &DType::Bool(Nullability::NonNullable));
-
-        let lhs = &bound.children()[0];
-        assert_eq!(
-            lhs.dtype(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable)
-        );
-        assert_eq!(lhs.children()[0].dtype(), &struct_dtype());
-        Ok(())
-    }
-
-    #[test]
-    fn bind_agrees_with_return_dtype() -> VortexResult<()> {
-        for (expr, expected) in [
-            (root(), struct_dtype()),
-            (
-                col("a"),
-                DType::Primitive(PType::I32, Nullability::NonNullable),
+        assert_eq!(validity.dtype(), &DType::Bool(Nullability::NonNullable));
+        match expected_literal {
+            Some(expected) => assert_eq!(
+                validity,
+                BoundExpression::literal(Scalar::bool(expected, Nullability::NonNullable))
             ),
-            (
-                eq(col("a"), lit(1_i32)),
-                DType::Bool(Nullability::NonNullable),
-            ),
-            (lit(true), DType::Bool(Nullability::NonNullable)),
-        ] {
-            assert_eq!(
-                expr.bind(&struct_dtype())?.dtype(),
-                &expected,
-                "binding {expr}"
-            );
-            assert_eq!(
-                expr.return_dtype(&struct_dtype())?,
-                expected,
-                "return dtype of {expr}"
-            );
+            None => {
+                assert!(validity.is::<IsNotNull>());
+                assert_eq!(validity.child(0), &root);
+            }
         }
         Ok(())
-    }
-
-    #[test]
-    fn contains_scalar_function() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        assert!(bound.contains::<Literal>()?);
-        assert!(!root().bind_scope(&scope())?.contains::<Literal>()?);
-        Ok(())
-    }
-
-    #[test]
-    fn bound_to_checks_every_root() -> VortexResult<()> {
-        let dtype = struct_dtype();
-        let bound = eq(col("a"), col("a")).bind(&dtype)?;
-        assert!(bound.is_root_bound_to(&dtype));
-        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
-        assert!(
-            lit(true)
-                .bind(&dtype)?
-                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn bound_display_matches_unbound() -> VortexResult<()> {
-        for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
-            let bound = expr.bind_scope(&scope())?;
-            assert_eq!(bound.to_string(), expr.to_string());
-            assert_eq!(
-                bound.display_tree().to_string(),
-                expr.display_tree().to_string()
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn clone_shares_children() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        let cloned = bound.clone();
-
-        let (
-            BoundExpression::Scalar { children: a, .. },
-            BoundExpression::Scalar { children: b, .. },
-        ) = (&bound, &cloned)
-        else {
-            unreachable!("eq is a scalar node")
-        };
-        assert!(Arc::ptr_eq(a, b));
-        Ok(())
-    }
-
-    #[test]
-    fn repeated_subtree_is_bound_per_occurrence() -> VortexResult<()> {
-        let shared = col("a");
-        let bound = eq(shared.clone(), shared).bind_scope(&scope())?;
-        let children = bound.children();
-        assert_eq!(children.len(), 2);
-        for child in children {
-            assert_eq!(
-                child.dtype(),
-                &DType::Primitive(PType::I32, Nullability::NonNullable)
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn structural_and_exact_equality_are_distinct() -> VortexResult<()> {
-        let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-        let independently_bound = expr.bind_scope(&scope())?;
-
-        assert_eq!(bound, independently_bound);
-        assert_eq!(ExactBoundExpr(bound.clone()), ExactBoundExpr(bound.clone()));
-        assert_ne!(ExactBoundExpr(bound), ExactBoundExpr(independently_bound));
-        Ok(())
-    }
-
-    #[test]
-    fn binding_reports_a_type_error() {
-        let expr = eq(col("a"), lit("nope"));
-        assert!(expr.bind_scope(&scope()).is_err());
     }
 }

@@ -10,6 +10,7 @@ use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
@@ -30,6 +31,9 @@ impl Matcher for AnyTemporal {
         if let Some(opts) = item.metadata_opt::<Time>() {
             return Some(TemporalMetadata::Time(opts));
         }
+        if let Some(opts) = item.metadata_opt::<Duration>() {
+            return Some(TemporalMetadata::Duration(opts));
+        }
         None
     }
 }
@@ -43,6 +47,8 @@ pub enum TemporalMetadata<'a> {
     Date(&'a <Date as ExtVTable>::Metadata),
     /// Metadata for Time dtypes
     Time(&'a <Time as ExtVTable>::Metadata),
+    /// Metadata for [`Duration`] dtypes.
+    Duration(&'a <Duration as ExtVTable>::Metadata),
 }
 
 // TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex_array::scalar.
@@ -54,6 +60,7 @@ impl TemporalMetadata<'_> {
             TemporalMetadata::Time(unit) => **unit,
             TemporalMetadata::Date(unit) => **unit,
             TemporalMetadata::Timestamp(unit, _tz) => **unit,
+            TemporalMetadata::Duration(unit) => **unit,
         }
     }
 
@@ -77,6 +84,7 @@ impl TemporalMetadata<'_> {
                         .in_tz(tz.as_ref())?,
                 )),
             },
+            TemporalMetadata::Duration(unit) => Ok(TemporalJiff::Duration(unit.to_jiff_span(v)?)),
         }
     }
 }
@@ -90,7 +98,9 @@ pub enum TemporalJiff {
     /// A zone-naive timestamp value.
     Unzoned(jiff::civil::DateTime),
     /// A zoned timestamp value.
-    Zoned(jiff::Zoned),
+    Zoned(jiff::ZonedDateTime),
+    /// A duration value.
+    Duration(jiff::Span),
 }
 
 impl Display for TemporalJiff {
@@ -100,6 +110,7 @@ impl Display for TemporalJiff {
             TemporalJiff::Date(d) => write!(f, "{d}"),
             TemporalJiff::Unzoned(dt) => write!(f, "{dt}"),
             TemporalJiff::Zoned(z) => write!(f, "{z}"),
+            TemporalJiff::Duration(d) => write!(f, "{d}"),
         }
     }
 }

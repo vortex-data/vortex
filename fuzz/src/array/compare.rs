@@ -15,8 +15,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::scalar_cmp;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::compare::scalar_cmp;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -37,6 +37,7 @@ pub fn compare_canonical_array(
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
 
     match array.dtype() {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool = value
                 .as_bool()

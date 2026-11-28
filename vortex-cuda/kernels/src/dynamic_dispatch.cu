@@ -8,7 +8,7 @@
 // Vortex arrays are stored as nested encodings — e.g. ALP(FoR(BitPacked))
 // or Dict(codes=BitPacked, values=FoR(BitPacked)). This kernel walks
 // such a tree in a single launch by decomposing it into a linear sequence
-// of stages described by a packed plan buffer on the device.
+// of stages described by a packed plan passed as a kernel parameter.
 //
 // Each block produces ELEMENTS_PER_BLOCK output elements. Input stages
 // are fully decoded per block (every block independently decodes the
@@ -56,6 +56,7 @@
 #include <stdint.h>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
+#include <type_traits>
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
@@ -116,69 +117,31 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 // Scalar ops
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Apply one scalar operation to N values in registers.
-template <typename T, uint32_t N>
-__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
-    switch (op.op_code) {
-    case ScalarOp::FOR: {
-        const T ref = static_cast<T>(op.params.frame_of_ref.reference);
-#pragma unroll
-        for (uint32_t i = 0; i < N; ++i) {
-            values[i] += ref;
+__device__ inline uint64_t wrap_to_ptype(uint64_t value, enum PTypeTag ptype) {
+    switch (ptype) {
+    case PTYPE_I8:
+    case PTYPE_U8:
+        value &= 0xff;
+        if (ptype == PTYPE_I8 && (value & 0x80)) {
+            value |= ~0xffULL;
         }
-        break;
-    }
-    case ScalarOp::ZIGZAG: {
-#pragma unroll
-        for (uint32_t i = 0; i < N; ++i) {
-            values[i] = (values[i] >> 1) ^ static_cast<T>(-(values[i] & 1));
+        return value;
+    case PTYPE_I16:
+    case PTYPE_U16:
+        value &= 0xffff;
+        if (ptype == PTYPE_I16 && (value & 0x8000)) {
+            value |= ~0xffffULL;
         }
-        break;
-    }
-    case ScalarOp::ALP: {
-        if constexpr (sizeof(T) == 4) {
-            // The plan builder stores f32 F10/IF10 table entries as f64
-            // in AlpParams. The round-trip f32→f64→f32 is exact per the
-            // C++ standard: [conv.fpprom] guarantees the widening is
-            // value-preserving, and [conv.double] guarantees the narrowing
-            // recovers the original value when it is exactly representable
-            // in the destination type (which it is, having originated as f32).
-            const float f = static_cast<float>(op.params.alp.f);
-            const float e = static_cast<float>(op.params.alp.e);
-#pragma unroll
-            for (uint32_t i = 0; i < N; ++i) {
-                float r = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
-                values[i] = static_cast<T>(__float_as_uint(r));
-            }
-        } else if constexpr (sizeof(T) == 8) {
-            const double f = op.params.alp.f, e = op.params.alp.e;
-#pragma unroll
-            for (uint32_t i = 0; i < N; ++i) {
-                double r = static_cast<double>(static_cast<int64_t>(values[i])) * f * e;
-                // __double_as_longlong reinterprets f64 bits as int64, and
-                // static_cast to T (uint64_t) preserves the bit pattern
-                // under C++20's two's complement guarantee.
-                values[i] = static_cast<T>(__double_as_longlong(r));
-            }
+        return value;
+    case PTYPE_I32:
+    case PTYPE_U32:
+        value &= 0xffffffffULL;
+        if (ptype == PTYPE_I32 && (value & 0x80000000ULL)) {
+            value |= ~0xffffffffULL;
         }
-        // ALP patches are scattered cooperatively after the stage has decoded.
-        // Looking up patches here would restart a chunk cursor for every value,
-        // turning sparse exception handling into O(values * patches).
-        break;
-    }
-    case ScalarOp::DICT: {
-        const T *dict = reinterpret_cast<const T *>(smem + op.params.dict.values_smem_byte_offset);
-#pragma unroll
-        for (uint32_t i = 0; i < N; ++i) {
-            values[i] = dict[static_cast<uint32_t>(values[i])];
-        }
-        break;
-    }
-    case ScalarOp::CAST:
-        // Values are casted as part of LOAD as defined by the dispatch plan.
-        break;
+        return value;
     default:
-        __builtin_unreachable();
+        return value;
     }
 }
 
@@ -206,11 +169,13 @@ scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chu
 /// `patches`. Patch indices are stored in the coordinate space of the original array,
 /// so add `patches.offset` while locating chunks and subtract it when addressing `out`.
 /// Every thread cooperates on each overlapping FastLanes chunk.
-template <typename T>
+/// `apply_patch(T &row, V payload)` updates the decoded row in place using the patch payload.
+template <typename T, typename V, typename F>
 __device__ inline void scatter_patches_range(const GPUPatches &patches,
                                              T *__restrict out,
                                              uint64_t logical_start,
-                                             uint32_t range_len) {
+                                             uint32_t range_len,
+                                             F apply_patch) {
     if (range_len == 0) {
         return;
     }
@@ -223,12 +188,12 @@ __device__ inline void scatter_patches_range(const GPUPatches &patches,
 
     for (uint32_t original_chunk = first_chunk; original_chunk <= last_chunk; ++original_chunk) {
         const uint32_t chunk = original_chunk - patch_chunk_start;
-        PatchesCursor<T> cursor(patches, chunk, threadIdx.x, blockDim.x);
+        PatchesCursor<V> cursor(patches, chunk, threadIdx.x, blockDim.x);
         auto patch = cursor.next();
         while (patch.index != FL_CHUNK) {
             const uint64_t original_pos = static_cast<uint64_t>(original_chunk) * FL_CHUNK + patch.index;
             if (original_pos >= original_start && original_pos < original_end) {
-                out[original_pos - patches.offset] = patch.value;
+                apply_patch(out[original_pos - patches.offset], patch.value);
             }
             patch = cursor.next();
         }
@@ -245,8 +210,20 @@ scatter_scalar_patches(const Stage &stage, T *__restrict out, uint64_t logical_s
             const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
             // All ordinary writes must complete before exception values overwrite them.
             __syncthreads();
-            scatter_patches_range<T>(patches, out, logical_start, range_len);
+            scatter_patches_range<T, T>(patches, out, logical_start, range_len, [](T &row, T value) {
+                row = value;
+            });
             // A later stage may consume this patched shared-memory output.
+            __syncthreads();
+        } else if (sizeof(T) >= 4 && op.op_code == ScalarOp::ALPRD && op.params.alprd.patches_ptr != 0) {
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alprd.patches_ptr);
+            const uint32_t right_bit_width = op.params.alprd.right_bit_width;
+            const T right_mask = (T {1} << right_bit_width) - 1;
+            const auto replace_left = [right_bit_width, right_mask](T &row, uint16_t left) {
+                row = (static_cast<T>(left) << right_bit_width) | (row & right_mask);
+            };
+            __syncthreads();
+            scatter_patches_range<T, uint16_t>(patches, out, logical_start, range_len, replace_left);
             __syncthreads();
         }
     }
@@ -386,6 +363,15 @@ __device__ inline void bitunpack_typed(T *__restrict dst,
     }
 }
 
+/// Returns this thread's row for value `i`; `base` is an exact row for N == 1 and a tile start otherwise.
+template <uint32_t N, typename Index>
+__device__ inline Index thread_pos(Index base, uint32_t i) {
+    if constexpr (N == 1) {
+        return base;
+    }
+    return base + i * blockDim.x + threadIdx.x;
+}
+
 /// Read N values from a source op into `out`.
 ///
 /// Dispatches on `src.op_code` to handle each encoding:
@@ -394,7 +380,7 @@ __device__ inline void bitunpack_typed(T *__restrict dst,
 ///   SEQUENCE  — compute base + pos × multiplier in registers.
 ///   RUNEND    — forward-scan ends/values in smem using runend_cursors.
 ///
-/// Position calculation (via THREAD_POS macro):
+/// Position calculation:
 ///   N > 1 (batched): pos = base + j·blockDim.x + threadIdx.x.
 ///                    Caller passes the tile base WITHOUT threadIdx.x.
 ///   N = 1 (single):  base is the exact position. No stride added.
@@ -407,21 +393,19 @@ __device__ inline void source_op(T *out,
                                  uint32_t smem_base,
                                  uint64_t global_base,
                                  char *__restrict smem) {
-    // Wrapped in a macro, rather than a lambda, to avoid allocating additional GPU registers.
-#define THREAD_POS(base, j) ((N == 1) ? (base) : ((base) + (j) * blockDim.x + threadIdx.x))
 
     switch (src.op_code) {
     case SourceOp::BITUNPACK: {
 #pragma unroll
         for (uint32_t j = 0; j < N; ++j) {
-            out[j] = smem_src[THREAD_POS(smem_base, j)];
+            out[j] = smem_src[thread_pos<N>(smem_base, j)];
         }
         return;
     }
     case SourceOp::LOAD: {
 #pragma unroll
         for (uint32_t j = 0; j < N; ++j) {
-            out[j] = load_element<T>(raw_input, ptype, THREAD_POS(global_base, j));
+            out[j] = load_element<T>(raw_input, ptype, thread_pos<N>(global_base, j));
         }
         return;
     }
@@ -430,7 +414,7 @@ __device__ inline void source_op(T *out,
         const T mul = static_cast<T>(src.params.sequence.multiplier);
 #pragma unroll
         for (uint32_t j = 0; j < N; ++j) {
-            out[j] = base + static_cast<T>(THREAD_POS(global_base, j)) * mul;
+            out[j] = base + static_cast<T>(thread_pos<N>(global_base, j)) * mul;
         }
         return;
     }
@@ -442,7 +426,7 @@ __device__ inline void source_op(T *out,
         uint64_t &run = runend_cursors[threadIdx.x];
 #pragma unroll
         for (uint32_t j = 0; j < N; ++j) {
-            const uint64_t pos = THREAD_POS(global_base, j) + offset;
+            const uint64_t pos = thread_pos<N>(global_base, j) + offset;
             while (run < num_runs && static_cast<uint64_t>(ends[run]) <= pos) {
                 run++;
             }
@@ -453,12 +437,131 @@ __device__ inline void source_op(T *out,
     default:
         __builtin_unreachable();
     }
+}
 
-#undef THREAD_POS
+/// Decode a batch at `global_base`, applying its stage's scalar ops in plan order.
+template <typename T, uint32_t N>
+__device__ inline void decode_batch(T *values,
+                                    const Stage &stage,
+                                    const T *smem_src,
+                                    uint32_t smem_base,
+                                    uint64_t global_base,
+                                    char *__restrict smem) {
+    source_op<T, N>(values,
+                    stage.source,
+                    reinterpret_cast<const void *>(stage.input_ptr),
+                    stage.source_ptype,
+                    smem_src,
+                    smem_base,
+                    global_base,
+                    smem);
+
+    for (uint8_t idx = 0; idx < stage.num_scalar_ops; ++idx) {
+        const auto &op = stage.scalar_ops[idx];
+        switch (op.op_code) {
+        case ScalarOp::FOR: {
+            // Fused lanes may be wider than this FoR type; wrap before a downstream Dict gather.
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                const uint64_t decoded = static_cast<uint64_t>(values[i]) + op.params.frame_of_ref.reference;
+                values[i] = static_cast<T>(wrap_to_ptype(decoded, op.output_ptype));
+            }
+            break;
+        }
+        case ScalarOp::ZIGZAG: {
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = (values[i] >> 1) ^ static_cast<T>(-(values[i] & 1));
+            }
+            break;
+        }
+        case ScalarOp::ALP: {
+            if constexpr (sizeof(T) == 4) {
+                // The plan builder stores f32 F10/IF10 table entries as f64
+                // in AlpParams. The round-trip f32→f64→f32 is exact per the
+                // C++ standard: [conv.fpprom] guarantees the widening is
+                // value-preserving, and [conv.double] guarantees the narrowing
+                // recovers the original value when it is exactly representable
+                // in the destination type (which it is, having originated as f32).
+                const float f = static_cast<float>(op.params.alp.f);
+                const float e = static_cast<float>(op.params.alp.e);
+#pragma unroll
+                for (uint32_t i = 0; i < N; ++i) {
+                    float r = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
+                    values[i] = static_cast<T>(__float_as_uint(r));
+                }
+            } else if constexpr (sizeof(T) == 8) {
+                const double f = op.params.alp.f, e = op.params.alp.e;
+#pragma unroll
+                for (uint32_t i = 0; i < N; ++i) {
+                    double r = static_cast<double>(static_cast<int64_t>(values[i])) * f * e;
+                    // __double_as_longlong reinterprets f64 bits as int64, and
+                    // static_cast to T (uint64_t) preserves the bit pattern
+                    // under C++20's two's complement guarantee.
+                    values[i] = static_cast<T>(__double_as_longlong(r));
+                }
+            }
+            // ALP patches are scattered cooperatively after the stage has decoded.
+            // Looking up patches here would restart a chunk cursor for every value,
+            // turning sparse exception handling into O(values * patches).
+            break;
+        }
+        case ScalarOp::DICT: {
+            const T *dict = reinterpret_cast<const T *>(smem + op.params.dict.values_smem_byte_offset);
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = dict[static_cast<uint32_t>(values[i])];
+            }
+            break;
+        }
+        case ScalarOp::CAST:
+            // Values are casted as part of LOAD as defined by the dispatch plan.
+            break;
+        case ScalarOp::ALPRD: {
+            if constexpr (sizeof(T) >= 4) {
+                const auto &params = op.params.alprd;
+                const auto *codes = reinterpret_cast<const uint16_t *>(params.codes_ptr);
+                const auto *dictionary = reinterpret_cast<const uint16_t *>(
+                    reinterpret_cast<const uint8_t *>(&op) + params.dictionary_byte_offset);
+#pragma unroll
+                for (uint32_t i = 0; i < N; ++i) {
+                    const uint64_t pos = thread_pos<N>(global_base, i) + params.codes_offset;
+                    const uint32_t code = unpack_u16(codes, pos, params.code_bit_width);
+                    const T left = dictionary[code % ALPRD_DICTIONARY_CAPACITY];
+                    values[i] |= left << params.right_bit_width;
+                }
+            } else {
+                __builtin_unreachable();
+            }
+            break;
+        }
+        case ScalarOp::EXTEND: {
+            using Signed = std::make_signed_t<T>;
+            const PTypeTag source = op.params.extend.source_ptype;
+            const uint32_t shift = (sizeof(T) - ptype_byte_width(source)) * 8;
+            if (source == ptype_to_unsigned(source)) {
+                const T mask = static_cast<T>(~T {0}) >> shift;
+#pragma unroll
+                for (uint32_t i = 0; i < N; ++i) {
+                    values[i] &= mask;
+                }
+            } else {
+#pragma unroll
+                for (uint32_t i = 0; i < N; ++i) {
+                    values[i] =
+                        static_cast<T>(static_cast<Signed>(static_cast<T>(values[i] << shift)) >> shift);
+                }
+            }
+            break;
+        }
+        default:
+            __builtin_unreachable();
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Output stage — source_op → scalar_op → streaming store
+// Output stage — batch decode → streaming store
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // BITUNPACK tiles at SMEM_TILE_SIZE: cooperative unpack → smem → sync →
@@ -487,8 +590,6 @@ __device__ void execute_output_stage(T *__restrict output,
     const uint32_t tile_size = blockDim.x * VALUES_PER_TILE;
 
     const auto &src = stage.source;
-    const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
-    const PTypeTag ptype = stage.source_ptype;
 
     if (src.op_code == SourceOp::RUNEND) {
         const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
@@ -509,7 +610,7 @@ __device__ void execute_output_stage(T *__restrict output,
                                block_start + elem_idx,
                                chunk_len,
                                src,
-                               ptype);
+                               stage.source_ptype);
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
             smem_src = scratch + align;
         } else {
@@ -521,18 +622,7 @@ __device__ void execute_output_stage(T *__restrict output,
             const uint64_t tile_start = block_start + elem_idx + static_cast<uint64_t>(tile_idx) * tile_size;
             T values[VALUES_PER_TILE];
 
-            source_op<T, VALUES_PER_TILE>(values,
-                                          src,
-                                          raw_input,
-                                          ptype,
-                                          smem_src,
-                                          tile_idx * tile_size,
-                                          tile_start,
-                                          smem);
-
-            for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem);
-            }
+            decode_batch<T, VALUES_PER_TILE>(values, stage, smem_src, tile_idx * tile_size, tile_start, smem);
 
 #pragma unroll
             for (uint32_t j = 0; j < VALUES_PER_TILE; ++j) {
@@ -542,7 +632,7 @@ __device__ void execute_output_stage(T *__restrict output,
                 // would only compete with the packed input buffers and
                 // smem-resident dict/runend data that the next tiles still
                 // need to read. Evict-first lets those stay resident.
-                __stcs(&output[tile_start + j * blockDim.x + threadIdx.x], values[j]);
+                __stcs(&output[thread_pos<VALUES_PER_TILE>(tile_start, j)], values[j]);
             }
         }
 
@@ -550,11 +640,7 @@ __device__ void execute_output_stage(T *__restrict output,
         for (uint32_t i = rem + threadIdx.x; i < chunk_len; i += blockDim.x) {
             const uint64_t gpos = block_start + elem_idx + i;
             T val;
-            source_op<T, 1>(&val, src, raw_input, ptype, smem_src, i, gpos, smem);
-
-            for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
-            }
+            decode_batch<T, 1>(&val, stage, smem_src, i, gpos, smem);
             __stcs(&output[gpos], val);
         }
 
@@ -599,10 +685,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 
         if (stage.num_scalar_ops > 0) {
             for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
-                T val = smem_out[elem_idx];
-                for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
-                }
+                T val;
+                decode_batch<T, 1>(&val, stage, smem_out, elem_idx, elem_idx, smem);
                 smem_out[elem_idx] = val;
             }
             // Write barrier: scalar ops applied in-place, smem region is
@@ -620,13 +704,9 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             runend_cursors[threadIdx.x] =
                 upper_bound(ends, src.params.runend.num_runs, threadIdx.x + src.params.runend.offset);
         }
-        const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
         for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
             T val;
-            source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, elem_idx, smem);
-            for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
-            }
+            decode_batch<T, 1>(&val, stage, nullptr, 0, elem_idx, smem);
             smem_out[elem_idx] = val;
         }
         // Write barrier: smem region is fully populated for subsequent
@@ -697,14 +777,14 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
                                   uint64_t array_len,                                                        \
-                                  const uint8_t *__restrict packed_plan) {                                   \
-        dynamic_dispatch<Type, false>(output, array_len, packed_plan);                                       \
+                                  const __grid_constant__ struct DispatchPlanParam plan) {                   \
+        dynamic_dispatch<Type, false>(output, array_len, plan.bytes);                                        \
     }                                                                                                        \
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix##_loop_ranges(Type *__restrict output,                                     \
                                                 uint64_t array_len,                                          \
-                                                const uint8_t *__restrict packed_plan) {                     \
-        dynamic_dispatch<Type, true>(output, array_len, packed_plan);                                        \
+                                                const __grid_constant__ struct DispatchPlanParam plan) {     \
+        dynamic_dispatch<Type, true>(output, array_len, plan.bytes);                                         \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)

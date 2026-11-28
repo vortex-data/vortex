@@ -8,12 +8,15 @@ use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::BoundExpression;
+use vortex_expr::stats::StatsSessionExt;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
-use vortex_expr::transform::find_between;
+use vortex_functions::between::Between;
+use vortex_functions::between::find_between;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
@@ -35,9 +38,12 @@ use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
+use crate::plan::Eval;
 use crate::plan::FilterPlan;
 use crate::plan::PlanRef;
+use crate::plan::RowIdx;
 use crate::plan::Zoned;
+use crate::plan::builtins::zoned::contains_stat_fn;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::planning::planner::Planner;
@@ -67,8 +73,13 @@ impl FilterPlans {
         session: &VortexSession,
         skip_unselective_dynamic: bool,
     ) -> VortexResult<Self> {
-        let expression = FilterExpr::new(find_between(expression)?)
-            .with_skip_unselective_dynamic(skip_unselective_dynamic);
+        let expression = if session.stats().has_rewrite_for(Between.id()) {
+            find_between(expression)?
+        } else {
+            expression
+        };
+        let expression =
+            FilterExpr::new(expression).with_skip_unselective_dynamic(skip_unselective_dynamic);
         let predicates = expression
             .conjuncts()
             .iter()
@@ -143,7 +154,8 @@ impl FilterPlans {
     }
 }
 
-/// A pruning plan must not fetch data when its requested statistics are unavailable.
+/// A pruning plan must not fetch data, materialize row indices, or execute unresolved statistics
+/// when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
         .as_opt::<Zoned>()
@@ -151,7 +163,12 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     {
         return Ok(true);
     }
-    if plan.is_data_source() {
+    if plan.is_data_source() || plan.is::<RowIdx>() {
+        return Ok(false);
+    }
+    if let Some(eval) = plan.as_opt::<Eval>()
+        && contains_stat_fn(eval.expression())?
+    {
         return Ok(false);
     }
     for child in plan.children() {

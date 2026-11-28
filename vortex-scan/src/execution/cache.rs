@@ -10,7 +10,7 @@ use std::sync::Weak;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
-use vortex_array::expr::BoundExpression;
+use vortex_expr::BoundExpression;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
@@ -44,9 +44,10 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExprKey, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
-    /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
-    /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
-    filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
+    /// Plans of filters, keyed by the filter expression and its dynamic-skipping policy. A pruning
+    /// plan remembers the zones it excluded, so sharing the plans prunes a file's zones once for
+    /// every scan of that filter with the same policy.
+    filters: Mutex<FxHashMap<(ExprKey, bool), Arc<FilterPlans>>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
@@ -102,23 +103,32 @@ impl ScanCache {
         Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
     }
 
-    /// The plans of `filter` an earlier scan kept.
-    pub(crate) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
-        self.0.filters.lock().get(&ExprKey(filter.clone())).cloned()
+    /// The plans of `filter` an earlier scan with the same `skip_unselective_dynamic` policy kept.
+    pub(crate) fn filter_plans(
+        &self,
+        filter: &BoundExpression,
+        skip_unselective_dynamic: bool,
+    ) -> Option<Arc<FilterPlans>> {
+        self.0
+            .filters
+            .lock()
+            .get(&(ExprKey(filter.clone()), skip_unselective_dynamic))
+            .cloned()
     }
 
-    /// Keeps the plans of `filter`, returning the plans already kept if another scan got there
-    /// first.
+    /// Keeps the plans of `filter`, returning the plans already kept if another scan with the same
+    /// dynamic-skipping policy got there first.
     pub(crate) fn insert_filter_plans(
         &self,
         filter: BoundExpression,
         plans: Arc<FilterPlans>,
     ) -> Arc<FilterPlans> {
+        let skip = plans.skips_unselective_dynamic();
         Arc::clone(
             self.0
                 .filters
                 .lock()
-                .entry(ExprKey(filter))
+                .entry((ExprKey(filter), skip))
                 .or_insert(plans),
         )
     }
@@ -203,13 +213,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::Expression;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::root;
 
     use super::ExprKey;
 

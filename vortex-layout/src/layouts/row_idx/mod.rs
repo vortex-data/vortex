@@ -21,33 +21,33 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::BoundExpression;
 use vortex_expr::transform::partition_bound;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
 use vortex_mask::Mask;
 pub use vortex_scan::row_idx::*;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
-    partition_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioning>>>,
+    partition_cache: WeakExprCache<Arc<OnceLock<Partitioning>>>,
     session: VortexSession,
 }
 
@@ -57,7 +57,7 @@ impl RowIdxLayoutReader {
             name: Arc::clone(child.name()),
             row_offset,
             child,
-            partition_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            partition_cache: WeakExprCache::with_shard_amount(8),
             session,
         }
     }
@@ -88,11 +88,9 @@ impl RowIdxLayoutReader {
     }
 
     fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioning> {
-        let key = ExactBoundExpr(expr.clone());
-
         // Check cache first with read-only lock.
-        if let Some(entry) = self.partition_cache.get(&key)
-            && let Some(partitioning) = entry.value().get()
+        if let Some(cell) = self.partition_cache.get_cloned(expr)
+            && let Some(partitioning) = cell.get()
         {
             return Ok(partitioning.clone());
         }
@@ -100,8 +98,7 @@ impl RowIdxLayoutReader {
         let result = self.compute_partitioning(expr)?;
 
         self.partition_cache
-            .entry(key)
-            .or_insert_with(|| Arc::new(OnceLock::new()))
+            .get_or_insert_with(expr, || Arc::new(OnceLock::new()))
             .get_or_init(|| result.clone());
 
         Ok(result)
@@ -126,7 +123,7 @@ impl RowIdxLayoutReader {
         if partitioned.partitions.len() == 1 {
             return Ok(match &partitioned.partition_annotations[0] {
                 Partition::RowIdx => Partitioning::RowIdx(replace_row_idx(expr.clone())?),
-                Partition::Child => Partitioning::Child(expr.clone()),
+                Partition::Child => Partitioning::Child(expr.detach_identity()),
             });
         }
 
@@ -139,6 +136,9 @@ impl RowIdxLayoutReader {
             .collect::<VortexResult<Vec<_>>>()?
             .into_boxed_slice();
         partitioned.replace_partitions(partitions)?;
+        if partitioned.partitions.is_empty() {
+            partitioned.root = partitioned.root.detach_identity();
+        }
 
         Ok(Partitioning::Partitioned(Arc::new(PartitionedEval::new(
             partitioned,
@@ -397,13 +397,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::or;
-    use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_buffer::buffer;
+    use vortex_expr::eq;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::or;
+    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;

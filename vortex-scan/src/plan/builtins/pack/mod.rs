@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Plans reads from structs stored as separate children.
+//!
+//! A [`Pack`] assembles the field children and, for a nullable struct, a validity child. An
+//! expression that uses part of the struct can read the relevant children directly.
+
 pub(crate) mod execute;
 
 use std::borrow::Cow;
@@ -13,20 +18,20 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::fns::is_null::IsNull;
-use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
-use vortex_array::scalar_fn::fns::select::FieldSelection;
-use vortex_array::scalar_fn::fns::select::Select;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
+use vortex_array::scalar_fn::builtin::pack::Pack as PackFn;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_expr as unbound;
+use vortex_expr::Expression;
+use vortex_functions::is_null::IsNull;
+use vortex_functions::select::FieldSelection;
+use vortex_functions::select::Select;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -307,18 +312,12 @@ fn validate_validity_child(expected_row_count: u64, child: &PlanRef) -> VortexRe
 }
 
 impl PackPlan {
-    /// Rebuilds this plan with only `fields`, which must be a subset of the current fields.
+    /// Builds the temporary struct that `$` refers to in the combiner.
     ///
-    /// Pruning is only sound for a non-nullable struct: dropping a field of a nullable struct
-    /// would drop the validity child that the remaining fields depend on.
-    pub(crate) fn with_pruned_fields(
-        &self,
-        fields: Vec<(FieldName, PlanRef)>,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            !self.dtype().is_nullable(),
-            "Cannot prune fields from a nullable Pack"
-        );
+    /// Each field holds one partition result and keeps its dtype. The combiner's input struct
+    /// must be present on every row so it can read an original validity bit as `false` on a row
+    /// where the original struct is null.
+    fn with_partition_fields(&self, fields: Vec<(FieldName, PlanRef)>) -> VortexResult<Self> {
         let struct_fields = StructFields::from_iter(
             fields
                 .iter()
@@ -335,7 +334,19 @@ impl PackPlan {
     }
 }
 
-/// Pushes an expression into the referenced fields of a [`Pack`], pruning the rest.
+/// Rewrites an evaluation to read only the children it needs from a [`Pack`].
+///
+/// For `$.address.zip` on a nullable struct, the first split puts the `address` child and
+/// the original struct's validity in fields `0` and `1` of the combiner's input.
+///
+/// ```text
+/// $.address.zip          // Original projection.
+/// mask($.0, $.1).zip     // Partitioning feeds the whole address into the mask.
+/// mask($.0.zip, $.1)     // Optimizing the combiner moves the lookup below the mask.
+/// ```
+///
+/// The next pass pushes the lookup into the `address` child as `$.zip`. The scan can
+/// skip `city` and read just `zip` and the validity of each nullable ancestor.
 #[derive(Debug)]
 pub(crate) struct ExpressionPackRule;
 
@@ -349,23 +360,20 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         _child_idx: usize,
         session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        if child.dtype().is_nullable() {
-            return Ok(None);
-        }
-
         let expression = parent.expression();
         let fields = child.fields();
         if fields.nfields() == 0 {
             return Ok(None);
         }
+
         let partitioned = match Pack.partition(child.dtype(), expression, session)? {
             PartitionedExpression::One(slot, expr) => {
                 let field = child.slot_required(slot)?;
                 return Ok(Some(EvalPlan::try_new(expr, field)?.into_plan()));
             }
             PartitionedExpression::Any(expr) => {
-                let rewritten = child.with_pruned_fields(Vec::new())?.into_plan();
-                return Ok(Some(EvalPlan::try_new(expr, rewritten)?.into_plan()));
+                let empty_scope = child.with_partition_fields(Vec::new())?.into_plan();
+                return Ok(Some(EvalPlan::try_new(expr, empty_scope)?.into_plan()));
             }
             PartitionedExpression::Many(partitioned) => partitioned,
         };
@@ -374,34 +382,38 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             partitions,
         } = partitioned;
 
-        let mut fields_changed = partitions.len() != fields.nfields();
-        let mut pruned_fields = Vec::with_capacity(partitions.len());
+        let nullable = child.dtype().is_nullable();
+        // The combiner's root is non-nullable even when it uses every original field.
+        let mut pack_changed = nullable || partitions.len() != fields.nfields();
+        let mut partition_fields = Vec::with_capacity(partitions.len());
         for (position, partition) in partitions.into_iter().enumerate() {
-            fields_changed |= partition.slot != Pack::FIELDS_OFFSET + position;
-            fields_changed |= fields
-                .field_name(position)
-                .is_none_or(|name| *name != positional_name(position));
+            let name = positional_name(position);
+            pack_changed |= partition.slot != Pack::FIELDS_OFFSET + position
+                || fields.field_name(position) != Some(&name);
 
             let field = child.slot_required(partition.slot)?;
             let field = if is_identity_expression(&partition.expr, field.dtype()) {
                 field
             } else {
-                fields_changed = true;
+                pack_changed = true;
                 EvalPlan::try_new(partition.expr, field)?.into_plan()
             };
-            pruned_fields.push((positional_name(position), field));
+            partition_fields.push((name, field));
         }
-        let rewritten = if fields_changed {
-            child.with_pruned_fields(pruned_fields)?.into_plan()
+
+        if !pack_changed && combiner == *expression {
+            return Ok(None);
+        }
+
+        let combiner_input = if pack_changed {
+            child.with_partition_fields(partition_fields)?.into_plan()
         } else {
             child.to_plan()
         };
 
-        if !fields_changed && combiner == *expression {
-            return Ok(None);
-        }
-
-        Ok(Some(EvalPlan::try_new(combiner, rewritten)?.into_plan()))
+        Ok(Some(
+            EvalPlan::try_new(combiner, combiner_input)?.into_plan(),
+        ))
     }
 }
 
@@ -605,10 +617,10 @@ impl PartitionRule for IsNullRule {
 mod partition_tests {
     use insta::assert_snapshot;
     use vortex_array::dtype::PType;
-    use vortex_array::expr as unbound;
-    use vortex_array::expr::bound::get_item;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::pack;
+    use vortex_expr as unbound;
+    use vortex_expr::bound::get_item;
+    use vortex_expr::bound::is_not_null;
+    use vortex_expr::bound::pack;
 
     use super::*;
     use crate::plan::partition::PartitionedExpression;
@@ -700,7 +712,7 @@ mod partition_tests {
     #[test]
     fn validity_select_and_root() -> VortexResult<()> {
         let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
-        let expr = unbound::select(["a"], unbound::root());
+        let expr = vortex_functions::expr::select(["a"], unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"
         partition 0 scope=i32: $
         partition validity scope=bool: $
@@ -720,7 +732,7 @@ mod partition_tests {
         let inner = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
         let scope = struct_of(&[("a", i32()), ("s", inner)], Nullability::Nullable);
         let expr = unbound::and(
-            unbound::is_null(unbound::root()),
+            vortex_functions::expr::is_null(unbound::root()),
             unbound::gt(
                 unbound::get_item("d", unbound::get_item("s", unbound::root())),
                 unbound::lit(0i32),
@@ -729,7 +741,7 @@ mod partition_tests {
         assert_snapshot!(partition(expr, &scope)?, @"
         partition 1 scope={c=i32, d=i32}: $
         partition validity scope=bool: pack(0: $, 1: vortex.not($))
-        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0, $.1.0).d > 0i32))
+        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0.d, $.1.0) > 0i32))
         ");
         Ok(())
     }
@@ -739,7 +751,7 @@ mod partition_tests {
         let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
         let expr = unbound::is_not_null(unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: $");
-        let expr = unbound::is_null(unbound::root());
+        let expr = vortex_functions::expr::is_null(unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: vortex.not($)");
 
         let a = struct_of(&[("x", i32())], Nullability::Nullable);

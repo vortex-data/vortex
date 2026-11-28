@@ -6,12 +6,18 @@
 //! These tests cover scheme composition and configuration. Individual encoding kernels and the
 //! generic selection algorithm are tested in their owning crates.
 
+use std::f64::consts::PI;
 use std::iter;
+use std::sync::Arc;
 
 use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
+use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPArraySlotsExt;
 #[cfg(feature = "zstd")]
 use vortex_array::ArrayId;
 #[cfg(feature = "zstd")]
@@ -25,11 +31,16 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -50,17 +61,37 @@ use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
+use vortex_onpair::DEFAULT_CONFIG;
+use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
+use crate::ChildDecision;
+use crate::ChildPolicy;
+use crate::ChildRequest;
 use crate::SESSION;
+use crate::Scheme;
+#[cfg(feature = "zstd")]
+use crate::schemes::binary;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
+use crate::schemes::float::ALPRDScheme;
+use crate::schemes::float::ALPScheme;
+#[cfg(feature = "pco")]
+use crate::schemes::float::PcoScheme as FloatPcoScheme;
 use crate::schemes::integer::BitPackingScheme;
+#[cfg(feature = "pco")]
+use crate::schemes::integer::PcoScheme as IntPcoScheme;
+use crate::schemes::integer::RunEndScheme;
+#[cfg(feature = "zstd")]
+use crate::schemes::string;
+use crate::schemes::string::FSSTScheme;
+use crate::schemes::string::OnPairScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -394,21 +425,190 @@ fn test_cuda_binary_zstd_follows_editions(
 }
 
 static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
+static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
 
-/// A scheme that stores its input's validity compresses it before encoding.
-#[test]
-fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
+/// A scheme that stores its input's validity registers it, so it is compressed.
+#[rstest]
+#[case::bitpacking_v1(&BITPACKING_V1)]
+#[case::bitpacking_v2(&BITPACKING_V2)]
+#[cfg_attr(feature = "pco", case::pco(&IntPcoScheme))]
+fn test_integer_scheme_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+) -> VortexResult<()> {
     let input = PrimitiveArray::from_option_iter(
         (0..100_000i32).map(|i| (!(1000..2000).contains(&i)).then_some(i % 100)),
     )
     .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&BITPACKING_V1)
+        .with_new_scheme(scheme)
         .with_new_scheme(&BoolRunEndScheme)
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
 
-    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+#[rstest]
+#[case::saves_one_bit(64, false)]
+#[case::saves_four_bits(8, true)]
+fn test_bitpacking_skips_small_savings(
+    #[case] min_value: u8,
+    #[case] expect_packed: bool,
+) -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..7u8).cycle().take(10_000).map(|v| min_value + v))
+        .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&BITPACKING_V2)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert_eq!(
+        compressed.is::<BitPacked>(),
+        expect_packed,
+        "{}",
+        compressed.encoding_id()
+    );
+    assert_eq!(
+        compressed.is::<Primitive>(),
+        !expect_packed,
+        "{}",
+        compressed.encoding_id()
+    );
+    Ok(())
+}
+
+/// A float scheme that stores its input's validity registers it, so it is compressed.
+#[rstest]
+#[case::alprd(&ALPRDScheme)]
+#[cfg_attr(feature = "pco", case::pco(&FloatPcoScheme))]
+fn test_float_scheme_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+) -> VortexResult<()> {
+    let input = PrimitiveArray::from_option_iter(
+        (0..100_000).map(|i| (!(1000..2000).contains(&i)).then(|| f64::from(i).sqrt())),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// ALP stores the values it cannot encode as patches, which it keeps as they are.
+#[test]
+fn test_alp_keeps_its_patches() -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..100_000).map(|i| {
+        if i % 1000 == 0 {
+            PI
+        } else {
+            f64::from(i % 1000) / 10.0
+        }
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&ALPScheme)
+        .with_new_scheme(&BITPACKING_V1)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    let alp = if use_experimental_patches() {
+        compressed
+            .as_opt::<Patched>()
+            .ok_or_else(|| vortex_err!("expected Patched, got {}", compressed.encoding_id()))?
+            .inner()
+            .clone()
+    } else {
+        compressed
+    };
+    let alp = alp
+        .as_opt::<ALP>()
+        .ok_or_else(|| vortex_err!("expected ALP, got {}", alp.encoding_id()))?;
+    assert!(
+        alp.encoded().is::<BitPacked>(),
+        "{}",
+        alp.encoded().encoding_id()
+    );
+    assert_eq!(
+        alp.patches().is_some(),
+        !use_experimental_patches(),
+        "the patches are inside ALP unless a Patched array wraps it"
+    );
+    Ok(())
+}
+
+static ONPAIR: OnPairScheme = OnPairScheme::new(DEFAULT_CONFIG.max_dict_bits);
+
+/// A string or binary scheme that stores its input's validity registers it, so it is compressed.
+#[rstest]
+#[case::fsst(&FSSTScheme, DType::Utf8(Nullability::Nullable))]
+#[case::onpair(&ONPAIR, DType::Utf8(Nullability::Nullable))]
+#[cfg_attr(feature = "zstd", case::string_zstd(&string::ZstdScheme, DType::Utf8(Nullability::Nullable)))]
+#[cfg_attr(
+    feature = "zstd",
+    case::string_zstd_buffers(&string::ZstdBuffersScheme, DType::Utf8(Nullability::Nullable))
+)]
+#[cfg_attr(feature = "zstd", case::binary_zstd(&binary::ZstdScheme, DType::Binary(Nullability::Nullable)))]
+#[cfg_attr(
+    feature = "zstd",
+    case::binary_zstd_buffers(&binary::ZstdBuffersScheme, DType::Binary(Nullability::Nullable))
+)]
+fn test_bytes_scheme_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+    #[case] dtype: DType,
+) -> VortexResult<()> {
+    let input = VarBinViewArray::from_iter(
+        (0..100_000).map(|i| {
+            (!(1000..2000).contains(&i)).then(|| format!("value-{}", i % 100).into_bytes())
+        }),
+        dtype,
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// Zstd compacts its input's buffers, which rebuilds the array, and still stores the input's
+/// validity compressed.
+#[cfg(feature = "zstd")]
+#[rstest]
+#[case::string(&string::ZstdScheme, DType::Utf8(Nullability::Nullable))]
+#[case::binary(&binary::ZstdScheme, DType::Binary(Nullability::Nullable))]
+fn test_zstd_compacts_and_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+    #[case] dtype: DType,
+) -> VortexResult<()> {
+    // Values longer than 12 bytes live in the data buffers, and the slice references a tenth of
+    // them, so compaction rewrites the array.
+    let input = VarBinViewArray::from_iter(
+        (0..200_000).map(|i| {
+            (!(1000..2000).contains(&i))
+                .then(|| format!("an outlined value {}", i % 100).into_bytes())
+        }),
+        dtype,
+    )
+    .into_array()
+    .slice(0..20_000)?;
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
     Ok(())
 }
@@ -431,5 +631,124 @@ fn test_varbin_validity_is_compressed() -> VortexResult<()> {
 
     assert!(compressed.is::<VarBin>(), "{}", compressed.encoding_id());
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// Sparse stores each null as a patch, so a quarter of nulls among mostly-zero values must not
+/// pick it. This is the shape of a genotype column: most samples are homozygous reference (0),
+/// about a fifth have no call (null), and a few carry an alternate allele.
+#[test]
+fn test_sparse_counts_nulls_as_patches() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(0);
+    let len = 131_072;
+    let input = PrimitiveArray::from_option_iter((0..len).map(|_| {
+        let draw = rng.next_u32() % 400;
+        if draw < 100 {
+            None
+        } else if draw < 103 {
+            Some(1u8)
+        } else {
+            Some(0u8)
+        }
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    // A raw validity bitmap is len / 8 bytes; the values cost little beyond it.
+    assert!(
+        compressed.nbytes() < len / 8 + len / 16,
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+/// Unique text cut at random offsets from a pool of prose, like the comment columns of TPC-H.
+fn unique_prose(rows: usize, seed: u64) -> ArrayRef {
+    const SYLLABLES: &[&str] = &[
+        "ac", "count", "pack", "age", "re", "quest", "de", "pos", "it", "in", "struct", "ion",
+        "the", "od", "ol", "ite", "pin", "to", "bean", "fox", "id", "ea", "pend", "enc", "ex",
+        "cuse", "plate", "let", "asym", "ptote", "court", "dol", "phin", "mul", "ti", "pli", "er",
+        "saut", "erne", "wart", "hog", "fret", "din", "os", "at", "tain", "mint", "sum", "as",
+        "braid", "hock", "ey", "play", "fur", "ious", "ly", "care", "fill", "quick", "sly",
+    ];
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let words: Vec<String> = (0..300)
+        .map(|_| {
+            (0..rng.random_range(1..4))
+                .map(|_| SYLLABLES[rng.random_range(0..SYLLABLES.len())])
+                .collect()
+        })
+        .collect();
+
+    let mut pool = String::new();
+    while pool.len() < 1 << 20 {
+        pool.push_str(&words[rng.random_range(0..words.len())]);
+        pool.push(' ');
+    }
+
+    let values = (0..rows).map(|_| {
+        let len = rng.random_range(19..79);
+        let start = rng.random_range(0..pool.len() - len);
+        &pool[start..start + len]
+    });
+    VarBinViewArray::from_iter_str(values).into_array()
+}
+
+/// The sampled estimates used to flip between FSST and OnPair from chunk to chunk on unique text,
+/// although OnPair is clearly smaller on every one of them at full size.
+#[test]
+fn test_unique_text_selects_onpair_on_every_chunk() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+
+    for seed in 0..8 {
+        let compressed = assert_roundtrip(&compressor, &unique_prose(16_384, seed))?;
+        assert!(
+            compressed.is::<OnPair>(),
+            "chunk {seed} compressed to {}",
+            compressed.encoding_id()
+        );
+    }
+
+    Ok(())
+}
+
+/// Keeps every child a scheme registers.
+#[derive(Debug)]
+struct KeepEverything;
+
+impl ChildPolicy for KeepEverything {
+    fn decide(&self, _request: &ChildRequest<'_>) -> ChildDecision {
+        ChildDecision::Keep
+    }
+}
+
+#[rstest]
+#[case::schemes_decide(false)]
+#[case::policy_keeps(true)]
+fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..1_000_000).map(|i| i / 100)).into_array();
+    let mut builder = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&BITPACKING_V1);
+    if keep {
+        builder = builder.with_child_policy(Arc::new(KeepEverything));
+    }
+    let compressed = assert_roundtrip(&builder.build(), &input)?;
+
+    assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
+    let children_canonical = compressed
+        .slots()
+        .iter()
+        .flatten()
+        .all(ArrayRef::is_canonical);
+    assert_eq!(children_canonical, keep);
     Ok(())
 }

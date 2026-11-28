@@ -21,7 +21,6 @@ use itertools::Either;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -30,6 +29,8 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_expr::BoundExpression;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::row_mask::RowMask;
@@ -120,6 +121,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         if self.limit.is_some() {
             vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
         }
+        self.check_row_range(row_range.as_ref())?;
 
         let ctx = self.task_context();
         let mut masks = self.split_masks(row_range).peekable();
@@ -133,6 +135,16 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
     pub fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn check_row_range(&self, row_range: Option<&Range<u64>>) -> VortexResult<()> {
+        let Some(range) = row_range else {
+            return Ok(());
+        };
+        let len = self.layout_reader.row_count();
+        vortex_ensure!(range.start <= len);
+        vortex_ensure!(range.end <= len);
+        Ok(())
     }
 
     /// Constructor just to allow `scan_builder` to create a `RepeatedScan`.
@@ -258,6 +270,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
+        self.check_row_range(row_range.as_ref())?;
         let concurrency = self.concurrency.splits_in_flight();
         let handle = self.session.handle();
         let ordered = self.ordered;

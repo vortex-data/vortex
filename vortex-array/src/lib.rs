@@ -77,6 +77,9 @@
 //! [`SliceArray`]: arrays::SliceArray
 //! [`ScalarFnArray`]: arrays::ScalarFnArray
 
+#[cfg(not(target_endian = "little"))]
+compile_error!("vortex-array requires a little-endian target");
+
 extern crate self as vortex_array;
 
 pub use array::*;
@@ -102,6 +105,7 @@ mod trace_macros;
 pub(crate) use trace_macros::trace_op;
 mod array;
 pub mod arrays;
+pub mod block;
 pub mod buffer;
 pub mod builders;
 pub mod builtins;
@@ -112,7 +116,6 @@ pub mod display;
 pub mod dtype;
 mod executor;
 pub mod expr;
-mod expression;
 pub mod extension;
 pub mod flatbuffers;
 mod hash;

@@ -60,8 +60,7 @@ enum FieldDTypeInner {
     /// We cache it because it's requested for every field for every file.
     /// If there are many files with wide schemas (think clickbench),
     /// re-parsing each field is costly
-    /// This form is quite ugly because in some cases we want to panic on
-    /// parsing but return an error on others
+    /// Views come from [`DType::from_flatbuffer`], which verifies the whole buffer first.
     View(ViewedDType, Arc<OnceLock<DType>>),
 }
 
@@ -410,6 +409,12 @@ impl StructFields {
             .dtypes
             .iter()
             .map(|dt| dt.value().vortex_expect("field DType must be valid"))
+    }
+
+    /// Returns an ordered iterator over the fields, or an error if a field [`DType`] can't be decoded.
+    pub fn try_fields(&self) -> VortexResult<impl ExactSizeIterator<Item = DType>> {
+        let fields: Vec<DType> = self.0.dtypes.iter().map(FieldDType::value).try_collect()?;
+        Ok(fields.into_iter())
     }
 
     /// Returns an ordered iterator over references to the field dtypes.

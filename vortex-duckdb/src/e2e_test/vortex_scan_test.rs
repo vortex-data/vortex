@@ -3,20 +3,12 @@
 
 //! This module contains tests for the `vortex_scan` table function.
 
-use std::ffi::CStr;
-use std::path::Path;
 use std::slice;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::Result;
 use geo_types::LineString;
 use geo_types::Polygon;
-use jiff::Span;
-use jiff::Timestamp;
-use jiff::Zoned;
-use jiff::tz;
-use jiff::tz::TimeZone;
 use num_traits::AsPrimitive;
 use rstest::rstest;
 use tempfile::NamedTempFile;
@@ -30,7 +22,6 @@ use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
-use vortex::array::arrays::VarBinViewArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
@@ -55,7 +46,6 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::cpp;
 use crate::cpp::duckdb_string_t;
-use crate::cpp::duckdb_timestamp;
 use crate::duckdb::Connection;
 use crate::duckdb::Database;
 
@@ -112,38 +102,6 @@ impl FromDuckDBValue<i32> for i32 {
     }
 }
 
-impl FromDuckDBValue<i32> for i64 {
-    fn from_duckdb_value(value: &mut i32) -> Self {
-        *value as i64
-    }
-}
-
-impl FromDuckDBValue<i64> for i64 {
-    fn from_duckdb_value(value: &mut i64) -> Self {
-        *value
-    }
-}
-
-fn scan_vortex_file_single_row<D, T: FromDuckDBValue<D>>(
-    tmp_file: NamedTempFile,
-    query: &str,
-    col_idx: usize,
-) -> T {
-    let conn = database_connection();
-    let file_path = tmp_file.path().to_string_lossy();
-    let formatted_query = query.replace('?', &format!("'{file_path}'"));
-
-    let result = conn.query(&formatted_query).unwrap();
-    let mut chunks = result.into_iter();
-    let mut chunk = chunks.next().unwrap();
-    assert_eq!(chunk.len(), 1);
-    assert!(chunks.next().is_none());
-    let len = chunk.len().as_();
-    let vec = chunk.get_vector_mut(col_idx);
-    assert!(!vec.row_is_null(0));
-    T::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<D>(len) }[0])
-}
-
 fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
     tmp_file: NamedTempFile,
     query: &str,
@@ -168,829 +126,6 @@ fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
     }
 
     Ok(values)
-}
-
-async fn write_vortex_file_to_dir(
-    dir: &Path,
-    field_name: &str,
-    array: impl IntoArray,
-) -> NamedTempFile {
-    let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
-    let temp_file_path = tempfile::Builder::new()
-        .suffix(".vortex")
-        .tempfile_in(dir)
-        .unwrap();
-
-    let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
-    SESSION
-        .write_options()
-        .write(&mut file, struct_array.into_array().to_array_stream())
-        .await
-        .unwrap();
-
-    temp_file_path
-}
-
-#[test]
-fn test_scan_function_registration() {
-    let conn = database_connection();
-    let result = conn
-        .query("SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'")
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len().as_())[0];
-    let string =
-        unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
-
-    assert_eq!(string, "vortex_scan");
-}
-
-#[test]
-fn test_vortex_version() -> Result<()> {
-    let conn = database_connection();
-    let query = format!(
-        "SELECT (vortex_version() = '{}')::INT",
-        env!("VORTEX_VERSION")
-    );
-    let result = conn.query(&query)?;
-    let chunk = result.into_iter().next().unwrap();
-    assert_eq!(chunk.get_vector(0).as_slice_with_len::<i32>(1), [1]);
-    Ok(())
-}
-
-#[test]
-fn test_vortex_scan_strings() {
-    let file = RUNTIME.block_on(async {
-        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        write_single_column_vortex_file("strings", strings).await
-    });
-
-    let result: String =
-        scan_vortex_file_single_row(file, "SELECT string_agg(strings, ',') FROM ?", 0);
-
-    assert_eq!(result, "Hello,Hi,Hey");
-}
-
-#[test]
-fn test_vortex_scan_strings_contains() {
-    let file = RUNTIME.block_on(async {
-        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        write_single_column_vortex_file("strings", strings).await
-    });
-    let result: String = scan_vortex_file_single_row(
-        file,
-        "SELECT string_agg(strings, ',') FROM ? WHERE strings LIKE '%He%'",
-        0,
-    );
-
-    assert_eq!(result, "Hello,Hey");
-}
-
-#[test]
-fn test_vortex_scan_integers() {
-    let file = RUNTIME.block_on(async {
-        let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let sum: i64 = scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM ?", 0);
-    assert_eq!(sum, 138);
-}
-
-#[test]
-fn test_vortex_scan_integers_in_list() {
-    let file = RUNTIME.block_on(async {
-        let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let sum: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT SUM(number) FROM ? WHERE number in (1, 42, -5)",
-        0,
-    );
-    assert_eq!(sum, 38);
-}
-
-#[test]
-fn test_vortex_scan_integers_between() {
-    let file = RUNTIME.block_on(async {
-        let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let sum: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT SUM(number) FROM ? WHERE number > 0 and number < 100",
-        0,
-    );
-    assert_eq!(sum, 43);
-}
-
-fn assert_membership_filter_pushed(
-    conn: &Connection,
-    table: &str,
-    predicate: &str,
-    expected: i64,
-) -> Result<()> {
-    let query = format!("SELECT count(*) FROM {table} WHERE {predicate}");
-    let result = conn.query(&query)?;
-    let chunk = result.into_iter().next().unwrap();
-    assert_eq!(chunk.get_vector(0).as_slice_with_len::<i64>(1), [expected]);
-
-    let mut plan = String::new();
-    for mut chunk in conn.query(&format!("EXPLAIN {query}"))? {
-        let len = chunk.len().as_();
-        let vector = chunk.get_vector_mut(1);
-        for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
-            plan.push_str(&String::from_duckdb_value(value));
-        }
-    }
-    assert!(plan.contains("Read Vortex"), "missing Vortex scan:\n{plan}");
-    assert!(!plan.contains("FILTER"), "filter was not pushed:\n{plan}");
-    Ok(())
-}
-
-#[rstest]
-#[case::in_list("number IN (1, 3)", 2)]
-#[case::not_in_list("number NOT IN (1, 3)", 2)]
-#[case::null_last("number IN (1, NULL)", 1)]
-#[case::null_first("number IN (NULL, 1)", 1)]
-#[case::not_in_null("number NOT IN (1, NULL)", 0)]
-#[case::unknown("(number IN (1, NULL)) IS NULL", 4)]
-#[case::known("(number IN (NULL, 1)) IS NOT NULL", 1)]
-fn test_membership_filter_pushdown(
-    #[case] predicate: &str,
-    #[case] expected: i64,
-    #[values(false, true)] through_view: bool,
-) -> Result<()> {
-    let file = RUNTIME.block_on(async {
-        let numbers =
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), None]);
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let conn = database_connection();
-    let file_table = format!("'{}'", file.path().to_string_lossy());
-    let table = if through_view {
-        conn.query(&format!(
-            "CREATE VIEW members AS SELECT * FROM {file_table}"
-        ))?;
-        "members"
-    } else {
-        file_table.as_str()
-    };
-    assert_membership_filter_pushed(&conn, table, predicate, expected)
-}
-
-#[test]
-fn test_large_membership_filter_pushdown() -> Result<()> {
-    let file = RUNTIME.block_on(async {
-        let numbers = PrimitiveArray::from_option_iter([Some(1i32), Some(42), Some(1001), None]);
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let conn = database_connection();
-    // Even numbers, so that the list is no range.
-    let members = (0..1000)
-        .map(|value| (value * 2).to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    assert_membership_filter_pushed(
-        &conn,
-        &format!("'{}'", file.path().to_string_lossy()),
-        &format!("number IN ({members})"),
-        1,
-    )
-}
-
-#[test]
-fn test_membership_with_nonconstant_list_evaluates_successfully() -> Result<()> {
-    let file = RUNTIME.block_on(async {
-        let numbers = buffer![1i32, 2, 3];
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let conn = database_connection();
-    // Exercise the unsupported IN expression itself, before DuckDB expands it to comparisons.
-    conn.query("SET disabled_optimizers = 'in_clause'")?;
-    let result = conn.query(&format!(
-        "SELECT count(*) FROM '{}' WHERE number IN (number, 99)",
-        file.path().to_string_lossy(),
-    ))?;
-    let chunk = result.into_iter().next().unwrap();
-    assert_eq!(chunk.get_vector(0).as_slice_with_len::<i64>(1), [3]);
-    Ok(())
-}
-
-#[test]
-fn test_issue_5927_not_in_does_not_panic() {
-    let file = RUNTIME.block_on(async {
-        let numbers = buffer![1i32, 42, 100, -5, 0];
-        write_single_column_vortex_file("number", numbers).await
-    });
-    let sum: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT SUM(number) FROM ? WHERE number NOT IN (42, 100)",
-        0,
-    );
-    assert_eq!(sum, -4);
-}
-
-#[test]
-fn test_vortex_scan_floats() {
-    let file = RUNTIME.block_on(async {
-        let values = buffer![1.5f64, -2.5, 0.0, 42.42];
-        write_single_column_vortex_file("value", values).await
-    });
-    let count: i64 =
-        scan_vortex_file_single_row::<i64, _>(file, "SELECT COUNT(*) FROM ? WHERE value > 0", 0);
-    assert_eq!(count, 2);
-}
-
-#[test]
-fn test_vortex_scan_constant() {
-    let file = RUNTIME.block_on(async {
-        let constant = ConstantArray::new(Scalar::from(42i32), 100);
-        write_single_column_vortex_file("constant", constant).await
-    });
-    let value: i32 =
-        scan_vortex_file_single_row::<i32, _>(file, "SELECT constant FROM ? LIMIT 1", 0);
-    assert_eq!(value, 42);
-}
-
-#[test]
-fn test_vortex_scan_constant_fixed_size_list() {
-    let file = RUNTIME.block_on(async {
-        let scalar = Scalar::fixed_size_list(
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            vec![Scalar::from(1i32), Scalar::from(2i32), Scalar::from(3i32)],
-            Nullability::NonNullable,
-        );
-        write_single_column_vortex_file("constant", ConstantArray::new(scalar, 100)).await
-    });
-    let count: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT COUNT(*) FROM ? WHERE constant[2] = 2 AND constant = [1, 2, 3]::INTEGER[3]",
-        0,
-    );
-    assert_eq!(count, 100);
-}
-
-#[test]
-fn test_vortex_scan_booleans() {
-    let file = RUNTIME.block_on(async {
-        let flags = vec![true, false, true, true, false];
-        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
-        write_single_column_vortex_file("flag", flags_array).await
-    });
-    let true_count: i64 =
-        scan_vortex_file_single_row::<i64, _>(file, "SELECT COUNT(*) FROM ? WHERE flag = true", 0);
-    assert_eq!(true_count, 3);
-}
-
-#[test]
-fn test_vortex_multi_column() {
-    let file = RUNTIME.block_on(async {
-        let f1 = BoolArray::new(
-            vec![true, false, true, true, false].into(),
-            Validity::NonNullable,
-        )
-        .into_array();
-        let f2 = (0..5).collect::<PrimitiveArray>().into_array();
-        let f3 = (100..105).collect::<PrimitiveArray>().into_array();
-        write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
-    });
-
-    let result: Vec<i32> =
-        scan_vortex_file::<i32, _>(file, "SELECT f2 FROM ? WHERE f1 = true and f2 >= 2", 0)
-            .unwrap();
-
-    assert_eq!(result, vec![2, 3]);
-}
-
-#[test]
-fn test_vortex_scan_multiple_files() {
-    let (tempdir, _file1, _file2) = RUNTIME.block_on(async {
-        let tempdir = tempfile::tempdir().unwrap();
-
-        let file1 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![1i32, 2, 3]).await;
-
-        let file2 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![4i32, 5, 6]).await;
-
-        (tempdir, file1, file2)
-    });
-
-    // Create glob pattern to match all .vortex files in the temp directory.
-    let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
-
-    // Scan both Vortex files.
-    let conn = database_connection();
-    let result = conn
-        .query(&format!("SELECT SUM(numbers) FROM '{glob_pattern}'",))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-
-    assert_eq!(total_sum, 21);
-}
-
-#[test]
-fn test_vortex_scan_multiple_globs() {
-    // Test scanning multiple directories using a list of glob patterns.
-    let (tempdir1, tempdir2, _file1, _file2, _file3) = RUNTIME.block_on(async {
-        let tempdir1 = tempfile::tempdir().unwrap();
-        let tempdir2 = tempfile::tempdir().unwrap();
-
-        let file1 = write_vortex_file_to_dir(tempdir1.path(), "numbers", buffer![1i32, 2, 3]).await;
-        let file2 = write_vortex_file_to_dir(tempdir1.path(), "numbers", buffer![4i32, 5, 6]).await;
-        let file3 =
-            write_vortex_file_to_dir(tempdir2.path(), "numbers", buffer![7i32, 8, 9, 10]).await;
-
-        (tempdir1, tempdir2, file1, file2, file3)
-    });
-
-    // Create glob patterns for each directory.
-    let glob_pattern1 = format!("{}/*.vortex", tempdir1.path().display());
-    let glob_pattern2 = format!("{}/*.vortex", tempdir2.path().display());
-
-    // Scan files from both directories using a list of globs.
-    let conn = database_connection();
-    let result = conn
-        .query(&format!(
-            "SELECT SUM(numbers) FROM read_vortex(['{glob_pattern1}', '{glob_pattern2}'])"
-        ))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-
-    // 1+2+3 + 4+5+6 + 7+8+9+10 = 55
-    assert_eq!(total_sum, 55);
-}
-
-#[test]
-fn test_write_file() {
-    let conn = database_connection();
-    let tempdir = tempfile::tempdir().unwrap();
-    let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
-
-    conn.query(&format!(
-        "copy (select * as number from generate_series(10)) to '{file_path}' (FORMAT VORTEX);",
-    ))
-    .unwrap();
-
-    let result = conn
-        .query(&format!("SELECT SUM(number) FROM '{file_path}'",))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-
-    assert_eq!(total_sum, 55);
-}
-
-#[test]
-fn test_write_timestamps() {
-    let conn = database_connection();
-    let tempdir = tempfile::tempdir().unwrap();
-    let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
-
-    conn.query(&format!(
-        "COPY (SELECT '2025-05-03 16:19:14.338895-07'::timestamptz as TSTZ) TO '{file_path}' (FORMAT VORTEX);",
-    ))
-        .unwrap();
-
-    let result = conn
-        .query(&format!("SELECT TSTZ FROM '{file_path}'",))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let timestamp = vec.as_slice_with_len::<duckdb_timestamp>(chunk.len().as_())[0];
-
-    assert_eq!(
-        Timestamp::UNIX_EPOCH
-            .checked_add(Span::new().try_microseconds(timestamp.micros).unwrap())
-            .unwrap()
-            .to_zoned(TimeZone::fixed(tz::offset(-7))),
-        Zoned::from_str("2025-05-03 16:19:14.338895-07[-07]").unwrap()
-    );
-}
-
-#[test]
-fn test_vortex_scan_fixed_size_list_utf8() {
-    // Test a simple FixedSizeList of Utf8 strings to ensure proper materialization.
-
-    let file = RUNTIME.block_on(async {
-        // Create a large number of strings to stress test.
-        let strings: Vec<&str> = (0..24)
-            .map(|i| match i % 6 {
-                0 => "first",
-                1 => "second",
-                2 => "third",
-                3 => "fourth",
-                4 => "fifth",
-                _ => "sixth",
-            })
-            .collect();
-
-        let strings_array = VarBinViewArray::from_iter_str(strings);
-
-        // Create fixed-size lists of strings.
-        let fsl = FixedSizeListArray::new(
-            strings_array.into_array(),
-            4, // 4 strings per list
-            Validity::AllValid,
-            6, // 6 lists total
-        );
-
-        write_single_column_vortex_file("string_lists", fsl).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    // Query the structure.
-    let result = conn
-        .query(&format!("SELECT string_lists FROM '{file_path}'"))
-        .unwrap();
-
-    let actual: Vec<_> = result
-        .into_iter()
-        .flat_map(|chunk| {
-            (0..chunk.len())
-                .map(|i| {
-                    chunk
-                        .get_vector(0)
-                        .get_value(i, chunk.len())
-                        .unwrap()
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert_eq!(
-        actual,
-        [
-            "[first, second, third, fourth]",
-            "[fifth, sixth, first, second]",
-            "[third, fourth, fifth, sixth]",
-            "[first, second, third, fourth]",
-            "[fifth, sixth, first, second]",
-            "[third, fourth, fifth, sixth]"
-        ]
-    );
-}
-
-#[test]
-fn test_vortex_scan_nested_fixed_size_list_utf8() {
-    // Regression test for a segfault that occurs inside query 7 and 8 of the `statpopgen` benchmark
-    // when running with `FixedSizeList` instead of `List`.
-
-    // Test FixedSizeList of FixedSizeList of Utf8 to ensure proper materialization.
-
-    let file = RUNTIME.block_on(async {
-        // Create a large number of strings to stress test.
-        let strings: Vec<&str> = (0..24)
-            .map(|i| match i % 6 {
-                0 => "first",
-                1 => "second",
-                2 => "third",
-                3 => "fourth",
-                4 => "fifth",
-                _ => "sixth",
-            })
-            .collect();
-
-        let strings_array = VarBinViewArray::from_iter_str(strings);
-
-        // Create inner fixed-size lists.
-        let inner_fsl = FixedSizeListArray::new(
-            strings_array.into_array(),
-            4, // 4 strings per inner list
-            Validity::AllValid,
-            6, // 6 inner lists
-        );
-
-        // Create outer fixed-size list of lists.
-        let outer_fsl = FixedSizeListArray::new(
-            inner_fsl.into_array(),
-            3, // 3 inner lists per outer list
-            Validity::AllValid,
-            2, // 2 outer lists
-        );
-
-        write_single_column_vortex_file("nested_string_lists", outer_fsl).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    // Query the nested structure.
-    let result = conn
-        .query(&format!("SELECT nested_string_lists FROM '{file_path}'"))
-        .unwrap();
-
-    let actual: Vec<_> = result
-        .into_iter()
-        .flat_map(|chunk| {
-            (0..chunk.len())
-                .map(|i| {
-                    chunk
-                        .get_vector(0)
-                        .get_value(i, chunk.len())
-                        .unwrap()
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert_eq!(
-        actual,
-        [
-            "[[first, second, third, fourth], [fifth, sixth, first, second], [third, fourth, fifth, sixth]]",
-            "[[first, second, third, fourth], [fifth, sixth, first, second], [third, fourth, fifth, sixth]]"
-        ]
-    );
-}
-
-#[test]
-fn test_vortex_scan_list_of_ints() {
-    // Test a simple List of integers.
-
-    let file = RUNTIME.block_on(async {
-        // Create integers that will be grouped into lists.
-        let integers = PrimitiveArray::from_iter([
-            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
-        ]);
-
-        // Create variable-length lists using offsets.
-        // List 0: [10, 20, 30] (indices 0-2)
-        // List 1: [40, 50, 60, 70] (indices 3-6)
-        // List 2: [80] (indices 7-7)
-        // List 3: [90, 100, 110, 120, 130] (indices 8-12)
-        // List 4: [140, 150] (indices 13-14)
-        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
-        let list_array = ListArray::try_new(
-            integers.into_array(),
-            offsets.into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        write_single_column_vortex_file("int_list", list_array).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    // Query the list structure to verify row count.
-    let result = conn
-        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let count = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-    assert_eq!(count, 5, "Should have 5 lists");
-
-    // Try to access the data - this tests for segfaults.
-    let result = conn
-        .query(&format!("SELECT int_list FROM '{file_path}'"))
-        .unwrap();
-
-    let actual: Vec<_> = result
-        .into_iter()
-        .flat_map(|chunk| {
-            (0..chunk.len())
-                .map(|i| {
-                    chunk
-                        .get_vector(0)
-                        .get_value(i, chunk.len())
-                        .unwrap()
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert_eq!(
-        actual,
-        [
-            "[10, 20, 30]",
-            "[40, 50, 60, 70]",
-            "[80]",
-            "[90, 100, 110, 120, 130]",
-            "[140, 150]"
-        ]
-    );
-}
-
-#[test]
-fn test_vortex_scan_list_of_utf8() {
-    // Test a simple List of UTF8 strings.
-
-    let file = RUNTIME.block_on(async {
-        // Create UTF8 strings that will be grouped into lists.
-        let strings = VarBinViewArray::from_iter_str(vec![
-            "apple",
-            "banana",
-            "cherry",
-            "date",
-            "elderberry",
-            "fig",
-            "grape",
-            "honeydew",
-            "kiwi",
-            "lemon",
-            "mango",
-            "nectarine",
-        ]);
-
-        // Create variable-length lists using offsets.
-        // List 0: [apple, banana, cherry] (indices 0-2)
-        // List 1: [date, elderberry] (indices 3-4)
-        // List 2: [fig, grape, honeydew, kiwi] (indices 5-8)
-        // List 3: [lemon, mango, nectarine] (indices 9-11)
-        let offsets = buffer![0i32, 3, 5, 9, 12];
-        let list_array = ListArray::try_new(
-            strings.into_array(),
-            offsets.into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        write_single_column_vortex_file("string_list", list_array).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    // Query the list structure to verify row count.
-    let result = conn
-        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let count = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-    assert_eq!(count, 4, "Should have 4 lists");
-
-    // Try to access the data - this tests for segfaults.
-    let result = conn
-        .query(&format!("SELECT string_list FROM '{file_path}'"))
-        .unwrap();
-
-    let actual: Vec<_> = result
-        .into_iter()
-        .flat_map(|chunk| {
-            (0..chunk.len())
-                .map(|i| {
-                    chunk
-                        .get_vector(0)
-                        .get_value(i, chunk.len())
-                        .unwrap()
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert_eq!(
-        actual,
-        [
-            "[apple, banana, cherry]",
-            "[date, elderberry]",
-            "[fig, grape, honeydew, kiwi]",
-            "[lemon, mango, nectarine]"
-        ]
-    );
-}
-
-#[test]
-fn test_vortex_scan_ultra_deep_nesting() {
-    // Test ultra-deep nesting: Multiple levels of FSL and List combinations with UTF8.
-    // FSL[List[FSL[List[FSL[UTF8]]]]]
-
-    let file = RUNTIME.block_on(async {
-        // Level 1: Create base UTF8 strings - need a lot for deep nesting.
-        let strings = VarBinViewArray::from_iter_str(
-            (0..360)
-                .map(|i| match i % 10 {
-                    0 => "zero",
-                    1 => "one",
-                    2 => "two",
-                    3 => "three",
-                    4 => "four",
-                    5 => "five",
-                    6 => "six",
-                    7 => "seven",
-                    8 => "eight",
-                    _ => "nine",
-                })
-                .collect::<Vec<_>>(),
-        );
-
-        // Level 2: Inner-most FixedSizeList of strings.
-        let level2_fsl = FixedSizeListArray::new(
-            strings.into_array(),
-            5, // 5 strings per list
-            Validity::AllValid,
-            72, // 72 lists at this level
-        );
-
-        // Level 3: Variable-length lists of level 2 FSLs.
-        let level3_offsets = buffer![0i32, 3, 6, 8, 12, 15, 18, 20, 24, 27, 30, 32, 36];
-        let level3_list = ListArray::try_new(
-            level2_fsl.into_array(),
-            level3_offsets.into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        // Level 4: FixedSizeList of level 3 lists.
-        let level4_fsl = FixedSizeListArray::new(
-            level3_list.into_array(),
-            3, // 3 variable lists per FSL
-            Validity::AllValid,
-            4, // 4 FSLs at this level
-        );
-
-        // Level 5: Variable-length lists of level 4 FSLs.
-        let level5_offsets = buffer![0i32, 2, 4];
-        let level5_list = ListArray::try_new(
-            level4_fsl.into_array(),
-            level5_offsets.into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        // Level 6: Outermost FixedSizeList.
-        let outermost_fsl = FixedSizeListArray::new(
-            level5_list.into_array(),
-            2, // 2 lists per outermost FSL
-            Validity::AllValid,
-            1, // 1 outermost FSL
-        );
-
-        write_single_column_vortex_file("ultra_deep", outermost_fsl).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    // Query the ultra-deep nested structure.
-    let result = conn
-        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let vec = chunk.get_vector(0);
-    let count = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
-    assert_eq!(count, 1, "Should have 1 outermost list");
-
-    // Try to access the data - this is the critical test for segfaults.
-    let result = conn
-        .query(&format!("SELECT ultra_deep FROM '{file_path}'"))
-        .unwrap();
-
-    let leaves = [
-        "[zero, one, two, three, four]",
-        "[five, six, seven, eight, nine]",
-    ];
-    let mut leaf = 0;
-    let lists: Vec<_> = [3, 3, 2, 4, 3, 3, 2, 4, 3, 3, 2, 4]
-        .into_iter()
-        .map(|len| {
-            let items: Vec<_> = (0..len)
-                .map(|_| {
-                    let item = leaves[leaf % 2];
-                    leaf += 1;
-                    item
-                })
-                .collect();
-            format!("[{}]", items.join(", "))
-        })
-        .collect();
-    let fixed: Vec<_> = lists
-        .chunks(3)
-        .map(|items| format!("[{}]", items.join(", ")))
-        .collect();
-    let outer: Vec<_> = fixed
-        .chunks(2)
-        .map(|items| format!("[{}]", items.join(", ")))
-        .collect();
-    let expected = format!("[{}]", outer.join(", "));
-    let actual: Vec<_> = result
-        .into_iter()
-        .flat_map(|chunk| {
-            (0..chunk.len())
-                .map(|i| {
-                    chunk
-                        .get_vector(0)
-                        .get_value(i, chunk.len())
-                        .unwrap()
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert_eq!(actual, [expected]);
 }
 
 async fn write_vortex_file_with_encodings() -> NamedTempFile {
@@ -1257,106 +392,6 @@ fn test_geometry() {
     assert_eq!(area, 1000.0);
 }
 
-/// `SELECT array_length(list)` / `len(list)` / `length(list)` should push the list-length
-/// computation into the Vortex scan (computed from offsets, without materializing the list
-/// elements) and return the per-row element counts.
-#[test]
-fn test_vortex_scan_list_length_projection() {
-    let file = RUNTIME.block_on(async {
-        let integers = PrimitiveArray::from_iter([
-            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
-        ]);
-        // Variable-length lists with 3, 4, 1, 5, 2 elements respectively.
-        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
-        let list_array = ListArray::try_new(
-            integers.into_array(),
-            offsets.into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        write_single_column_vortex_file("int_list", list_array).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    // `len`/`length` bind to the same DuckDB function set as `array_length` for list arguments.
-    for func in ["array_length", "len", "length"] {
-        let result = conn
-            .query(&format!("SELECT {func}(int_list) FROM '{file_path}'"))
-            .unwrap();
-
-        let mut lengths = Vec::new();
-        for chunk in result {
-            let len = chunk.len().as_();
-            let vec = chunk.get_vector(0);
-            lengths.extend_from_slice(vec.as_slice_with_len::<i64>(len));
-        }
-
-        assert_eq!(lengths, vec![3, 4, 1, 5, 2], "{func}(int_list) mismatch");
-    }
-}
-
-/// `WHERE array_length(list) >= k` should push down as a complex filter.
-#[test]
-fn test_vortex_scan_list_length_filter() {
-    let file = RUNTIME.block_on(async {
-        let integers = PrimitiveArray::from_iter([
-            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
-        ]);
-        // Variable-length lists with 3, 4, 1, 5, 2 elements respectively.
-        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
-        let list_array = ListArray::try_new(
-            integers.into_array(),
-            offsets.into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        write_single_column_vortex_file("int_list", list_array).await
-    });
-
-    // Lists with length >= 4: the 4-element and 5-element lists => 2 rows.
-    let count = scan_vortex_file_single_row::<i64, i64>(
-        file,
-        "SELECT COUNT(*) FROM ? WHERE array_length(int_list) >= 4",
-        0,
-    );
-    assert_eq!(count, 2);
-}
-
-/// `array_length`/`len`/`length` over a FixedSizeList column. The length is the fixed list size.
-#[test]
-fn test_vortex_scan_fixed_size_list_length_projection() {
-    let file = RUNTIME.block_on(async {
-        // 6 fixed-size lists of 4 i32 elements each.
-        let elements = (0..24i32).collect::<PrimitiveArray>();
-        let fsl = FixedSizeListArray::new(elements.into_array(), 4, Validity::AllValid, 6);
-        write_single_column_vortex_file("int_lists", fsl).await
-    });
-
-    let conn = database_connection();
-    let file_path = file.path().to_string_lossy();
-
-    for func in ["array_length", "len", "length"] {
-        let result = conn
-            .query(&format!("SELECT {func}(int_lists) FROM '{file_path}'"))
-            .unwrap();
-
-        let mut lengths = Vec::new();
-        for chunk in result {
-            let len = chunk.len().as_();
-            let vec = chunk.get_vector(0);
-            lengths.extend_from_slice(vec.as_slice_with_len::<i64>(len));
-        }
-
-        assert_eq!(lengths, vec![4i64; 6], "{func}(int_lists) mismatch");
-    }
-}
-
 /// Vortex allows duplicate struct names but duckdb doesn't. Ensure we can't
 /// read a file if names are not unique
 #[test]
@@ -1387,6 +422,126 @@ fn test_duplicate_struct_fields() {
         conn.query(&format!("SELECT string_agg(s::VARCHAR, '') FROM '{path}'"))
             .is_err()
     );
+}
+
+/// Counts the rows of `query`, which returns one `BIGINT` count.
+fn query_count(conn: &Connection, query: &str) -> Result<i64> {
+    let result = conn.query(query)?;
+    let mut chunk = result
+        .into_iter()
+        .next()
+        .expect("count query returns a chunk");
+    let vec = chunk.get_vector_mut(0);
+
+    Ok(unsafe { vec.as_slice_mut::<i64>(1) }[0])
+}
+
+/// A pushed float filter gives the same rows as DuckDB gives for a native table. DuckDB makes
+/// `-0.0` equal to `+0.0` and orders all `NaN` values as one value above `+inf`.
+#[rstest]
+#[case::eq_zero("value = 0.0")]
+#[case::eq_neg_zero("value = -0.0")]
+#[case::not_eq_zero("value <> 0.0")]
+#[case::lt_zero("value < 0.0")]
+#[case::lte_neg_zero("value <= -0.0")]
+#[case::gt_zero("value > 0.0")]
+#[case::gte_zero("value >= 0.0")]
+#[case::eq_nan("value = 'NaN'::DOUBLE")]
+#[case::gt_inf("value > 'inf'::DOUBLE")]
+#[case::lt_nan("value < 'NaN'::DOUBLE")]
+#[case::gte_nan("value >= 'NaN'::DOUBLE")]
+#[case::in_list("value IN (0.0, 'NaN'::DOUBLE)")]
+#[case::not_in_list("value NOT IN (0.0, 1.0)")]
+#[case::between_zeros("value BETWEEN -0.0 AND 0.0")]
+#[case::between_one_and_nan("value BETWEEN 1.0 AND 'NaN'::DOUBLE")]
+fn test_vortex_scan_float_filters_match_duckdb(#[case] predicate: &str) -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let values = buffer![
+            -0.0f64,
+            0.0,
+            f64::NAN,
+            -f64::NAN,
+            1.0,
+            -1.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY
+        ];
+        write_single_column_vortex_file("value", values).await
+    });
+    let path = file.path().to_string_lossy();
+    let conn = database_connection();
+    conn.query(&format!("CREATE TABLE native AS SELECT * FROM '{path}'"))?;
+
+    let expected = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM native WHERE {predicate}"),
+    )?;
+    let actual = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM '{path}' WHERE {predicate}"),
+    )?;
+
+    assert_eq!(actual, expected, "{predicate}");
+    Ok(())
+}
+
+/// A pushed filter on nested values gives the same rows as DuckDB gives for a native table.
+/// DuckDB compares the floats in structs and lists with the same semantics as top-level floats.
+#[rstest]
+#[case::struct_eq_zero("s = {'a': 0.0, 'b': 1}")]
+#[case::struct_eq_nan("s = {'a': 'NaN'::DOUBLE, 'b': 1}")]
+#[case::struct_lt_nan("s < {'a': 'NaN'::DOUBLE, 'b': 2}")]
+#[case::struct_gt_inf("s > {'a': 'inf'::DOUBLE, 'b': 1}")]
+#[case::struct_in_list("s IN ({'a': -0.0, 'b': 1}, {'a': 'NaN'::DOUBLE, 'b': 1})")]
+#[case::list_eq_zero("l = [0.0, 1.0]")]
+#[case::list_eq_nan("l = ['NaN'::DOUBLE, 1.0]")]
+#[case::list_gte_nan("l >= ['NaN'::DOUBLE]")]
+#[case::list_not_eq_zero("l <> [-0.0, 1.0]")]
+fn test_vortex_scan_nested_float_filters_match_duckdb(#[case] predicate: &str) -> Result<()> {
+    let conn = database_connection();
+    let tempdir = tempfile::tempdir()?;
+    let path = format!("{}/nested.vortex", tempdir.path().to_string_lossy());
+
+    conn.query(
+        "CREATE TABLE native AS SELECT {'a': value, 'b': 1} AS s, [value, 1.0] AS l FROM \
+         (VALUES (-0.0::DOUBLE), (0.0), ('NaN'::DOUBLE), (-'NaN'::DOUBLE), (1.0), ('inf'), \
+         ('-inf')) t(value)",
+    )?;
+    conn.query(&format!("COPY native TO '{path}' (FORMAT VORTEX)"))?;
+
+    let expected = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM native WHERE {predicate}"),
+    )?;
+    let actual = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM '{path}' WHERE {predicate}"),
+    )?;
+
+    assert_eq!(actual, expected, "{predicate}");
+    Ok(())
+}
+
+/// A top-N dynamic filter keeps every `NaN`, because DuckDB orders all `NaN` values above `+inf`.
+#[test]
+fn test_vortex_scan_float_top_n_keeps_all_nans() -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let values = buffer![1.0f64, -f64::NAN, 2.0, f64::NAN, -0.0, 0.0];
+        write_single_column_vortex_file("value", values).await
+    });
+    let path = file.path().to_string_lossy();
+    let conn = database_connection();
+
+    let nans = query_count(
+        &conn,
+        &format!(
+            "SELECT COUNT(*) FROM (SELECT value FROM '{path}' ORDER BY value DESC LIMIT 2) \
+             WHERE isnan(value)"
+        ),
+    )?;
+
+    assert_eq!(nans, 2);
+    Ok(())
 }
 
 /// Runs `query` on the file at `path` and collects its single BIGINT output column.

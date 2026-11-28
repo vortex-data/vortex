@@ -6,6 +6,7 @@ use std::ops::Range;
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Columnar;
@@ -13,6 +14,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::PiecewiseSequence;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
@@ -21,12 +23,15 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::filter::ChunkDecoder;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -40,6 +45,7 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
+use crate::take_chunks::chunked_positions;
 use crate::take_chunks::nullable_positions;
 use crate::take_chunks::take_in_order;
 use crate::take_chunks::valid_positions;
@@ -48,6 +54,19 @@ use crate::unpack_iter::BitPackingStrategy;
 use crate::unpack_iter::BitUnpackedChunks;
 
 const FULL_ARRAY_DECODE_RATIO: usize = 8;
+/// Full-decode crossover for chunk-local or lightly patched takes (1/16 = 6.25%): above this
+/// selectivity, unpacking the full array once and gathering beats per-chunk decode + patching.
+const PATCHED_CHUNK_DECODE_RATIO: usize = 16;
+/// Full-decode crossover for heavily patched takes when chunk-aligned patching is unavailable
+/// (~0.8%), where `Patches::take` must hash or binary-search the full patch list per index.
+const PATCHED_FALLBACK_DECODE_RATIO: usize = 128;
+/// Minimum patch density (1/200 = 0.5%, ~5 patches per 1,024-value chunk) before scattered
+/// takes switch to full-array decode below `PATCHED_CHUNK_DECODE_RATIO`.
+const HEAVY_PATCH_DENSITY_RATIO: usize = 200;
+/// Scattered-take full-decode threshold in unpacked output bytes per index for heavily patched
+/// chunk-aligned arrays (256 B/index => ~0.8% for 2-byte values, ~1.6% for 4-byte, ~3.1% for 8-byte).
+const SCATTERED_HEAVY_PATCH_BYTES_PER_INDEX: usize = 256;
+const CHUNK_LOCALITY_SAMPLE_PAIRS: usize = 32;
 
 impl TakeExecute for BitPacked {
     fn take(
@@ -86,26 +105,119 @@ impl TakeExecute for BitPacked {
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
         //  be non-negative (pre-condition of creating the BitPackedArray).
         let ptype: PType = PType::try_from(array.dtype())?;
-        let validity = array.validity()?;
-        let taken_validity = validity.take(indices)?;
+        let indices_prim = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
-        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        if let Some(patches) = array.patches()
+            && should_decode_full_for_patches(array, &indices_prim, &patches)?
+        {
+            let prim = array.array().clone().execute::<PrimitiveArray>(ctx)?;
+            return prim.into_array().take(indices_prim.into_array()).map(Some);
+        }
+
+        let validity = array.validity()?;
+        let taken_validity = if indices.is::<Primitive>() {
+            validity.take(indices)?
+        } else {
+            validity.take(&indices_prim.clone().into_array())?
+        };
+
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                take_primitive::<T, I>(array, bit_width, &indices, taken_validity, ctx)?
+            match_each_integer_ptype!(indices_prim.ptype(), |I| {
+                take_primitive::<T, I>(array, bit_width, &indices_prim, taken_validity, ctx)?
             })
         });
-        let taken = if ptype.is_signed_int() {
-            PrimitiveArray::from_buffer_handle(
-                taken.buffer_handle().clone(),
-                ptype,
-                taken.validity()?,
-            )
-        } else {
-            taken
-        };
         Ok(Some(taken.into_array()))
     }
+}
+
+/// Whether `patches` has chunk offsets aligned with `array`'s FastLanes chunks and already-
+/// materialized (or constant) all-valid patch values, so patches can be applied inline per chunk
+/// during `take_primitive` without allocating whole patch buffers.
+fn can_use_chunk_aligned_patches(
+    array: ArrayView<'_, BitPacked>,
+    patches: &Patches,
+) -> VortexResult<bool> {
+    let offset = usize::from(array.offset());
+    let num_chunks = (array.len() + offset).div_ceil(FL_CHUNK_SIZE);
+    let has_aligned_chunks = patches.indices().is::<Primitive>()
+        && (patches.values().is::<Primitive>() || patches.values().is::<Constant>())
+        && patches
+            .chunk_offsets()
+            .as_ref()
+            .is_some_and(|chunk_offsets| {
+                chunk_offsets.is::<Primitive>()
+                    && !chunk_offsets.is_empty()
+                    && chunk_offsets.len() >= num_chunks
+            })
+        && patches.offset_within_chunk().is_some()
+        && patches.offset() % FL_CHUNK_SIZE == offset;
+    if !has_aligned_chunks {
+        return Ok(false);
+    }
+    Ok(matches!(
+        patches.values().validity()?,
+        Validity::NonNullable | Validity::AllValid
+    ))
+}
+
+/// Samples evenly spaced adjacent pairs of `indices` in `O(1)` to detect whether consecutive takes
+/// tend to stay within the same 1,024-element FastLanes chunk (sorted/clustered) vs jumping across
+/// chunks (random/dispersed).
+fn indices_are_chunk_local_typed<I: IntegerPType>(indices: &[I], offset: usize) -> bool {
+    if indices.len() <= 1 {
+        return true;
+    }
+    let pairs = indices.len() - 1;
+    let samples = pairs.min(CHUNK_LOCALITY_SAMPLE_PAIRS);
+    let mut same_chunk = 0usize;
+    for sample in 0..samples {
+        let pos = sample * pairs / samples;
+        let first = AsPrimitive::<usize>::as_(indices[pos]).wrapping_add(offset) / FL_CHUNK_SIZE;
+        let second =
+            AsPrimitive::<usize>::as_(indices[pos + 1]).wrapping_add(offset) / FL_CHUNK_SIZE;
+        if first == second {
+            same_chunk += 1;
+        }
+    }
+    same_chunk * 4 >= samples
+}
+
+fn indices_are_chunk_local(indices: &PrimitiveArray, offset: usize) -> bool {
+    match_each_integer_ptype!(indices.ptype(), |I| {
+        indices_are_chunk_local_typed(indices.as_slice::<I>(), offset)
+    })
+}
+
+/// Decides whether decoding the full patched `BitPacked` array once and gathering from it beats
+/// taking from the compressed array.
+fn should_decode_full_for_patches(
+    array: ArrayView<'_, BitPacked>,
+    indices: &PrimitiveArray,
+    patches: &Patches,
+) -> VortexResult<bool> {
+    let array_len = array.len();
+    let num_indices = indices.len();
+    if array_len == 0 || num_indices == 0 {
+        return Ok(false);
+    }
+    if num_indices.saturating_mul(PATCHED_CHUNK_DECODE_RATIO) > array_len {
+        return Ok(true);
+    }
+    if patches
+        .num_patches()
+        .saturating_mul(HEAVY_PATCH_DENSITY_RATIO)
+        <= array_len
+    {
+        return Ok(false);
+    }
+    if !can_use_chunk_aligned_patches(array, patches)? {
+        return Ok(num_indices.saturating_mul(PATCHED_FALLBACK_DECODE_RATIO) > array_len);
+    }
+    if indices_are_chunk_local(indices, usize::from(array.offset())) {
+        return Ok(false);
+    }
+    let full_decode_bytes = array_len.saturating_mul(array.dtype().as_ptype().byte_width());
+    Ok(num_indices.saturating_mul(SCATTERED_HEAVY_PATCH_BYTES_PER_INDEX) > full_decode_bytes)
 }
 
 fn contiguous_ranges(
@@ -318,6 +430,337 @@ fn unpack_fragment_into<T: NativePType + BitPacking>(
     unsafe { output.set_len(start + indices.len()) };
 }
 
+/// Borrowed unsigned patch indices, avoiding multiplying generic instantiations by patch index
+/// width across all `(value_type, take_index_type)` pairs.
+#[derive(Clone, Copy)]
+enum PatchIndicesSlice<'a> {
+    U8(&'a [u8]),
+    U16(&'a [u16]),
+    U32(&'a [u32]),
+    U64(&'a [u64]),
+}
+
+impl<'a> PatchIndicesSlice<'a> {
+    fn from_primitive(array: &'a PrimitiveArray) -> Self {
+        match array.ptype() {
+            PType::U8 => Self::U8(array.as_slice::<u8>()),
+            PType::U16 => Self::U16(array.as_slice::<u16>()),
+            PType::U32 => Self::U32(array.as_slice::<u32>()),
+            PType::U64 => Self::U64(array.as_slice::<u64>()),
+            other => unreachable!("patch indices must be unsigned integers, got {other}"),
+        }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        match self {
+            Self::U8(slice) => slice.len(),
+            Self::U16(slice) => slice.len(),
+            Self::U32(slice) => slice.len(),
+            Self::U64(slice) => slice.len(),
+        }
+    }
+
+    #[inline]
+    fn get(&self, idx: usize) -> usize {
+        match self {
+            Self::U8(slice) => slice[idx].as_(),
+            Self::U16(slice) => slice[idx].as_(),
+            Self::U32(slice) => slice[idx].as_(),
+            Self::U64(slice) => slice[idx].as_(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PatchValues<'a, T> {
+    Slice(&'a [T]),
+    Constant(T),
+}
+
+impl<T: Copy> PatchValues<'_, T> {
+    #[inline]
+    fn slice(&self, range: Range<usize>) -> Self {
+        match self {
+            Self::Slice(values) => Self::Slice(&values[range]),
+            Self::Constant(value) => Self::Constant(*value),
+        }
+    }
+
+    #[inline]
+    fn get(&self, idx: usize) -> T {
+        match self {
+            Self::Slice(values) => values[idx],
+            Self::Constant(value) => *value,
+        }
+    }
+}
+
+struct ChunkPatches<'a, T> {
+    indices: PatchIndicesSlice<'a>,
+    values: PatchValues<'a, T>,
+    chunk_offsets: PatchIndicesSlice<'a>,
+    base_chunk_offset: usize,
+    base_patch_offset: usize,
+    offset_within_chunk: usize,
+}
+
+impl<T: Copy> ChunkPatches<'_, T> {
+    #[inline]
+    fn chunk_range(&self, chunk: usize) -> VortexResult<Range<usize>> {
+        let num_patches = self.indices.len();
+        let raw_start = self.chunk_offsets.get(chunk);
+        let start = raw_start
+            .checked_sub(self.base_patch_offset)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "patch chunk_offsets[{chunk}] ({raw_start}) < base offset ({})",
+                    self.base_patch_offset
+                )
+            })?
+            .saturating_sub(self.offset_within_chunk)
+            .min(num_patches);
+        let end = if chunk + 1 < self.chunk_offsets.len() {
+            let raw_end = self.chunk_offsets.get(chunk + 1);
+            vortex_ensure!(
+                raw_end >= raw_start,
+                "patch chunk_offsets are not monotonic at chunk {chunk}: {raw_start} > {raw_end}"
+            );
+            raw_end
+                .checked_sub(self.base_patch_offset)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "patch chunk_offsets[{}] ({raw_end}) < base offset ({})",
+                        chunk + 1,
+                        self.base_patch_offset
+                    )
+                })?
+                .saturating_sub(self.offset_within_chunk)
+                .min(num_patches)
+        } else {
+            num_patches
+        };
+        let range = start..end;
+        if !range.is_empty() {
+            let patch_chunk_base = self.base_chunk_offset + chunk * FL_CHUNK_SIZE;
+            let first = self.indices.get(range.start);
+            let last = self.indices.get(range.end - 1);
+            vortex_ensure!(
+                first >= patch_chunk_base
+                    && last
+                        .checked_sub(patch_chunk_base)
+                        .is_some_and(|offset| offset < FL_CHUNK_SIZE),
+                "patch indices [{first}..={last}] out of bounds for chunk {chunk} starting at {patch_chunk_base} with size {FL_CHUNK_SIZE}"
+            );
+        }
+        Ok(range)
+    }
+
+    #[inline]
+    fn patch_scratch_range(
+        &self,
+        chunk: usize,
+        range: Range<usize>,
+        scratch: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
+    ) -> VortexResult<()> {
+        let patch_chunk_base = self.base_chunk_offset + chunk * FL_CHUNK_SIZE;
+        let chunk_values = self.values.slice(range.clone());
+        match self.indices {
+            PatchIndicesSlice::U8(indices) => {
+                apply_chunk_patches_typed(scratch, &indices[range], chunk_values, patch_chunk_base)
+            }
+            PatchIndicesSlice::U16(indices) => {
+                apply_chunk_patches_typed(scratch, &indices[range], chunk_values, patch_chunk_base)
+            }
+            PatchIndicesSlice::U32(indices) => {
+                apply_chunk_patches_typed(scratch, &indices[range], chunk_values, patch_chunk_base)
+            }
+            PatchIndicesSlice::U64(indices) => {
+                apply_chunk_patches_typed(scratch, &indices[range], chunk_values, patch_chunk_base)
+            }
+        }
+    }
+
+    #[inline]
+    fn patch_sparse_range(
+        &self,
+        chunk: usize,
+        range: Range<usize>,
+        within: &[usize],
+        dst: &mut [MaybeUninit<T>],
+    ) {
+        let patch_chunk_base = self.base_chunk_offset + chunk * FL_CHUNK_SIZE;
+        let chunk_values = self.values.slice(range.clone());
+        match self.indices {
+            PatchIndicesSlice::U8(indices) => patch_sparse_within_typed(
+                dst,
+                within,
+                &indices[range],
+                chunk_values,
+                patch_chunk_base,
+            ),
+            PatchIndicesSlice::U16(indices) => patch_sparse_within_typed(
+                dst,
+                within,
+                &indices[range],
+                chunk_values,
+                patch_chunk_base,
+            ),
+            PatchIndicesSlice::U32(indices) => patch_sparse_within_typed(
+                dst,
+                within,
+                &indices[range],
+                chunk_values,
+                patch_chunk_base,
+            ),
+            PatchIndicesSlice::U64(indices) => patch_sparse_within_typed(
+                dst,
+                within,
+                &indices[range],
+                chunk_values,
+                patch_chunk_base,
+            ),
+        }
+    }
+}
+
+fn apply_chunk_patches_typed<T: Copy, P: UnsignedPType>(
+    scratch: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
+    chunk_patch_indices: &[P],
+    chunk_values: PatchValues<'_, T>,
+    patch_chunk_base: usize,
+) -> VortexResult<()> {
+    match chunk_values {
+        PatchValues::Slice(values) => {
+            for (&patch_index, &patch_value) in chunk_patch_indices.iter().zip(values) {
+                let offset = patch_index
+                    .as_()
+                    .checked_sub(patch_chunk_base)
+                    .filter(|&offset| offset < FL_CHUNK_SIZE)
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "patch index {} out of bounds for chunk starting at {patch_chunk_base}",
+                            patch_index.as_()
+                        )
+                    })?;
+                scratch[offset].write(patch_value);
+            }
+        }
+        PatchValues::Constant(patch_value) => {
+            for &patch_index in chunk_patch_indices {
+                let offset = patch_index
+                    .as_()
+                    .checked_sub(patch_chunk_base)
+                    .filter(|&offset| offset < FL_CHUNK_SIZE)
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "patch index {} out of bounds for chunk starting at {patch_chunk_base}",
+                            patch_index.as_()
+                        )
+                    })?;
+                scratch[offset].write(patch_value);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn patch_sparse_within_typed<T: Copy, P: UnsignedPType>(
+    dst: &mut [MaybeUninit<T>],
+    within: &[usize],
+    chunk_patch_indices: &[P],
+    chunk_values: PatchValues<'_, T>,
+    patch_chunk_base: usize,
+) {
+    // Invariant: every element in `chunk_patch_indices[..lo]` is strictly less than
+    // `patch_chunk_base + prev`. On sorted `within` this advances monotonically in O(1) per miss,
+    // while unsorted inputs reset `lo` and still binary-search within the L1-resident chunk slice.
+    let mut prev = 0usize;
+    let mut lo = 0usize;
+    for (slot, &pos_in_chunk) in dst.iter_mut().zip(within) {
+        if pos_in_chunk < prev {
+            lo = 0;
+        }
+        prev = pos_in_chunk;
+        if lo >= chunk_patch_indices.len() {
+            continue;
+        }
+        let Some(needle) = <P as num_traits::NumCast>::from(patch_chunk_base + pos_in_chunk) else {
+            continue;
+        };
+        let first = chunk_patch_indices[lo];
+        if needle < first {
+            continue;
+        }
+        if needle == first {
+            slot.write(chunk_values.get(lo));
+            continue;
+        }
+        let tail = &chunk_patch_indices[lo + 1..];
+        match tail.binary_search(&needle) {
+            Ok(rel) => {
+                let matched = lo + 1 + rel;
+                slot.write(chunk_values.get(matched));
+                lo = matched;
+            }
+            Err(rel) => {
+                lo = lo + 1 + rel;
+            }
+        }
+    }
+}
+
+#[inline]
+fn take_in_order_patched<T: Copy>(
+    decoder: &impl ChunkDecoder<T>,
+    output: &mut BufferMut<T>,
+    positions: impl Iterator<Item = usize>,
+    sparse_limit: usize,
+    scratch: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
+    patches: &ChunkPatches<'_, T>,
+) -> VortexResult<()> {
+    let mut err: Option<VortexError> = None;
+    chunked_positions(positions, |chunk, within| {
+        if err.is_some() {
+            return;
+        }
+        let patch_range = match patches.chunk_range(chunk) {
+            Ok(range) => range,
+            Err(e) => {
+                err = Some(e);
+                return;
+            }
+        };
+        let start = output.len();
+        let dst = &mut output.spare_capacity_mut()[..within.len()];
+        if within.len() > sparse_limit {
+            decoder.decode_chunk(chunk, scratch);
+            if !patch_range.is_empty()
+                && let Err(e) = patches.patch_scratch_range(chunk, patch_range, scratch)
+            {
+                err = Some(e);
+                return;
+            }
+            for (slot, &index) in dst.iter_mut().zip(within) {
+                // SAFETY: every position in `within` is below `FL_CHUNK_SIZE`, and `decode_chunk`
+                // initialized every slot of `scratch`.
+                slot.write(unsafe { scratch.get_unchecked(index).assume_init() });
+            }
+        } else {
+            decoder.decode_indices(chunk, within, dst);
+            if !patch_range.is_empty() {
+                patches.patch_sparse_range(chunk, patch_range, within, dst);
+            }
+        }
+        // SAFETY: every slot in `dst` (`within.len()` elements) was initialized above.
+        unsafe { output.set_len(start + within.len()) };
+    });
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
+}
+
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
@@ -326,7 +769,8 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     if indices.is_empty() {
-        return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity));
+        return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity)
+            .reinterpret_cast(array.dtype().as_ptype()));
     }
 
     let index_validity = indices.validity()?.execute_mask(indices.len(), ctx)?;
@@ -339,6 +783,71 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     let sparse_limit = unpack_chunk_threshold::<T>();
     let mut output = BufferMut::<T>::with_capacity(indices.len());
     let mut scratch = [const { MaybeUninit::uninit() }; FL_CHUNK_SIZE];
+
+    if let Some(patches) = array.patches()
+        && can_use_chunk_aligned_patches(array, &patches)?
+    {
+        let patch_indices_prim = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let chunk_offsets_prim = patches
+            .chunk_offsets()
+            .as_ref()
+            .vortex_expect("checked chunk_offsets is Some")
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let chunk_offsets = PatchIndicesSlice::from_primitive(&chunk_offsets_prim);
+        let patch_values_prim;
+        let patch_values = if let Some(constant) = patches.values().as_opt::<Constant>() {
+            let value = constant
+                .scalar()
+                .as_primitive()
+                .pvalue()
+                .vortex_expect("checked patch values are non-null")
+                .reinterpret_cast(T::PTYPE)
+                .cast::<T>()?;
+            PatchValues::Constant(value)
+        } else {
+            patch_values_prim = patches
+                .values()
+                .clone()
+                .execute::<PrimitiveArray>(ctx)?
+                .reinterpret_cast(T::PTYPE);
+            PatchValues::Slice(patch_values_prim.as_slice::<T>())
+        };
+        let chunk_patches = ChunkPatches {
+            indices: PatchIndicesSlice::from_primitive(&patch_indices_prim),
+            values: patch_values,
+            chunk_offsets,
+            base_chunk_offset: patches.offset() - offset,
+            base_patch_offset: chunk_offsets.get(0),
+            offset_within_chunk: patches
+                .offset_within_chunk()
+                .vortex_expect("checked offset_within_chunk is Some"),
+        };
+
+        match index_validity {
+            Mask::AllTrue(_) => take_in_order_patched(
+                &chunks,
+                &mut output,
+                valid_positions(indices_slice, offset),
+                sparse_limit,
+                &mut scratch,
+                &chunk_patches,
+            )?,
+            _ => take_in_order_patched(
+                &chunks,
+                &mut output,
+                nullable_positions(indices_slice, &index_validity, offset),
+                sparse_limit,
+                &mut scratch,
+                &chunk_patches,
+            )?,
+        }
+
+        return Ok(
+            PrimitiveArray::new(output, taken_validity).reinterpret_cast(array.dtype().as_ptype())
+        );
+    }
+
     match index_validity {
         Mask::AllTrue(_) => take_in_order(
             &chunks,
@@ -356,16 +865,8 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         ),
     }
 
-    let unpatched_taken = if array.dtype().as_ptype().is_signed_int() {
-        let primitive = PrimitiveArray::new(output, taken_validity);
-        PrimitiveArray::from_buffer_handle(
-            primitive.buffer_handle().clone(),
-            array.dtype().as_ptype(),
-            primitive.validity()?,
-        )
-    } else {
-        PrimitiveArray::new(output, taken_validity)
-    };
+    let unpatched_taken =
+        PrimitiveArray::new(output, taken_validity).reinterpret_cast(array.dtype().as_ptype());
     if let Some(patches) = array.patches()
         && let Some(patches) = patches.take(&indices.clone().into_array(), ctx)?
     {
@@ -381,33 +882,41 @@ mod tests {
     use std::sync::LazyLock;
 
     use rand::RngExt;
+    use rand::SeedableRng;
     use rand::distr::Uniform;
     use rand::rng;
+    use rand::rngs::StdRng;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PiecewiseSequenceArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::TakeExecute;
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::builder_with_capacity_in;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
+    use crate::FL_CHUNK_SIZE;
     use crate::bitpacking::array::BitPackedArrayExt;
+    use crate::bitpacking::compute::take::should_decode_full_for_patches;
     use crate::bitpacking::compute::take::take_primitive;
     use crate::bitpacking::compute::take::unpack_chunk_threshold;
 
@@ -814,6 +1323,31 @@ mod tests {
         Ok(())
     }
 
+    /// A lazy take of runs, as a fixed-size-list take makes, is appended to a builder through the
+    /// take kernel with the runs, not with the runs expanded into one index per value.
+    #[rstest]
+    fn test_append_lazy_piecewise_take(#[values(0, 1000)] first_start: u64) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter((0u32..65536).map(|i| i % 1000)).into_array();
+        let packed = BitPackedData::encode(&values, 10, &mut ctx)?.into_array();
+
+        let indices = PiecewiseSequenceArray::try_new(
+            buffer![first_start, 30720, 2048].into_array(),
+            ConstantArray::new(1024u64, 3).into_array(),
+            ConstantArray::new(1u64, 3).into_array(),
+            3072,
+        )?
+        .into_array();
+        let lazy = DictArray::try_new(indices.clone(), packed)?.into_array();
+
+        let mut builder = builder_with_capacity_in(lazy.dtype(), lazy.len(), ctx.allocator());
+        lazy.append_to_builder(builder.as_mut(), &mut ctx)?;
+
+        let expanded = indices.execute::<PrimitiveArray>(&mut ctx)?.into_array();
+        assert_arrays_eq!(builder.finish(), values.take(expanded)?, &mut ctx);
+        Ok(())
+    }
+
     #[rstest]
     #[case(32700, 128, 128)]
     #[case(1, 128, 127)]
@@ -858,5 +1392,624 @@ mod tests {
     #[case(bp(PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).into_array(), 8))]
     fn test_take_bitpacked_conformance(#[case] bitpacked: BitPackedArray) {
         test_take_conformance(&bitpacked.into_array(), &mut SESSION.create_execution_ctx());
+    }
+
+    #[rstest]
+    #[case(PType::U8, 4, 0, false, false)]
+    #[case(PType::I16, 6, 137, true, true)]
+    #[case(PType::U32, 10, 1161, true, true)]
+    #[case(PType::I64, 10, 137, false, true)]
+    fn test_take_heavy_patched_sorted_and_random(
+        #[case] ptype: PType,
+        #[case] bit_width: u8,
+        #[case] slice_offset: usize,
+        #[case] nullable_values: bool,
+        #[case] nullable_indices: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source_len = 24_576usize;
+        let mask = (1u64 << bit_width) - 1;
+        let patch_val = 1u64 << bit_width;
+        let base_nullability = if nullable_values {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+
+        let raw_values = PrimitiveArray::from_option_iter((0..source_len).map(|idx| {
+            if nullable_values && idx.is_multiple_of(29) {
+                None
+            } else if idx.is_multiple_of(61) {
+                Some(patch_val + (idx as u64 % 31))
+            } else {
+                Some((idx as u64).wrapping_mul(13) & mask)
+            }
+        }))
+        .into_array()
+        .cast(DType::Primitive(ptype, base_nullability))?
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_array();
+
+        let packed = BitPackedData::encode(&raw_values, bit_width, &mut ctx)?;
+        assert!(packed.patches().is_some());
+        let packed = if slice_offset > 0 {
+            BitPacked::slice(packed.as_view(), slice_offset..source_len, &mut ctx)?
+                .ok_or_else(|| vortex_err!("BitPacked slice"))?
+        } else {
+            packed.into_array()
+        };
+        let expected_source = raw_values.slice(slice_offset..source_len)?;
+        let len = expected_source.len();
+
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for (selectivity_pct, sorted, expect_full_decode) in
+            [(1usize, true, false), (10, true, true), (10, false, true)]
+        {
+            let count = len * selectivity_pct / 100;
+            let mut raw_indices: Vec<u32> = (0..count)
+                .map(|_| rng.random_range(0..len as u32))
+                .collect();
+            if sorted {
+                raw_indices.sort_unstable();
+            }
+            let indices = if nullable_indices {
+                PrimitiveArray::from_option_iter(raw_indices.into_iter().enumerate().map(
+                    |(pos, value)| {
+                        if pos.is_multiple_of(19) {
+                            None
+                        } else {
+                            Some(value)
+                        }
+                    },
+                ))
+                .into_array()
+            } else {
+                PrimitiveArray::from_iter(raw_indices).into_array()
+            };
+
+            let indices_prim = indices.clone().execute::<PrimitiveArray>(&mut ctx)?;
+            let bp_view = packed.as_::<BitPacked>();
+            let patches = bp_view
+                .patches()
+                .ok_or_else(|| vortex_err!("sliced array retains patches"))?;
+            assert_eq!(
+                should_decode_full_for_patches(bp_view, &indices_prim, &patches)?,
+                expect_full_decode
+            );
+
+            let actual = packed.take(indices.clone())?;
+            let expected = expected_source.take(indices)?;
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0, false)]
+    #[case(137, true)]
+    fn test_take_patched_without_chunk_offsets(
+        #[case] slice_offset: usize,
+        #[case] nullable_indices: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source_len = 24_576usize;
+        let values = PrimitiveArray::from_iter((0..source_len).map(|idx| {
+            if idx.is_multiple_of(53) {
+                (500 + (idx % 500)) as i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
+        let sliced = if slice_offset > 0 {
+            BitPacked::slice(encoded.as_view(), slice_offset..source_len, &mut ctx)?
+                .ok_or_else(|| vortex_err!("BitPacked slice"))?
+                .as_::<BitPacked>()
+                .into_owned()
+        } else {
+            encoded
+        };
+        let parts = BitPacked::into_parts(sliced);
+        let orig_patches = parts
+            .patches
+            .ok_or_else(|| vortex_err!("expected patches"))?;
+        let patches_without_offsets = Patches::new(
+            orig_patches.array_len(),
+            orig_patches.offset(),
+            orig_patches.indices().clone(),
+            orig_patches.values().clone(),
+            None,
+            &mut ctx,
+        )?;
+        let bitpacked = BitPacked::try_new(
+            parts.packed,
+            PType::I16,
+            parts.validity,
+            Some(patches_without_offsets),
+            6,
+            parts.len,
+            parts.offset,
+        )?
+        .into_array();
+        let expected_source = values.slice(slice_offset..source_len)?;
+        let len = expected_source.len();
+
+        let mut rng = StdRng::seed_from_u64(7);
+        for (count, expect_full_decode) in [(8usize, false), (len / 10, true)] {
+            let mut raw: Vec<u32> = (0..count)
+                .map(|_| rng.random_range(0..len as u32))
+                .collect();
+            raw.sort_unstable();
+            let indices = if nullable_indices {
+                PrimitiveArray::from_option_iter(raw.into_iter().enumerate().map(|(pos, value)| {
+                    if pos.is_multiple_of(7) {
+                        None
+                    } else {
+                        Some(value)
+                    }
+                }))
+                .into_array()
+            } else {
+                PrimitiveArray::from_iter(raw).into_array()
+            };
+
+            let bp_view = bitpacked.as_::<BitPacked>();
+            let indices_prim = indices.clone().execute::<PrimitiveArray>(&mut ctx)?;
+            let patches = bp_view
+                .patches()
+                .ok_or_else(|| vortex_err!("patches present"))?;
+            assert_eq!(
+                should_decode_full_for_patches(bp_view, &indices_prim, &patches)?,
+                expect_full_decode
+            );
+            assert_arrays_eq!(
+                bitpacked.take(indices.clone())?,
+                expected_source.take(indices)?,
+                &mut ctx
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_fully_patched_chunk_and_nested_slices() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source_len = 6 * FL_CHUNK_SIZE;
+        // Chunk 1 is fully patched; other chunks have sparse patches extending past mid-chunk ends.
+        let values = PrimitiveArray::from_iter((0..source_len).map(|idx| {
+            if (FL_CHUNK_SIZE..2 * FL_CHUNK_SIZE).contains(&idx) || idx.is_multiple_of(17) {
+                (500 + (idx % 1000)) as i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
+
+        // Slice ending mid-chunk with patches past its end, then slice again so
+        // `offset_within_chunk` accumulates across slices.
+        let first_slice =
+            BitPacked::slice(encoded.as_view(), 137..4 * FL_CHUNK_SIZE + 500, &mut ctx)?
+                .ok_or_else(|| vortex_err!("first BitPacked slice"))?;
+        let nested_slice = BitPacked::slice(
+            first_slice.as_::<BitPacked>(),
+            200..3 * FL_CHUNK_SIZE + 100,
+            &mut ctx,
+        )?
+        .ok_or_else(|| vortex_err!("nested BitPacked slice"))?;
+        let expected_nested = values.slice(337..337 + (3 * FL_CHUNK_SIZE - 100))?;
+
+        // Exercise both sparse-in-chunk (<= 32) and dense-in-chunk (> 32) selections on the
+        // nested slice and on the fully patched chunk.
+        let sparse_indices =
+            PrimitiveArray::from_iter([0u32, 1, 10, 700, 750, 1_500, 2_000, 2_500, 2_900])
+                .into_array();
+        let dense_indices =
+            PrimitiveArray::from_iter((680u32..740).chain(1_600u32..1_660).chain(2_700u32..2_760))
+                .into_array();
+
+        for indices in [sparse_indices, dense_indices] {
+            assert_arrays_eq!(
+                nested_slice.take(indices.clone())?,
+                expected_nested.take(indices)?,
+                &mut ctx
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_duplicates_out_of_order_and_zero_width() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 8_192usize;
+        for bit_width in [0u8, 5u8] {
+            let values = PrimitiveArray::from_iter((0..len).map(|idx| {
+                if idx.is_multiple_of(37) {
+                    (900 + idx % 100) as i16
+                } else if bit_width == 0 {
+                    0i16
+                } else {
+                    (idx % (1 << bit_width)) as i16
+                }
+            }))
+            .into_array();
+            let packed = BitPackedData::encode(&values, bit_width, &mut ctx)?.into_array();
+
+            // Repeated patched indices, repeated unpatched indices, descending within chunk,
+            // and chunk-boundary indices.
+            let tricky = PrimitiveArray::from_iter([
+                0u32, 0, 37, 37, 37, 36, 36, 38, 38, 1023, 74, 0, 1024, 1024, 1036, 1036, 2047,
+                2048, 2072, 2072, 100, 100, 74, 37,
+            ])
+            .into_array();
+            assert_arrays_eq!(packed.take(tricky.clone())?, values.take(tricky)?, &mut ctx);
+
+            // All-null take indices over a patched array.
+            let all_null =
+                PrimitiveArray::from_option_iter(vec![Option::<u32>::None; 128]).into_array();
+            assert_arrays_eq!(
+                packed.take(all_null.clone())?,
+                values.take(all_null)?,
+                &mut ctx
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_all_index_widths() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // Small array so u8 / i8 indices stay in bounds.
+        let small_values = PrimitiveArray::from_iter((0..120u16).map(|idx| {
+            if idx.is_multiple_of(7) {
+                500 + idx
+            } else {
+                idx % 32
+            }
+        }))
+        .into_array();
+        let small_packed = BitPackedData::encode(&small_values, 5, &mut ctx)?;
+        for index_ptype in [
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+        ] {
+            // 6 indices out of 120 (5% < 6.25% chunk-local cutoff) so inline patch lookup runs.
+            let indices_prim = PrimitiveArray::from_iter([0u8, 7, 7, 14, 70, 119])
+                .into_array()
+                .cast(index_ptype.into())?
+                .execute::<PrimitiveArray>(&mut ctx)?;
+            let patches = small_packed
+                .patches()
+                .ok_or_else(|| vortex_err!("small array has patches"))?;
+            assert!(!should_decode_full_for_patches(
+                small_packed.as_view(),
+                &indices_prim,
+                &patches,
+            )?);
+            let indices = indices_prim.into_array();
+            assert_arrays_eq!(
+                small_packed.clone().into_array().take(indices.clone())?,
+                small_values.take(indices)?,
+                &mut ctx
+            );
+        }
+
+        // Larger array exercising inline chunk-patched (3.125% sorted) and full-decode (3.125%
+        // random) paths across u16..u64 and i16..i64.
+        let large_len = 16_384usize;
+        let large_values = PrimitiveArray::from_iter((0..large_len).map(|idx| {
+            if idx.is_multiple_of(59) {
+                (600 + (idx % 200)) as i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let large_packed = BitPackedData::encode(&large_values, 6, &mut ctx)?;
+        let mut rng = StdRng::seed_from_u64(123);
+        let random_raw: Vec<u32> = (0..large_len / 32)
+            .map(|_| rng.random_range(0..large_len as u32))
+            .collect();
+        let mut sorted_raw = random_raw.clone();
+        sorted_raw.sort_unstable();
+
+        for index_ptype in [
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+        ] {
+            for (raw, expect_full_decode) in [(&sorted_raw, false), (&random_raw, true)] {
+                let indices_prim = PrimitiveArray::from_iter(raw.iter().copied())
+                    .into_array()
+                    .cast(index_ptype.into())?
+                    .execute::<PrimitiveArray>(&mut ctx)?;
+                let patches = large_packed
+                    .patches()
+                    .ok_or_else(|| vortex_err!("large array has patches"))?;
+                assert_eq!(
+                    should_decode_full_for_patches(
+                        large_packed.as_view(),
+                        &indices_prim,
+                        &patches,
+                    )?,
+                    expect_full_decode
+                );
+                let indices = indices_prim.into_array();
+                assert_arrays_eq!(
+                    large_packed.clone().into_array().take(indices.clone())?,
+                    large_values.take(indices)?,
+                    &mut ctx
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_constant_values_and_narrow_chunk_offsets() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 4 * FL_CHUNK_SIZE;
+        let values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx.is_multiple_of(31) {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
+        let parts = BitPacked::into_parts(encoded);
+        let orig_patches = parts
+            .patches
+            .ok_or_else(|| vortex_err!("encoded array has patches"))?;
+        let narrow_chunk_offsets = orig_patches
+            .chunk_offsets()
+            .as_ref()
+            .map(|co| {
+                co.cast(PType::U16.into())?
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .map(IntoArray::into_array)
+            })
+            .transpose()?;
+        let const_patches = Patches::new(
+            orig_patches.array_len(),
+            orig_patches.offset(),
+            orig_patches.indices().clone(),
+            ConstantArray::new(999i16, orig_patches.num_patches()).into_array(),
+            narrow_chunk_offsets,
+            &mut ctx,
+        )?;
+        let packed = BitPacked::try_new(
+            parts.packed,
+            PType::I16,
+            parts.validity,
+            Some(const_patches),
+            6,
+            parts.len,
+            parts.offset,
+        )?;
+        assert!(super::can_use_chunk_aligned_patches(
+            packed.as_view(),
+            &packed
+                .patches()
+                .ok_or_else(|| vortex_err!("const patches"))?,
+        )?);
+        let indices =
+            PrimitiveArray::from_iter([0u32, 1, 31, 62, 1024, 1054, 2048, 3069, 4092]).into_array();
+        assert_arrays_eq!(
+            packed.into_array().take(indices.clone())?,
+            values.take(indices)?,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_piecewise_unsorted_ranges() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 32_768usize;
+        let values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx.is_multiple_of(43) {
+                (1_000 + (idx % 500)) as i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let packed = BitPackedData::encode(&values, 6, &mut ctx)?.into_array();
+
+        // Unsorted overlapping runs totalling 3,072 rows (< 32,768 / 8 = 4,096).
+        let indices = PiecewiseSequenceArray::try_new(
+            buffer![20_000u64, 5_000, 12_000, 5_100, 28_000, 1_000].into_array(),
+            ConstantArray::new(512u64, 6).into_array(),
+            ConstantArray::new(1u64, 6).into_array(),
+            3_072,
+        )?
+        .into_array();
+        let expanded = indices
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
+        assert_arrays_eq!(packed.take(indices)?, values.take(expanded)?, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_should_decode_full_for_patches_scattered_cutoff() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 64 * FL_CHUNK_SIZE;
+        let one_pct = len / 100;
+        let ten_pct = len / 10;
+
+        let scattered_1pct =
+            PrimitiveArray::from_iter((0..one_pct).map(|i| ((i * 7_919) % len) as u32));
+        let sorted_1pct = PrimitiveArray::from_iter((0..one_pct).map(|i| (i * 100) as u32));
+        let scattered_10pct =
+            PrimitiveArray::from_iter((0..ten_pct).map(|i| ((i * 7_919) % len) as u32));
+
+        // Lightly patched i16 (~0.05% patches): 1% scattered stays on chunk-aligned sparse take,
+        // while 10% scattered decodes the full array.
+        let light_i16_values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx % 2_000 == 0 {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let light_i16 = BitPackedData::encode(&light_i16_values, 6, &mut ctx)?;
+        let light_patches = light_i16
+            .patches()
+            .ok_or_else(|| vortex_err!("lightly patched"))?;
+        assert!(!should_decode_full_for_patches(
+            light_i16.as_view(),
+            &scattered_1pct,
+            &light_patches,
+        )?);
+        assert!(should_decode_full_for_patches(
+            light_i16.as_view(),
+            &scattered_10pct,
+            &light_patches,
+        )?);
+
+        // Heavily patched i16 (~1% patches): 1% scattered decodes full array, 1% sorted does not.
+        let heavy_i16_values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx % 97 == 0 {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let heavy_i16 = BitPackedData::encode(&heavy_i16_values, 6, &mut ctx)?;
+        let heavy_i16_patches = heavy_i16
+            .patches()
+            .ok_or_else(|| vortex_err!("heavily patched i16"))?;
+        assert!(should_decode_full_for_patches(
+            heavy_i16.as_view(),
+            &scattered_1pct,
+            &heavy_i16_patches,
+        )?);
+        assert!(!should_decode_full_for_patches(
+            heavy_i16.as_view(),
+            &sorted_1pct,
+            &heavy_i16_patches,
+        )?);
+
+        // Heavily patched i64 (~1% patches): 1% scattered stays on chunk-aligned sparse take
+        // because full-decoding 8-byte elements costs 4x more output bandwidth than i16.
+        let heavy_i64_values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx % 97 == 0 {
+                999i64
+            } else {
+                (idx % 64) as i64
+            }
+        }))
+        .into_array();
+        let heavy_i64 = BitPackedData::encode(&heavy_i64_values, 6, &mut ctx)?;
+        let heavy_i64_patches = heavy_i64
+            .patches()
+            .ok_or_else(|| vortex_err!("heavily patched i64"))?;
+        assert!(!should_decode_full_for_patches(
+            heavy_i64.as_view(),
+            &scattered_1pct,
+            &heavy_i64_patches,
+        )?);
+
+        // Heavily patched array without chunk offsets hits the fallback cutoff even for sorted 1%.
+        let offsetless_patches = Patches::new(
+            heavy_i16_patches.array_len(),
+            heavy_i16_patches.offset(),
+            heavy_i16_patches.indices().clone(),
+            heavy_i16_patches.values().clone(),
+            None,
+            &mut ctx,
+        )?;
+        assert!(should_decode_full_for_patches(
+            heavy_i16.as_view(),
+            &sorted_1pct,
+            &offsetless_patches,
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_corrupt_chunk_offsets_returns_error() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 4 * FL_CHUNK_SIZE;
+        let values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx.is_multiple_of(31) {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
+        let parts = BitPacked::into_parts(encoded);
+        let orig_patches = parts
+            .patches
+            .ok_or_else(|| vortex_err!("encoded array has patches"))?;
+
+        // Corrupt chunk_offsets so chunk 2's start points back into chunk 1's patches.
+        let mut corrupt_offsets = orig_patches
+            .chunk_offsets()
+            .as_ref()
+            .ok_or_else(|| vortex_err!("encoded patches have chunk_offsets"))?
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .as_slice::<u64>()
+            .to_vec();
+        corrupt_offsets[2] = corrupt_offsets[1];
+        let corrupt_patches = Patches::new(
+            orig_patches.array_len(),
+            orig_patches.offset(),
+            orig_patches.indices().clone(),
+            orig_patches.values().clone(),
+            Some(PrimitiveArray::from_iter(corrupt_offsets).into_array()),
+            &mut ctx,
+        )?;
+        let packed = BitPacked::try_new(
+            parts.packed,
+            PType::I16,
+            parts.validity,
+            Some(corrupt_patches),
+            6,
+            parts.len,
+            parts.offset,
+        )?
+        .into_array();
+
+        // Dense take in chunk 2 (> sparse_limit) must return an error rather than panicking.
+        let dense_indices = PrimitiveArray::from_iter(
+            (2 * FL_CHUNK_SIZE..2 * FL_CHUNK_SIZE + 128).map(|i| i as u32),
+        )
+        .into_array();
+        let dense_err = packed
+            .take(dense_indices)?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert!(dense_err.is_err());
+
+        // Sparse take in chunk 2 (<= sparse_limit) must also return an error rather than wrong data.
+        let sparse_indices =
+            PrimitiveArray::from_iter([2 * FL_CHUNK_SIZE as u32, (2 * FL_CHUNK_SIZE + 1) as u32])
+                .into_array();
+        let sparse_err = packed
+            .take(sparse_indices)?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert!(sparse_err.is_err());
+        Ok(())
     }
 }

@@ -19,14 +19,14 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::cast::Cast;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
+use vortex_array::scalar_fn::builtin::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::Between;
 use vortex_session::VortexSession;
 
 use crate::DateTimeParts;
@@ -108,7 +108,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
     }
 }
 
-/// Push down comparison operators (Binary and Between) to the days column when both seconds
+/// Push down comparison operators (Compare and Between) to the days column when both seconds
 /// and subseconds are constant zero on both sides of the comparison.
 ///
 /// When a DateTimeParts array has constant zero for seconds and subseconds, and is being
@@ -130,13 +130,8 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
         parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only handle comparison operations (Binary comparisons or Between)
-        if parent
-            .scalar_fn()
-            .as_opt::<Binary>()
-            .is_none_or(|c| !c.is_comparison())
-            && !parent.scalar_fn().is::<Between>()
-        {
+        // Only handle comparison operations (Compare or Between)
+        if !parent.scalar_fn().is::<Compare>() && !parent.scalar_fn().is::<Between>() {
             return Ok(None);
         }
 
@@ -222,6 +217,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
@@ -230,11 +226,12 @@ mod tests {
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -320,14 +317,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case::lt(Operator::Lt, true)]
-    #[case::lte(Operator::Lte, true)]
-    #[case::eq(Operator::Eq, false)]
-    #[case::not_eq(Operator::NotEq, true)]
-    #[case::gt(Operator::Gt, false)]
-    #[case::gte(Operator::Gte, false)]
+    #[case::lt(CompareOperator::Lt, true)]
+    #[case::lte(CompareOperator::Lte, true)]
+    #[case::eq(CompareOperator::Eq, false)]
+    #[case::not_eq(CompareOperator::NotEq, true)]
+    #[case::gt(CompareOperator::Gt, false)]
+    #[case::gte(CompareOperator::Gte, false)]
     fn test_midnight_comparison_beyond_narrowed_days(
-        #[case] op: Operator,
+        #[case] op: CompareOperator,
         #[case] expected: bool,
     ) -> VortexResult<()> {
         let narrowed = DateTimeParts::try_new(
@@ -341,7 +338,7 @@ mod tests {
 
         // Midnight on 9999-12-31 UTC, beyond the narrowed days child's range.
         let constant = midnight_constant(2_932_896, TimeUnit::Microseconds, 2);
-        let comparison = Binary::try_new(narrowed.into_array(), constant, op)?.into_array();
+        let comparison = Compare::try_new(narrowed.into_array(), constant, op)?.into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
@@ -361,7 +358,7 @@ mod tests {
 
         // Compare: dtp <= day 1 (midnight)
         let constant = midnight_constant(1, TimeUnit::Seconds, len);
-        let comparison = Binary::try_new(dtp.into_array(), constant, Operator::Lte)
+        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
             .unwrap()
             .into_array();
 
@@ -436,7 +433,7 @@ mod tests {
             .clone()
             .into_nullable();
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
-        let comparison = Binary::try_new(dtp, constant, Operator::Lte)?.into_array();
+        let comparison = Compare::try_new(dtp, constant, CompareOperator::Lte)?.into_array();
 
         let optimized = comparison.optimize_ctx(&SESSION)?;
         assert_eq!(optimized.dtype(), comparison.dtype());
@@ -458,7 +455,7 @@ mod tests {
 
         // Compare against non-midnight constant (day 1 at noon)
         let constant = non_midnight_constant(1, 43200, TimeUnit::Seconds, len);
-        let comparison = Binary::try_new(dtp.into_array(), constant, Operator::Lte)
+        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
             .unwrap()
             .into_array();
 
@@ -494,7 +491,7 @@ mod tests {
 
         // Compare against midnight constant
         let constant = midnight_constant(1, TimeUnit::Seconds, len);
-        let comparison = Binary::try_new(dtp.into_array(), constant, Operator::Lte)
+        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
             .unwrap()
             .into_array();
 
@@ -506,5 +503,125 @@ mod tests {
             BoolArray::from_iter([true, false, false]),
             &mut ctx
         );
+    }
+
+    #[rstest]
+    #[case::partial(Mask::from_iter([true, false, true, false, true]), &[0i32, 2, 4])]
+    #[case::all_true(Mask::new_true(5), &[0i32, 1, 2, 3, 4])]
+    #[case::all_false(Mask::new_false(5), &[])]
+    fn test_filter_pushdown_rule_constant_seconds_and_subseconds(
+        #[case] mask: Mask,
+        #[case] expected_days: &[i32],
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        );
+        let dtp = DateTimeParts::try_new(
+            dtype.clone(),
+            PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array(),
+            ConstantArray::new(3600i32, 5).into_array(),
+            ConstantArray::new(250i32, 5).into_array(),
+        )?;
+        let filter = FilterArray::try_new(dtp.clone().into_array(), mask.clone())?;
+
+        let reduced = DTPFilterPushDownRule
+            .reduce_parent(dtp.as_view(), filter.as_view(), 0)?
+            .vortex_expect(
+                "DTPFilterPushDownRule must fire when seconds and subseconds are constant",
+            );
+
+        let reduced_dtp = reduced.as_::<DateTimeParts>();
+        assert_eq!(reduced_dtp.len(), mask.true_count());
+        assert_eq!(reduced_dtp.dtype(), &dtype);
+        assert!(reduced_dtp.seconds().is::<Constant>());
+        assert!(reduced_dtp.subseconds().is::<Constant>());
+        assert_eq!(reduced_dtp.seconds().len(), mask.true_count());
+        assert_eq!(reduced_dtp.subseconds().len(), mask.true_count());
+
+        let expected = DateTimeParts::try_new(
+            dtype,
+            PrimitiveArray::new(Buffer::copy_from(expected_days), Validity::NonNullable)
+                .into_array(),
+            ConstantArray::new(3600i32, expected_days.len()).into_array(),
+            ConstantArray::new(250i32, expected_days.len()).into_array(),
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(reduced, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_pushdown_rule_preserves_nullable_days() -> VortexResult<()> {
+        let dtype =
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased());
+        let dtp = DateTimeParts::try_new(
+            dtype.clone(),
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), None, Some(30)])
+                .into_array(),
+            ConstantArray::new(0i32, 5).into_array(),
+            ConstantArray::new(0i32, 5).into_array(),
+        )?;
+        let mask = Mask::from_iter([false, true, true, false, true]);
+        let filter = FilterArray::try_new(dtp.clone().into_array(), mask)?;
+
+        let reduced = DTPFilterPushDownRule
+            .reduce_parent(dtp.as_view(), filter.as_view(), 0)?
+            .vortex_expect("DTPFilterPushDownRule must fire for nullable days with constant parts");
+
+        let expected = DateTimeParts::try_new(
+            dtype,
+            PrimitiveArray::from_option_iter([None, Some(20i32), Some(30)]).into_array(),
+            ConstantArray::new(0i32, 3).into_array(),
+            ConstantArray::new(0i32, 3).into_array(),
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(reduced, expected, &mut ctx);
+
+        // Also verify optimization through the session hits the rule and preserves constant parts.
+        let optimized = filter.into_array().optimize_ctx(&SESSION)?;
+        let optimized_dtp = optimized.as_::<DateTimeParts>();
+        assert!(optimized_dtp.seconds().is::<Constant>());
+        assert!(optimized_dtp.subseconds().is::<Constant>());
+        assert_arrays_eq!(optimized, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_constant_seconds(false, true)]
+    #[case::non_constant_subseconds(true, false)]
+    fn test_filter_pushdown_rule_declines_non_constant_parts(
+        #[case] seconds_constant: bool,
+        #[case] subseconds_constant: bool,
+    ) -> VortexResult<()> {
+        let dtype = DType::Extension(
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        );
+        let seconds = if seconds_constant {
+            ConstantArray::new(0i32, 4).into_array()
+        } else {
+            PrimitiveArray::from_iter([0i32, 10, 20, 30]).into_array()
+        };
+        let subseconds = if subseconds_constant {
+            ConstantArray::new(0i32, 4).into_array()
+        } else {
+            PrimitiveArray::from_iter([0i32, 1, 2, 3]).into_array()
+        };
+        let dtp = DateTimeParts::try_new(
+            dtype,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array(),
+            seconds,
+            subseconds,
+        )?;
+        let filter = FilterArray::try_new(
+            dtp.clone().into_array(),
+            Mask::from_iter([true, false, true, false]),
+        )?;
+
+        assert!(
+            DTPFilterPushDownRule
+                .reduce_parent(dtp.as_view(), filter.as_view(), 0)?
+                .is_none()
+        );
+        Ok(())
     }
 }

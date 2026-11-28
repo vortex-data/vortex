@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# Vortex aggregate pushdown must match DuckDB's float semantics:
+# NULL is skipped, NaN is a real value
+
+statement ok
+SET disabled_optimizers='statistics_propagation';
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        ('nan'::DOUBLE),
+        (1.0),
+        (2.0),
+        (CAST(NULL AS DOUBLE))
+    ) AS t(x)
+) TO '${WORK_DIR}/nan-agg.vortex';
+
+query TT
+EXPLAIN
+SELECT count(*), count(x), sum(x), max(x), avg(x)
+FROM '${WORK_DIR}/nan-agg.vortex';
+----
+<!REGEX>:.*Ungrouped Aggregate.*
+
+query IIRRR
+SELECT count(*), count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+4 3 NaN NaN NaN
+
+query TT
+EXPLAIN
+SELECT min(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+<REGEX>:.*Ungrouped Aggregate.*
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+1
+
+query TT
+EXPLAIN
+SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+<REGEX>:.*Ungrouped Aggregate.*
+
+query RR
+SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+1 NaN
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES ('-nan'::DOUBLE), (1.0), (2.0)) AS t(x)
+) TO '${WORK_DIR}/neg-nan.vortex';
+
+query IRR
+SELECT count(x), sum(x), max(x) FROM '${WORK_DIR}/neg-nan.vortex';
+----
+3 NaN NaN
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES ('nan'::DOUBLE), ('nan'::DOUBLE)) AS t(x)
+) TO '${WORK_DIR}/all-nan.vortex';
+
+query IRRR
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/all-nan.vortex';
+----
+2 NaN NaN NaN
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/all-nan.vortex';
+----
+NaN

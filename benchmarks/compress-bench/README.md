@@ -9,6 +9,12 @@ optional buffer compression. Its timings therefore isolate serialization and des
 without codec cost. Its file size provides the approximately 1x baseline for compression
 ratios. Parquet provides the established reference for a compressed columnar representation.
 
+The suite also records the file size of two formats that it does not time: Parquet with Snappy
+(`parquet-snappy`), written with the same settings as the timed Parquet except for the codec,
+which is zstd level 3 in the timed Parquet, and Vortex with the compact
+strategy (`vortex-compact`), as the SQL benchmarks write it. Each is one write per dataset, and
+neither runs in GPU mode. bench shows these sizes in its `File Sizes` group.
+
 The suite covers NYC taxi data and several
 [Public BI](https://github.com/cwida/public_bi_benchmark) tables (Arade, Bimbo,
 CMSprovider, Euro2016, Food, HashTags), TPC-H `l_comment` variants, the TPC-H `lineitem`,

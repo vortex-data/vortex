@@ -5,10 +5,7 @@
 
 use std::fmt;
 
-use vortex_error::VortexError;
-use vortex_error::vortex_err;
-
-use crate::scalar_fn::fns::operators::Operator;
+use crate::proto::expr::numeric_opts::NumericOp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Binary element-wise operations.
@@ -27,31 +24,34 @@ pub enum NumericOperator {
 
 impl fmt::Display for NumericOperator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
+        let display = match self {
+            NumericOperator::Add => "+",
+            NumericOperator::Sub => "-",
+            NumericOperator::Mul => "*",
+            NumericOperator::Div => "/",
+        };
+        fmt::Display::fmt(display, f)
     }
 }
 
-impl From<NumericOperator> for Operator {
+impl From<NumericOperator> for NumericOp {
     fn from(op: NumericOperator) -> Self {
         match op {
-            NumericOperator::Add => Operator::Add,
-            NumericOperator::Sub => Operator::Sub,
-            NumericOperator::Mul => Operator::Mul,
-            NumericOperator::Div => Operator::Div,
+            NumericOperator::Add => NumericOp::Add,
+            NumericOperator::Sub => NumericOp::Sub,
+            NumericOperator::Mul => NumericOp::Mul,
+            NumericOperator::Div => NumericOp::Div,
         }
     }
 }
 
-impl TryFrom<Operator> for NumericOperator {
-    type Error = VortexError;
-
-    fn try_from(op: Operator) -> Result<Self, Self::Error> {
+impl From<NumericOp> for NumericOperator {
+    fn from(op: NumericOp) -> Self {
         match op {
-            Operator::Add => Ok(NumericOperator::Add),
-            Operator::Sub => Ok(NumericOperator::Sub),
-            Operator::Mul => Ok(NumericOperator::Mul),
-            Operator::Div => Ok(NumericOperator::Div),
-            _ => Err(vortex_err!("{op} is not a numeric operator")),
+            NumericOp::Add => NumericOperator::Add,
+            NumericOp::Sub => NumericOperator::Sub,
+            NumericOp::Mul => NumericOperator::Mul,
+            NumericOp::Div => NumericOperator::Div,
         }
     }
 }

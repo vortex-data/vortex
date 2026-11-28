@@ -18,11 +18,10 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
-use crate::executor::max_iterations;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 
 /// Reference-counted type-erased accumulator.
 pub type AccumulatorRef = Box<dyn DynAccumulator>;
@@ -143,7 +142,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
         //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
         let mut batch = batch.clone();
-        for _ in 0..max_iterations() {
+        for _ in 0..ctx.max_iterations() {
             if batch.is::<AnyColumnar>() {
                 break;
             }
@@ -404,12 +403,12 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
-    use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
+    use crate::stats::StatsProviderExt;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`

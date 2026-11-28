@@ -67,6 +67,10 @@ name = "for_cuda"
 harness = false
 
 [[bench]]
+name = "widen_cuda"
+harness = false
+
+[[bench]]
 name = "delta_cuda"
 harness = false
 
@@ -96,6 +100,10 @@ harness = false
 
 [[bench]]
 name = "alp_cuda"
+harness = false
+
+[[bench]]
+name = "alprd_cuda"
 harness = false
 
 [[bench]]

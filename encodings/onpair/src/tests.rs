@@ -20,13 +20,15 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::consistency::test_array_consistency;
+use vortex_array::compute::conformance::filter::test_filter_conformance;
 use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -219,7 +221,7 @@ fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
 
     // Equality compare drives CodesWindow over the u64 codes_offsets.
     let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
-    let eq = wide.into_array().binary(needle, Operator::Eq)?;
+    let eq = wide.into_array().compare(needle, CompareOperator::Eq)?;
     assert_arrays_eq!(
         &eq,
         &BoolArray::from_iter([true, false, false, false, true]),
@@ -607,6 +609,80 @@ fn test_onpair_take_conformance() -> vortex_error::VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let arr = compress_onpair(&take_input().into_array(), &mut ctx)?;
     test_take_conformance(&arr.into_array(), &mut ctx);
+    Ok(())
+}
+
+/// A repeated probe reads each row's codes boundaries and decoded length through the children's
+/// own probes, so it must match the input in any order, also from a slice.
+#[test]
+fn test_onpair_probe_consistency() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = take_input().into_array();
+    let encoded = compress_onpair(&input, &mut ctx)?.into_array();
+
+    for (array, expected) in [
+        (encoded.clone(), input.clone()),
+        (
+            encoded.slice(7..1_500)?.optimize_ctx(&SESSION)?,
+            input.slice(7..1_500)?,
+        ),
+    ] {
+        assert!(array.is::<OnPair>());
+
+        let mut probe = array.repeated_probe();
+        let order = (0..array.len()).rev().chain((0..array.len()).step_by(13));
+        for index in order {
+            assert_eq!(
+                probe.execute_scalar(index, &mut ctx)?,
+                expected.execute_scalar(index, &mut ctx)?,
+                "row {index}"
+            );
+        }
+
+        test_array_consistency(&array, &mut ctx);
+        test_filter_conformance(&array, &mut ctx);
+    }
+
+    Ok(())
+}
+
+#[rstest::rstest]
+#[case::utf8(sample_input())]
+#[case::utf8_nullable(VarBinArray::from_iter(
+    [Some("hello"), None, Some("world"), Some("test"), None],
+    DType::Utf8(Nullability::Nullable),
+))]
+#[case::binary(VarBinArray::from_iter(
+    [b"alpha".as_slice(), b"beta", b"gamma", b"delta", b"epsilon"].map(Some),
+    DType::Binary(Nullability::NonNullable),
+))]
+#[case::binary_nullable(VarBinArray::from_iter(
+    [Some(b"foo".as_slice()), None, Some(b"bar"), None, Some(b"baz")],
+    DType::Binary(Nullability::Nullable),
+))]
+#[case::single(VarBinArray::from_iter(
+    ["single element"].map(Some),
+    DType::Utf8(Nullability::NonNullable),
+))]
+#[case::empty_strings(VarBinArray::from_iter(
+    ["", "test", "", "hello", ""].map(Some),
+    DType::Utf8(Nullability::NonNullable),
+))]
+fn test_onpair_consistency_and_filter_conformance(
+    #[case] varbin: VarBinArray,
+) -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = compress_onpair(&varbin.into_array(), &mut ctx)?.into_array();
+    test_array_consistency(&encoded, &mut ctx);
+    test_filter_conformance(&encoded, &mut ctx);
+    if encoded.len() > 2 {
+        let sliced = encoded
+            .slice(1..encoded.len() - 1)?
+            .optimize_ctx(&SESSION)?;
+        assert!(sliced.is::<OnPair>());
+        test_array_consistency(&sliced, &mut ctx);
+        test_filter_conformance(&sliced, &mut ctx);
+    }
     Ok(())
 }
 

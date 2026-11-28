@@ -416,7 +416,7 @@ fn extension_with_constant_storage() -> VortexResult<()> {
     let array = ExtensionArray::new(dtype.erased(), storage).into_array();
     let mut ctx = SESSION.create_execution_ctx();
 
-    assert!(is_constant_for_compression(&array, &mut ctx)?);
+    assert!(is_constant_for_compression(&array, true, &mut ctx)?);
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
     assert_arrays_eq!(compressed, array, &mut ctx);
@@ -451,7 +451,10 @@ fn encoded_storage_constant_detection(
     };
     let mut ctx = SESSION.create_execution_ctx();
 
-    assert_eq!(is_constant_for_compression(&array, &mut ctx)?, constant);
+    assert_eq!(
+        is_constant_for_compression(&array, true, &mut ctx)?,
+        constant
+    );
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
@@ -492,7 +495,10 @@ fn string_and_binary_constants(
     )
     .into_array();
     let mut ctx = SESSION.create_execution_ctx();
-    assert_eq!(is_constant_for_compression(&array, &mut ctx)?, constant);
+    assert_eq!(
+        is_constant_for_compression(&array, true, &mut ctx)?,
+        constant
+    );
     let compressed =
         CascadingCompressor::new(vec![&StringDictScheme]).compress(&array, &mut ctx)?;
     assert_arrays_eq!(compressed, array, &mut ctx);
@@ -546,7 +552,7 @@ fn binary_references(
     )?
     .into_array()
     .slice(1..99)?;
-    assert!(is_constant_for_compression(&array, &mut ctx)?);
+    assert!(is_constant_for_compression(&array, true, &mut ctx)?);
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
@@ -573,7 +579,7 @@ fn values_under_nulls_are_ignored(
 ) -> VortexResult<()> {
     let array = if sliced { array.slice(1..99)? } else { array };
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(is_constant_for_compression(&array, &mut ctx)?);
+    assert!(is_constant_for_compression(&array, true, &mut ctx)?);
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Masked>());
     assert!(compressed.children()[0].is::<Constant>());

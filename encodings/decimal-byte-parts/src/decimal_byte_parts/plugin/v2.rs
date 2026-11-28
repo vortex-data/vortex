@@ -5,14 +5,19 @@
 //!
 //! A `vortex.decimal_byte_parts.v2` node has no buffers. Its parent supplies the decimal dtype
 //! and length. The first child holds the signed most significant word and has the decimal
-//! array's nullability. One to three non-nullable `u64` children follow, most significant first.
-//! All children have the same length. The decimal precision limits how many lower parts fit: one
-//! through precision 38, and three above precision 38. An array without lower parts uses the v1
-//! ID instead.
+//! array's nullability. One to three non-nullable `u64` children follow, most significant first,
+//! and each holds a 64-bit window of the value. All children have the same length. The decimal
+//! precision limits how many lower parts fit: one through precision 38, and up to three above
+//! precision 38. An array without lower parts uses the v1 ID instead.
 //!
 //! The metadata records the stored integer type of each child. The reader restores the logical
 //! type of the most significant part from the decimal precision, independently of its stored
 //! width.
+//!
+//! Readers require the children that the metadata declares and ignore any children after them, as
+//! well as any node buffers. A later writer may append a child or buffer under this ID only if
+//! decoding without it yields the same values, such as a statistic or an index. A child, buffer or
+//! metadata field that changes the decoded values needs a new ID.
 
 use prost::Message as _;
 use vortex_array::Array;
@@ -81,7 +86,8 @@ pub(super) fn deserialize(
     parts: ArrayDeserialization<'_>,
     session: &VortexSession,
 ) -> VortexResult<DecimalBytePartsArray> {
-    vortex_ensure!(parts.buffers.is_empty(), "v2 must not carry node buffers");
+    // NB: Node buffers and children after the declared ones are optional extensions, so they are
+    // ignored. See the module documentation.
     let metadata = DecimalBytePartsV2Metadata::decode(parts.metadata)?;
     let decimal_dtype = *parts
         .dtype
@@ -96,10 +102,14 @@ pub(super) fn deserialize(
         (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
         "v2 carries 1 to {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
-    vortex_ensure_eq!(
+
+    let declared_child_count = 1 + lower_part_count;
+    vortex_ensure!(
+        parts.children.len() >= declared_child_count,
+        "v2 expects at least the msp child plus one child per lower part, got {} children for {} \
+         lower parts",
         parts.children.len(),
-        1 + lower_part_count,
-        "v2 expects the msp child plus one child per lower part"
+        lower_part_count
     );
 
     let msp_ptype = PType::try_from(metadata.msp_ptype)?;
@@ -109,7 +119,7 @@ pub(super) fn deserialize(
     );
     let msp_dtype = DType::Primitive(msp_ptype, parts.dtype.nullability());
 
-    let mut slots = ArraySlots::with_capacity(parts.children.len());
+    let mut slots = ArraySlots::with_capacity(declared_child_count);
     let msp = parts.children.get(0, &msp_dtype, parts.len)?;
     slots.push(Some(super::read_msp(msp, decimal_dtype, session)?));
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {
