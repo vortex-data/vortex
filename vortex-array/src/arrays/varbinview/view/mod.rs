@@ -355,16 +355,14 @@ impl From<Ref> for BinaryView {
 
 impl PartialEq for BinaryView {
     fn eq(&self, other: &Self) -> bool {
-        let a = unsafe { std::mem::transmute::<&BinaryView, &u128>(self) };
-        let b = unsafe { std::mem::transmute::<&BinaryView, &u128>(other) };
-        a == b
+        self.as_u128() == other.as_u128()
     }
 }
 impl Eq for BinaryView {}
 
 impl Hash for BinaryView {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        unsafe { std::mem::transmute::<&BinaryView, &u128>(self) }.hash(state);
+        self.as_u128().hash(state);
     }
 }
 

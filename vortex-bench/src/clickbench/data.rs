@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::fmt::Display;
+use std::fmt::Write as _;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -403,7 +404,8 @@ CREATE TABLE hits_sorted AS
         let start = shard_idx * rows_per_shard;
         let end = (start + rows_per_shard).min(source_rows);
         let output_path = output_parquet_dir.join(sorted_shard_file_name(shard_idx));
-        script.push_str(&format!(
+        let _ = write!(
+            script,
             "\
 COPY (
     SELECT {columns}
@@ -413,7 +415,7 @@ COPY (
 ) TO {output_path} (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3);
 ",
             output_path = sql_string_literal(&output_path.display().to_string()),
-        ));
+        );
     }
 
     script

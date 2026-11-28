@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem;
+use std::ptr;
 
 use fastlanes::RLE as FastLanesRLE;
 use vortex_array::ArrayView;
@@ -57,51 +57,38 @@ where
     let len = values.len();
     let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
-    // Allocate capacity up to the next multiple of chunk size.
-    let mut values_buf = BufferMut::<NativeValue<T>>::with_capacity(padded_len);
-    let mut indices_buf = BufferMut::<u16>::with_capacity(padded_len);
+    // The FastLanes encoder takes initialized output arrays.
+    let mut values_buf = BufferMut::<NativeValue<T>>::zeroed(padded_len);
+    let mut indices_buf = BufferMut::<u16>::zeroed(padded_len);
 
     // Pre-allocate for one offset per chunk.
     let mut values_idx_offsets = BufferMut::<u64>::with_capacity(len.div_ceil(FL_CHUNK_SIZE));
 
-    let values_uninit = values_buf.spare_capacity_mut();
-    // We don't care about the trailing chunk that exists due to overallocation by the underlying allocator.
-    let (indices_uninit, _) = indices_buf
-        .spare_capacity_mut()
-        .as_chunks_mut::<FL_CHUNK_SIZE>();
+    let (indices, _) = indices_buf.as_mut_slice().as_chunks_mut::<FL_CHUNK_SIZE>();
     let mut value_count_acc = 0; // Chunk value count prefix sum.
 
     let (chunks, remainder) = values.as_chunks::<FL_CHUNK_SIZE>();
 
-    let mut process_chunk =
-        |input: &[T; FL_CHUNK_SIZE], rle_idxs: &mut [mem::MaybeUninit<u16>; FL_CHUNK_SIZE]| {
-            // SAFETY: NativeValue is repr(transparent)
-            let input: &[NativeValue<T>; FL_CHUNK_SIZE] = unsafe { mem::transmute(input) };
-            let rle_idxs: &mut [u16; FL_CHUNK_SIZE] = unsafe { mem::transmute(rle_idxs) };
+    let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], rle_idxs: &mut [u16; FL_CHUNK_SIZE]| {
+        // SAFETY: NativeValue is repr(transparent)
+        let input: &[NativeValue<T>; FL_CHUNK_SIZE] =
+            unsafe { &*ptr::from_ref(input).cast::<[NativeValue<T>; FL_CHUNK_SIZE]>() };
+        let rle_vals = values_buf[value_count_acc..]
+            .first_chunk_mut::<FL_CHUNK_SIZE>()
+            .vortex_expect("room for one run per chunk element");
 
-            // SAFETY: `MaybeUninit<NativeValue<T>>` and `NativeValue<T>` have the same layout.
-            let rle_vals: &mut [NativeValue<T>] =
-                unsafe { mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
+        // Capture chunk start indices. This is necessary as indices
+        // returned from `T::encode` are relative to the chunk.
+        values_idx_offsets.push(value_count_acc as u64);
 
-            // Capture chunk start indices. This is necessary as indices
-            // returned from `T::encode` are relative to the chunk.
-            values_idx_offsets.push(value_count_acc as u64);
+        // SAFETY: all three arguments are `FL_CHUNK_SIZE`-element arrays, which is
+        // all `encode_unchecked` requires.
+        let value_count = unsafe { NativeValue::<T>::encode_unchecked(input, rle_vals, rle_idxs) };
 
-            // SAFETY: all three arguments are `FL_CHUNK_SIZE`-element arrays, which is
-            // all `encode_unchecked` requires.
-            let value_count = unsafe {
-                NativeValue::<T>::encode_unchecked(
-                    input,
-                    &mut *(rle_vals.as_mut_ptr() as *mut [_; FL_CHUNK_SIZE]),
-                    rle_idxs,
-                )
-            };
+        value_count_acc += value_count;
+    };
 
-            value_count_acc += value_count;
-        };
-
-    for (chunk_slice, rle_idxs) in chunks.iter().zip(indices_uninit.iter_mut()) {
-        // SAFETY: `MaybeUninit<u16>` and `u16` have the same layout.
+    for (chunk_slice, rle_idxs) in chunks.iter().zip(indices.iter_mut()) {
         process_chunk(chunk_slice, rle_idxs);
     }
 
@@ -110,16 +97,11 @@ where
         // accounting for an additional value change.
         let mut padded_chunk = [values[len - 1]; FL_CHUNK_SIZE];
         padded_chunk[..remainder.len()].copy_from_slice(remainder);
-        // There might be more entries in indices_uninit than necessary if the allocator gave us extra memory.
-        // Remainder has to go to the last chunk after full chunks have been processed.
-        let last_idx_chunk = &mut indices_uninit[chunks.len()];
+        let last_idx_chunk = &mut indices[chunks.len()];
         process_chunk(&padded_chunk, last_idx_chunk);
     }
 
-    unsafe {
-        values_buf.set_len(value_count_acc);
-        indices_buf.set_len(padded_len);
-    }
+    values_buf.truncate(value_count_acc);
 
     // SAFETY: NativeValue<T> is repr(transparent) to T.
     let values_buf = unsafe { values_buf.transmute::<T>().freeze() };

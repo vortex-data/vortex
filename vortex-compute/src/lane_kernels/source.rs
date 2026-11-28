@@ -148,10 +148,8 @@ mod tests {
         let repeat = Repeat::new(7_u32, 3);
         assert_eq!(repeat.len(), 3);
         // SAFETY: both indices are below the length.
-        assert_eq!(
-            unsafe { (repeat.get_unchecked(0), repeat.get_unchecked(2)) },
-            (7, 7)
-        );
+        let ends = unsafe { (repeat.get_unchecked(0), repeat.get_unchecked(2)) };
+        assert_eq!(ends, (7, 7));
     }
 
     #[test]

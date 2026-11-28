@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
+use std::fmt::Write as _;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
@@ -130,18 +131,20 @@ pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef, ctx: &mut Execut
 
         let mut msg = String::new();
         if !left_right.is_empty() {
-            msg.push_str(&format!(
+            let _ = write!(
+                msg,
                 "\n  left != right at indices: {}",
                 format_indices(left_right)
-            ));
+            );
         }
 
         let executed_right = find_mismatched_indices(&executed, right, ctx);
         if !executed_right.is_empty() {
-            msg.push_str(&format!(
+            let _ = write!(
+                msg,
                 "\n  executed != right at indices: {}",
                 format_indices(executed_right)
-            ));
+            );
         }
         panic!(
             "assertion failed: arrays do not match:{}\n     left: {}\n    right: {}\n executed: {}",

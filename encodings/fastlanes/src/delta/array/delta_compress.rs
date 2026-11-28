@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem;
-use std::mem::MaybeUninit;
-
 use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fearless_simd::Level;
@@ -15,6 +12,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ChunkBoundary;
@@ -58,26 +56,19 @@ where
 
     // Allocate result arrays.
     let mut bases = BufferMut::with_capacity(bases_len);
-    let mut deltas = BufferMut::with_capacity(padded_len);
-    let (output_deltas, _) =
-        deltas.spare_capacity_mut()[..padded_len].as_chunks_mut::<FL_CHUNK_SIZE>();
+    let mut deltas = BufferMut::zeroed(padded_len);
+    let (output_deltas, _) = deltas.as_mut_slice().as_chunks_mut::<FL_CHUNK_SIZE>();
 
     // Loop over all full 1024-element chunks.
     let transpose = TransposeKernel::transpose(Level::new());
     let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
-    let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], output: &mut [MaybeUninit<T>; 1024]| {
+    let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], output: &mut [T; FL_CHUNK_SIZE]| {
         transpose.apply(input, &mut transposed);
-        bases.extend_from_slice(&transposed[0..T::LANES]);
-
-        unsafe {
-            Delta::delta::<LANES>(
-                &transposed,
-                &*(transposed[0..T::LANES].as_ptr().cast()),
-                mem::transmute::<&mut [MaybeUninit<T>; FL_CHUNK_SIZE], &mut [T; FL_CHUNK_SIZE]>(
-                    output,
-                ),
-            );
-        }
+        let base = transposed
+            .first_chunk::<LANES>()
+            .vortex_expect("lanes fit in a FastLanes chunk");
+        bases.extend_from_slice(base);
+        Delta::delta(&transposed, base, output);
     };
     for (chunk, output) in full_chunks.iter().zip(output_deltas.iter_mut()) {
         process_chunk(chunk, output);
@@ -91,8 +82,6 @@ where
         padded_chunk[..remainder.len()].copy_from_slice(remainder);
         process_chunk(&padded_chunk, &mut output_deltas[full_chunks.len()]);
     }
-
-    unsafe { deltas.set_len(padded_len) };
 
     assert_eq!(bases.len(), bases_len);
     assert_eq!(deltas.len(), padded_len);

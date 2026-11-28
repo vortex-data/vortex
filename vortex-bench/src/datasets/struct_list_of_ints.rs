@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Write as _;
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -60,7 +61,7 @@ impl StructListOfInts {
         let mut name =
             format!("wide table cols={num_columns} chunks={chunk_count} rows={row_count}");
         if let Some(count) = project_columns {
-            name.push_str(&format!(" project={count}"));
+            let _ = write!(name, " project={count}");
         }
         Self {
             num_columns,

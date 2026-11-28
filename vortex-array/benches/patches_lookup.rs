@@ -46,7 +46,7 @@ const PATCH_HIGH: usize = 110_000;
 fn patches_from_indices(index_iter: impl Iterator<Item = u64>, chunked: bool) -> Patches {
     let mut ctx = SESSION.create_execution_ctx();
     let mut indices: Vec<u64> = index_iter.collect();
-    indices.sort();
+    indices.sort_unstable();
     indices.dedup();
     let values: Buffer<i32> = (0..indices.len() as i32).collect();
 

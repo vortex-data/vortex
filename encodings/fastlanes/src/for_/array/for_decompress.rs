@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
-use std::mem;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -45,6 +44,7 @@ use crate::for_::array::FoRArrayOwnedExt;
 use crate::for_::array::FoROwnedReferences;
 use crate::for_::array::FoRParts;
 use crate::unpack_iter::for_each_packed_chunk;
+use crate::unpack_iter::physical_output;
 
 pub fn decompress(array: FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let FoRParts {
@@ -333,10 +333,7 @@ fn unpack_chunks<
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let offset = usize::from(bp.offset());
-    // SAFETY: `T::Physical` is `T` with the same size and alignment, and the unpack is the same
-    // wrapping addition in two's complement whichever signedness `T` has.
-    let output =
-        unsafe { mem::transmute::<&mut [MaybeUninit<T>], &mut [MaybeUninit<T::Physical>]>(output) };
+    let output = physical_output(output);
     let mut scratch = [const { MaybeUninit::<T::Physical>::uninit() }; FL_CHUNK_SIZE];
     let mut unpack_chunk = |packed: &[T::Physical], bit_width: usize, range: Range<usize>| {
         let reference = chunk_reference(range.start / FL_CHUNK_SIZE).as_();
@@ -381,14 +378,10 @@ unsafe fn unfor_pack_into<T: FoR>(
     reference: T,
     dst: &mut [MaybeUninit<T>],
 ) {
-    // SAFETY: the caller guarantees the sizes, and the unpack initializes every value of `dst`.
+    dst.fill(MaybeUninit::new(T::zero()));
+    // SAFETY: every slot is initialized above and the caller guarantees both chunk lengths.
     unsafe {
-        T::unchecked_unfor_pack(
-            bit_width,
-            packed,
-            reference,
-            mem::transmute::<&mut [MaybeUninit<T>], &mut [T]>(dst),
-        );
+        T::unchecked_unfor_pack(bit_width, packed, reference, dst.assume_init_mut());
     }
 }
 

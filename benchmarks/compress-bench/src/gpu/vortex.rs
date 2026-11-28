@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Write as _;
 use std::hint::black_box;
 use std::path::Path;
 use std::sync::Arc;
@@ -322,6 +323,10 @@ fn verify_field(
 }
 
 /// Builds a human-readable description of how two Arrow arrays differ.
+#[expect(
+    clippy::use_debug,
+    reason = "Arrow array mismatch diagnostics require Debug formatting"
+)]
 fn describe_mismatch(expected: &ArrowArrayRef, actual: &ArrowArrayRef) -> String {
     let mut description = format!(
         "\n  cpu: type={:?} len={} nulls={}\n  gpu: type={:?} len={} nulls={}",
@@ -350,11 +355,12 @@ fn describe_mismatch(expected: &ArrowArrayRef, actual: &ArrowArrayRef) -> String
     }
 
     if low < expected.len() {
-        description.push_str(&format!(
+        let _ = write!(
+            description,
             "\n  first difference at row {low}:\n    cpu: {:?}\n    gpu: {:?}",
             expected.slice(low, 1),
             actual.slice(low, 1),
-        ));
+        );
     }
 
     description

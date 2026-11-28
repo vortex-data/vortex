@@ -45,7 +45,7 @@ fn fixture() -> (Vec<i32>, Vec<i32>) {
     let mut rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0, 65_536).unwrap();
     let mut data: Vec<i32> = (0..65_536).map(|_| rng.sample(range)).collect();
-    data.sort();
+    data.sort_unstable();
 
     let targets = (0..SEARCH_TARGETS).map(|_| rng.sample(range)).collect();
 
