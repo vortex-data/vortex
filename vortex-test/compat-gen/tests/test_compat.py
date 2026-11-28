@@ -565,3 +565,7 @@ def test_edition_reader_probe_column_causes_isolates_corrupt_expected_ipc(editio
 
     monkeypatch.delattr(edition_reader.os, "fork", raising=False)
     assert edition_reader._probe_column_causes(tmp_path / "broken.vortex", corrupt_ipc) == []
+
+    for exc_type in (KeyboardInterrupt, SystemExit):
+        with pytest.raises(exc_type):
+            edition_reader._run_isolated(lambda e=exc_type: (_ for _ in ()).throw(e()))
