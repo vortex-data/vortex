@@ -54,8 +54,9 @@ use crate::sequence::SequentialStreamExt;
 
 /// Configuration for building zoned layouts.
 ///
-/// The input stream is assumed to already be partitioned into one chunk per zone, except
-/// possibly the final partial zone.
+/// When writing a zone map, the input stream must be partitioned into non-empty chunks of
+/// `block_size` rows, with at most one final partial chunk of fewer than `block_size` rows.
+/// Writing fails if a chunk violates these bounds.
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: NonZeroUsize,
@@ -163,9 +164,10 @@ impl LayoutStrategy for ZonedStrategy {
             }
         }
 
+        let block_size = self.options.block_size;
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
-        let stream = stream
+        let stream = validate_zone_chunks(stream, block_size)
             .map(move |item| {
                 let aggregate_fns = Arc::clone(&aggregate_fns);
                 let session = compute_session.clone();
@@ -193,8 +195,6 @@ impl LayoutStrategy for ZonedStrategy {
             }),
         )
         .sendable();
-
-        let block_size = self.options.block_size;
 
         // The eof used for the data child should appear _before_ our own stats tables.
         let data_eof = eof.split_off();
@@ -250,10 +250,11 @@ impl ZonedStrategy {
         let stats_accumulator = Arc::new(Mutex::new(LegacyStatsAccumulator::new(stream.dtype())));
         let stats = stats_accumulator.lock().stats();
 
+        let block_size = self.options.block_size;
         let compute_session = session.clone();
         let stream_dtype = stream.dtype().clone();
         let concurrency = self.options.concurrency.get();
-        let stream = stream
+        let stream = validate_zone_chunks(stream, block_size)
             .map(move |item| {
                 let stats = Arc::clone(&stats);
                 let session = compute_session.clone();
@@ -306,11 +307,79 @@ impl ZonedStrategy {
             .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
             .await?;
 
-        Ok(
-            LegacyStatsLayout::try_new(data_layout, zones_layout, self.options.block_size, stats)?
-                .into_layout(),
-        )
+        Ok(LegacyStatsLayout::try_new(data_layout, zones_layout, block_size, stats)?.into_layout())
     }
+}
+
+/// Enforces the zoned chunk invariant on an incoming stream: every chunk must be non-empty and at
+/// most `block_size` rows, and at most the final chunk may have fewer than `block_size` rows.
+struct ZoneChunkValidator {
+    block_size: usize,
+    chunk_index: usize,
+    partial_chunk: Option<(usize, usize)>,
+}
+
+impl ZoneChunkValidator {
+    fn new(block_size: NonZeroUsize) -> Self {
+        Self {
+            block_size: block_size.get(),
+            chunk_index: 0,
+            partial_chunk: None,
+        }
+    }
+
+    fn validate_chunk(&mut self, chunk_len: usize) -> VortexResult<()> {
+        let idx = self.chunk_index;
+        self.chunk_index += 1;
+
+        if let Some((partial_idx, partial_len)) = self.partial_chunk {
+            vortex_bail!(
+                "ZonedStrategy received chunk {idx} ({chunk_len} rows) after partial chunk \
+                 {partial_idx} ({partial_len} rows, block_size = {}); only the final chunk may \
+                 have fewer than block_size rows",
+                self.block_size,
+            );
+        }
+
+        if chunk_len == 0 {
+            vortex_bail!(
+                "ZonedStrategy received empty chunk {idx} (block_size = {}); chunks must be \
+                 non-empty",
+                self.block_size,
+            );
+        }
+
+        if chunk_len > self.block_size {
+            vortex_bail!(
+                "ZonedStrategy received chunk {idx} with {chunk_len} rows exceeding block_size {}",
+                self.block_size,
+            );
+        }
+
+        if chunk_len < self.block_size {
+            self.partial_chunk = Some((idx, chunk_len));
+        }
+
+        Ok(())
+    }
+}
+
+/// Wraps `stream` so each chunk is checked in stream order before stats are computed for it.
+fn validate_zone_chunks(
+    stream: SendableSequentialStream,
+    block_size: NonZeroUsize,
+) -> SendableSequentialStream {
+    let dtype = stream.dtype().clone();
+    let mut validator = ZoneChunkValidator::new(block_size);
+    SequentialStreamAdapter::new(
+        dtype,
+        stream.map(move |item| {
+            let (sequence_id, chunk) = item?;
+            validator.validate_chunk(chunk.len())?;
+            Ok((sequence_id, chunk))
+        }),
+    )
+    .sendable()
 }
 
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
@@ -351,6 +420,7 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
 mod tests {
     use std::sync::LazyLock;
 
+    use futures::stream;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
@@ -361,6 +431,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
@@ -378,8 +449,10 @@ mod tests {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::file_stats::contains_variant;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::zoned::LegacyStats;
     use crate::layouts::zoned::Zoned;
     use crate::layouts::zoned::schema::aggregate_state_dtype;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -530,6 +603,106 @@ mod tests {
             aggregate_fns
                 .iter()
                 .all(|aggregate_fn| !aggregate_fn.is::<Sum>())
+        );
+    }
+
+    fn write_chunks_with_block_size(
+        chunk_lens: &[usize],
+        block_size: usize,
+        legacy: bool,
+    ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+        let ctx = if legacy {
+            LayoutWriterContext::new(ArrayContext::empty())
+                .with_allowed_layouts(HashSet::from_iter([LegacyStats.id()]))
+        } else {
+            LayoutWriterContext::new(ArrayContext::empty())
+        };
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(block_size).vortex_expect("non zero"),
+                ..Default::default()
+            },
+        );
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let (mut ptr, eof) = SequenceId::root().split();
+        let mut next_val = 0i32;
+        let items = chunk_lens
+            .iter()
+            .map(|&len| {
+                let start = next_val;
+                next_val += i32::try_from(len).vortex_expect("chunk len fits i32");
+                let array = PrimitiveArray::from_iter(start..next_val).into_array();
+                Ok((ptr.advance(), array))
+            })
+            .collect::<Vec<_>>();
+        let stream = SequentialStreamAdapter::new(dtype, stream::iter(items)).sendable();
+        let segments = Arc::new(TestSegments::default());
+        let segments_for_write = Arc::clone(&segments);
+
+        let layout = block_on(|handle: Handle| async move {
+            let session = VortexSession::empty()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>()
+                .with_handle(handle);
+            strategy
+                .write_stream(ctx, segments_for_write, stream, eof, &session)
+                .await
+        })?;
+        Ok((segments, layout))
+    }
+
+    #[rstest]
+    #[case::empty_stream(&[], 0, 0)]
+    #[case::single_partial(&[2], 2, 1)]
+    #[case::multiple_full(&[3, 3, 3], 9, 3)]
+    #[case::full_then_partial(&[3, 3, 1], 7, 3)]
+    fn test_write_stream_accepts_valid_chunk_bounds(
+        #[case] chunk_lens: &[usize],
+        #[case] expected_rows: u64,
+        #[case] expected_zones: usize,
+        #[values(false, true)] legacy: bool,
+    ) -> VortexResult<()> {
+        let (segments, layout) = write_chunks_with_block_size(chunk_lens, 3, legacy)?;
+        assert_eq!(layout.row_count(), expected_rows);
+
+        if expected_zones == 0 {
+            assert!(!layout.is::<Zoned>());
+            assert!(!layout.is::<LegacyStats>());
+        } else if legacy {
+            assert_eq!(layout.as_::<LegacyStats>().nzones(), expected_zones);
+        } else {
+            assert_eq!(layout.as_::<Zoned>().nzones(), expected_zones);
+        }
+
+        block_on(|handle: Handle| async move {
+            let session = VortexSession::empty()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>()
+                .with_handle(handle);
+            let _reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            Ok::<_, VortexError>(())
+        })
+    }
+
+    #[rstest]
+    #[case::single_empty(&[0], "empty chunk 0")]
+    #[case::mid_stream_empty(&[3, 0, 3], "empty chunk 1")]
+    #[case::oversized(&[3, 4], "chunk 1 with 4 rows exceeding block_size 3")]
+    #[case::partial_mid_stream(&[3, 1, 3], "chunk 2 (3 rows) after partial chunk 1 (1 rows")]
+    #[case::partial_before_empty(&[2, 0], "chunk 1 (0 rows) after partial chunk 0 (2 rows")]
+    fn test_write_stream_rejects_invalid_chunk_bounds(
+        #[case] chunk_lens: &[usize],
+        #[case] expected_msg: &str,
+        #[values(false, true)] legacy: bool,
+    ) {
+        let err = write_chunks_with_block_size(chunk_lens, 3, legacy)
+            .map(|(_, layout)| layout)
+            .expect_err("misaligned chunk bounds must fail the write");
+        assert!(
+            err.to_string().contains(expected_msg),
+            "expected error containing {expected_msg:?}, got: {err}"
         );
     }
 }
