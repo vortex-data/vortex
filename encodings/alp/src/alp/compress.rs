@@ -8,6 +8,7 @@ use fearless_simd::Level;
 use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
+use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -18,8 +19,11 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -29,7 +33,6 @@ use crate::Exponents;
 use crate::alp::ALPArray;
 use crate::alp::ALPFloat;
 use crate::sample_valid_values;
-use crate::sanitize_nulls;
 
 /// Matches the `alp` crate's exponent search sample budget and run length.
 const ALP_SAMPLE_SIZE: usize = 64;
@@ -122,6 +125,162 @@ fn find_best_exponents_simd<S: Simd, T: ALPFloat>(_: S, values: &[T]) -> Exponen
     ::alp::find_best_exponents(values)
 }
 
+/// Encodes `values` directly with a validity mask, skipping exception emission on null lanes and
+/// writing `fill_value` into null and patched slots without copying the input buffer.
+#[allow(clippy::too_many_arguments)]
+fn encode_masked_into<T: ALPFloat>(
+    values: &[T],
+    mask: BitBufferView<'_>,
+    exp: Exponents,
+    encoded: &mut [MaybeUninit<T::ALPInt>],
+    patch_indices: &mut Vec<u64>,
+    patch_values: &mut Vec<T>,
+    chunk_offsets: &mut Vec<u64>,
+    fill_value: Option<T::ALPInt>,
+) {
+    dispatch!(Level::new(), simd => encode_masked_into_simd(
+        simd,
+        values,
+        mask,
+        exp,
+        encoded,
+        patch_indices,
+        patch_values,
+        chunk_offsets,
+        fill_value,
+    ));
+}
+
+#[simd]
+#[allow(clippy::too_many_arguments)]
+fn encode_masked_into_simd<S: Simd, T: ALPFloat>(
+    _: S,
+    values: &[T],
+    mask: BitBufferView<'_>,
+    exp: Exponents,
+    encoded: &mut [MaybeUninit<T::ALPInt>],
+    patch_indices: &mut Vec<u64>,
+    patch_values: &mut Vec<T>,
+    chunk_offsets: &mut Vec<u64>,
+    mut fill_value: Option<T::ALPInt>,
+) {
+    assert_eq!(encoded.len(), values.len());
+    assert_eq!(mask.len(), values.len());
+
+    let initially_had_fill = fill_value.is_some();
+
+    for (chunk_idx, chunk_values) in values.chunks(ENCODE_CHUNK_SIZE).enumerate() {
+        let chunk_base = chunk_idx * ENCODE_CHUNK_SIZE;
+        let chunk_len = chunk_values.len();
+        chunk_offsets.push(patch_indices.len() as u64);
+
+        let chunk_mask = mask.slice(chunk_base..chunk_base + chunk_len);
+        let chunk_out = &mut encoded[chunk_base..chunk_base + chunk_len];
+
+        // Pass 1: encode the whole 1024-element chunk branchlessly so LLVM vectorizes it the same
+        // way as the non-nullable `alp::encode_into` loop.
+        let mut chunk_patch_count = 0usize;
+        for (out, &v) in chunk_out.iter_mut().zip(chunk_values) {
+            let enc = T::encode_single_unchecked(v, exp);
+            let dec = T::decode_single(enc, exp);
+            chunk_patch_count += usize::from(!dec.is_eq(v));
+            out.write(enc);
+        }
+
+        // SAFETY: Pass 1 initialized every element of `chunk_out`.
+        let chunk_encoded: &mut [T::ALPInt] = unsafe {
+            std::slice::from_raw_parts_mut(chunk_out.as_mut_ptr().cast::<T::ALPInt>(), chunk_len)
+        };
+
+        if chunk_patch_count == 0 {
+            for_each_mask_word(chunk_mask, |valid_word, word_start, word_len| {
+                if fill_value.is_none() && valid_word != 0 {
+                    let ok_idx = word_start + valid_word.trailing_zeros() as usize;
+                    fill_value = Some(chunk_encoded[ok_idx]);
+                }
+                if let Some(fill) = fill_value {
+                    let mut nulls = !valid_word & low_bits_mask(word_len);
+                    while nulls != 0 {
+                        let bit = nulls.trailing_zeros() as usize;
+                        chunk_encoded[word_start + bit] = fill;
+                        nulls &= nulls - 1;
+                    }
+                }
+            });
+            continue;
+        }
+
+        // Pass 2: compute per-lane exception flags in a separate branchless SIMD loop, then mask
+        // against the validity words so null lanes never emit patches.
+        let mut is_exc = [0u8; ENCODE_CHUNK_SIZE];
+        for ((&enc, &v), flag) in chunk_encoded.iter().zip(chunk_values).zip(&mut is_exc) {
+            *flag = u8::from(!T::decode_single(enc, exp).is_eq(v));
+        }
+
+        for_each_mask_word(chunk_mask, |valid_word, word_start, word_len| {
+            let mut fail_bits = 0u64;
+            let word_flags = &is_exc[word_start..word_start + word_len];
+            let (blocks, rem) = word_flags.as_chunks::<8>();
+            for (block_idx, &bytes) in blocks.iter().enumerate() {
+                let mut flags = u64::from_le_bytes(bytes);
+                while flags != 0 {
+                    let lane = block_idx * 8 + flags.trailing_zeros() as usize / 8;
+                    fail_bits |= 1u64 << lane;
+                    flags &= flags - 1;
+                }
+            }
+            let rem_base = blocks.len() * 8;
+            for (offset, &flag) in rem.iter().enumerate() {
+                fail_bits |= u64::from(flag) << (rem_base + offset);
+            }
+
+            let valid_failures = fail_bits & valid_word;
+            if fill_value.is_none() {
+                let valid_successes = valid_word & !valid_failures;
+                if valid_successes != 0 {
+                    let ok_idx = word_start + valid_successes.trailing_zeros() as usize;
+                    fill_value = Some(chunk_encoded[ok_idx]);
+                }
+            }
+
+            let mut failures = valid_failures;
+            while failures != 0 {
+                let bit = failures.trailing_zeros() as usize;
+                let local_idx = word_start + bit;
+                patch_indices.push((chunk_base + local_idx) as u64);
+                patch_values.push(chunk_values[local_idx]);
+                failures &= failures - 1;
+            }
+
+            if let Some(fill) = fill_value {
+                let mut to_fill = (!valid_word & low_bits_mask(word_len)) | valid_failures;
+                while to_fill != 0 {
+                    let bit = to_fill.trailing_zeros() as usize;
+                    chunk_encoded[word_start + bit] = fill;
+                    to_fill &= to_fill - 1;
+                }
+            }
+        });
+    }
+
+    if !initially_had_fill {
+        let fill = fill_value.unwrap_or_else(T::ALPInt::zero);
+        for &idx in patch_indices.iter() {
+            #[expect(clippy::cast_possible_truncation)]
+            encoded[idx as usize].write(fill);
+        }
+        for_each_mask_word(mask, |valid_word, word_start, word_len| {
+            let mut nulls = !valid_word & low_bits_mask(word_len);
+            while nulls != 0 {
+                let bit = nulls.trailing_zeros() as usize;
+                // SAFETY: `word_start + bit < encoded.len()`.
+                unsafe { encoded.get_unchecked_mut(word_start + bit).write(fill) };
+                nulls &= nulls - 1;
+            }
+        });
+    }
+}
+
 fn alp_encode_components_typed<T>(
     values: ArrayView<'_, Primitive>,
     exponents: Option<Exponents>,
@@ -164,8 +323,8 @@ where
         ),
         Mask::Values(mask_values) => {
             // Sample only valid values so dirty garbage bits in null slots cannot corrupt exponent
-            // selection, then replace null slots with a value guaranteed to round-trip cleanly so
-            // null indices never emit patches or widen the encoded integer range.
+            // selection, then encode directly with the validity mask so null indices never emit
+            // patches or widen the encoded integer range.
             let sample = sample_valid_values(
                 values_slice,
                 &mask_values,
@@ -173,21 +332,22 @@ where
                 ALP_SAMPLE_BLOCK,
             );
             let exp = exponents.unwrap_or_else(|| find_best_exponents::<T>(&sample));
-            let fill = sample
+            let fill_value = sample
                 .iter()
                 .copied()
-                .find(|&value| T::encode_single(value, exp).is_some())
-                .unwrap_or_else(T::zero);
-            let sanitized = sanitize_nulls(values_slice, &mask_values, fill);
+                .find_map(|value| T::encode_single(value, exp));
 
-            encode_into::<T>(
-                &sanitized,
-                Some(exp),
+            encode_masked_into::<T>(
+                values_slice,
+                mask_values.bit_buffer().into(),
+                exp,
                 &mut encoded.spare_capacity_mut()[..len],
                 &mut exceptional_positions,
                 &mut exceptional_values,
                 &mut chunk_offsets,
-            )
+                fill_value,
+            );
+            exp
         }
     };
     // SAFETY: `encode_into` initializes exactly one element per value.

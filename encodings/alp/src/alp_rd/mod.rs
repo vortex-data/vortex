@@ -5,6 +5,8 @@
 
 #![expect(clippy::cast_possible_truncation)]
 
+use std::mem::MaybeUninit;
+
 pub use ::alp::ALPRDFloat;
 pub use ::alp::RDEncoder;
 use ::alp::alp_rd_combine_codes_inplace;
@@ -16,6 +18,7 @@ use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use num_traits::One;
 use num_traits::PrimInt;
+use num_traits::Zero;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -31,8 +34,11 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
+use vortex_compute::lane_kernels::low_bits_mask;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -46,7 +52,6 @@ use vortex_session::VortexSession;
 
 use crate::match_each_alp_float_ptype;
 use crate::sample_valid_values;
-use crate::sanitize_nulls;
 
 /// Matches the `alp` crate's ALP-RD dictionary search sample budget and run length.
 const ALPRD_MAX_SAMPLE: usize = 4096;
@@ -196,18 +201,7 @@ where
             )
         }
         Mask::Values(mask_values) => {
-            let &first_left = encoder
-                .codes()
-                .first()
-                .vortex_expect("codes lookup table must be populated before RD encoding");
-            // Substitute a float whose left part is `dict[0]` (code `0`) and right part is `0`,
-            // so null slots never emit exception patches and decode cleanly under validity.
-            let null_fill = T::from_bits(
-                <T as ALPRDFloat>::from_u16(first_left) << usize::from(encoder.right_bit_width()),
-            );
-            let sanitized = sanitize_nulls(values, mask_values, null_fill);
-            let (left, right, exc_pos, exc) = split_parts(encoder, &sanitized);
-            (Buffer::from(left), Buffer::from(right), exc_pos, exc)
+            split_parts_masked(encoder, values, mask_values.bit_buffer().into())
         }
     };
 
@@ -400,6 +394,128 @@ fn split_parts_simd<S: Simd, T: ALPRDFloat>(
     values: &[T],
 ) -> (Vec<u16>, Vec<T::UINT>, Vec<u64>, Vec<u16>) {
     encoder.split_parts(values)
+}
+
+/// Splits `values` into dictionary-encoded left parts and right parts with a validity mask,
+/// zeroing null lanes and skipping exception emission on null positions without copying `values`.
+fn split_parts_masked<T: ALPRDFloat + NativePType>(
+    encoder: &RDEncoder,
+    values: &[T],
+    mask: BitBufferView<'_>,
+) -> (Buffer<u16>, Buffer<T::UINT>, Vec<u64>, Vec<u16>)
+where
+    T::UINT: NativePType,
+{
+    let len = values.len();
+    let mut left_parts = BufferMut::<u16>::with_capacity(len);
+    let mut right_parts = BufferMut::<T::UINT>::with_capacity(len);
+    let mut exception_pos = Vec::with_capacity(len / 4);
+    let mut exception_values = Vec::with_capacity(len / 4);
+
+    dispatch!(Level::new(), simd => split_parts_masked_simd(
+        simd,
+        encoder.codes(),
+        encoder.right_bit_width(),
+        values,
+        mask,
+        &mut left_parts.spare_capacity_mut()[..len],
+        &mut right_parts.spare_capacity_mut()[..len],
+        &mut exception_pos,
+        &mut exception_values,
+    ));
+
+    // SAFETY: `split_parts_masked_simd` initializes every element in `0..len`.
+    unsafe {
+        left_parts.set_len(len);
+        right_parts.set_len(len);
+    }
+
+    (
+        left_parts.freeze(),
+        right_parts.freeze(),
+        exception_pos,
+        exception_values,
+    )
+}
+
+#[simd]
+#[allow(clippy::too_many_arguments)]
+fn split_parts_masked_simd<S: Simd, T: ALPRDFloat>(
+    _: S,
+    codes: &[u16],
+    right_bit_width: u8,
+    values: &[T],
+    mask: BitBufferView<'_>,
+    left_out: &mut [MaybeUninit<u16>],
+    right_out: &mut [MaybeUninit<T::UINT>],
+    exception_pos: &mut Vec<u64>,
+    exception_values: &mut Vec<u16>,
+) {
+    assert!(
+        !codes.is_empty(),
+        "codes lookup table must be populated before RD encoding"
+    );
+    assert!(
+        codes.len() <= 8,
+        "ALP-RD dictionary must hold at most 8 entries"
+    );
+    assert_eq!(left_out.len(), values.len());
+    assert_eq!(right_out.len(), values.len());
+    assert_eq!(mask.len(), values.len());
+
+    // Pad unused dictionary slots with `codes[0]`; scanning in reverse ensures the lowest matching
+    // code wins, matching `alp::RDEncoder::split_parts` while keeping a fixed 8-way loop.
+    let mut dict = [codes[0]; 8];
+    dict[..codes.len()].copy_from_slice(codes);
+
+    let right_shift = usize::from(right_bit_width);
+    let right_mask = (T::UINT::one() << right_shift) - T::UINT::one();
+
+    for_each_mask_word(mask, |valid_word, base, count| {
+        let mut miss_bits: u64 = 0;
+        for bit_idx in 0..count {
+            let idx = base + bit_idx;
+            // SAFETY: `base + count <= values.len() == left_out.len() == right_out.len()`.
+            let bits = T::to_bits(unsafe { *values.get_unchecked(idx) });
+            unsafe { right_out.get_unchecked_mut(idx).write(bits & right_mask) };
+
+            let pattern = <T as ALPRDFloat>::to_u16(bits >> right_shift);
+            let mut matched_code = 0u16;
+            let mut matched = false;
+            for code in (0..8).rev() {
+                if dict[code] == pattern {
+                    matched_code = code as u16;
+                    matched = true;
+                }
+            }
+            miss_bits |= (!matched as u64) << bit_idx;
+            unsafe { left_out.get_unchecked_mut(idx).write(matched_code) };
+        }
+
+        let mut valid_misses = miss_bits & valid_word;
+        while valid_misses != 0 {
+            let bit = valid_misses.trailing_zeros() as usize;
+            let idx = base + bit;
+            // SAFETY: `idx < values.len()`.
+            let bits = T::to_bits(unsafe { *values.get_unchecked(idx) });
+            let pattern = <T as ALPRDFloat>::to_u16(bits >> right_shift);
+            exception_pos.push(idx as u64);
+            exception_values.push(pattern);
+            valid_misses &= valid_misses - 1;
+        }
+
+        let mut nulls = !valid_word & low_bits_mask(count);
+        while nulls != 0 {
+            let bit = nulls.trailing_zeros() as usize;
+            let idx = base + bit;
+            // SAFETY: `idx < left_out.len() == right_out.len()`.
+            unsafe {
+                left_out.get_unchecked_mut(idx).write(0);
+                right_out.get_unchecked_mut(idx).write(T::UINT::zero());
+            }
+            nulls &= nulls - 1;
+        }
+    });
 }
 
 /// Combines the dictionary codes into `right_parts` with the `alp` crate's SIMD lookup, compiled

@@ -102,23 +102,6 @@ pub(crate) fn sample_valid_values<T: Copy>(
     sample
 }
 
-/// Returns a copy of `values` with every null slot in `mask` replaced by `fill`.
-pub(crate) fn sanitize_nulls<T: Copy>(values: &[T], mask: &MaskValues, fill: T) -> Vec<T> {
-    if mask.true_count() * 2 >= values.len() {
-        let mut sanitized = values.to_vec();
-        mask.bit_buffer().for_each_unset_index(|idx| {
-            sanitized[idx] = fill;
-        });
-        sanitized
-    } else {
-        let mut sanitized = vec![fill; values.len()];
-        for (start, end) in mask.bit_buffer().set_slices() {
-            sanitized[start..end].copy_from_slice(&values[start..end]);
-        }
-        sanitized
-    }
-}
-
 /// Initialize ALP encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
