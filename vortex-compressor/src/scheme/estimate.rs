@@ -62,7 +62,8 @@ pub enum EstimateVerdict {
 
     /// Use this scheme unless another scheme is estimated to compress better.
     ///
-    /// Some examples include decimal byte parts and temporal decomposition.
+    /// Some examples include decimal byte parts and the built-in fixed-size list and extension
+    /// storage defaults.
     ///
     /// The scheme is the default for the array. When every other candidate skips, the compressor
     /// selects it without evaluating it. Otherwise it samples the default, which the other

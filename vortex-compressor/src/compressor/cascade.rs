@@ -409,10 +409,11 @@ impl CascadingCompressor {
     /// [`compress_encoded`](Self::compress_encoded).
     ///
     /// If a winner is found and its compressed output is actually smaller than the exact
-    /// uncompressed size, that output is returned as [`Selection::Compressed`]. Otherwise, the
-    /// original array is returned as [`Selection::Unchanged`], and the caller decides whether it
-    /// is a valid result: it is for leaf arrays, but not for arrays like extensions whose children
-    /// have yet to be compressed.
+    /// uncompressed size—or the winner is one of the built-in container defaults
+    /// (`FixedSizeListDenseScheme` or `ExtensionStorageScheme`), which are always accepted—that
+    /// output is returned as [`Selection::Compressed`]. Otherwise, the original array is returned
+    /// as [`Selection::Unchanged`], and the caller decides whether it is a valid result: it is for
+    /// leaf arrays, but not for arrays like extensions whose children have yet to be compressed.
     ///
     /// Empty, all-null, and constant arrays are handled by the compressor itself before any
     /// scheme evaluation (constant detection is skipped while compressing samples).
