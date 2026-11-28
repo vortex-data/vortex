@@ -177,8 +177,8 @@ fn ignores_ambiguous_legacy_sum_stat() -> VortexResult<()> {
 #[test]
 fn nulls_and_chunk_boundaries_preserve_prefix_overflow() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let values = PrimitiveArray::from_option_iter([Some(i64::MAX), Some(1), None, Some(-1)])
-        .into_array();
+    let values =
+        PrimitiveArray::from_option_iter([Some(i64::MAX), Some(1), None, Some(-1)]).into_array();
     let split = ChunkedArray::try_new(
         [values.slice(0..2)?, values.slice(2..4)?],
         values.dtype().clone(),

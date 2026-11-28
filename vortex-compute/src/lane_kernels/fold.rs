@@ -384,7 +384,10 @@ mod tests {
     #[test]
     fn short_fold_merges_separate_lane_accumulators() {
         let values = [2, 4, 8];
-        assert_eq!(values[..].fold_lanes::<4, _, _, _>(0, i32::max, |a, b| a + b), 14);
+        assert_eq!(
+            values[..].fold_lanes::<4, _, _, _>(0, i32::max, |a, b| a + b),
+            14
+        );
     }
 
     #[test]
