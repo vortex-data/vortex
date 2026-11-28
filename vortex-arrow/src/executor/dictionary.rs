@@ -167,10 +167,10 @@ where
             .into_array()
             .cast(key_dtype)
             .and_then(|codes| codes.execute::<PrimitiveArray>(ctx))
-            && let Ok(values) = dict
-                .values()
-                .clone()
-                .execute_arrow_with_options(Some(values_field), options, ctx)
+            && let Ok(values) =
+                dict.values()
+                    .clone()
+                    .execute_arrow_with_options(Some(values_field), options, ctx)
         {
             let codes = canonical_primitive_to_arrow::<K>(codes, ctx)?;
             let dict = DictionaryArray::<K>::try_new(codes.as_primitive::<K>().clone(), values)?;
