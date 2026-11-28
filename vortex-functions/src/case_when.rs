@@ -487,6 +487,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::arrays::StructArray;
@@ -791,6 +792,55 @@ mod tests {
         )?
         .into_array();
         assert!(selected_error.execute::<Canonical>(&mut ctx).is_err());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::with_else(true)]
+    #[case::without_else(false)]
+    fn fallible_branch_over_dictionary_runs_only_on_selected_rows(
+        #[case] has_else: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // SAFETY: The codes reference every value.
+        let dict = unsafe {
+            DictArray::try_new(
+                buffer![0u8, 0, 1, 2, 0, 1].into_array(),
+                buffer![0i32, 1, 2].into_array(),
+            )?
+            .set_all_values_referenced(true)
+        }
+        .into_array();
+
+        let condition = dict.compare(
+            ConstantArray::new(0i32, 6).into_array(),
+            CompareOperator::NotEq,
+        )?;
+        let division = ConstantArray::new(12i32, 6)
+            .into_array()
+            .numeric(dict, NumericOperator::Div)?;
+
+        let mut children = vec![condition, division];
+        if has_else {
+            children.push(ConstantArray::new(0i32, 6).into_array());
+        }
+
+        let case = ScalarFnArray::try_new(
+            CaseWhen.bind(CaseWhenOptions {
+                num_when_then_pairs: 1,
+                has_else,
+            }),
+            children,
+        )?
+        .into_array();
+
+        let expected = if has_else {
+            PrimitiveArray::from_iter([0i32, 0, 12, 6, 0, 12])
+        } else {
+            PrimitiveArray::from_option_iter([None, None, Some(12i32), Some(6), None, Some(12)])
+        };
+        assert_arrays_eq!(case, expected, &mut ctx);
         Ok(())
     }
 

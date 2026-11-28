@@ -17,16 +17,10 @@ use crate::scalar_fn::builtin::cast::CastReduce;
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Casting unused entries must not introduce errors that a cast over the rows would skip.
-        if !array.has_all_values_referenced() {
-            let safe_for_unused_values = match (array.dtype(), dtype) {
-                (DType::Primitive(from, _), DType::Primitive(to, _)) => {
-                    from.casts_losslessly_to(*to)
-                }
-                (from, to) => from.as_nullable() == to.as_nullable(),
-            };
-            if !safe_for_unused_values {
-                return Ok(None);
-            }
+        if !array.has_all_values_referenced()
+            && !casts_non_null_values_losslessly(array.dtype(), dtype)
+        {
+            return Ok(None);
         }
 
         // An unused null entry must not make a cast to a non-nullable dtype fail.
@@ -53,6 +47,14 @@ impl CastReduce for Dict {
             }
             .into_array(),
         ))
+    }
+}
+
+/// Returns whether a cast from `from` to `to` cannot fail on a non-null value.
+pub(super) fn casts_non_null_values_losslessly(from: &DType, to: &DType) -> bool {
+    match (from, to) {
+        (DType::Primitive(from, _), DType::Primitive(to, _)) => from.casts_losslessly_to(*to),
+        (from, to) => from.as_nullable() == to.as_nullable(),
     }
 }
 
