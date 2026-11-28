@@ -4,24 +4,25 @@
 //! Extracts a path of object fields from unshredded Parquet Variant storage, reading the
 //! [Variant encoding] in place.
 //!
-//! This covers the extractions a scan runs most: a string or an integer under a few object
+//! This covers the extractions a scan runs most: a string or number under a few object
 //! fields, and structs and lists of them. Reading the bytes in place skips what the general
 //! `variant_get` kernel does for every row and every path: building an Arrow array of the
 //! storage, a `Variant` over each row, and a `Variant` over each object on the way down. A struct
 //! reads the fields of each object in one pass, so it extracts several paths at once.
 //!
-//! The values that need no conversion are read from their bytes. Every other value is decoded and
-//! converted with the `Variant` method that the general kernel converts it with, so the result is
-//! the kernel's whatever a row holds. [`extract`] returns `None` only for an extraction it does
-//! not cover at all, or for bytes that are not what the encoding says they are, and the caller
-//! then falls back to the general kernel.
+//! Numeric payloads and strings are read directly from their bytes. Other primitive values are
+//! decoded for conversion with the same cast semantics as the general kernel. The caller falls
+//! back to that kernel if [`extract`] encounters an unsupported target or malformed bytes.
 //!
 //! [Variant encoding]: https://github.com/apache/parquet-format/blob/master/VariantEncoding.md
 
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use arrow_array::types::Decimal128Type;
+use arrow_cast::cast::single_decimal_to_float_lossy;
 use parquet_variant::Variant;
+use parquet_variant::VariantDecimal16;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListArray;
@@ -33,8 +34,9 @@ use vortex_array::arrays::varbinview::ResolvedViews;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
+use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
@@ -66,7 +68,9 @@ pub(crate) fn extract(
     let depth = path.len();
     match &mut builder {
         Builder::Utf8(utf8) => append_rows(utf8, &mut cache, &metadata, &value, valid, depth)?,
-        Builder::Int64(int64) => append_rows(int64, &mut cache, &metadata, &value, valid, depth)?,
+        Builder::Numeric(builder) => {
+            builder.append_rows(&mut cache, &metadata, &value, valid, depth)?
+        }
         nested => append_rows(nested, &mut cache, &metadata, &value, valid, depth)?,
     }
 
@@ -75,12 +79,12 @@ pub(crate) fn extract(
 
 /// Whether [`extract`] covers extracting values as `dtype`.
 ///
-/// It covers strings, 64-bit integers, and structs and lists of them. The fields of a struct and
+/// It covers strings, primitive numbers, and structs and lists of them. The fields of a struct and
 /// the elements of a list must be nullable, as a value that does not convert is a null. A struct
 /// without fields is left to the general kernel, which cannot build one.
 pub(crate) fn covers(dtype: &DType) -> bool {
     match dtype {
-        DType::Utf8(_) | DType::Primitive(PType::I64, _) => true,
+        DType::Utf8(_) | DType::Primitive(..) => true,
         DType::Struct(fields, _) => {
             fields.nfields() > 0
                 && fields
@@ -123,48 +127,7 @@ fn decode(value: &[u8]) -> Option<Variant<'static, '_>> {
     Variant::try_new(EMPTY_METADATA, value).ok()
 }
 
-/// Converts `variant` to an integer as Arrow's `variant_get` does: a Boolean becomes 0 or 1, and a
-/// float or decimal is truncated toward zero. Returns `None` for other values and out of range.
-fn as_int64(variant: &Variant<'_, '_>) -> Option<i64> {
-    match *variant {
-        Variant::BooleanFalse => Some(0),
-        Variant::BooleanTrue => Some(1),
-        Variant::Float(float) => float_as_int64(f64::from(float)),
-        Variant::Double(double) => float_as_int64(double),
-        Variant::Decimal4(decimal) => {
-            decimal_as_int64(i128::from(decimal.integer()), decimal.scale())
-        }
-        Variant::Decimal8(decimal) => {
-            decimal_as_int64(i128::from(decimal.integer()), decimal.scale())
-        }
-        Variant::Decimal16(decimal) => decimal_as_int64(decimal.integer(), decimal.scale()),
-        _ => variant.as_int64(),
-    }
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "the truncated value is checked to be in range"
-)]
-fn float_as_int64(float: f64) -> Option<i64> {
-    let truncated = float.trunc();
-
-    // `i64::MAX as f64` rounds up to 2^63, so the upper bound is exclusive.
-    (truncated >= i64::MIN as f64 && truncated < i64::MAX as f64).then_some(truncated as i64)
-}
-
-fn decimal_as_int64(unscaled: i128, scale: u8) -> Option<i64> {
-    let divisor = 10i128.checked_pow(u32::from(scale))?;
-
-    i64::try_from(unscaled / divisor).ok()
-}
-
-/// Appends the value of each row, which it converts to its dtype as the general kernel converts
-/// it.
-///
-/// The kernel converts a value to a string with [`Variant::as_string`], to an integer with
-/// [`as_int64`], to a struct with [`Variant::as_object`], and to a list with
-/// [`Variant::as_list`]. A value that does not convert is a null.
+/// Appends a converted value or a null if the value does not convert.
 trait Append {
     /// Appends `value`, converted to the builder's dtype. Returns `None` for bytes that are cut
     /// short or do not decode.
@@ -175,9 +138,9 @@ trait Append {
 
 /// Appends the extracted value of each row of the storage to `builder`.
 ///
-/// Generic over the builder, so that the loop of a string or an integer target is compiled for
+/// Generic over the builder, so that the loop of a string or numeric target is compiled for
 /// that builder alone.
-fn append_rows<'m, B: Append>(
+fn append_rows<'m, B: Append + ?Sized>(
     builder: &mut B,
     cache: &mut FieldCache<'_, 'm>,
     metadata: &ResolvedViews<'m>,
@@ -202,7 +165,7 @@ fn append_rows<'m, B: Append>(
 /// Builds an extracted array of any dtype that [`covers`] covers.
 enum Builder {
     Utf8(Utf8Builder),
-    Int64(Int64Builder),
+    Numeric(Box<dyn NumericColumn>),
     /// Reads each field from the field of the object of the same name.
     Struct {
         names: FieldNames,
@@ -228,7 +191,9 @@ impl Builder {
         }
         Some(match dtype {
             DType::Utf8(_) => Self::Utf8(Utf8Builder::new(capacity)),
-            DType::Primitive(..) => Self::Int64(Int64Builder::new(capacity)),
+            DType::Primitive(ptype, _) => match_each_native_ptype!(ptype, |T| {
+                Self::Numeric(Box::new(NumericBuilder::<T>::new(capacity)))
+            }),
             DType::Struct(struct_fields, _) => {
                 let mut fields = Vec::with_capacity(struct_fields.nfields());
                 for (name, field_dtype) in struct_fields.names().iter().zip(struct_fields.fields())
@@ -260,7 +225,7 @@ impl Builder {
     fn finish(self) -> Option<ArrayRef> {
         Some(match self {
             Self::Utf8(builder) => builder.finish()?,
-            Self::Int64(builder) => builder.finish(),
+            Self::Numeric(builder) => builder.finish(),
             Self::Struct {
                 names,
                 fields,
@@ -302,7 +267,7 @@ impl Append for Builder {
     fn append(&mut self, names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         match self {
             Self::Utf8(builder) => builder.append(names, value),
-            Self::Int64(builder) => builder.append(names, value),
+            Self::Numeric(builder) => builder.append(names, value),
             Self::Struct {
                 fields: builders,
                 validity,
@@ -345,7 +310,7 @@ impl Append for Builder {
     fn append_null(&mut self) {
         match self {
             Self::Utf8(builder) => builder.append_null(),
-            Self::Int64(builder) => builder.append_null(),
+            Self::Numeric(builder) => builder.append_null(),
             Self::Struct {
                 fields, validity, ..
             } => {
@@ -441,12 +406,28 @@ impl Append for Utf8Builder {
     }
 }
 
-struct Int64Builder {
-    values: BufferMut<i64>,
+/// Dispatch once per batch for a numeric target. Struct and list children use `Append` per value.
+trait NumericColumn: Append {
+    fn append_rows<'m>(
+        &mut self,
+        cache: &mut FieldCache<'_, 'm>,
+        metadata: &ResolvedViews<'m>,
+        value: &ResolvedViews<'_>,
+        valid: &Mask,
+        depth: usize,
+    ) -> Option<()> {
+        append_rows(self, cache, metadata, value, valid, depth)
+    }
+
+    fn finish(self: Box<Self>) -> ArrayRef;
+}
+
+struct NumericBuilder<T> {
+    values: BufferMut<T>,
     validity: BitBufferMut,
 }
 
-impl Int64Builder {
+impl<T: NativePType> NumericBuilder<T> {
     fn new(capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
@@ -455,37 +436,61 @@ impl Int64Builder {
     }
 
     #[inline]
-    fn push(&mut self, integer: Option<i64>) {
-        self.values.push(integer.unwrap_or_default());
-        self.validity.append(integer.is_some());
+    fn push(&mut self, value: Option<T>) {
+        self.values.push(value.unwrap_or_default());
+        self.validity.append(value.is_some());
     }
+}
 
-    fn finish(self) -> ArrayRef {
+impl<T: NativePType> NumericColumn for NumericBuilder<T> {
+    fn finish(self: Box<Self>) -> ArrayRef {
         PrimitiveArray::new(self.values.freeze(), Validity::from(self.validity.freeze()))
             .into_array()
     }
 }
 
-impl Append for Int64Builder {
+impl<T: NativePType> Append for NumericBuilder<T> {
     #[inline]
     fn append(&mut self, _names: &Names<'_, '_>, value: &[u8]) -> Option<()> {
         let header = *value.first()?;
         let payload = &value[1..];
-        let integer = match (header & BASIC_TYPE_MASK, header >> 2) {
-            (PRIMITIVE, INT8) => Some(i64::from(i8::from_le_bytes(array(payload)?))),
-            (PRIMITIVE, INT16) => Some(i64::from(i16::from_le_bytes(array(payload)?))),
-            (PRIMITIVE, INT32) => Some(i64::from(i32::from_le_bytes(array(payload)?))),
-            (PRIMITIVE, INT64) => Some(i64::from_le_bytes(array(payload)?)),
+        let number = match (header & BASIC_TYPE_MASK, header >> 2) {
+            (PRIMITIVE, INT8) => T::from(i8::from_le_bytes(array(payload)?)),
+            (PRIMITIVE, INT16) => T::from(i16::from_le_bytes(array(payload)?)),
+            (PRIMITIVE, INT32) => T::from(i32::from_le_bytes(array(payload)?)),
+            (PRIMITIVE, INT64) => T::from(i64::from_le_bytes(array(payload)?)),
+            (PRIMITIVE, FLOAT) => T::from(f32::from_le_bytes(array(payload)?)),
+            (PRIMITIVE, DOUBLE) => T::from(f64::from_le_bytes(array(payload)?)),
             (OBJECT | ARRAY, _) => None,
-            _ => as_int64(&decode(value)?),
+            _ => match decode(value)? {
+                Variant::BooleanFalse => T::from(0),
+                Variant::BooleanTrue => T::from(1),
+                other => other.as_decimal16().and_then(decimal_as_number),
+            },
         };
-        self.push(integer);
+        self.push(number);
         Some(())
     }
 
     #[inline]
     fn append_null(&mut self) {
         self.push(None);
+    }
+}
+
+/// Integer targets truncate toward zero. Floating targets go through the same rounded f64 as
+/// parquet-rs, including for decimals beyond the exact integer range of f64.
+fn decimal_as_number<T: NativePType>(decimal: VariantDecimal16) -> Option<T> {
+    let unscaled = decimal.integer();
+    let scale = decimal.scale();
+    if T::PTYPE.is_float() {
+        T::from(single_decimal_to_float_lossy::<Decimal128Type, _>(
+            &|i| i as f64,
+            unscaled,
+            i32::from(scale),
+        ))
+    } else {
+        T::from(unscaled / 10i128.checked_pow(u32::from(scale))?)
     }
 }
 
@@ -629,6 +634,8 @@ const INT8: u8 = 3;
 const INT16: u8 = 4;
 const INT32: u8 = 5;
 const INT64: u8 = 6;
+const DOUBLE: u8 = 7;
+const FLOAT: u8 = 14;
 const LONG_STRING: u8 = 16;
 
 /// The dictionary of field names of a Variant value.
@@ -816,6 +823,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
@@ -932,6 +940,10 @@ mod tests {
     #[case::list_of_integers("nums", list_of(int64()))]
     #[case::list_of_structs("items", list_of(struct_of([("n", int64())])))]
     #[case::list_in_a_struct("", struct_of([("tags", list_of(utf8())), ("kind", utf8())]))]
+    #[case::numeric_children("", struct_of([
+        ("time_us", DType::Primitive(PType::U32, Nullability::Nullable)),
+        ("nums", list_of(DType::Primitive(PType::F32, Nullability::Nullable))),
+    ]))]
     fn extracts_structs_and_lists_as_the_kernel_does(
         #[case] path: &str,
         #[case] dtype: DType,
@@ -1182,6 +1194,53 @@ mod tests {
 
         let actual = actual.ok_or_else(|| vortex_err!("{dtype} must be covered"))?;
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn numeric_targets_match_parquet_rs() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(64);
+        for value in non_json_values() {
+            builder.append_variant(Variant::try_new(EMPTY_METADATA, &value)?);
+        }
+        for value in [
+            Variant::Null,
+            Variant::BooleanFalse,
+            Variant::BooleanTrue,
+            Variant::from("123"),
+            Variant::Int8(-1),
+            Variant::Int16(256),
+            Variant::Int32(65536),
+            Variant::Int64(i64::MAX),
+            Variant::Double(-0.75),
+            Variant::Double(127.75),
+            Variant::Double(2.0f64.powi(63)),
+            Variant::Double(2.0f64.powi(64)),
+            Variant::Double(f64::INFINITY),
+            Variant::Double(f64::NAN),
+            Variant::Decimal16(VariantDecimal16::try_new(i128::from(u64::MAX), 0)?),
+        ] {
+            builder.append_variant(value);
+        }
+        let input = builder.build();
+        for ptype in [
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::F16,
+            PType::F32,
+            PType::F64,
+        ] {
+            let dtype = DType::Primitive(ptype, Nullability::Nullable);
+            let (actual, expected) = extract_both_variant(&input, "", &dtype)?;
+            let actual = actual.ok_or_else(|| vortex_err!("{dtype} must be covered"))?;
+            assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        }
         Ok(())
     }
 
