@@ -247,7 +247,7 @@ fn combine_parts<const SUB_DIV: i64, D, S, U>(
 /// `out` (used by `i32`-backed `Time[s]` and `Time[ms]`, where `subseconds_divisor == 1`).
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "valid Time[s]/Time[ms] values lie in 0..86_400_000 (well within i32); null slots wrap"
+    reason = "Time[s]/Time[ms] parts split from i32 round-trip exactly within i32"
 )]
 fn combine_parts_i32<D, S, U>(
     days: &[D],
