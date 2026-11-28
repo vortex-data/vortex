@@ -22,6 +22,7 @@ use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
+use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 
@@ -71,33 +72,43 @@ pub(crate) fn sample_valid_values<T: Copy>(
     let mut block_rank_start = 0;
     let mut rank = 0;
 
-    'slices: for (slice_start, slice_end) in bit_buffer.set_slices() {
-        let slice_rank_start = rank;
-        let slice_rank_end = rank + (slice_end - slice_start);
-        rank = slice_rank_end;
+    for_each_mask_word(bit_buffer, |valid_word, word_start, _word_len| {
+        if block_idx >= num_blocks || valid_word == 0 {
+            return;
+        }
+        let word_ones = valid_word.count_ones() as usize;
+        let word_rank_start = rank;
+        let word_rank_end = rank + word_ones;
+        rank = word_rank_end;
 
-        while block_idx < num_blocks {
+        if word_rank_end <= block_rank_start {
+            return;
+        }
+
+        let mut bits = valid_word;
+        let mut r = word_rank_start;
+        while block_idx < num_blocks && bits != 0 {
             let block_quota = base_quota + usize::from(block_idx < quota_rem);
             let block_rank_end = block_rank_start + block_quota;
-            if slice_rank_end <= block_rank_start {
-                continue 'slices;
+            if word_rank_end <= block_rank_start {
+                break;
             }
-            if slice_rank_start < block_rank_end {
-                let ov_start = slice_rank_start.max(block_rank_start);
-                let ov_end = slice_rank_end.min(block_rank_end);
-                let offset = ov_start - slice_rank_start;
-                sample.extend_from_slice(
-                    &values[slice_start + offset..slice_start + offset + (ov_end - ov_start)],
-                );
+            while r < block_rank_start && bits != 0 {
+                bits &= bits - 1;
+                r += 1;
             }
-            if slice_rank_end < block_rank_end {
-                continue 'slices;
+            while r < block_rank_end && bits != 0 {
+                let bit = bits.trailing_zeros() as usize;
+                sample.push(values[word_start + bit]);
+                bits &= bits - 1;
+                r += 1;
             }
-            block_rank_start = block_rank_end + base_gap + usize::from(block_idx < gap_rem);
-            block_idx += 1;
+            if r >= block_rank_end {
+                block_rank_start = block_rank_end + base_gap + usize::from(block_idx < gap_rem);
+                block_idx += 1;
+            }
         }
-        break;
-    }
+    });
 
     sample
 }

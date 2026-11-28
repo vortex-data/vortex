@@ -439,7 +439,10 @@ where
 }
 
 #[simd]
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel passes pre-allocated output buffers directly"
+)]
 fn split_parts_masked_simd<S: Simd, T: ALPRDFloat>(
     _: S,
     codes: &[u16],

@@ -127,7 +127,10 @@ fn find_best_exponents_simd<S: Simd, T: ALPFloat>(_: S, values: &[T]) -> Exponen
 
 /// Encodes `values` directly with a validity mask, skipping exception emission on null lanes and
 /// writing `fill_value` into null and patched slots without copying the input buffer.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel passes pre-allocated output buffers directly"
+)]
 fn encode_masked_into<T: ALPFloat>(
     values: &[T],
     mask: BitBufferView<'_>,
@@ -152,7 +155,10 @@ fn encode_masked_into<T: ALPFloat>(
 }
 
 #[simd]
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "SIMD kernel passes pre-allocated output buffers directly"
+)]
 fn encode_masked_into_simd<S: Simd, T: ALPFloat>(
     _: S,
     values: &[T],
@@ -212,6 +218,8 @@ fn encode_masked_into_simd<S: Simd, T: ALPFloat>(
 
         // Pass 2: compute per-lane exception flags in a separate branchless SIMD loop, then mask
         // against the validity words so null lanes never emit patches.
+        patch_indices.reserve(chunk_patch_count);
+        patch_values.reserve(chunk_patch_count);
         let mut is_exc = [0u8; ENCODE_CHUNK_SIZE];
         for ((&enc, &v), flag) in chunk_encoded.iter().zip(chunk_values).zip(&mut is_exc) {
             *flag = u8::from(!T::decode_single(enc, exp).is_eq(v));
@@ -661,6 +669,60 @@ mod tests {
         let patch_values = patches.values().clone();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values, &mut ctx);
+    }
+
+    #[test]
+    fn test_chunk_offsets_nullable_sliced() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let offset = 3;
+        let len = 3072;
+        let mut values = vec![1.0f64; offset + len];
+        let mut valid = vec![true; offset + len];
+
+        // Valid exceptions across chunk boundaries after slicing off the first 3 rows.
+        values[offset + 1023] = PI;
+        values[offset + 1024] = E;
+        values[offset + 2050] = PI;
+
+        // Dirty null payloads in every chunk must produce no patches and leave chunk offsets clean.
+        for null_idx in [
+            offset,
+            offset + 500,
+            offset + 1022,
+            offset + 1500,
+            offset + 2048,
+        ] {
+            valid[null_idx] = false;
+            values[null_idx] = f64::NAN;
+        }
+
+        let full = PrimitiveArray::new(Buffer::from(values), Validity::from_iter(valid));
+        let sliced = full.slice(offset..offset + len)?;
+        let sliced_prim = sliced.execute::<PrimitiveArray>(&mut ctx)?;
+        let encoded = alp_encode(sliced_prim.as_view(), None, &mut ctx)?;
+
+        assert_arrays_eq!(encoded, sliced_prim, &mut ctx);
+
+        let patches = encoded
+            .patches()
+            .expect("expected patches for valid exceptions");
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .expect("expected chunk offsets");
+        let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 2]);
+        assert_arrays_eq!(chunk_offsets, expected_offsets, &mut ctx);
+
+        let patch_indices = patches.indices().clone();
+        let expected_indices = PrimitiveArray::from_iter(vec![1023u64, 1024, 2050]);
+        assert_arrays_eq!(patch_indices, expected_indices, &mut ctx);
+
+        let patch_values = patches.values().clone();
+        let expected_values =
+            PrimitiveArray::new(Buffer::from(vec![PI, E, PI]), Validity::AllValid);
+        assert_arrays_eq!(patch_values, expected_values, &mut ctx);
+
+        Ok(())
     }
 
     #[test]
