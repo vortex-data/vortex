@@ -122,7 +122,8 @@ jobs:
     name: "Compat check"
     uses: ./.github/workflows/compat-validation.yml
     with:
-      mode: last
+      mode: all
+      check_editions: true
       ref: ${{ inputs.ref }}
 
   rust-test-musl:

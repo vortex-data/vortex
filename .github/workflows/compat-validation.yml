@@ -2,7 +2,7 @@ name: Compat Validation
 
 on:
   schedule:
-    - cron: "0 6 * * 1"  # Monday 6am UTC
+    - cron: "0 6 * * *"  # Daily 6am UTC
   workflow_call:
     inputs:
       mode:
@@ -19,7 +19,7 @@ on:
         description: "Also run edition write + oldest-reader checks"
         required: false
         type: boolean
-        default: false
+        default: true
   workflow_dispatch:
     inputs:
       mode:

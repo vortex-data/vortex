@@ -16,7 +16,7 @@ Compatibility testing covers both directions:
 1. **Backward compatibility (current reader, old files):** We maintain a library
    of `.vortex` fixture files, one set per released version, stored in S3.
    `compat.py check` reads every old fixture with the current reader and
-   compares decoded values against a known-good oracle. Keeping the weekly
+   compares decoded values against a known-good oracle. Keeping the recurring
    `--mode all` sweep catches regressions on historical physical encodings that
    HEAD no longer writes under the same fixture names (for example, pre-#10701
    non-canonical decimal widths from #10754).
@@ -252,16 +252,17 @@ Two-phase workflow:
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 
 Validates the current code against previously published fixtures and checks
-edition-targeted generation against each edition's oldest reader. Runs weekly
-(Monday 6am UTC, using `mode: all` and `check_editions: true`), via
-`workflow_call` (callers pass a required `mode` and optional `check_editions`),
-and via manual dispatch with `mode` (defaults to `last`) and `check_editions`
+edition-targeted generation against each edition's oldest reader. Runs daily
+(6am UTC, using `mode: all` and `check_editions: true`), as a release-blocking
+check via `release-checks.yml` (`mode: all`, `check_editions: true`), via
+`workflow_call` (defaults to `mode: all` and `check_editions: true`), and via
+manual dispatch with `mode` (defaults to `last`) and `check_editions`
 (defaults to `false`):
 
 | Mode | Behavior |
 |------|----------|
 | `last` | Compare against the most recent published release only |
-| `all` | Compare against all previously published versions (weekly schedule, or when passed explicitly) |
+| `all` | Compare against all previously published versions (daily schedule, release checks, or when passed explicitly) |
 | `check_editions` | Generate fixtures at each frozen `core` edition and verify with its oldest `vortex-data` reader against `accepted-edition-failures.json` |
 
 ## Known Limitations
