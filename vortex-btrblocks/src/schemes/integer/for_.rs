@@ -17,9 +17,9 @@ use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
-use vortex_fastlanes::FL_CHUNK_SIZE;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
@@ -29,7 +29,6 @@ use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 
 use super::BitPackingScheme;
-use super::bitpacking::MIN_BITS_SAVED;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::Child;
@@ -178,11 +177,9 @@ impl Scheme for FoRScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Both modes estimate single-reference FoR. This is conservative for v2: per-chunk
-        // references never pack wider than one reference, since each chunk's range lies within the
-        // array's, so the ratio can understate v2. It also skips arrays where only per-chunk
-        // references would help, such as those whose minimum is zero, or whose single-reference
-        // width is no narrower than plain BitPacking.
+        // Fast-skip checks use global stats and are conservative for v2: arrays whose global
+        // minimum is zero, or whose single-reference range width is no narrower than plain
+        // BitPacking, are skipped before sampling even if per-chunk references would help.
         let stats = data.integer_stats(exec_ctx);
 
         // Only apply when the min is not already zero.
@@ -212,35 +209,17 @@ impl Scheme for FoRScheme {
             }
         }
 
+        // Signed residuals wrap negative (which BitPacking rejects) when the range reaches the
+        // sign bit.
         let ptype = data.array_as_primitive().ptype();
-
-        // `BitPackingScheme::try_encode` refuses to pack unless at least `MIN_BITS_SAVED` bits are
-        // saved per value, so skip here rather than winning selection and returning raw data.
-        if ptype.bit_width().saturating_sub(for_bitwidth as usize) < MIN_BITS_SAVED {
+        if ptype.is_signed_int() && for_bitwidth as usize >= ptype.bit_width() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // Price the FastLanes-padded bit-packed payload plus any validity bitmap (matching
-        // `FoRArray::nbytes`, where a global reference lives in metadata) so short arrays don't
-        // outscore schemes like Sequence and then fail the compressor's size check.
-        let len = data.array_len();
-        let elem_bytes = ptype.byte_width();
-        let validity_bytes = if stats.null_count() > 0 {
-            len.div_ceil(8)
-        } else {
-            0
-        };
-        let uncompressed_bytes = len * elem_bytes + validity_bytes;
-        let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
-        let packed_bytes = (padded_len / 8) * for_bitwidth as usize;
-        let compressed_bytes = packed_bytes + validity_bytes;
-        if compressed_bytes >= uncompressed_bytes {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            uncompressed_bytes as f64 / compressed_bytes as f64,
-        ))
+        // Defer to sampling so the estimate reflects what `encode` actually produces: patch-aware
+        // bit widths (`find_best_bit_width`), `BitPackingScheme`'s `MIN_BITS_SAVED` threshold,
+        // FastLanes block padding, and V2 per-chunk references/widths.
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     /// Children: references=0 in v2 mode. The encoded child is bit-packed, and its children are
@@ -475,6 +454,38 @@ mod tests {
         assert!(
             !compressed.is::<FoR>() && !compressed.is_canonical(),
             "expected IntDict rather than FoR/uncompressed, got {}",
+            compressed.encoding_id()
+        );
+        assert!(compressed.nbytes() < input.nbytes());
+        assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_for_selected_for_negative_values_with_sparse_outliers() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Mostly -100..=-85 with sparse outliers at 15: global range is 115 (7 bits, saving only
+        // 1 bit on i8), but after subtracting -100 almost all residuals fit in 4 bits and the
+        // outliers move to patches. BitPacking skips negative values, so FoR must still win.
+        let values: Vec<i8> = (0..4_096)
+            .map(|i| {
+                if i % 512 == 0 {
+                    15
+                } else {
+                    -100 + (i % 16) as i8
+                }
+            })
+            .collect();
+        let input = PrimitiveArray::from_iter(values).into_array();
+
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&FOR_V1)
+            .with_new_scheme(&super::super::BITPACKING_V1)
+            .build();
+        let compressed = compressor.compress(&input, &mut ctx)?;
+        assert!(
+            compressed.is::<FoR>(),
+            "expected FoR for negative i8 values with sparse outliers, got {}",
             compressed.encoding_id()
         );
         assert!(compressed.nbytes() < input.nbytes());
