@@ -12,8 +12,9 @@ import subprocess
 import sys
 from http.client import IncompleteRead
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
+import pyarrow as pa
 import pytest
 
 
@@ -492,3 +493,72 @@ def test_evaluate_edition_results_skips_stale_on_whole_reader_failure(compat):
     )
     assert res["stale"] == []
     assert [f["name"] for f in res["unexpected"]] == ["(all)"]
+
+
+@pytest.fixture
+def edition_reader(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    monkeypatch.setitem(sys.modules, "vortex", SimpleNamespace())
+    path = Path(__file__).resolve().parents[1] / "scripts" / "edition_reader.py"
+    spec = importlib.util.spec_from_file_location("vortex_compat_edition_reader_under_test", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, mod)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_edition_reader_map_keys_sorted_mismatch_still_checks_values(compat, edition_reader):
+    expected_type = pa.map_(pa.field("key", pa.string_view(), nullable=False), pa.int64(), keys_sorted=True)
+    actual_type = pa.map_(pa.field("key", pa.string_view(), nullable=False), pa.int64(), keys_sorted=False)
+    expected = pa.table(
+        {"sorted_attrs": pa.array([[("a", 1), ("b", 2)]], type=expected_type)},
+        schema=pa.schema([pa.field("sorted_attrs", expected_type, nullable=False)]),
+    )
+    actual_same = pa.table(
+        {"sorted_attrs": pa.array([[("a", 1), ("b", 2)]], type=actual_type)},
+        schema=pa.schema([pa.field("sorted_attrs", actual_type, nullable=False)]),
+    )
+    actual_wrong = pa.table(
+        {"sorted_attrs": pa.array([[("a", 9), ("b", 2)]], type=actual_type)},
+        schema=pa.schema([pa.field("sorted_attrs", actual_type, nullable=False)]),
+    )
+
+    same_causes = edition_reader._tables_equal(actual_same, expected)
+    assert len(same_causes) == 1
+    assert same_causes[0].startswith("type mismatch in column sorted_attrs:")
+
+    wrong_causes = edition_reader._tables_equal(actual_wrong, expected)
+    assert any(c.startswith("type mismatch in column sorted_attrs:") for c in wrong_causes)
+    assert any(c.startswith("value mismatch in column sorted_attrs") for c in wrong_causes)
+
+    accepted = {
+        ("core2026.08.2", "0.85.0", "map.vortex"): {
+            "expected_causes": [same_causes[0]],
+            "reason": "known keys_sorted drop on 0.85.0",
+        }
+    }
+    res_same = compat._evaluate_edition_results(
+        "core2026.08.2",
+        "0.85.0",
+        ["map.vortex"],
+        {"passed": [], "failed": [{"name": "map.vortex", "error": same_causes[0], "causes": same_causes}]},
+        accepted,
+    )
+    assert res_same["unexpected"] == []
+    assert len(res_same["accepted"]) == 1
+
+    res_wrong = compat._evaluate_edition_results(
+        "core2026.08.2",
+        "0.85.0",
+        ["map.vortex"],
+        {"passed": [], "failed": [{"name": "map.vortex", "error": "; ".join(wrong_causes), "causes": wrong_causes}]},
+        accepted,
+    )
+    assert len(res_wrong["unexpected"]) == 1
+
+
+def test_edition_reader_probe_column_causes_isolates_corrupt_expected_ipc(edition_reader, monkeypatch, tmp_path):
+    corrupt_ipc = tmp_path / "broken.vortex.arrow"
+    corrupt_ipc.write_bytes(b"not a valid arrow ipc file")
+    monkeypatch.setattr(edition_reader, "_get_struct_columns", lambda _p: {"ok": True, "columns": ["a", "b"]})
+    assert edition_reader._probe_column_causes(tmp_path / "broken.vortex", corrupt_ipc) == []

@@ -107,7 +107,7 @@ jobs:
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
-            --with tabulate --with xxhash --with jsonschema \
+            --with tabulate --with xxhash --with jsonschema --with pyarrow \
             pytest scripts/tests \
               vortex-test/compat-gen/tests/test_compat.py
 

@@ -36,6 +36,8 @@ def _values_equal(a: object, b: object) -> bool:
         return a == b
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(_values_equal(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, tuple) and isinstance(b, tuple):
+        return len(a) == len(b) and all(_values_equal(x, y) for x, y in zip(a, b, strict=True))
     if isinstance(a, dict) and isinstance(b, dict):
         return a.keys() == b.keys() and all(_values_equal(a[k], b[k]) for k in a)
     return a == b
@@ -72,40 +74,42 @@ def _normalize_type(dtype: pa.DataType) -> pa.DataType:
     return dtype
 
 
-def _tables_equal(actual: pa.Table, expected: pa.Table) -> tuple[bool, str | None]:
+def _compare_column_causes(
+    col: str,
+    actual_field: pa.Field,
+    actual_col: pa.Array,
+    expected_field: pa.Field,
+    expected_col: pa.Array,
+) -> list[str]:
+    if len(actual_col) != len(expected_col):
+        return [f"row count mismatch in column {col}: actual={len(actual_col)}, expected={len(expected_col)}"]
+    causes: list[str] = []
+    if _normalize_field(actual_field) != _normalize_field(expected_field):
+        causes.append(f"type mismatch in column {col}: actual={actual_field}, expected={expected_field}")
+    if not actual_col.equals(expected_col) and not _values_equal(actual_col.to_pylist(), expected_col.to_pylist()):
+        causes.append(
+            f"value mismatch in column {col} (actual_type={actual_col.type}, expected_type={expected_col.type})"
+        )
+    return causes
+
+
+def _tables_equal(actual: pa.Table, expected: pa.Table) -> list[str]:
     if actual.num_rows != expected.num_rows:
-        return False, f"row count mismatch: actual={actual.num_rows}, expected={expected.num_rows}"
+        return [f"row count mismatch: actual={actual.num_rows}, expected={expected.num_rows}"]
     if actual.num_columns != expected.num_columns:
-        return (
-            False,
-            f"column count mismatch: actual={actual.num_columns}, expected={expected.num_columns}",
-        )
+        return [f"column count mismatch: actual={actual.num_columns}, expected={expected.num_columns}"]
     if actual.schema.names != expected.schema.names:
-        return (
-            False,
-            f"column names mismatch: actual={actual.schema.names}, expected={expected.schema.names}",
-        )
+        return [f"column names mismatch: actual={actual.schema.names}, expected={expected.schema.names}"]
     if actual.equals(expected):
-        return True, None
+        return []
+    causes: list[str] = []
     for i in range(actual.num_columns):
         actual_field = actual.schema.field(i)
         expected_field = expected.schema.field(i)
-        field_name = actual_field.name
-        if _normalize_field(actual_field) != _normalize_field(expected_field):
-            return (
-                False,
-                f"type mismatch in column {field_name}: actual={actual_field}, expected={expected_field}",
-            )
         ac = actual.column(i).combine_chunks()
         ec = expected.column(i).combine_chunks()
-        if ac.equals(ec):
-            continue
-        if not _values_equal(ac.to_pylist(), ec.to_pylist()):
-            return (
-                False,
-                f"value mismatch in column {field_name} (actual_type={ac.type}, expected_type={ec.type})",
-            )
-    return True, None
+        causes.extend(_compare_column_causes(actual_field.name, actual_field, ac, expected_field, ec))
+    return causes
 
 
 _FIELD_WRAPPER_RE = re.compile(r"Failed to canonicalize field Field \{.*?\}: ")
@@ -207,6 +211,11 @@ def _run_isolated(fn: Callable[[], dict], timeout_s: float = 120.0) -> dict:
                 pass
 
 
+def _get_expected_columns(exp_path: Path) -> dict:
+    with ipc.open_file(str(exp_path)) as reader:
+        return {"ok": True, "columns": list(reader.schema.names)}
+
+
 def _probe_column_causes(path: Path, exp_path: Path) -> list[str]:
     """Probe each top-level struct column individually so every failure or mismatch cause is reported."""
     col_names_res = _run_isolated(lambda: _get_struct_columns(path))
@@ -216,8 +225,10 @@ def _probe_column_causes(path: Path, exp_path: Path) -> list[str]:
     if not columns:
         return []
 
-    with ipc.open_file(str(exp_path)) as reader:
-        expected_names = reader.schema.names
+    exp_names_res = _run_isolated(lambda: _get_expected_columns(exp_path))
+    if not exp_names_res.get("ok"):
+        return []
+    expected_names = exp_names_res.get("columns", [])
 
     causes: set[str] = set()
     if columns != expected_names:
@@ -226,8 +237,9 @@ def _probe_column_causes(path: Path, exp_path: Path) -> list[str]:
     if len(columns) > 1 or causes:
         for col in columns:
             res = _run_isolated(lambda c=col: _read_single_column(path, exp_path, c))
-            if not res.get("ok") and res.get("error"):
-                causes.add(res["error"])
+            if not res.get("ok"):
+                for cause in res.get("causes") or ([res["error"]] if res.get("error") else []):
+                    causes.add(cause)
     return sorted(causes)
 
 
@@ -258,25 +270,9 @@ def _read_single_column(path: Path, exp_path: Path, col: str) -> dict:
         return {"ok": False, "error": f"unexpected column {col} missing from expected Arrow IPC"}
     expected_field = expected_table.schema.field(col)
     expected_col = expected_table.column(col).combine_chunks()
-    if len(actual_col) != len(expected_col):
-        return {
-            "ok": False,
-            "error": f"row count mismatch in column {col}: actual={len(actual_col)}, expected={len(expected_col)}",
-        }
-    if _normalize_field(actual_field) != _normalize_field(expected_field):
-        return {
-            "ok": False,
-            "error": f"type mismatch in column {col}: actual={actual_field}, expected={expected_field}",
-        }
-    if actual_col.equals(expected_col):
-        return {"ok": True}
-    if not _values_equal(actual_col.to_pylist(), expected_col.to_pylist()):
-        return {
-            "ok": False,
-            "error": (
-                f"value mismatch in column {col} (actual_type={actual_col.type}, expected_type={expected_col.type})"
-            ),
-        }
+    causes = _compare_column_causes(col, actual_field, actual_col, expected_field, expected_col)
+    if causes:
+        return {"ok": False, "error": "; ".join(causes), "causes": causes}
     return {"ok": True}
 
 
@@ -286,34 +282,38 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
         actual = vf.to_arrow().read_all()
         with ipc.open_file(str(exp_path)) as reader:
             expected = reader.read_all()
-        ok, reason = _tables_equal(actual, expected)
-        if ok:
+        causes = _tables_equal(actual, expected)
+        if not causes:
             return {"ok": True}
-        return {"ok": False, "error": reason or "table mismatch"}
+        return {"ok": False, "error": "; ".join(causes), "causes": causes}
 
     res = _run_isolated(_do)
     if res.get("ok"):
         return res
 
     err = res.get("error", "unknown error")
+    full_causes = res.get("causes") or [err]
     if res.get("timed_out"):
-        return {"ok": False, "error": err, "causes": [err]}
+        return {"ok": False, "error": err, "causes": full_causes}
 
     # Collect every distinct cause across columns so parallel scan races don't hide causes,
     # while preserving any full-table error not explained by single-column projections.
     col_causes = _probe_column_causes(path, exp_path)
     if col_causes:
-        causes = list(col_causes)
-        if err not in col_causes and not (
-            err.startswith("column count mismatch:") and any(c.startswith("column names mismatch:") for c in col_causes)
-        ):
-            causes = sorted({err, *col_causes})
+        causes = set(col_causes)
+        for cause in full_causes:
+            if cause not in causes and not (
+                cause.startswith("column count mismatch:")
+                and any(c.startswith("column names mismatch:") for c in col_causes)
+            ):
+                causes.add(cause)
+        sorted_causes = sorted(causes)
         return {
             "ok": False,
-            "error": "; ".join(causes),
-            "causes": causes,
+            "error": "; ".join(sorted_causes),
+            "causes": sorted_causes,
         }
-    return {"ok": False, "error": err, "causes": [err]}
+    return {"ok": False, "error": err, "causes": full_causes}
 
 
 def cmd_verify(src_dir: Path, expected_dir: Path) -> None:
