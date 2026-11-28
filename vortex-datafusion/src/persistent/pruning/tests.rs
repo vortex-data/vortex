@@ -618,9 +618,9 @@ async fn canceled_initializer_allows_waiter_to_take_over() -> anyhow::Result<()>
         unreachable!("initializer must be canceled")
     }));
     assert!(futures::poll!(&mut initializer).is_pending());
-    let mut waiter = Box::pin(cache.initial_dynamic_predicate(&expression, async {
-        compile(&expression, &errors)
-    }));
+    let mut waiter = Box::pin(
+        cache.initial_dynamic_predicate(&expression, async { compile(&expression, &errors) }),
+    );
     assert!(futures::poll!(&mut waiter).is_pending());
     drop(initializer);
     let compiled = tokio::time::timeout(Duration::from_secs(5), waiter)
