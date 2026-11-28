@@ -546,7 +546,7 @@ pub(super) fn compare_validity(
     rhs: Validity,
     nullability: Nullability,
 ) -> VortexResult<Validity> {
-    Ok(lhs.and(rhs)?.union_nullability(nullability))
+    Ok(lhs.and_lazy(rhs)?.union_nullability(nullability))
 }
 
 #[cfg(test)]

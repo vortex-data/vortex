@@ -175,6 +175,49 @@ fn ignores_ambiguous_legacy_sum_stat() -> VortexResult<()> {
 }
 
 #[test]
+fn nulls_and_chunk_boundaries_preserve_prefix_overflow() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values =
+        PrimitiveArray::from_option_iter([Some(i64::MAX), Some(1), None, Some(-1)]).into_array();
+    let split = ChunkedArray::try_new(
+        [values.slice(0..2)?, values.slice(2..4)?],
+        values.dtype().clone(),
+    )?
+    .into_array();
+    assert!(sum_v2(&values, &mut ctx)?.is_null());
+    assert!(sum_v2(&split, &mut ctx)?.is_null());
+
+    let mut acc = Accumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        values.dtype().clone(),
+    )?;
+    acc.accumulate(&values.slice(0..1)?, &mut ctx)?;
+    acc.accumulate(&values.slice(1..4)?, &mut ctx)?;
+    assert!(acc.finish()?.is_null());
+
+    let mut grouped = GroupedAccumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        values.dtype().clone(),
+    )?;
+    let group = ListViewArray::try_new(
+        values,
+        buffer![0i32].into_array(),
+        buffer![4i32].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+    grouped.accumulate_list(&group.into_array(), &mut ctx)?;
+    assert_arrays_eq!(
+        grouped.finish()?,
+        PrimitiveArray::from_option_iter([None::<i64>]),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
 fn overflow_is_explicit_and_absorbing() -> VortexResult<()> {
     let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
     let mut accumulator = Accumulator::try_new(SumV2, NumericalAggregateOpts::default(), dtype)?;

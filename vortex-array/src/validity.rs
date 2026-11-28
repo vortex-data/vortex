@@ -25,9 +25,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -291,9 +293,36 @@ impl Validity {
         }
     }
 
-    /// Logically & two Validity values of the same length
+    /// Intersect two validities of the same length. Host boolean bitmaps are combined once
+    /// so repeated reads can reuse the result.
     #[inline]
     pub fn and(self, rhs: Validity) -> VortexResult<Validity> {
+        if let (Validity::Array(lhs), Validity::Array(rhs)) = (&self, &rhs)
+            && let (Some(lhs_bits), Some(rhs_bits)) = (lhs.as_opt::<Bool>(), rhs.as_opt::<Bool>())
+            && !lhs_bits.dtype().is_nullable()
+            && !rhs_bits.dtype().is_nullable()
+            && lhs.is_host()
+            && rhs.is_host()
+        {
+            vortex_ensure_eq!(
+                lhs.len(),
+                rhs.len(),
+                "Cannot AND validities of different lengths"
+            );
+            return Ok(Validity::Array(
+                BoolArray::new(
+                    &lhs_bits.to_bit_buffer() & &rhs_bits.to_bit_buffer(),
+                    Validity::NonNullable,
+                )
+                .into_array(),
+            ));
+        }
+        self.and_lazy(rhs)
+    }
+
+    /// Conjoin validities for an output whose kernel does not need to read the validity bits.
+    #[inline]
+    pub(crate) fn and_lazy(self, rhs: Validity) -> VortexResult<Validity> {
         Ok(match (self, rhs) {
             // Should be pretty clear
             (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
@@ -647,18 +676,36 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Bool;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::validity::BoolArray;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Two validities that already hold their bits are conjoined at once, into bits.
+    #[test]
+    fn and_of_two_bool_validities_is_their_word_wise_and() -> VortexResult<()> {
+        let lhs = Validity::Array(BoolArray::from_iter([true, true, false, true]).into_array());
+        let rhs = Validity::Array(BoolArray::from_iter([true, false, false, true]).into_array());
+
+        let and = lhs.and(rhs)?;
+
+        assert!(matches!(&and, Validity::Array(array) if array.is::<Bool>()));
+        assert_eq!(
+            and.execute_mask(4, &mut SESSION.create_execution_ctx())?,
+            Mask::from_iter([true, false, false, true])
+        );
+        Ok(())
+    }
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
@@ -845,7 +892,7 @@ mod tests {
         #[case] lhs: Validity,
         #[case] rhs: Validity,
         #[case] expected: bool,
-    ) -> vortex_error::VortexResult<()> {
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
@@ -872,5 +919,12 @@ mod tests {
                 .contains("Validity::Array length must equal chunk length"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn validity_and_mismatched_lengths_returns_err() {
+        let lhs = Validity::Array(BoolArray::from_iter([true, false]).into_array());
+        let rhs = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
+        assert!(lhs.and(rhs).is_err());
     }
 }

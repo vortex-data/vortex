@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
+use vortex_compute::lane_kernels::IndexedFoldExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -11,6 +12,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::DecimalArray;
+use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::match_each_decimal_value_type;
@@ -78,25 +80,53 @@ pub fn valid_range<T: NativeDecimalType>(values: &[T], validity: &Mask) -> Optio
         "valid_range requires one validity bit per value"
     );
 
+    let min_max = |(min, max): (T, T), v: T| (min.min(v), max.max(v));
     match validity {
-        Mask::AllTrue(_) => compute_min_max(values.iter()),
+        Mask::AllTrue(_) if T::DECIMAL_TYPE == DecimalType::I256 => wide_range(values.iter()),
+        Mask::AllTrue(_) => values
+            .first()
+            .map(|&first| values.iter().copied().fold((first, first), min_max)),
         Mask::AllFalse(_) => None,
-        Mask::Values(validity) => compute_min_max(
-            values
-                .iter()
-                .zip(validity.bit_buffer().iter())
-                .filter_map(|(value, valid)| valid.then_some(value)),
-        ),
+        Mask::Values(validity)
+            if matches!(T::DECIMAL_TYPE, DecimalType::I128 | DecimalType::I256) =>
+        {
+            wide_range(validity.bit_buffer().set_indices().map(|i| &values[i]))
+        }
+        // Null lanes read as a valid value, which leaves both extrema unchanged, so the reduction
+        // needs no branch per lane.
+        Mask::Values(validity) => validity.bit_buffer().set_indices().next().map(|first| {
+            let first = values[first];
+            values.fold_masked(validity.bit_buffer(), first, (first, first), min_max)
+        }),
     }
 }
 
-fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<(T, T)>
-where
-    T: NativeDecimalType,
-{
-    match iter.minmax_by(|a, b| a.cmp(b)) {
-        itertools::MinMaxResult::NoElements => None,
-        itertools::MinMaxResult::OneElement(&value) => Some((value, value)),
-        itertools::MinMaxResult::MinMax(&min, &max) => Some((min, max)),
+/// Compare the most significant machine word first. Most rows lie strictly between the
+/// current extrema, so their remaining words need no comparison.
+fn wide_range<'a, T: NativeDecimalType>(mut values: impl Iterator<Item = &'a T>) -> Option<(T, T)> {
+    let first = values.next()?;
+    let (mut min_word, mut min) = (leading_word(first), first);
+    let (mut max_word, mut max) = (min_word, first);
+    for value in values {
+        let word = leading_word(value);
+        if word <= min_word && value < min {
+            (min_word, min) = (word, value);
+        } else if word >= max_word && value > max {
+            (max_word, max) = (word, value);
+        }
     }
+    Some((*min, *max))
+}
+
+fn leading_word<T: NativeDecimalType>(value: &T) -> i64 {
+    let upper = if T::DECIMAL_TYPE == DecimalType::I256 {
+        value
+            .to_i256()
+            .vortex_expect("decimal values fit i256")
+            .to_parts()
+            .1
+    } else {
+        value.to_i128().vortex_expect("i128 decimal storage")
+    };
+    (upper >> 64) as i64
 }

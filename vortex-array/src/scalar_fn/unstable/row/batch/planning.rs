@@ -81,7 +81,7 @@ impl BatchProbe {
                 .map(|index| inputs.input(index))
                 .filter(|input| input.dtype().is_nullable())
                 .try_fold(Validity::NonNullable, |validity, input| {
-                    validity.and(input.validity()?)
+                    validity.and_lazy(input.validity()?)
                 })?
         };
 
