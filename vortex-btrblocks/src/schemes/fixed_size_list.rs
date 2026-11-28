@@ -16,6 +16,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
@@ -34,9 +35,6 @@ use crate::schemes::integer::IntDictScheme;
 use crate::schemes::integer::IntRLEScheme;
 use crate::schemes::integer::RunEndScheme;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
-
-/// The smallest estimated ratio of the dense list's size to the sparse one's worth encoding for.
-const MIN_ESTIMATED_RATIO: f64 = 1.1;
 
 /// Sparse encoding of a fixed-size list that stores only its valid rows.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -82,7 +80,8 @@ impl Scheme for FixedSizeListSparseScheme {
         ]
     }
 
-    /// Compares the list's size with the valid rows plus their bit-packed positions.
+    /// Defers to sampling when the list has both valid and null rows so sparse competes against
+    /// dense element compression on the same sample.
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
@@ -99,16 +98,7 @@ impl Scheme for FixedSizeListSparseScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        let dense_bytes = array.nbytes() as f64;
-        let row_bytes = dense_bytes / len as f64;
-        let index_bytes = f64::from(usize::BITS - (len - 1).leading_zeros()) / 8.0;
-        let sparse_bytes = valid as f64 * (row_bytes + index_bytes);
-
-        let ratio = dense_bytes / sparse_bytes;
-        if ratio < MIN_ESTIMATED_RATIO {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
-        }
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio))
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
     /// Children: values=0, the valid rows, and indices=1, their positions.
