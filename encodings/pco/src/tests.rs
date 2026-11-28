@@ -309,7 +309,17 @@ fn test_chunk_metas_nbytes() -> VortexResult<()> {
     assert!(single_pco.chunk_metas_nbytes() > 0);
     assert!(single_pco.chunk_metas_nbytes() < single_pco.as_array().nbytes());
 
-    let multi_chunk = PrimitiveArray::from_iter(0..200_i32);
+    let one_chunk = PrimitiveArray::from_iter(0..50_i32);
+    let one_chunk_data =
+        PcoData::from_primitive_with_values_per_chunk(one_chunk.as_view(), 3, 50, 25, &mut ctx)?;
+    let one_chunk_pco = Pco::try_new(
+        one_chunk.dtype().clone(),
+        one_chunk_data,
+        Validity::NonNullable,
+    )?;
+    assert_eq!(one_chunk_pco.chunk_metas.len(), 1);
+
+    let multi_chunk = PrimitiveArray::from_iter((0..50_i32).cycle().take(200));
     let multi_data =
         PcoData::from_primitive_with_values_per_chunk(multi_chunk.as_view(), 3, 50, 25, &mut ctx)?;
     let multi_pco = Pco::try_new(
@@ -318,8 +328,10 @@ fn test_chunk_metas_nbytes() -> VortexResult<()> {
         Validity::NonNullable,
     )?;
     assert_eq!(multi_pco.chunk_metas.len(), 4);
-    assert!(multi_pco.chunk_metas_nbytes() > multi_pco.chunk_metas[0].len() as u64);
-    assert!(multi_pco.chunk_metas_nbytes() > single_pco.chunk_metas_nbytes());
+    assert_eq!(
+        multi_pco.chunk_metas_nbytes(),
+        4 * one_chunk_pco.chunk_metas_nbytes()
+    );
     assert!(multi_pco.chunk_metas_nbytes() < multi_pco.as_array().nbytes());
 
     Ok(())
