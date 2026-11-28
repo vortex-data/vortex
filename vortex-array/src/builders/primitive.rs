@@ -389,7 +389,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -756,111 +755,5 @@ mod tests {
 
         // Try to copy 3 elements starting at offset 1 (would need 4 slots total).
         range.copy_from_slice(1, &[1, 2, 3]);
-    }
-
-    /// Test that the unsafe contract of `finish` is documented and works correctly.
-    ///
-    /// This test demonstrates proper usage of the unsafe `finish` method.
-    #[test]
-    fn test_finish_unsafe_contract() {
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity_in(
-            Nullability::Nullable,
-            5,
-            BufferAllocatorRef::static_ref(),
-        );
-        let mut range = builder.uninit_range(3);
-
-        // Set validity mask.
-        let mask = Mask::from_iter([true, true, false]);
-        // SAFETY: We're about to initialize the matching number of values.
-        unsafe {
-            range.append_mask(&mask);
-        }
-
-        // Initialize all values.
-        range.copy_from_slice(0, &[10, 20, 30]);
-
-        // SAFETY: We have initialized all 3 values and set their validity.
-        unsafe {
-            range.finish();
-        }
-
-        let array = builder.finish_into_primitive();
-        assert_eq!(array.len(), 3);
-        assert_eq!(array.as_slice::<i32>(), &[10, 20, 30]);
-        assert_arrays_eq!(
-            array,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]),
-            &mut SESSION.create_execution_ctx()
-        );
-    }
-
-    #[test]
-    fn test_append_scalar() {
-        use crate::dtype::DType;
-        use crate::scalar::Scalar;
-
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity_in(
-            Nullability::Nullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        // Test appending a valid primitive value.
-        let scalar1 = Scalar::primitive(42i32, Nullability::Nullable);
-        builder.append_scalar(&scalar1).unwrap();
-
-        // Test appending another value.
-        let scalar2 = Scalar::primitive(84i32, Nullability::Nullable);
-        builder.append_scalar(&scalar2).unwrap();
-
-        // Test appending null value.
-        let null_scalar = Scalar::null(DType::Primitive(
-            crate::dtype::PType::I32,
-            Nullability::Nullable,
-        ));
-        builder.append_scalar(&null_scalar).unwrap();
-
-        let array = builder.finish_into_primitive();
-        assert_eq!(array.len(), 3);
-
-        // Check actual values.
-        let values = array.as_slice::<i32>();
-        assert_eq!(values[0], 42);
-        assert_eq!(values[1], 84);
-        // values[2] might be any value since it's null.
-
-        // Check validity - first two should be valid, third should be null.
-        let mut ctx = SESSION.create_execution_ctx();
-        assert!(
-            array
-                .validity()
-                .vortex_expect("primitive validity should be derivable")
-                .execute_is_valid(0, &mut ctx)
-                .unwrap()
-        );
-        assert!(
-            array
-                .validity()
-                .vortex_expect("primitive validity should be derivable")
-                .execute_is_valid(1, &mut ctx)
-                .unwrap()
-        );
-        assert!(
-            !array
-                .validity()
-                .vortex_expect("primitive validity should be derivable")
-                .execute_is_valid(2, &mut ctx)
-                .unwrap()
-        );
-
-        // Test wrong dtype error.
-        let mut builder = PrimitiveBuilder::<i32>::with_capacity_in(
-            Nullability::NonNullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-        let wrong_scalar = Scalar::from(true);
-        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 }

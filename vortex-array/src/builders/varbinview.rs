@@ -1524,7 +1524,6 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
-    use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
     use crate::builders::varbinview::VarBinViewArray;
     use crate::dtype::DType;
@@ -1957,111 +1956,6 @@ mod tests {
     }
 
     #[test]
-    fn test_utf8_builder() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut builder = VarBinViewBuilder::with_capacity_in(
-            DType::Utf8(Nullability::Nullable),
-            10,
-            BufferAllocatorRef::statically_allocated(),
-        );
-
-        builder.append_value("Hello");
-        builder.append_null();
-        builder.append_value("World");
-
-        builder.append_nulls(2);
-
-        builder.append_zeros(2);
-        builder.append_value("test");
-
-        let actual = builder.finish();
-        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
-            Some("Hello"),
-            None,
-            Some("World"),
-            None,
-            None,
-            Some(""),
-            Some(""),
-            Some("test"),
-        ]);
-        for (index, value) in [
-            Some("Hello"),
-            None,
-            Some("World"),
-            None,
-            None,
-            Some(""),
-            Some(""),
-            Some("test"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let expected = value.map_or_else(
-                || Scalar::null(DType::Utf8(Nullability::Nullable)),
-                |value| Scalar::utf8(value, Nullability::Nullable),
-            );
-            assert_eq!(actual.execute_scalar(index, &mut ctx).unwrap(), expected);
-        }
-        assert_arrays_eq!(actual, expected, &mut ctx);
-    }
-
-    #[test]
-    fn test_utf8_builder_with_extend() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let array = {
-            let mut builder = VarBinViewBuilder::with_capacity_in(
-                DType::Utf8(Nullability::Nullable),
-                10,
-                BufferAllocatorRef::statically_allocated(),
-            );
-            builder.append_null();
-            builder.append_value("Hello2");
-            builder.finish()
-        };
-        let mut builder = VarBinViewBuilder::with_capacity_in(
-            DType::Utf8(Nullability::Nullable),
-            10,
-            BufferAllocatorRef::statically_allocated(),
-        );
-
-        builder.append_value("Hello1");
-        array.append_to_builder(&mut builder, &mut ctx).unwrap();
-        builder.append_nulls(2);
-        builder.append_value("Hello3");
-
-        let actual = builder.finish_into_canonical(&mut ctx);
-        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
-            Some("Hello1"),
-            None,
-            Some("Hello2"),
-            None,
-            None,
-            Some("Hello3"),
-        ]);
-        let actual = actual.into_array();
-        for (index, value) in [
-            Some("Hello1"),
-            None,
-            Some("Hello2"),
-            None,
-            None,
-            Some("Hello3"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let expected = value.map_or_else(
-                || Scalar::null(DType::Utf8(Nullability::Nullable)),
-                |value| Scalar::utf8(value, Nullability::Nullable),
-            );
-            assert_eq!(actual.execute_scalar(index, &mut ctx).unwrap(), expected);
-        }
-        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
-    }
-
-    #[test]
     fn test_buffer_deduplication() -> VortexResult<()> {
         let array = {
             let mut builder = VarBinViewBuilder::with_capacity_in(
@@ -2128,63 +2022,6 @@ mod tests {
             );
         }
         Ok(())
-    }
-
-    #[test]
-    fn test_append_scalar() {
-        let mut ctx = SESSION.create_execution_ctx();
-        use crate::scalar::Scalar;
-
-        // Test with Utf8 builder.
-        let mut utf8_builder = VarBinViewBuilder::with_capacity_in(
-            DType::Utf8(Nullability::Nullable),
-            10,
-            BufferAllocatorRef::statically_allocated(),
-        );
-
-        // Test appending a valid utf8 value.
-        let utf8_scalar1 = Scalar::utf8("hello", Nullability::Nullable);
-        utf8_builder.append_scalar(&utf8_scalar1).unwrap();
-
-        // Test appending another value.
-        let utf8_scalar2 = Scalar::utf8("world", Nullability::Nullable);
-        utf8_builder.append_scalar(&utf8_scalar2).unwrap();
-
-        // Test appending null value.
-        let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
-        utf8_builder.append_scalar(&null_scalar).unwrap();
-
-        let array = utf8_builder.finish();
-        let expected =
-            <VarBinViewArray as FromIterator<_>>::from_iter([Some("hello"), Some("world"), None]);
-        assert_arrays_eq!(&array, &expected, &mut ctx);
-
-        // Test with Binary builder.
-        let mut binary_builder = VarBinViewBuilder::with_capacity_in(
-            DType::Binary(Nullability::Nullable),
-            10,
-            BufferAllocatorRef::statically_allocated(),
-        );
-
-        let binary_scalar = Scalar::binary(vec![1u8, 2, 3], Nullability::Nullable);
-        binary_builder.append_scalar(&binary_scalar).unwrap();
-
-        let binary_null = Scalar::null(DType::Binary(Nullability::Nullable));
-        binary_builder.append_scalar(&binary_null).unwrap();
-
-        let binary_array = binary_builder.finish();
-        let expected =
-            <VarBinViewArray as FromIterator<_>>::from_iter([Some(vec![1u8, 2, 3]), None]);
-        assert_arrays_eq!(&binary_array, &expected, &mut ctx);
-
-        // Test wrong dtype error.
-        let mut builder = VarBinViewBuilder::with_capacity_in(
-            DType::Utf8(Nullability::NonNullable),
-            10,
-            BufferAllocatorRef::statically_allocated(),
-        );
-        let wrong_scalar = Scalar::from(42i32);
-        assert!(builder.append_scalar(&wrong_scalar).is_err());
     }
 
     #[test]

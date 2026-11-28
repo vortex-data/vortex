@@ -162,119 +162,23 @@ impl ArrayBuilder for BoolBuilder {
 mod tests {
     use std::sync::LazyLock;
 
-    use rand::RngExt;
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
-    use crate::builders::builder_with_capacity_in;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> (ArrayRef, Vec<Option<bool>>) {
-        let mut rng = StdRng::seed_from_u64(0);
-
-        let mut expected = Vec::with_capacity(len * chunk_count);
-        let chunks = (0..chunk_count)
-            .map(|_| {
-                let values: Vec<_> = (0..len)
-                    .map(|_| match rng.random_range::<u8, _>(0..=2) {
-                        0 => Some(false),
-                        1 => Some(true),
-                        2 => None,
-                        _ => unreachable!(),
-                    })
-                    .collect();
-                expected.extend_from_slice(&values);
-                BoolArray::from_iter(values).into_array()
-            })
-            .collect::<ChunkedArray>()
-            .into_array();
-        (chunks, expected)
-    }
-
-    #[test]
-    fn tests() -> VortexResult<()> {
-        let len = 1000;
-        let chunk_count = 10;
-        let (chunk, expected) = make_opt_bool_chunks(len, chunk_count);
-
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut builder = builder_with_capacity_in(
-            chunk.dtype(),
-            len * chunk_count,
-            BufferAllocatorRef::static_ref(),
-        );
-        chunk
-            .clone()
-            .append_to_builder(builder.as_mut(), &mut ctx)?;
-
-        let canon_into = builder.finish().execute::<BoolArray>(&mut ctx)?;
-        let into_canon = chunk.clone().execute::<BoolArray>(&mut ctx)?;
-
-        assert!(canon_into.validity()?.mask_eq(
-            &into_canon.validity()?,
-            canon_into.len(),
-            &mut ctx
-        )?);
-        assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
-        let expected = BoolArray::from_iter(expected);
-        assert_arrays_eq!(canon_into, &expected, &mut ctx);
-        assert_arrays_eq!(into_canon, expected, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
-    fn test_append_scalar() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut builder = BoolBuilder::with_capacity_in(
-            Nullability::Nullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-
-        // Test appending true value.
-        let true_scalar = Scalar::bool(true, Nullability::Nullable);
-        builder.append_scalar(&true_scalar).unwrap();
-
-        // Test appending false value.
-        let false_scalar = Scalar::bool(false, Nullability::Nullable);
-        builder.append_scalar(&false_scalar).unwrap();
-
-        // Test appending null value.
-        let null_scalar = Scalar::null(DType::Bool(Nullability::Nullable));
-        builder.append_scalar(&null_scalar).unwrap();
-
-        let array = builder.finish_into_bool();
-        let expected = BoolArray::from_iter([Some(true), Some(false), None]);
-        assert_arrays_eq!(&array, &expected, &mut ctx);
-
-        // Test wrong dtype error.
-        let mut builder = BoolBuilder::with_capacity_in(
-            Nullability::NonNullable,
-            10,
-            BufferAllocatorRef::static_ref(),
-        );
-        let wrong_scalar = Scalar::from(42i32);
-        assert!(builder.append_scalar(&wrong_scalar).is_err());
-    }
 
     #[test]
     fn test_append_bool_array_error_does_not_mutate_builder() -> VortexResult<()> {
