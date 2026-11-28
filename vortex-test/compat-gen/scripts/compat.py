@@ -855,15 +855,16 @@ def _run_rust_generate(
     profile: str = "release",
     edition: str | None = None,
     exclude: list[str] | None = None,
-) -> None:
-    """Run `vortex-compat generate --output <dir>`."""
+    check: bool = True,
+) -> int:
+    """Run `vortex-compat generate --output <dir>` and return its exit code."""
     bin_path = _build_compat_bin(profile)
     cmd = [bin_path, "generate", "--output", str(output)]
     if edition:
         cmd.extend(["--edition", edition])
     if exclude:
         cmd.extend(["--exclude", ",".join(exclude)])
-    _run_cmd(cmd, check=True)
+    return _run_cmd(cmd, check=check).returncode
 
 
 def _run_rust_editions(profile: str = "release") -> list[dict]:
@@ -893,11 +894,11 @@ def _run_rust_dump_expected(
 
 def _load_accepted_edition_failures(
     path: Path | None,
-) -> tuple[dict[str, dict[str, str]], dict[tuple[str, str, str], dict[str, object]]]:
+) -> tuple[dict[str, set[str]], dict[tuple[str, str, str], dict[str, object]]]:
     """Load `accepted-edition-failures.json`.
 
-    Returns `(reader_overrides, accepted_failures)` where:
-      - `reader_overrides`: `{edition: {"reader_version": str, "reason": str}}`
+    Returns `(expected_skips, accepted_failures)` where:
+      - `expected_skips`: `{edition: set[fixture_name]}`
       - `accepted_failures`: `{(edition, reader_version, fixture): {"reason": str, "expected_causes": list[str]}}`
     """
     if path is None or not path.exists():
@@ -907,20 +908,17 @@ def _load_accepted_edition_failures(
     if not isinstance(data, dict):
         raise ValueError(f"{path}: expected JSON object")
 
-    raw_overrides = data.get("reader_overrides", {})
-    if not isinstance(raw_overrides, dict):
-        raise ValueError(f"{path}: 'reader_overrides' must be a JSON object")
-    reader_overrides: dict[str, dict[str, str]] = {}
-    for edition, entry in raw_overrides.items():
-        if not isinstance(entry, dict):
-            raise ValueError(f"{path}: reader_overrides[{edition!r}] must be an object")
-        ver = entry.get("reader_version")
-        reason = entry.get("reason")
-        if not isinstance(ver, str) or not ver.strip():
-            raise ValueError(f"{path}: reader_overrides[{edition!r}].reader_version must be non-empty")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ValueError(f"{path}: reader_overrides[{edition!r}].reason must be non-empty")
-        reader_overrides[edition] = {"reader_version": ver.strip(), "reason": reason.strip()}
+    raw_skips = data.get("expected_skips", {})
+    if not isinstance(raw_skips, dict):
+        raise ValueError(f"{path}: 'expected_skips' must be a JSON object")
+    expected_skips: dict[str, set[str]] = {}
+    for edition, names in raw_skips.items():
+        if not isinstance(names, list) or not all(isinstance(n, str) and n.strip() for n in names):
+            raise ValueError(f"{path}: expected_skips[{edition!r}] must be a list of non-empty strings")
+        stripped = [n.strip() for n in names]
+        if len(stripped) != len(set(stripped)):
+            raise ValueError(f"{path}: duplicate fixture in expected_skips[{edition!r}]")
+        expected_skips[edition] = set(stripped)
 
     raw_failures = data.get("failures", [])
     if not isinstance(raw_failures, list):
@@ -948,7 +946,21 @@ def _load_accepted_edition_failures(
             "expected_causes": [c.strip() for c in raw_causes],
         }
 
-    return reader_overrides, accepted
+    return expected_skips, accepted
+
+
+def _cause_matches(reported: str, expected: str) -> bool:
+    """Match a reported cause against an `expected_causes` entry.
+
+    Entries prefixed with `column <name>: <substring>` require the reported cause to be for that
+    exact column (`column <name>: ...`) and contain `<substring>` in its message, so a new failure
+    on another column cannot match an accepted cause. Unprefixed entries use plain substring matching.
+    """
+    if expected.startswith("column ") and ": " in expected:
+        col_prefix, sig = expected.split(": ", 1)
+        prefix = f"{col_prefix}: "
+        return reported.startswith(prefix) and sig in reported[len(prefix) :]
+    return expected in reported
 
 
 def _evaluate_edition_results(
@@ -958,16 +970,21 @@ def _evaluate_edition_results(
     report: dict,
     accepted_failures: dict[tuple[str, str, str], dict[str, object]],
     exclude: list[str] | None = None,
+    skipped_names: list[str] | None = None,
+    expected_skips: set[str] | None = None,
+    gen_failures: list[dict] | None = None,
 ) -> dict:
-    """Compare reader results for one edition against the accepted-failures list.
+    """Compare reader results for one edition against the accepted-failures and expected-skips lists.
 
-    Enforces three invariants:
-      1. Any failure not listed in `accepted_failures` is an unexpected failure.
+    Enforces four invariants:
+      1. Any fixture write failure or reader failure not listed in `accepted_failures` is unexpected.
       2. For a listed failure, every reported cause must match at least one substring in
          `expected_causes`; any unrecognized cause is reported as an unexpected failure.
       3. Any listed entry that now passes (or is no longer in `written_names`), or any
          `expected_causes` substring that no longer matches any reported cause, is reported as
          stale so the list only shrinks.
+      4. When `skipped_names` and `expected_skips` are provided, any fixture skipped unexpectedly
+         fails as unexpected and any expected skip that is now written fails as stale.
     """
     passed = list(report.get("passed", []))
     failed = list(report.get("failed", []))
@@ -975,8 +992,33 @@ def _evaluate_edition_results(
     written_set = set(written_names)
 
     accepted_hits: list[dict] = []
-    unexpected_failures: list[dict] = []
+    unexpected_failures: list[dict] = list(gen_failures or [])
     stale_accepted: list[dict] = []
+    gen_failed_names = {f["name"] for f in (gen_failures or [])}
+    whole_gen_failed = "(generate)" in gen_failed_names
+
+    if skipped_names is not None and expected_skips is not None:
+        skipped_set = set(skipped_names)
+        for name in sorted(skipped_set - expected_skips):
+            unexpected_failures.append(
+                {
+                    "name": name,
+                    "error": f"unexpectedly skipped under {edition} (not in expected_skips)",
+                    "causes": ["unexpected skip"],
+                }
+            )
+        for name in sorted(expected_skips - skipped_set):
+            if exclude and any(pat in name for pat in exclude):
+                continue
+            if name in gen_failed_names:
+                continue
+            stale_accepted.append(
+                {
+                    "name": name,
+                    "status": "expected skip no longer skipped",
+                    "reason": f"listed in expected_skips[{edition}]",
+                }
+            )
 
     for failure in failed:
         name = failure["name"]
@@ -992,8 +1034,8 @@ def _evaluate_edition_results(
         if not reported_causes and failure.get("error"):
             reported_causes = [str(failure["error"])]
 
-        unexpected_causes = [c for c in reported_causes if not any(sub in c for sub in expected_causes)]
-        stale_causes = [sub for sub in expected_causes if not any(sub in c for c in reported_causes)]
+        unexpected_causes = [c for c in reported_causes if not any(_cause_matches(c, sub) for sub in expected_causes)]
+        stale_causes = [sub for sub in expected_causes if not any(_cause_matches(c, sub) for c in reported_causes)]
 
         if unexpected_causes:
             unexpected_failures.append(
@@ -1027,6 +1069,8 @@ def _evaluate_edition_results(
         if ed != edition or rv != reader_version:
             continue
         if fixture_name not in failed_by_name:
+            if fixture_name in gen_failed_names or whole_gen_failed:
+                continue
             if fixture_name not in written_set:
                 if exclude and any(pat in fixture_name for pat in exclude):
                     continue
@@ -1133,7 +1177,8 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
         selected = all_editions
 
     accepted_path = Path(args.accepted_failures) if args.accepted_failures else None
-    reader_overrides, accepted_failures = _load_accepted_edition_failures(accepted_path)
+    has_accepted_file = accepted_path is not None and accepted_path.exists()
+    expected_skips, accepted_failures = _load_accepted_edition_failures(accepted_path)
     exclude = [p.strip() for p in args.exclude.split(",") if p.strip()] if args.exclude else None
 
     total_passed = 0
@@ -1145,46 +1190,55 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(prefix="vortex-compat-editions-") as tmp:
         tmp_path = Path(tmp)
         generated_dirs: dict[str, Path] = {}
+        gen_rcs: dict[str, int] = {}
 
         # 1. Dump expected Arrow IPC tables directly from HEAD's oracle.
         expected_dir = tmp_path / "_expected_ipc"
         _info("\n=== dumping expected Arrow IPC from HEAD ===")
         _run_rust_dump_expected(expected_dir, profile=args.profile, exclude=exclude)
 
-        # 2. Generate fixtures for every selected edition.
+        # 2. Generate fixtures for every selected edition, continuing even if one edition has write failures.
         for ed in selected:
             eid = ed["id"]
             out_dir = tmp_path / eid
             _info(f"\n=== generating fixtures for {eid} ===")
-            _run_rust_generate(out_dir, profile=args.profile, edition=eid, exclude=exclude)
+            gen_rcs[eid] = _run_rust_generate(out_dir, profile=args.profile, edition=eid, exclude=exclude, check=False)
             generated_dirs[eid] = out_dir
 
-        # 3. Verify each selected edition with its oldest release reader (or documented override).
+        # 3. Verify each selected edition with its oldest release reader.
         checked_pairs: set[tuple[str, str]] = set()
         selected_ids = {ed["id"] for ed in selected}
         for ed in selected:
             eid = ed["id"]
-            min_ver = ed["min_library_version"]
-            if eid in reader_overrides:
-                reader_ver = reader_overrides[eid]["reader_version"]
-                _info(
-                    f"\n=== checking {eid} with vortex-data=={reader_ver} "
-                    f"(override from {min_ver}: {reader_overrides[eid]['reason']}) ==="
-                )
-            else:
-                reader_ver = min_ver
-                _info(f"\n=== checking {eid} with vortex-data=={reader_ver} ===")
+            reader_ver = ed["min_library_version"]
+            _info(f"\n=== checking {eid} with vortex-data=={reader_ver} ===")
 
             checked_pairs.add((eid, reader_ver))
-            gen_manifest = json.loads((generated_dirs[eid] / "fixtures.json").read_text())
-            written_names = [f["name"] for f in gen_manifest.get("fixtures", [])]
+            manifest_path = generated_dirs[eid] / "fixtures.json"
+            gen_failures: list[dict] = []
+            written_names: list[str] = []
+            skipped_names: list[str] | None = None
+            if manifest_path.exists():
+                gen_manifest = json.loads(manifest_path.read_text())
+                written_names = [f["name"] for f in gen_manifest.get("fixtures", [])]
+                skipped_names = [s["name"] for s in gen_manifest.get("skipped", [])]
+                for gf in gen_manifest.get("failed", []):
+                    err_msg = f"generate failed: {gf['error']}"
+                    gen_failures.append({"name": gf["name"], "error": err_msg, "causes": [err_msg]})
+            if gen_rcs[eid] != 0 and not gen_failures:
+                err_msg = f"vortex-compat generate failed (exit {gen_rcs[eid]})"
+                gen_failures.append({"name": "(generate)", "error": err_msg, "causes": [err_msg]})
 
-            report = _run_edition_reader(
-                reader_ver,
-                generated_dirs[eid],
-                expected_dir,
-                python_version=args.python,
-            )
+            if written_names:
+                report = _run_edition_reader(
+                    reader_ver,
+                    generated_dirs[eid],
+                    expected_dir,
+                    python_version=args.python,
+                )
+            else:
+                report = {"passed": [], "failed": []}
+
             evaluated = _evaluate_edition_results(
                 eid,
                 reader_ver,
@@ -1192,6 +1246,9 @@ def cmd_check_editions(args: argparse.Namespace) -> None:
                 report,
                 accepted_failures,
                 exclude=exclude,
+                skipped_names=skipped_names,
+                expected_skips=expected_skips.get(eid, set()) if has_accepted_file else None,
+                gen_failures=gen_failures,
             )
             edition_results.append(evaluated)
 

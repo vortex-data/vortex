@@ -42,6 +42,8 @@ struct FixturesJson {
     fixtures: Vec<FixtureInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     skipped: Vec<SkippedFixture>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    failed: Vec<FailedFixture>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -55,6 +57,12 @@ pub struct FixtureInfo {
 pub struct SkippedFixture {
     pub name: String,
     pub reason: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FailedFixture {
+    pub name: String,
+    pub error: String,
 }
 
 #[derive(Serialize)]
@@ -173,18 +181,14 @@ fn encoding_supported_in_edition(
     }
 }
 
-/// Write all fixture files into `output_dir`, returning written fixtures and any encoding-specific
-/// fixtures skipped up front because none of their serializer's `write_ids()` are members of
-/// `edition`.
-///
-/// Any write error on a fixture whose required encodings are all permitted by `edition` (including
-/// a disallowed encoding emitted by the writer) fails generation.
+/// Write all fixture files into `output_dir`, collecting written, skipped, and failed fixtures
+/// without stopping at the first write error so callers can report every failure at once.
 pub fn write_fixtures(
     output_dir: &Path,
     exclude: &[String],
     edition: Option<&str>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<FixtureInfo>, Vec<SkippedFixture>)> {
+) -> VortexResult<(Vec<FixtureInfo>, Vec<SkippedFixture>, Vec<FailedFixture>)> {
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
@@ -219,6 +223,7 @@ pub fn write_fixtures(
 
     let mut infos = Vec::new();
     let mut skipped = Vec::new();
+    let mut failed = Vec::new();
     for fixture in &fixtures {
         if let (Some(edition_name), Some(allowed)) = (edition, &allowed_arrays) {
             let missing: Vec<String> = fixture
@@ -239,7 +244,31 @@ pub fn write_fixtures(
             }
         }
 
-        let entries = fixture.write(output_dir, ctx)?;
+        let write_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fixture.write(output_dir, ctx)
+        }));
+        let entries = match write_result {
+            Ok(Ok(entries)) => entries,
+            Ok(Err(e)) => {
+                let name = fixture.name().to_string();
+                let error = e.to_string();
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture { name, error });
+                continue;
+            }
+            Err(payload) => {
+                let name = fixture.name().to_string();
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("panic");
+                let error = format!("panic: {msg}");
+                eprintln!("  FAIL {name}: {error}");
+                failed.push(FailedFixture { name, error });
+                continue;
+            }
+        };
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
@@ -279,7 +308,7 @@ pub fn write_fixtures(
         }
     }
 
-    Ok((infos, skipped))
+    Ok((infos, skipped, failed))
 }
 
 /// Write the `fixtures.json` manifest from previously collected fixture info.
@@ -288,11 +317,13 @@ pub fn write_manifest(
     edition: Option<&str>,
     infos: Vec<FixtureInfo>,
     skipped: Vec<SkippedFixture>,
+    failed: Vec<FailedFixture>,
 ) -> VortexResult<()> {
     let fixtures_json = FixturesJson {
         edition: edition.map(ToOwned::to_owned),
         fixtures: infos,
         skipped,
+        failed,
     };
     let json = serde_json::to_string_pretty(&fixtures_json)
         .map_err(|e| vortex_err!("failed to serialize fixtures.json: {e}"))?;
@@ -301,9 +332,10 @@ pub fn write_manifest(
     eprintln!("  wrote fixtures.json");
 
     eprintln!(
-        "\ndone: {} fixtures written, {} skipped in {}",
+        "\ndone: {} fixtures written, {} skipped, {} failed in {}",
         fixtures_json.fixtures.len(),
         fixtures_json.skipped.len(),
+        fixtures_json.failed.len(),
         output_dir.display()
     );
     Ok(())
@@ -318,8 +350,20 @@ pub fn generate(output_dir: &Path, exclude: &[String], edition: Option<&str>) ->
         eprintln!("enabled edition: {edition_id}");
     }
     let mut ctx = session.create_execution_ctx();
-    let (infos, skipped) = write_fixtures(output_dir, exclude, edition, &mut ctx)?;
-    write_manifest(output_dir, edition, infos, skipped)
+    let (infos, skipped, failed) = write_fixtures(output_dir, exclude, edition, &mut ctx)?;
+    let failed_summary: Vec<String> = failed
+        .iter()
+        .map(|f| format!("{}: {}", f.name, f.error))
+        .collect();
+    write_manifest(output_dir, edition, infos, skipped, failed)?;
+    if !failed_summary.is_empty() {
+        vortex_bail!(
+            "{} fixture(s) failed to generate:\n  {}",
+            failed_summary.len(),
+            failed_summary.join("\n  ")
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

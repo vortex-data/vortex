@@ -1,391 +1,51 @@
 {
-  "reader_overrides": {},
+  "expected_skips": {
+    "core2025.05.0": ["fixed_size_list.vortex", "listview.vortex", "map.vortex", "pco.vortex", "rle.vortex", "sequence.vortex", "zstd.vortex"],
+    "core2025.06.0": ["fixed_size_list.vortex", "listview.vortex", "map.vortex", "rle.vortex"],
+    "core2025.10.0": ["map.vortex"],
+    "core2026.08.0": ["map.vortex"],
+    "core2026.08.1": ["map.vortex"]
+  },
   "failures": [
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "struct_nested.vortex",
-      "expected_causes": [
-        "Array dtype mismatch after building"
-      ],
-      "reason": "vortex.struct writes nullable validity child at index 0; 0.36.0 reads index 0 as first field and panics on dtype mismatch"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "datetime.vortex",
-      "expected_causes": [
-        "Timestamp(Millisecond, Some(\"UTC\"))",
-        "Timestamp(Second, Some(\"America/New_York\"))"
-      ],
-      "reason": "0.36.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "decimal_canonical_widths.vortex",
-      "expected_causes": [
-        "Decimal precision out of range [1, 38]: 39",
-        "i256 decimals cannot be converted to Arrow i128 decimal"
-      ],
-      "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "decimal_narrow_storage.vortex",
-      "expected_causes": [
-        "Decimal precision out of range [1, 38]: 40",
-        "i256 decimals cannot be converted to Arrow i128 decimal"
-      ],
-      "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "datetimeparts.vortex",
-      "expected_causes": [
-        "Timestamp(Millisecond, Some(\"UTC\"))",
-        "Failed to cast -86399 to U32"
-      ],
-      "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "decimal_byte_parts_narrow_msp.vortex",
-      "expected_causes": [
-        "cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]"
-      ],
-      "reason": "vortex.decimal_byte_parts v1 writes narrow I8 MSP; 0.36.0 rejects bit width narrower than decimal precision"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "fsst.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "vortex.fsst writes 3-buffer wire format; 0.36.0 expects legacy 2-buffer format"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "runend.vortex",
-      "expected_causes": [
-        "RunEnd array can only have Bool or Primitive values, utf8 given"
-      ],
-      "reason": "vortex.runend encodes utf8 values; 0.36.0 only accepts Bool or Primitive values"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "sparse.vortex",
-      "expected_causes": [
-        "Cannot convert DType utf8? into PType"
-      ],
-      "reason": "0.36.0 SparseArray canonicalization only supports primitive PType, not utf8"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "constant.vortex",
-      "expected_causes": [
-        "Timestamp(Millisecond, Some(\"UTC\"))"
-      ],
-      "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "tpch_lineitem.regular.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3",
-        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I16, NonNullable)]",
-        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "tpch_lineitem.compact.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3",
-        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I16, NonNullable)]",
-        "cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "tpch_orders.regular.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "tpch_orders.compact.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "clickbench_hits_5k.regular.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
-    },
-    {
-      "edition": "core2025.05.0",
-      "reader_version": "0.36.0",
-      "fixture": "clickbench_hits_5k.compact.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "datetime.vortex",
-      "expected_causes": [
-        "Timestamp(Millisecond, Some(\"UTC\"))",
-        "Timestamp(Second, Some(\"America/New_York\"))"
-      ],
-      "reason": "0.42.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "datetimeparts.vortex",
-      "expected_causes": [
-        "Timestamp(Millisecond, Some(\"UTC\"))",
-        "Failed to cast -86399 to U32"
-      ],
-      "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "fsst.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "vortex.fsst writes 3-buffer wire format; 0.42.0 expects legacy 2-buffer format"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "pco.vortex",
-      "expected_causes": [
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.pco writes pco format version 4; 0.42.0 supports up to format version 3"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "runend.vortex",
-      "expected_causes": [
-        "RunEnd array can only have Bool or Primitive values, utf8 given"
-      ],
-      "reason": "vortex.runend encodes utf8 values; 0.42.0 only accepts Bool or Primitive values"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "zstd.vortex",
-      "expected_causes": [
-        "Canonical length mismatch vortex.zstd. Expected 1024 but encoded into 930."
-      ],
-      "reason": "vortex.zstd skips null values in compressed frames; 0.42.0 panics on canonical length mismatch (expected 1024, got 930)"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "constant.vortex",
-      "expected_causes": [
-        "Timestamp(Millisecond, Some(\"UTC\"))"
-      ],
-      "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "tpch_lineitem.regular.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "tpch_lineitem.compact.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3",
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "tpch_orders.regular.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "tpch_orders.compact.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3",
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "clickbench_hits_5k.regular.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"
-    },
-    {
-      "edition": "core2025.06.0",
-      "reader_version": "0.42.0",
-      "fixture": "clickbench_hits_5k.compact.vortex",
-      "expected_causes": [
-        "Cannot convert DType bool into PType",
-        "Expected 2 buffers, got 3",
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.pco format version 4 rejected by 0.42.0"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "fsst.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "pco.vortex",
-      "expected_causes": [
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.pco writes pco format version 4; 0.54.0 supports up to format version 3"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "runend.vortex",
-      "expected_causes": [
-        "RunEnd array can only have Bool or Primitive values, utf8 given"
-      ],
-      "reason": "vortex.runend encodes utf8 values; 0.54.0 only accepts Bool or Primitive values"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "tpch_lineitem.regular.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "tpch_lineitem.compact.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3",
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "tpch_orders.regular.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "tpch_orders.compact.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3",
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "clickbench_hits_5k.regular.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3"
-      ],
-      "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"
-    },
-    {
-      "edition": "core2025.10.0",
-      "reader_version": "0.54.0",
-      "fixture": "clickbench_hits_5k.compact.vortex",
-      "expected_causes": [
-        "Expected 2 buffers, got 3",
-        "Pco Compatibility error: file's format version (4) exceeds max supported (3)"
-      ],
-      "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"
-    },
-    {
-      "edition": "core2026.08.2",
-      "reader_version": "0.85.0",
-      "fixture": "map.vortex",
-      "expected_causes": [
-        "type mismatch in column sorted_attrs: actual=pyarrow.Field<sorted_attrs: map<string_view, int64> not null>, expected=pyarrow.Field<sorted_attrs: map<string_view, int64, keys_sorted> not null>"
-      ],
-      "reason": "0.85.0 preserves keys_sorted=true in Vortex DType but drops keys_sorted during Arrow export"
-    },
-    {
-      "edition": "core2026.08.3",
-      "reader_version": "0.85.0",
-      "fixture": "map.vortex",
-      "expected_causes": [
-        "type mismatch in column sorted_attrs: actual=pyarrow.Field<sorted_attrs: map<string_view, int64> not null>, expected=pyarrow.Field<sorted_attrs: map<string_view, int64, keys_sorted> not null>"
-      ],
-      "reason": "0.85.0 preserves keys_sorted=true in Vortex DType but drops keys_sorted during Arrow export"
-    }
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "struct_nested.vortex", "expected_causes": ["column inner: Array dtype mismatch after building", "column nullable_inner: Array dtype mismatch after building", "column value: Array dtype mismatch after building"], "reason": "vortex.struct writes nullable validity child at index 0; 0.36.0 reads index 0 as first field and panics on dtype mismatch"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "datetime.vortex", "expected_causes": ["column ts_eastern: Timestamp(Second, Some(\"America/New_York\"))", "column ts_millis_tz: Timestamp(Millisecond, Some(\"UTC\"))"], "reason": "0.36.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "decimal_canonical_widths.vortex", "expected_causes": ["Decimal precision out of range [1, 38]: 39", "column i256_p39_s2: i256 decimals cannot be converted to Arrow i128 decimal", "column i256_p76_s0: i256 decimals cannot be converted to Arrow i128 decimal"], "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "decimal_narrow_storage.vortex", "expected_causes": ["Decimal precision out of range [1, 38]: 40", "column i128_p40_s0: i256 decimals cannot be converted to Arrow i128 decimal", "column i8_p76_s0: i256 decimals cannot be converted to Arrow i128 decimal"], "reason": "0.36.0 cannot convert i256 decimals (precision > 38) to Arrow Decimal128"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "datetimeparts.vortex", "expected_causes": ["column ts_ms_tz: Timestamp(Millisecond, Some(\"UTC\"))", "column ts_pre_1970: Failed to cast -86399 to U32"], "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "decimal_byte_parts_narrow_msp.vortex", "expected_causes": ["column msp_i16_p10_s2_gap: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]", "column msp_i32_p18_s2: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]", "column msp_i32_p18_s2_gap: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]", "column msp_i32_p18_s2_nullable: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]", "column msp_i64_p38_s2: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]", "column msp_i64_p4_s2_wide: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]", "column msp_i8_p10_s2: cannot represent a decimal decimal(10,2) as primitive parts [Primitive(I8, NonNullable)]"], "reason": "vortex.decimal_byte_parts v1 writes narrow I8 MSP; 0.36.0 rejects bit width narrower than decimal precision"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "fsst.vortex", "expected_causes": ["column all_null_clustered: Expected 2 buffers, got 3", "column empty_and_unicode: Expected 2 buffers, got 3", "column high_entropy: Expected 2 buffers, got 3", "column logs: Expected 2 buffers, got 3", "column nullable_urls: Expected 2 buffers, got 3", "column short_strs: Expected 2 buffers, got 3", "column suffix_shared: Expected 2 buffers, got 3", "column urls: Expected 2 buffers, got 3"], "reason": "vortex.fsst writes 3-buffer wire format; 0.36.0 expects legacy 2-buffer format"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "runend.vortex", "expected_causes": ["column alternating_singletons: RunEnd array can only have Bool or Primitive values, utf8 given", "column bool_runs: RunEnd array can only have Bool or Primitive values, utf8 given", "column nullable_runs: RunEnd array can only have Bool or Primitive values, utf8 given", "column run_values: RunEnd array can only have Bool or Primitive values, utf8 given", "column single_run: RunEnd array can only have Bool or Primitive values, utf8 given", "column statuses: RunEnd array can only have Bool or Primitive values, utf8 given", "column uniform_runs: RunEnd array can only have Bool or Primitive values, utf8 given"], "reason": "vortex.runend encodes utf8 values; 0.36.0 only accepts Bool or Primitive values"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "sparse.vortex", "expected_causes": ["column sparse_str: Cannot convert DType utf8? into PType"], "reason": "0.36.0 SparseArray canonicalization only supports primitive PType, not utf8"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "constant.vortex", "expected_causes": ["column const_timestamp: Timestamp(Millisecond, Some(\"UTC\"))"], "reason": "0.36.0 fails Arrow export for UTC vortex.timestamp"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "tpch_lineitem.regular.vortex", "expected_causes": ["column l_comment: Expected 2 buffers, got 3", "column l_discount: cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]", "column l_extendedprice: Cannot convert DType bool into PType", "column l_linestatus: Expected 2 buffers, got 3", "column l_quantity: ValueError: cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I16, NonNullable)], decimal bit width 50, primitive bit width 16", "column l_returnflag: Expected 2 buffers, got 3", "column l_shipmode: Expected 2 buffers, got 3", "column l_tax: cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "tpch_lineitem.compact.vortex", "expected_causes": ["column l_comment: Expected 2 buffers, got 3", "column l_discount: cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]", "column l_extendedprice: Cannot convert DType bool into PType", "column l_linestatus: Expected 2 buffers, got 3", "column l_quantity: ValueError: cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I16, NonNullable)], decimal bit width 50, primitive bit width 16", "column l_returnflag: Expected 2 buffers, got 3", "column l_shipmode: Expected 2 buffers, got 3", "column l_tax: cannot represent a decimal decimal(15,2) as primitive parts [Primitive(I8, NonNullable)]"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.decimal_byte_parts narrow I8/I16 MSP rejected by 0.36.0"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "tpch_orders.regular.vortex", "expected_causes": ["column o_clerk: Expected 2 buffers, got 3", "column o_comment: Expected 2 buffers, got 3", "column o_orderstatus: Expected 2 buffers, got 3", "column o_totalprice: Cannot convert DType bool into PType"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "tpch_orders.compact.vortex", "expected_causes": ["column o_clerk: Expected 2 buffers, got 3", "column o_comment: Expected 2 buffers, got 3", "column o_orderstatus: Expected 2 buffers, got 3", "column o_totalprice: Cannot convert DType bool into PType"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "clickbench_hits_5k.regular.vortex", "expected_causes": ["column BrowserCountry: Expected 2 buffers, got 3", "column BrowserLanguage: Expected 2 buffers, got 3", "column ClientEventTime: Cannot convert DType bool into PType", "column ConnectTiming: Cannot convert DType bool into PType", "column FetchTiming: Cannot convert DType bool into PType", "column FlashMinor2: Expected 2 buffers, got 3", "column FromTag: Expected 2 buffers, got 3", "column HitColor: Expected 2 buffers, got 3", "column MobilePhone: Cannot convert DType bool into PType", "column MobilePhoneModel: Expected 2 buffers, got 3", "column OpenstatAdID: Expected 2 buffers, got 3", "column OpenstatCampaignID: Expected 2 buffers, got 3", "column OriginalURL: Expected 2 buffers, got 3", "column Referer: Expected 2 buffers, got 3", "column ResponseEndTiming: Cannot convert DType bool into PType", "column ResponseStartTiming: Cannot convert DType bool into PType", "column SearchPhrase: Expected 2 buffers, got 3", "column Title: Expected 2 buffers, got 3", "column URL: Expected 2 buffers, got 3", "column UTMMedium: Expected 2 buffers, got 3", "column UTMSource: Expected 2 buffers, got 3", "column UserAgentMinor: Expected 2 buffers, got 3"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"},
+    {"edition": "core2025.05.0", "reader_version": "0.36.0", "fixture": "clickbench_hits_5k.compact.vortex", "expected_causes": ["column BrowserCountry: Expected 2 buffers, got 3", "column BrowserLanguage: Expected 2 buffers, got 3", "column ClientEventTime: Cannot convert DType bool into PType", "column ConnectTiming: Cannot convert DType bool into PType", "column FetchTiming: Cannot convert DType bool into PType", "column FlashMinor2: Expected 2 buffers, got 3", "column FromTag: Expected 2 buffers, got 3", "column HitColor: Expected 2 buffers, got 3", "column MobilePhone: Cannot convert DType bool into PType", "column MobilePhoneModel: Expected 2 buffers, got 3", "column OpenstatAdID: Expected 2 buffers, got 3", "column OpenstatCampaignID: Expected 2 buffers, got 3", "column OriginalURL: Expected 2 buffers, got 3", "column Referer: Expected 2 buffers, got 3", "column ResponseEndTiming: Cannot convert DType bool into PType", "column ResponseStartTiming: Cannot convert DType bool into PType", "column SearchPhrase: Expected 2 buffers, got 3", "column Title: Expected 2 buffers, got 3", "column URL: Expected 2 buffers, got 3", "column UTMMedium: Expected 2 buffers, got 3", "column UTMSource: Expected 2 buffers, got 3", "column UserAgentMinor: Expected 2 buffers, got 3"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.36.0"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "datetime.vortex", "expected_causes": ["column ts_eastern: Timestamp(Second, Some(\"America/New_York\"))", "column ts_millis_tz: Timestamp(Millisecond, Some(\"UTC\"))"], "reason": "0.42.0 fails Arrow export for timezone-aware vortex.timestamp (UTC, America/New_York)"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "datetimeparts.vortex", "expected_causes": ["column ts_ms_tz: Timestamp(Millisecond, Some(\"UTC\"))", "column ts_pre_1970: Failed to cast -86399 to U32"], "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp and fails casting negative seconds (-86399) to U32"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "fsst.vortex", "expected_causes": ["column all_null_clustered: Expected 2 buffers, got 3", "column empty_and_unicode: Expected 2 buffers, got 3", "column high_entropy: Expected 2 buffers, got 3", "column logs: Expected 2 buffers, got 3", "column nullable_urls: Expected 2 buffers, got 3", "column short_strs: Expected 2 buffers, got 3", "column suffix_shared: Expected 2 buffers, got 3", "column urls: Expected 2 buffers, got 3"], "reason": "vortex.fsst writes 3-buffer wire format; 0.42.0 expects legacy 2-buffer format"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "pco.vortex", "expected_causes": ["column constant_u16: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column irregular_i64: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column narrow_i16: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column negative_i32: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column nullable_f32: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column pattern_u32: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column smooth_f64: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column spike_outliers: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.pco writes pco format version 4; 0.42.0 supports up to format version 3"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "runend.vortex", "expected_causes": ["column alternating_singletons: RunEnd array can only have Bool or Primitive values, utf8 given", "column bool_runs: RunEnd array can only have Bool or Primitive values, utf8 given", "column nullable_runs: RunEnd array can only have Bool or Primitive values, utf8 given", "column run_values: RunEnd array can only have Bool or Primitive values, utf8 given", "column single_run: RunEnd array can only have Bool or Primitive values, utf8 given", "column statuses: RunEnd array can only have Bool or Primitive values, utf8 given", "column uniform_runs: RunEnd array can only have Bool or Primitive values, utf8 given"], "reason": "vortex.runend encodes utf8 values; 0.42.0 only accepts Bool or Primitive values"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "zstd.vortex", "expected_causes": ["column nullable_utf8: Canonical length mismatch vortex.zstd. Expected 1024 but encoded into 930"], "reason": "vortex.zstd skips null values in compressed frames; 0.42.0 panics on canonical length mismatch (expected 1024, got 930)"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "constant.vortex", "expected_causes": ["column const_timestamp: Timestamp(Millisecond, Some(\"UTC\"))"], "reason": "0.42.0 fails Arrow export for UTC vortex.timestamp"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "tpch_lineitem.regular.vortex", "expected_causes": ["column l_comment: Expected 2 buffers, got 3", "column l_extendedprice: Cannot convert DType bool into PType", "column l_linestatus: Expected 2 buffers, got 3", "column l_returnflag: Expected 2 buffers, got 3", "column l_shipmode: Expected 2 buffers, got 3"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "tpch_lineitem.compact.vortex", "expected_causes": ["ArrowInvalid: External error: task 13 panicked with message \"scalar at index: Pco Compatibility error: file's format version (4) exceeds max supported (3); consider upgrading pco\\nBacktrace:\\ndisabled backtrace\"", "column l_commitdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_extendedprice: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_linenumber: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_linestatus: Expected 2 buffers, got 3", "column l_orderkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_quantity: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_receiptdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_returnflag: Expected 2 buffers, got 3", "column l_shipdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_shipmode: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_suppkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "tpch_orders.regular.vortex", "expected_causes": ["column o_clerk: Expected 2 buffers, got 3", "column o_comment: Expected 2 buffers, got 3", "column o_orderstatus: Expected 2 buffers, got 3", "column o_totalprice: Cannot convert DType bool into PType"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "tpch_orders.compact.vortex", "expected_causes": ["column o_custkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderpriority: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderstatus: Expected 2 buffers, got 3", "column o_totalprice: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.42.0"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "clickbench_hits_5k.regular.vortex", "expected_causes": ["column BrowserCountry: Expected 2 buffers, got 3", "column BrowserLanguage: Expected 2 buffers, got 3", "column ClientEventTime: Cannot convert DType bool into PType", "column ConnectTiming: Cannot convert DType bool into PType", "column FetchTiming: Cannot convert DType bool into PType", "column FlashMinor2: Expected 2 buffers, got 3", "column FromTag: Expected 2 buffers, got 3", "column HitColor: Expected 2 buffers, got 3", "column MobilePhone: Cannot convert DType bool into PType", "column MobilePhoneModel: Expected 2 buffers, got 3", "column OpenstatAdID: Expected 2 buffers, got 3", "column OpenstatCampaignID: Expected 2 buffers, got 3", "column OriginalURL: Expected 2 buffers, got 3", "column Referer: Expected 2 buffers, got 3", "column ResponseEndTiming: Cannot convert DType bool into PType", "column ResponseStartTiming: Cannot convert DType bool into PType", "column SearchPhrase: Expected 2 buffers, got 3", "column Title: Expected 2 buffers, got 3", "column URL: Expected 2 buffers, got 3", "column UTMMedium: Expected 2 buffers, got 3", "column UTMSource: Expected 2 buffers, got 3", "column UserAgentMinor: Expected 2 buffers, got 3"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child and vortex.fsst 3-buffer format rejected by 0.42.0"},
+    {"edition": "core2025.06.0", "reader_version": "0.42.0", "fixture": "clickbench_hits_5k.compact.vortex", "expected_causes": ["column AdvEngineID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Age: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column BrowserCountry: Expected 2 buffers, got 3", "column BrowserLanguage: Expected 2 buffers, got 3", "column ClientEventTime: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ClientIP: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ClientTimeZone: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ConnectTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column DNSTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column DontCountHits: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column EventTime: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FUniqID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FetchTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FlashMajor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FlashMinor2: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FlashMinor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FromTag: Cannot convert DType bool into PType", "column HID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column HasGCLID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column HitColor: Expected 2 buffers, got 3", "column IPNetworkID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Income: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Interests: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column IsLink: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column JavaEnable: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column LocalEventTime: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column MobilePhone: Cannot convert DType bool into PType", "column MobilePhoneModel: Expected 2 buffers, got 3", "column NetMajor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column NetMinor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OS: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OpenstatAdID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OpenstatCampaignID: Expected 2 buffers, got 3", "column OpenstatServiceName: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OriginalURL: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Referer: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RefererCategoryID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RefererHash: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RefererRegionID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RegionID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RemoteIP: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResolutionDepth: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResolutionHeight: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResolutionWidth: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResponseEndTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResponseStartTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Robotness: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SearchEngineID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SearchPhrase: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Sex: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SilverlightVersion1: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SilverlightVersion2: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SilverlightVersion3: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Title: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column TraficSourceID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URL: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URLCategoryID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URLHash: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URLRegionID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UTMCampaign: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UTMContent: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UTMMedium: Expected 2 buffers, got 3", "column UserAgent: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UserAgentMajor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UserAgentMinor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UserID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column WindowClientHeight: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column WindowClientWidth: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "fastlanes.bitpacked v1 patch_chunk_offsets child, vortex.fsst 3-buffer format, and vortex.pco format version 4 rejected by 0.42.0"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "fsst.vortex", "expected_causes": ["column all_null_clustered: Expected 2 buffers, got 3", "column empty_and_unicode: Expected 2 buffers, got 3", "column high_entropy: Expected 2 buffers, got 3", "column logs: Expected 2 buffers, got 3", "column nullable_urls: Expected 2 buffers, got 3", "column short_strs: Expected 2 buffers, got 3", "column suffix_shared: Expected 2 buffers, got 3", "column urls: Expected 2 buffers, got 3"], "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "pco.vortex", "expected_causes": ["column constant_u16: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column irregular_i64: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column narrow_i16: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column negative_i32: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column nullable_f32: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column pattern_u32: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column smooth_f64: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column spike_outliers: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.pco writes pco format version 4; 0.54.0 supports up to format version 3"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "runend.vortex", "expected_causes": ["column alternating_singletons: RunEnd array can only have Bool or Primitive values, utf8 given", "column bool_runs: RunEnd array can only have Bool or Primitive values, utf8 given", "column nullable_runs: RunEnd array can only have Bool or Primitive values, utf8 given", "column run_values: RunEnd array can only have Bool or Primitive values, utf8 given", "column single_run: RunEnd array can only have Bool or Primitive values, utf8 given", "column statuses: RunEnd array can only have Bool or Primitive values, utf8 given", "column uniform_runs: RunEnd array can only have Bool or Primitive values, utf8 given"], "reason": "vortex.runend encodes utf8 values; 0.54.0 only accepts Bool or Primitive values"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "tpch_lineitem.regular.vortex", "expected_causes": ["column l_comment: Expected 2 buffers, got 3", "column l_linestatus: Expected 2 buffers, got 3", "column l_returnflag: Expected 2 buffers, got 3", "column l_shipmode: Expected 2 buffers, got 3"], "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "tpch_lineitem.compact.vortex", "expected_causes": ["column l_commitdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_extendedprice: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_linenumber: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_linestatus: Expected 2 buffers, got 3", "column l_orderkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_quantity: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_receiptdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_returnflag: Expected 2 buffers, got 3", "column l_shipdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_shipmode: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column l_suppkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "tpch_orders.regular.vortex", "expected_causes": ["column o_clerk: Expected 2 buffers, got 3", "column o_comment: Expected 2 buffers, got 3", "column o_orderstatus: Expected 2 buffers, got 3"], "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "tpch_orders.compact.vortex", "expected_causes": ["column o_custkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderdate: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderkey: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderpriority: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column o_orderstatus: Expected 2 buffers, got 3", "column o_totalprice: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "clickbench_hits_5k.regular.vortex", "expected_causes": ["column BrowserCountry: Expected 2 buffers, got 3", "column BrowserLanguage: Expected 2 buffers, got 3", "column FlashMinor2: Expected 2 buffers, got 3", "column FromTag: Expected 2 buffers, got 3", "column HitColor: Expected 2 buffers, got 3", "column MobilePhoneModel: Expected 2 buffers, got 3", "column OpenstatAdID: Expected 2 buffers, got 3", "column OpenstatCampaignID: Expected 2 buffers, got 3", "column OriginalURL: Expected 2 buffers, got 3", "column Referer: Expected 2 buffers, got 3", "column SearchPhrase: Expected 2 buffers, got 3", "column Title: Expected 2 buffers, got 3", "column URL: Expected 2 buffers, got 3", "column UTMMedium: Expected 2 buffers, got 3", "column UTMSource: Expected 2 buffers, got 3", "column UserAgentMinor: Expected 2 buffers, got 3"], "reason": "vortex.fsst writes 3-buffer wire format; 0.54.0 expects legacy 2-buffer format"},
+    {"edition": "core2025.10.0", "reader_version": "0.54.0", "fixture": "clickbench_hits_5k.compact.vortex", "expected_causes": ["column AdvEngineID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Age: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column BrowserCountry: Expected 2 buffers, got 3", "column BrowserLanguage: Expected 2 buffers, got 3", "column ClientEventTime: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ClientIP: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ClientTimeZone: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ConnectTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column DNSTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column DontCountHits: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column EventTime: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FUniqID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FetchTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FlashMajor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FlashMinor2: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column FlashMinor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column HID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column HasGCLID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column HitColor: Expected 2 buffers, got 3", "column IPNetworkID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Income: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Interests: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column IsLink: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column JavaEnable: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column LocalEventTime: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column MobilePhoneModel: Expected 2 buffers, got 3", "column NetMajor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column NetMinor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OS: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OpenstatAdID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OpenstatCampaignID: Expected 2 buffers, got 3", "column OpenstatServiceName: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column OriginalURL: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Referer: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RefererCategoryID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RefererHash: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RefererRegionID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RegionID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column RemoteIP: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResolutionDepth: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResolutionHeight: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResolutionWidth: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResponseEndTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column ResponseStartTiming: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Robotness: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SearchEngineID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SearchPhrase: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Sex: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SilverlightVersion1: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SilverlightVersion2: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column SilverlightVersion3: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column Title: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column TraficSourceID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URL: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URLCategoryID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URLHash: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column URLRegionID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UTMCampaign: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UTMContent: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UTMMedium: Expected 2 buffers, got 3", "column UserAgent: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UserAgentMajor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UserAgentMinor: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column UserID: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column WindowClientHeight: Pco Compatibility error: file's format version (4) exceeds max supported (3)", "column WindowClientWidth: Pco Compatibility error: file's format version (4) exceeds max supported (3)"], "reason": "vortex.fsst 3-buffer format and vortex.pco format version 4 rejected by 0.54.0"},
+    {"edition": "core2026.08.2", "reader_version": "0.85.0", "fixture": "map.vortex", "expected_causes": ["type mismatch in column sorted_attrs:"], "reason": "0.85.0 preserves keys_sorted=true in Vortex DType but drops keys_sorted during Arrow export"},
+    {"edition": "core2026.08.3", "reader_version": "0.85.0", "fixture": "map.vortex", "expected_causes": ["type mismatch in column sorted_attrs:"], "reason": "0.85.0 preserves keys_sorted=true in Vortex DType but drops keys_sorted during Arrow export"}
   ]
 }

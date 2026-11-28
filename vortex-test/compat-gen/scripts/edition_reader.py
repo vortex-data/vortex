@@ -244,6 +244,8 @@ def _probe_column_causes(path: Path, exp_path: Path) -> list[str]:
             res = _run_isolated(lambda c=col: _read_single_column(path, exp_path, c))
             if not res.get("ok"):
                 for cause in res.get("causes") or ([res["error"]] if res.get("error") else []):
+                    if f"column {col}" not in cause:
+                        cause = f"column {col}: {cause}"
                     causes.add(cause)
     return sorted(causes)
 
@@ -281,6 +283,21 @@ def _read_single_column(path: Path, exp_path: Path, col: str) -> dict:
     return {"ok": True}
 
 
+def _strip_error_wrapper(msg: str) -> str:
+    """Strip outer Python/signal wrappers so full-table and projected errors can be matched."""
+    for prefix in (
+        "ArrowInvalid: External error: ",
+        "ArrowInvalid: ",
+        "ValueError: ",
+        "PanicException: ",
+    ):
+        if msg.startswith(prefix):
+            return msg[len(prefix) :]
+    if msg.startswith("signal ") and ": " in msg:
+        return msg.split(": ", 1)[1]
+    return msg
+
+
 def _verify_file(path: Path, exp_path: Path) -> dict:
     def _do() -> dict:
         vf = vortex.open(str(path))
@@ -306,11 +323,23 @@ def _verify_file(path: Path, exp_path: Path) -> dict:
     col_causes = _probe_column_causes(path, exp_path)
     if col_causes:
         causes = set(col_causes)
+        col_core_msgs = {
+            _strip_error_wrapper(c.split(": ", 1)[1])
+            if c.startswith("column ") and ": " in c
+            else _strip_error_wrapper(c)
+            for c in col_causes
+        }
         for cause in full_causes:
-            if cause not in causes and not (
-                cause.startswith("column count mismatch:")
-                and any(c.startswith("column names mismatch:") for c in col_causes)
-            ):
+            core = _strip_error_wrapper(cause)
+            explained = (
+                cause in causes
+                or core in col_core_msgs
+                or (
+                    cause.startswith("column count mismatch:")
+                    and any(c.startswith("column names mismatch:") for c in col_causes)
+                )
+            )
+            if not explained:
                 causes.add(cause)
         sorted_causes = sorted(causes)
         return {

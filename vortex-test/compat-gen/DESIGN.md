@@ -13,14 +13,14 @@ We need back-compat!
 
 Compatibility testing covers both directions:
 
-1. **Forward direction (old writers -> current reader):** We maintain a library
+1. **Backward compatibility (current reader, old files):** We maintain a library
    of `.vortex` fixture files, one set per released version, stored in S3.
    `compat.py check` reads every old fixture with the current reader and
    compares decoded values against a known-good oracle. Keeping the weekly
    `--mode all` sweep catches regressions on historical physical encodings that
    HEAD no longer writes under the same fixture names (for example, pre-#10701
    non-canonical decimal widths from #10754).
-2. **Reverse / edition direction (current writer -> oldest reader per edition):**
+2. **Forward compatibility (old reader, current files):**
    `vortex-compat generate --edition <EDITION>` enables a specific frozen `core`
    edition on the write session, skipping only encoding-specific fixtures whose
    required encoding is not permitted by that edition. `compat.py check-editions`

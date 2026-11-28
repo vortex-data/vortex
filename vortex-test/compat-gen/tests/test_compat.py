@@ -239,23 +239,20 @@ def test_evaluate_edition_results_enforces_shrink_only_and_expected_causes(compa
     ]
 
 
-def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(compat, monkeypatch, tmp_path):
+def test_cmd_check_editions_enforces_skips_gen_failures_and_shrink_only(compat, monkeypatch, tmp_path):
     accepted_path = tmp_path / "accepted.json"
     accepted_path.write_text(
         json.dumps(
             {
-                "reader_overrides": {
-                    "core2025.06.0": {
-                        "reader_version": "0.42.0",
-                        "reason": "0.40.0 lacks vortex.pco",
-                    }
+                "expected_skips": {
+                    "core2025.06.0": ["map.vortex"],
                 },
                 "failures": [
                     {
                         "edition": "core2025.06.0",
                         "reader_version": "0.42.0",
                         "fixture": "fsst.vortex",
-                        "expected_causes": ["Expected 2 buffers, got 3"],
+                        "expected_causes": ["column c1: Expected 2 buffers, got 3"],
                         "reason": "known fsst issue",
                     }
                 ],
@@ -267,13 +264,14 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
         compat,
         "_run_rust_editions",
         lambda profile="release": [
-            {"id": "core2025.06.0", "min_library_version": "0.40.0"},
+            {"id": "core2025.06.0", "min_library_version": "0.42.0"},
             {"id": "core2026.08.3", "min_library_version": "0.85.0"},
         ],
     )
 
-    def fake_generate(output: Path, profile="release", edition=None, exclude=None):
+    def fake_generate(output: Path, profile="release", edition=None, exclude=None, check=True) -> int:
         output.mkdir(parents=True, exist_ok=True)
+        skipped = [{"name": "map.vortex", "reason": "not in edition"}] if edition == "core2025.06.0" else []
         (output / "fixtures.json").write_text(
             json.dumps(
                 {
@@ -282,9 +280,11 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
                         {"name": "primitives.vortex", "description": "p", "sha256": "a"},
                         {"name": "fsst.vortex", "description": "f", "sha256": "b"},
                     ],
+                    "skipped": skipped,
                 }
             )
         )
+        return 0
 
     dumped_expected: list[Path] = []
     monkeypatch.setattr(
@@ -301,7 +301,13 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
         if reader_version == "0.42.0":
             return {
                 "passed": ["primitives.vortex"],
-                "failed": [{"name": "fsst.vortex", "error": "Expected 2 buffers, got 3", "causes": []}],
+                "failed": [
+                    {
+                        "name": "fsst.vortex",
+                        "error": "column c1: ValueError: Expected 2 buffers, got 3",
+                        "causes": ["column c1: ValueError: Expected 2 buffers, got 3"],
+                    }
+                ],
             }
         return {"passed": ["primitives.vortex", "fsst.vortex"], "failed": []}
 
@@ -325,7 +331,79 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
     assert report[0]["reader_version"] == "0.42.0"
     assert [f["name"] for f in report[0]["accepted"]] == ["fsst.vortex"]
 
+    # A new failing column with the same error message must NOT match column c1's expected_causes.
+    def fake_reader_new_col(reader_version, src_dir, expected_dir, python_version="3.12") -> dict[str, object]:
+        if reader_version == "0.42.0":
+            return {
+                "passed": ["primitives.vortex"],
+                "failed": [
+                    {
+                        "name": "fsst.vortex",
+                        "error": (
+                            "column c1: ValueError: Expected 2 buffers, got 3; "
+                            "column c2: ValueError: Expected 2 buffers, got 3"
+                        ),
+                        "causes": [
+                            "column c1: ValueError: Expected 2 buffers, got 3",
+                            "column c2: ValueError: Expected 2 buffers, got 3",
+                        ],
+                    }
+                ],
+            }
+        return {"passed": ["primitives.vortex", "fsst.vortex"], "failed": []}
+
+    monkeypatch.setattr(compat, "_run_edition_reader", fake_reader_new_col)
+    with pytest.raises(SystemExit) as exc:
+        compat.cmd_check_editions(args)
+    assert exc.value.code == 1
+    new_col_report = json.loads(json_out.read_text())
+    assert [f["name"] for f in new_col_report[0]["unexpected"]] == ["fsst.vortex"]
+    assert "column c2" in new_col_report[0]["unexpected"][0]["error"]
+
+    # An unexpected skip in an edition must fail as unexpected, and a fixture write failure in
+    # one edition must still check the remaining editions and report all failures.
+    def fake_generate_with_fail_and_skip(
+        output: Path, profile="release", edition=None, exclude=None, check=True
+    ) -> int:
+        output.mkdir(parents=True, exist_ok=True)
+        if edition == "core2025.06.0":
+            (output / "fixtures.json").write_text(
+                json.dumps(
+                    {
+                        "edition": edition,
+                        "fixtures": [{"name": "fsst.vortex", "description": "f", "sha256": "b"}],
+                        "skipped": [
+                            {"name": "map.vortex", "reason": "not in edition"},
+                            {"name": "new_skip.vortex", "reason": "unexpected encoding"},
+                        ],
+                        "failed": [{"name": "primitives.vortex", "error": "disallowed encoding"}],
+                    }
+                )
+            )
+            return 1
+        (output / "fixtures.json").write_text(
+            json.dumps(
+                {
+                    "edition": edition,
+                    "fixtures": [{"name": "primitives.vortex", "description": "p", "sha256": "a"}],
+                }
+            )
+        )
+        return 0
+
+    monkeypatch.setattr(compat, "_run_rust_generate", fake_generate_with_fail_and_skip)
+    monkeypatch.setattr(compat, "_run_edition_reader", fake_reader)
+    with pytest.raises(SystemExit) as exc:
+        compat.cmd_check_editions(args)
+    assert exc.value.code == 1
+    gen_fail_report = json.loads(json_out.read_text())
+    assert len(gen_fail_report) == 2
+    assert {f["name"] for f in gen_fail_report[0]["unexpected"]} == {"primitives.vortex", "new_skip.vortex"}
+    assert gen_fail_report[1]["edition"] == "core2026.08.3"
+
     # Now make fsst.vortex pass on 0.42.0 -> shrink-only check must fail with exit 1.
+    monkeypatch.setattr(compat, "_run_rust_generate", fake_generate)
+
     def fake_reader_fixed(reader_version, src_dir, expected_dir, python_version="3.12") -> dict[str, object]:
         return {"passed": ["primitives.vortex", "fsst.vortex"], "failed": []}
 
@@ -335,12 +413,16 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
     assert exc.value.code == 1
 
     # Excluded fixtures must not be flagged as stale when omitted via --exclude.
-    def fake_generate_excluded(output: Path, profile="release", edition=None, exclude=None):
+    def fake_generate_excluded(output: Path, profile="release", edition=None, exclude=None, check=True) -> int:
         output.mkdir(parents=True, exist_ok=True)
         fixtures = [{"name": "primitives.vortex", "description": "p", "sha256": "a"}]
         if not (exclude and any(pat in "fsst.vortex" for pat in exclude)):
             fixtures.append({"name": "fsst.vortex", "description": "f", "sha256": "b"})
-        (output / "fixtures.json").write_text(json.dumps({"edition": edition, "fixtures": fixtures}))
+        skipped = [{"name": "map.vortex", "reason": "not in edition"}] if edition == "core2025.06.0" else []
+        (output / "fixtures.json").write_text(
+            json.dumps({"edition": edition, "fixtures": fixtures, "skipped": skipped})
+        )
+        return 0
 
     monkeypatch.setattr(compat, "_run_rust_generate", fake_generate_excluded)
     monkeypatch.setattr(
@@ -366,7 +448,9 @@ def test_cmd_check_editions_applies_override_and_fails_on_stale_or_unexpected(co
     orphan_path.write_text(
         json.dumps(
             {
-                "reader_overrides": {},
+                "expected_skips": {
+                    "core2025.06.0": ["map.vortex"],
+                },
                 "failures": [
                     {
                         "edition": "core2025.06.0",
