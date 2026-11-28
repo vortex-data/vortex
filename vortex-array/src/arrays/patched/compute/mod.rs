@@ -3,8 +3,33 @@
 
 mod compare;
 mod filter;
-pub(crate) mod rules;
+#[cfg(test)]
+mod property_tests;
 mod take;
+mod validity;
+use vortex_error::VortexResult;
+
+use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::patched::Patched;
+use crate::arrays::patched::PatchedArrayExt;
+use crate::patches::Patches;
+
+pub(super) fn select_rows(
+    array: ArrayView<'_, Patched>,
+    base: ArrayRef,
+    patches: Option<Patches>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    Ok(Some(match patches {
+        Some(patches) => {
+            Patched::with_strategy(base, &patches, array.strategy(), ctx)?.into_array()
+        }
+        None => base,
+    }))
+}
 
 #[cfg(test)]
 mod tests {

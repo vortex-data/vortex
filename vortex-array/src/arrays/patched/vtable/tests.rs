@@ -1,657 +1,271 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-use std::sync::LazyLock;
-
-use prost::Message;
 use rstest::rstest;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
-use vortex_buffer::buffer_mut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-use super::PatchedMetadata;
-use crate::Array;
 use crate::ArrayContext;
 use crate::ArrayDeserialization;
-use crate::ArrayParts;
 use crate::ArrayPlugin;
 use crate::ArrayRef;
-use crate::ArraySlots;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::arrays::Patched;
-use crate::arrays::PatchedArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::patched::FloatPatchStrategy;
+use crate::arrays::patched::PatchStrategy;
+use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::arrays::patched::PatchedData;
-use crate::arrays::patched::PatchedSlots;
-use crate::arrays::patched::PatchedSlotsView;
+use crate::arrays::slice::SliceKernel;
 use crate::assert_arrays_eq;
-use crate::buffer::BufferHandle;
-use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
-use crate::serde::ArrayChildren;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::session::ArraySessionExt;
-use crate::validity::Validity;
-
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-#[test]
-fn test_execute() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = buffer![0u16; 1024].into_array();
-    let patches = Patches::new(
-        1024,
-        0,
-        buffer![1u32, 2, 3].into_array(),
-        buffer![1u16; 3].into_array(),
-        None,
-        &mut ctx,
-    )
-    .unwrap();
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
-        .unwrap()
-        .into_array();
-
-    let mut expected = buffer_mut![0u16; 1024];
-    expected[1] = 1;
-    expected[2] = 1;
-    expected[3] = 1;
-
-    assert_arrays_eq!(array, expected.into_array(), &mut ctx);
-}
-
-#[test]
-fn test_execute_sliced() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = buffer![0u16; 1024].into_array();
-    let patches = Patches::new(
-        1024,
-        0,
-        buffer![1u32, 2, 3].into_array(),
-        buffer![1u16; 3].into_array(),
-        None,
-        &mut ctx,
-    )
-    .unwrap();
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
-        .unwrap()
-        .into_array()
-        .slice(3..1024)
-        .unwrap();
-
-    let mut expected = buffer_mut![0u16; 1021];
-    expected[0] = 1;
-
-    assert_arrays_eq!(array, expected.into_array(), &mut ctx);
-}
-
-#[test]
-fn test_append_to_builder_non_nullable() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
-    let patches = Patches::new(
-        1024,
-        0,
-        buffer![1u32, 2, 3].into_array(),
-        buffer![10u16, 20, 30].into_array(),
-        None,
-        &mut ctx,
-    )
-    .unwrap();
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
-        .unwrap()
-        .into_array();
-
-    let mut builder = builder_with_capacity_in(
-        array.dtype(),
-        array.len(),
-        vortex_buffer::BufferAllocatorRef::static_ref(),
-    );
-    array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
-
-    let result = builder.finish();
-
-    let mut expected = buffer_mut![0u16; 1024];
-    expected[1] = 10;
-    expected[2] = 20;
-    expected[3] = 30;
-    let expected = expected.into_array();
-
-    assert_arrays_eq!(result, expected, &mut ctx);
-}
-
-#[test]
-fn test_append_to_builder_sliced() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
-    let patches = Patches::new(
-        1024,
-        0,
-        buffer![1u32, 2, 3].into_array(),
-        buffer![10u16, 20, 30].into_array(),
-        None,
-        &mut ctx,
-    )
-    .unwrap();
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
-        .unwrap()
-        .into_array()
-        .slice(3..1024)
-        .unwrap();
-
-    let mut builder = builder_with_capacity_in(
-        array.dtype(),
-        array.len(),
-        vortex_buffer::BufferAllocatorRef::static_ref(),
-    );
-    array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
-
-    let result = builder.finish();
-
-    let mut expected = buffer_mut![0u16; 1021];
-    expected[0] = 30;
-    let expected = expected.into_array();
-
-    assert_arrays_eq!(result, expected, &mut ctx);
-}
-
-#[test]
-fn test_append_to_builder_with_validity() {
-    let mut ctx = SESSION.create_execution_ctx();
-    // Create inner array with nulls at indices 0 and 5.
-    let validity = Validity::from_iter((0..10).map(|i| i != 0 && i != 5));
-    let values = PrimitiveArray::new(buffer![0u16; 10], validity).into_array();
-
-    // Apply patches at indices 1, 2, 3.
-    let patches = Patches::new(
-        10,
-        0,
-        buffer![1u32, 2, 3].into_array(),
-        buffer![10u16, 20, 30].into_array(),
-        None,
-        &mut ctx,
-    )
-    .unwrap();
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
-        .unwrap()
-        .into_array();
-
-    let mut builder = builder_with_capacity_in(
-        array.dtype(),
-        array.len(),
-        vortex_buffer::BufferAllocatorRef::static_ref(),
-    );
-    array.append_to_builder(builder.as_mut(), &mut ctx).unwrap();
-
-    let result = builder.finish();
-
-    // Expected: null at 0, patched 10/20/30 at 1/2/3, zero at 4, null at 5, zeros at 6-9.
-    let expected = PrimitiveArray::from_option_iter([
-        None,
-        Some(10u16),
-        Some(20),
-        Some(30),
-        Some(0),
-        None,
-        Some(0),
-        Some(0),
-        Some(0),
-        Some(0),
-    ])
-    .into_array();
-
-    assert_arrays_eq!(result, expected, &mut ctx);
-}
-
-fn make_patched_array(
-    inner: impl IntoIterator<Item = u16>,
-    patch_indices: &[u32],
-    patch_values: &[u16],
-) -> VortexResult<PatchedArray> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values: Vec<u16> = inner.into_iter().collect();
-    let len = values.len();
-    let array = PrimitiveArray::from_iter(values).into_array();
-
-    let indices = PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array();
-    let patch_vals = PrimitiveArray::from_iter(patch_values.iter().copied()).into_array();
-
-    let patches = Patches::new(len, 0, indices, patch_vals, None, &mut ctx)?;
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    Patched::from_array_and_patches(array, &patches, &mut ctx)
-}
 
 #[rstest]
-#[case::basic(
-    make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap().into_array(),
-    (0..1024).map(|i| match i { 1 => 10u16, 2 => 20, 3 => 30, _ => 0 }).collect::<Vec<_>>()
-)]
-#[case::multi_chunk(
-    make_patched_array(vec![0u16; 4096], &[100, 1500, 2500, 3500], &[11, 22, 33, 44]).unwrap().into_array(),
-    (0..4096).map(|i| match i { 100 => 11u16, 1500 => 22, 2500 => 33, 3500 => 44, _ => 0 }).collect::<Vec<_>>()
-)]
-#[case::sliced({
-    let arr = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap();
-    arr.into_array().slice(2..1024).unwrap().optimize_ctx(&SESSION).unwrap()
-}, (2..1024).map(|i| match i { 2 => 20u16, 3 => 30, _ => 0 }).collect::<Vec<_>>())]
-fn test_serde_roundtrip(#[case] array: ArrayRef, #[case] expected: Vec<u16>) {
-    let dtype = array.dtype().clone();
-    let len = array.len();
-
+#[case(false)]
+#[case(true)]
+fn sliced_replacements_roundtrip(#[case] indexed: bool) -> VortexResult<()> {
     let session = VortexSession::empty();
     session.arrays().register(Patched);
-
-    let ctx = ArrayContext::empty().with_allowed_ids(
-        session
-            .arrays()
-            .registry()
-            .read(|map| map.keys().copied().collect()),
-    );
-    let serialized = array
-        .serialize(&ctx, &session, &SerializeOptions::default())
-        .unwrap();
-
-    // Concat into a single buffer.
-    let mut concat = ByteBufferMut::empty();
-    for buf in serialized {
-        concat.extend_from_slice(buf.as_ref());
-    }
-    let concat = concat.freeze();
-
-    let parts = SerializedArray::try_from(concat).unwrap();
-    let decoded = parts
-        .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
-        .unwrap();
-
-    assert!(decoded.is::<Patched>());
-    let expected = PrimitiveArray::from_iter(expected);
-    let mut exec_ctx = session.create_execution_ctx();
-    assert_arrays_eq!(array, &expected, &mut exec_ctx);
-    assert_arrays_eq!(decoded, expected, &mut exec_ctx);
-}
-
-#[test]
-fn test_with_slots_basic() -> VortexResult<()> {
-    let array = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30])?;
-
-    // Get original children via accessor methods
-    let slots = PatchedSlots::from_slots(
-        array
-            .as_array()
-            .slots()
-            .iter()
-            .cloned()
-            .collect::<ArraySlots>(),
-    );
-    let view = PatchedSlotsView::from_slots(array.as_array().slots());
-    assert_eq!(view.inner.len(), array.inner().len());
-
-    // Create new PatchedArray with same children using with_slots
-    let array_ref = array.into_array();
-    // SAFETY: the replacement slots are the original children, preserving logical values and
-    // parent statistics.
-    let new_array = unsafe { array_ref.clone().with_slots(slots.into_slots()) }?;
-
-    assert!(new_array.is::<Patched>());
-    assert_eq!(array_ref.len(), new_array.len());
-    assert_eq!(array_ref.dtype(), new_array.dtype());
-
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let expected = PrimitiveArray::from_iter((0..1024).map(|i| match i {
-        1 => 10u16,
-        2 => 20,
-        3 => 30,
-        _ => 0,
+    let mut ctx = session.create_execution_ctx();
+    let len = 2050;
+    let offsets = indexed.then(|| buffer![0u16, 2, 3].into_array());
+    let patches = Patches::new(
+        len,
+        0,
+        buffer![1u16, 1023, 1024, 2048].into_array(),
+        PrimitiveArray::from_option_iter([Some(1i32), Some(9), None, Some(8)]).into_array(),
+        offsets,
+        &mut ctx,
+    )?;
+    let base = PrimitiveArray::from_option_iter((0..len).map(|i| (i != 1023).then_some(5i32)));
+    let array = Patched::from_array_and_patches(base.into_array(), &patches, &mut ctx)?;
+    assert_eq!(array.patch_chunk_offsets().len(), 3);
+    let slice = <Patched as SliceKernel>::slice(array.as_view(), 1000..2049, &mut ctx)?.unwrap();
+    let expected = PrimitiveArray::from_option_iter((1000..2049).map(|i| match i {
+        1023 => Some(9i32),
+        1024 => None,
+        2048 => Some(8),
+        _ => Some(5),
     }));
-    assert_arrays_eq!(new_array, expected, &mut ctx);
+    let patches = slice.as_::<Patched>().absolute_patches(&mut ctx)?;
+    assert_eq!(patches.offset_within_chunk(), Some(0));
 
-    Ok(())
-}
-
-#[test]
-fn test_rebuild_modified_inner_from_parts() -> VortexResult<()> {
-    let array = make_patched_array(vec![0u16; 10], &[1, 2, 3], &[10, 20, 30])?;
-
-    // Create a different inner array (all 5s instead of 0s)
-    let new_inner = PrimitiveArray::from_iter(vec![5u16; 10]).into_array();
-    let slots = PatchedSlots {
-        inner: new_inner,
-        lane_offsets: array.lane_offsets().clone(),
-        patch_indices: array.patch_indices().clone(),
-        patch_values: array.patch_values().clone(),
-    };
-
-    let data = PatchedData {
-        n_lanes: array.n_lanes(),
-        offset: array.offset(),
-    };
-    let new_array = Array::try_from_parts(ArrayParts::new(
-        Patched,
-        array.dtype().clone(),
-        array.len(),
-        data,
-        slots.into_slots(),
-    ))?
-    .into_array();
-
-    // Execute and verify the inner values changed (except at patch positions)
-    let mut ctx = SESSION.create_execution_ctx();
-
-    // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30
-    let expected = PrimitiveArray::from_iter([5u16, 10, 20, 30, 5, 5, 5, 5, 5, 5]);
-    assert_arrays_eq!(new_array, expected, &mut ctx);
-
-    Ok(())
-}
-
-fn serde_roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    let session = VortexSession::empty();
-    session.arrays().register(Patched);
-    let ctx = ArrayContext::empty().with_allowed_ids(
+    let wire = ArrayContext::empty().with_allowed_ids(
         session
             .arrays()
             .registry()
             .read(|map| map.keys().copied().collect()),
     );
     let mut bytes = ByteBufferMut::empty();
-    for buffer in array.serialize(&ctx, &session, &SerializeOptions::default())? {
-        bytes.extend_from_slice(&buffer);
+    for buf in slice.serialize(&wire, &session, &SerializeOptions::default())? {
+        bytes.extend_from_slice(&buf);
     }
-    SerializedArray::try_from(bytes.freeze())?.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(ctx.to_ids()),
+    let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+        slice.dtype(),
+        slice.len(),
+        &ReadContext::new(wire.to_ids()),
         &session,
-    )
+    )?;
+    assert!(decoded.is::<Patched>());
+    assert_eq!(
+        decoded.execute_scalar(23, &mut ctx)?,
+        expected.execute_scalar(23, &mut ctx)?
+    );
+    assert!(decoded.execute_scalar(24, &mut ctx)?.is_null());
+    assert_arrays_eq!(decoded, expected, &mut ctx);
+    Ok(())
 }
 
-/// A nullable array whose patches all land on valid positions.
-fn nullable_patched_array(len: usize) -> VortexResult<PatchedArray> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let inner =
-        PrimitiveArray::from_option_iter((0..len).map(|index| (index % 5 != 0).then_some(0u16)))
-            .into_array();
+#[test]
+fn rejects_inconsistent_supplied_chunk_index() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
     let patches = Patches::new(
-        len,
+        1025,
         0,
-        buffer![1u32, 1031, 1499].into_array(),
-        buffer![10u16, 20, 30].into_array(),
+        buffer![1u16, 1024].into_array(),
+        buffer![5i32, 7].into_array(),
+        Some(buffer![0u8, 2].into_array()),
+        &mut ctx,
+    )?;
+    let base = ConstantArray::new(0i32, 1025).into_array();
+    assert!(Patched::from_array_and_patches(base, &patches, &mut ctx).is_err());
+    Ok(())
+}
+
+#[test]
+fn strategy_matches_dtype_family() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base = buffer![0f32; 3].into_array();
+    let patches = Patches::new(
+        3,
+        0,
+        buffer![2u8].into_array(),
+        buffer![1f32].into_array(),
         None,
         &mut ctx,
     )?;
-    Patched::from_array_and_patches(inner, &patches, &mut ctx)
-}
-
-fn nullable_patched_expected(range: Range<usize>) -> PrimitiveArray {
-    PrimitiveArray::from_option_iter(range.map(|index| {
-        (index % 5 != 0).then_some(match index {
-            1 => 10u16,
-            1031 => 20,
-            1499 => 30,
-            _ => 0,
-        })
-    }))
-}
-
-/// A nullable array sliced into its second chunk round-trips through serde with its offset.
-#[test]
-fn test_serde_roundtrip_nullable_sliced() -> VortexResult<()> {
-    let array = nullable_patched_array(1500)?
-        .into_array()
-        .slice(1030..1500)?
-        .optimize_ctx(&SESSION)?;
-    let patched = array
-        .as_opt::<Patched>()
-        .ok_or_else(|| vortex_err!("expected the slice to stay Patched"))?;
-    assert_eq!(patched.offset(), 6);
-
-    let restored = serde_roundtrip(&array)?;
-    let restored_patched = restored
-        .as_opt::<Patched>()
-        .ok_or_else(|| vortex_err!("expected deserialized Patched"))?;
-    assert_eq!(restored_patched.offset(), 6);
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(restored, nullable_patched_expected(1030..1500), &mut ctx);
+    let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
+    assert_eq!(
+        array.strategy(),
+        PatchStrategy::Float(FloatPatchStrategy::Replace)
+    );
+    let integer_base = buffer![0i32; 3].into_array();
+    assert!(Patched::with_strategy(integer_base, &patches, array.strategy(), &mut ctx).is_err());
+    assert_arrays_eq!(array, buffer![0f32, 0.0, 1.0].into_array(), &mut ctx);
     Ok(())
 }
 
-fn deserialize_patched(
-    dtype: &DType,
-    len: usize,
-    metadata: &PatchedMetadata,
-    buffers: &[BufferHandle],
-    children: &dyn ArrayChildren,
-) -> VortexResult<ArrayRef> {
-    ArrayPlugin::deserialize(
-        &Patched,
+#[test]
+fn wire_requires_core_slots_and_accepts_trailing_slots() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base = buffer![2u16; 4].into_array();
+    let patches = Patches::new(
+        4,
+        0,
+        buffer![1u8].into_array(),
+        buffer![8u16].into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?.into_array();
+    let wire = ArrayPlugin::serialize(&Patched, &array, &session)?.unwrap();
+    assert!(wire.buffers.is_empty());
+    assert_eq!(wire.children.len(), 4);
+    let truncated = &wire.children[..3];
+    let parts = ArrayDeserialization::new(
+        wire.serialized_id,
+        array.dtype(),
+        array.len(),
+        &wire.metadata,
+        &[],
+        &truncated,
+    );
+    assert!(ArrayPlugin::deserialize(&Patched, parts, &session).is_err());
+    let mut children = wire.children;
+    children.push(buffer![42u8].into_array());
+    let parts = ArrayDeserialization::new(
+        wire.serialized_id,
+        array.dtype(),
+        array.len(),
+        &wire.metadata,
+        &[],
+        &children,
+    );
+    let decoded = ArrayPlugin::deserialize(&Patched, parts, &session)?;
+    assert_arrays_eq!(array, decoded, &mut ctx);
+
+    // A future integer operation may depend on that fifth child. An older reader must
+    // reject its discriminator even when it recognizes the dtype and all core slots.
+    let mut metadata = wire.metadata;
+    metadata.extend_from_slice(&[0x10, 0x7f]); // field 2 (integer), operation 127
+    let parts = ArrayDeserialization::new(
+        wire.serialized_id,
+        array.dtype(),
+        array.len(),
+        &metadata,
+        &[],
+        &children,
+    );
+    let error = ArrayPlugin::deserialize(&Patched, parts, &session).unwrap_err();
+    assert!(error.to_string().contains("Unknown integer patch strategy"));
+    Ok(())
+}
+
+#[test]
+fn compare_replaces_value_and_validity() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base = PrimitiveArray::from_option_iter([None, Some(3i32), Some(1)]).into_array();
+    let values = PrimitiveArray::from_option_iter([Some(3i32), None]).into_array();
+    let patches = Patches::new(3, 0, buffer![0u8, 1].into_array(), values, None, &mut ctx)?;
+    let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?.into_array();
+    let rhs = ConstantArray::new(3i32, 3).into_array();
+    let compared = array.compare(rhs, CompareOperator::Eq)?;
+    assert_arrays_eq!(
+        compared,
+        BoolArray::from_iter([Some(true), None, Some(false)]),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn validity_projects_shared_positions_before_materializing() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base =
+        PrimitiveArray::from_option_iter((0..2050).map(|i| (i % 2 == 0).then_some(i))).into_array();
+    let patches = Patches::new(
+        2050,
+        0,
+        buffer![1u16, 1024, 2049].into_array(),
+        PrimitiveArray::from_option_iter([Some(9i32), None, Some(7)]).into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let a = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
+    let slice = <Patched as SliceKernel>::slice(a.as_view(), 1..2050, &mut ctx)?.unwrap();
+    let original = slice.as_::<Patched>();
+    let projected = slice.validity()?.into_array().unwrap();
+    let view = projected.as_::<Patched>();
+    assert!(ArrayRef::ptr_eq(
+        view.patch_indices(),
+        original.patch_indices()
+    ));
+    assert!(ArrayRef::ptr_eq(
+        view.patch_chunk_offsets(),
+        original.patch_chunk_offsets()
+    ));
+    let wire = Patched.serialize(&projected, &session)?.unwrap();
+    let read = Patched.deserialize(
         ArrayDeserialization::new(
-            ArrayPlugin::id(&Patched),
-            dtype,
-            len,
-            &metadata.encode_to_vec(),
-            buffers,
-            children,
+            wire.serialized_id,
+            projected.dtype(),
+            projected.len(),
+            &wire.metadata,
+            &[],
+            &wire.children,
         ),
-        &SESSION,
-    )
-}
-
-fn patched_children(array: &PatchedArray) -> [ArrayRef; 4] {
-    [
-        array.inner().clone(),
-        array.lane_offsets().clone(),
-        array.patch_indices().clone(),
-        array.patch_values().clone(),
-    ]
-}
-
-#[test]
-fn test_deserialize_rejects_malformed_parts() -> VortexResult<()> {
-    let array = nullable_patched_array(1500)?;
-    let dtype = array.dtype().clone();
-    let len = array.len();
-    let metadata = PatchedMetadata {
-        n_patches: 3,
-        n_lanes: u32::try_from(array.n_lanes())?,
-        offset: 0,
-    };
-    let children = patched_children(&array);
-    let deserialize = |dtype: &DType, len: usize, metadata: &PatchedMetadata| {
-        deserialize_patched(dtype, len, metadata, &[], &children)
-    };
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let restored = deserialize(&dtype, len, &metadata)?;
-    assert_arrays_eq!(restored, nullable_patched_expected(0..len), &mut ctx);
-
-    // Readers ignore children that follow the ones the contract declares.
-    let [inner, lane_offsets, patch_indices, patch_values] = children.clone();
-    let with_trailing = [
-        inner.clone(),
-        lane_offsets.clone(),
-        patch_indices.clone(),
-        patch_values,
-        inner.clone(),
-    ];
-    let restored = deserialize_patched(&dtype, len, &metadata, &[], &with_trailing)?;
-    assert_arrays_eq!(restored, nullable_patched_expected(0..len), &mut ctx);
-
-    // A missing child.
-    let missing = [inner, lane_offsets, patch_indices];
-    assert!(deserialize_patched(&dtype, len, &metadata, &[], &missing).is_err());
-
-    // Patched arrays have no buffers.
-    let buffers = [BufferHandle::new_host(buffer![0u8])];
-    assert!(deserialize_patched(&dtype, len, &metadata, &buffers, &children).is_err());
-
-    // A non-primitive dtype.
-    assert!(deserialize(&DType::Utf8(Nullability::Nullable), len, &metadata).is_err());
-
-    // The lane count must be a power of two between 1 and 128.
-    for n_lanes in [0, 3, 256] {
-        let bad_lanes = PatchedMetadata {
-            n_lanes,
-            ..metadata.clone()
-        };
-        assert!(deserialize(&dtype, len, &bad_lanes).is_err());
-    }
-
-    // The offset must lie in the first chunk.
-    let offset_past_chunk = PatchedMetadata {
-        offset: 1024,
-        ..metadata
-    };
-    assert!(deserialize(&dtype, len, &offset_past_chunk).is_err());
-
-    // The offset plus the length must not overflow.
-    let offset = PatchedMetadata {
-        offset: 1,
-        ..metadata
-    };
-    assert!(deserialize(&dtype, usize::MAX, &offset).is_err());
-    Ok(())
-}
-
-/// Children that report a dtype or length mismatch as an error, as serialized children do,
-/// rather than panicking as the in-memory [`ArrayChildren`] impl does.
-struct CheckedChildren<'a>(&'a [ArrayRef]);
-
-impl ArrayChildren for CheckedChildren<'_> {
-    fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        let child = self
-            .0
-            .get(index)
-            .ok_or_else(|| vortex_err!("missing child {index}"))?;
-        vortex_ensure_eq!(child.dtype(), dtype);
-        vortex_ensure_eq!(child.len(), len);
-        Ok(child.clone())
-    }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-/// The reader asks for each child with the dtype and length the contract derives for it.
-#[test]
-fn test_deserialize_rejects_mismatched_children() -> VortexResult<()> {
-    let array = nullable_patched_array(1500)?;
-    let dtype = array.dtype().clone();
-    let len = array.len();
-    let metadata = PatchedMetadata {
-        n_patches: 3,
-        n_lanes: u32::try_from(array.n_lanes())?,
-        offset: 0,
-    };
-    let children = patched_children(&array);
-    let deserialize = |metadata: &PatchedMetadata, children: &[ArrayRef]| {
-        deserialize_patched(&dtype, len, metadata, &[], &CheckedChildren(children))
-    };
-
-    assert!(deserialize(&metadata, &children).is_ok());
-
-    // `n_patches` must match the patch indices and values.
-    for n_patches in [2, 4] {
-        let wrong_count = PatchedMetadata {
-            n_patches,
-            ..metadata.clone()
-        };
-        assert!(deserialize(&wrong_count, &children).is_err());
-    }
-
-    // The lane count fixes the length of the lane offsets.
-    let fewer_lanes = PatchedMetadata {
-        n_lanes: metadata.n_lanes / 2,
-        ..metadata
-    };
-    assert!(deserialize(&fewer_lanes, &children).is_err());
-
-    // Patch indices must be `u16`.
-    let mut wide_indices = children.clone();
-    wide_indices[PatchedSlots::PATCH_INDICES] = wide_indices[PatchedSlots::PATCH_INDICES]
-        .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?;
-    assert!(deserialize(&metadata, &wide_indices).is_err());
-
-    // Patch values must be non-nullable, since patching ignores their validity.
-    let mut nullable_values = children;
-    nullable_values[PatchedSlots::PATCH_VALUES] =
-        nullable_values[PatchedSlots::PATCH_VALUES].cast(dtype.clone())?;
-    assert!(deserialize(&metadata, &nullable_values).is_err());
+        &session,
+    )?;
+    let expected =
+        BoolArray::from_iter((1..2050).map(|i| matches!(i, 1 | 2049) || (i != 1024 && i % 2 == 0)));
+    assert_arrays_eq!(read.execute::<BoolArray>(&mut ctx)?, expected, &mut ctx);
     Ok(())
 }
 
 #[test]
-fn test_try_from_parts_rejects_malformed_slots() -> VortexResult<()> {
-    let array = nullable_patched_array(1500)?;
-    let data = PatchedData {
-        n_lanes: array.n_lanes(),
-        offset: array.offset(),
-    };
-    let try_from_slots = |data: PatchedData, slots: [ArrayRef; 4]| {
-        let [inner, lane_offsets, patch_indices, patch_values] = slots;
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets,
-            patch_indices,
-            patch_values,
-        };
-        Array::try_from_parts(ArrayParts::new(
-            Patched,
-            array.dtype().clone(),
-            array.len(),
-            data,
-            slots.into_slots(),
-        ))
-    };
-    let children = patched_children(&array);
-
-    assert!(try_from_slots(data.clone(), children.clone()).is_ok());
-
-    let zero_lanes = PatchedData { n_lanes: 0, ..data };
-    assert!(try_from_slots(zero_lanes, children.clone()).is_err());
-
-    let mut short_lane_offsets = children.clone();
-    let lane_offsets_len = short_lane_offsets[PatchedSlots::LANE_OFFSETS].len();
-    short_lane_offsets[PatchedSlots::LANE_OFFSETS] =
-        short_lane_offsets[PatchedSlots::LANE_OFFSETS].slice(0..lane_offsets_len - 1)?;
-    assert!(try_from_slots(data.clone(), short_lane_offsets).is_err());
-
-    let mut nullable_values = children;
-    nullable_values[PatchedSlots::PATCH_VALUES] =
-        nullable_values[PatchedSlots::PATCH_VALUES].cast(array.dtype().clone())?;
-    assert!(try_from_slots(data, nullable_values).is_err());
+fn nullable_boolean_replacements_patch_values_and_validity() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let base = BoolArray::from_iter([Some(false), None, Some(true), Some(true)]).into_array();
+    let patches = Patches::new(
+        4,
+        0,
+        buffer![1u16, 2, 3].into_array(),
+        BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let a = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
+    assert_arrays_eq!(
+        a,
+        BoolArray::from_iter([Some(false), Some(true), None, Some(false)]),
+        &mut ctx
+    );
     Ok(())
 }

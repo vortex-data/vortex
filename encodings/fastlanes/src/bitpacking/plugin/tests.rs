@@ -12,9 +12,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
@@ -740,5 +742,71 @@ fn serde_roundtrip_sliced_chunked_patches(
     );
     assert_arrays_eq!(resliced.indices(), expected_resliced.indices(), &mut ctx);
     assert_arrays_eq!(resliced.values(), expected_resliced.values(), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn bitpacked_relative_positions_roundtrip() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    session.arrays().register(Patched);
+    session.arrays().register(BitPackedPlugin);
+    let mut ctx = session.create_execution_ctx();
+    let n = 66_561;
+    let rows: Vec<_> = (0..u32::try_from(n)?)
+        .filter(|r| r % 1024 == 0 || r % 1024 == 1023)
+        .collect();
+    let base = PrimitiveArray::from_iter((0..n).map(|_| 0i32)).into_array();
+    let patches = Patches::new(
+        n,
+        0,
+        PrimitiveArray::from_iter(rows.iter().copied()).into_array(),
+        PrimitiveArray::from_iter(rows.iter().map(|&r| i32::try_from(r).unwrap() + 1)).into_array(),
+        None,
+        &mut ctx,
+    )?;
+    let array = Patched::from_array_and_patches(base, &patches, &mut ctx)?;
+    let local = BitPackedData::encode(array.patch_indices(), 10, &mut ctx)?.into_array();
+    // SAFETY: bitpacking preserves the values and dtype of the local position child.
+    let array = unsafe {
+        array
+            .into_array()
+            .with_slot(PatchedSlots::PATCH_INDICES, local)?
+    };
+    let wire = Patched.serialize(&array, &session)?.unwrap();
+    let decoded = Patched.deserialize(
+        ArrayDeserialization::new(
+            wire.serialized_id,
+            array.dtype(),
+            n,
+            &wire.metadata,
+            &[],
+            &wire.children,
+        ),
+        &session,
+    )?;
+    assert!(decoded.as_::<Patched>().patch_indices().is::<BitPacked>());
+    let expected = PrimitiveArray::from_iter((0..n).map(|r| {
+        if matches!(r % 1024, 0 | 1023) {
+            i32::try_from(r).unwrap() + 1
+        } else {
+            0
+        }
+    }));
+    for row in [65534, 65535, 65536, 65537] {
+        assert_eq!(
+            decoded.execute_scalar(row, &mut ctx)?,
+            expected.execute_scalar(row, &mut ctx)?
+        );
+    }
+    let sliced =
+        <Patched as SliceKernel>::slice(decoded.as_::<Patched>(), 65530..n, &mut ctx)?.unwrap();
+    let indices =
+        PrimitiveArray::from_option_iter([Some(6u16), Some(5), None, Some(6)]).into_array();
+    assert_arrays_eq!(
+        sliced.take(indices)?,
+        PrimitiveArray::from_option_iter([Some(65537i32), Some(65536), None, Some(65537)]),
+        &mut ctx
+    );
+    assert_arrays_eq!(decoded, expected, &mut ctx);
     Ok(())
 }

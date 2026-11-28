@@ -124,11 +124,19 @@ impl BitPackingScheme {
             validity,
         } = BitPacked::into_parts(packed);
 
-        let (compress, bit_width) = match bit_widths {
+        let (mut compress, bit_width) = match bit_widths {
             BitWidths::Global(bw) => (Vec::new(), Some(bw)),
             BitWidths::Blocked(block_offsets) => (vec![Child::new(self, 0, block_offsets)], None),
         };
-        let (patches, keep) = KeptPatches::new(self, 1, data.array(), patches, exec_ctx)?;
+        let patch_index = usize::from(self.mode == BitPackingSchemeMode::V2);
+        let (patches, keep) = KeptPatches::new(
+            self,
+            patch_index,
+            &mut compress,
+            data.array(),
+            patches,
+            exec_ctx,
+        )?;
 
         Ok(Some(
             Encoded::new(compress, keep, move |children, _| {
@@ -195,12 +203,9 @@ impl Scheme for BitPackingScheme {
         }
     }
 
-    /// Children: block offsets=0 in v2 mode.
+    /// Children: block offsets in v2, then external patch positions when enabled.
     fn num_children(&self) -> usize {
-        match self.mode {
-            BitPackingSchemeMode::V1 => 0,
-            BitPackingSchemeMode::V2 => 1,
-        }
+        usize::from(self.mode == BitPackingSchemeMode::V2) + usize::from(use_experimental_patches())
     }
 
     fn expected_compression_ratio(
@@ -219,7 +224,7 @@ impl Scheme for BitPackingScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    /// Children: block offsets=0 in v2 mode; patches, kept, from 1 on.
+    /// Children: block offsets=0 in v2 mode; patch children follow.
     fn encode(
         &self,
         data: &ArrayAndStats,

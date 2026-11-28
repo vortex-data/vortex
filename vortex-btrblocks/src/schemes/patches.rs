@@ -64,9 +64,7 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
     )
 }
 
-/// Patches a scheme stores as they are, registered as kept children.
-///
-/// Patches hold the few values an encoding cannot represent, so they are not compressed further.
+/// Patch children and the information needed to rebuild their encoding.
 pub(crate) enum KeptPatches {
     /// The encoding has no patches.
     None,
@@ -87,7 +85,7 @@ pub(crate) enum KeptPatches {
 }
 
 impl KeptPatches {
-    /// Returns the arrays of `patches` as kept children of `scheme`, numbered from `index`.
+    /// Registers external chunk-relative indices for cascade compression and returns the kept children.
     ///
     /// The patches go in a [`Patched`] array around the encoding when `use_experimental_patches`
     /// is set, and inside the encoding otherwise. `array` is the input that `patches` patch.
@@ -98,6 +96,7 @@ impl KeptPatches {
     pub(crate) fn new(
         scheme: &dyn Scheme,
         index: usize,
+        compress: &mut Vec<Child>,
         array: &ArrayRef,
         patches: Option<Patches>,
         ctx: &mut ExecutionCtx,
@@ -108,10 +107,10 @@ impl KeptPatches {
 
         if use_experimental_patches() {
             let patched = Patched::from_array_and_patches(array.clone(), &patches, ctx)?;
+            compress.push(Child::new(scheme, index, patched.patch_indices().clone()));
             let keep = vec![
-                Child::new(scheme, index, patched.lane_offsets().clone()),
-                Child::new(scheme, index + 1, patched.patch_indices().clone()),
-                Child::new(scheme, index + 2, patched.patch_values().clone()),
+                Child::new(scheme, index + 1, patched.patch_values().clone()),
+                Child::new(scheme, index + 2, patched.patch_chunk_offsets().clone()),
             ];
             return Ok((Self::Patched(patched.into_array()), keep));
         }
@@ -203,17 +202,18 @@ impl KeptPatches {
             }
             Self::Patched(patched) => {
                 let inner = build(None)?;
-                let [lane_offsets, patch_indices, patch_values] = children.kept()?;
+                let [patch_indices] = children.compressed()?;
+                let [patch_values, patch_chunk_offsets] = children.kept()?;
                 let slots = PatchedSlots {
                     inner,
-                    lane_offsets,
+                    patch_chunk_offsets,
                     patch_indices,
                     patch_values,
                 }
                 .into_slots();
                 // SAFETY: the encoding replaces the placeholder, its input, which it matches except
                 // where the patches override it, so the patched values are unchanged; the array
-                // has no statistics yet. The patches' arrays were kept as they were.
+                // has no statistics yet. Compressing the positions preserves their values.
                 unsafe { patched.with_slots(slots) }
             }
         }

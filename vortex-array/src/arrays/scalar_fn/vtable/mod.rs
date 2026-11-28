@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
-use validity::ValidityArray;
+pub(crate) use validity::ValidityArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;

@@ -1,24 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rustc_hash::FxHashMap;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::array::ArrayView;
-use crate::arrays::Patched;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::arrays::primitive::PrimitiveDataParts;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativePType;
-use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for Patched {
     fn take(
@@ -26,104 +17,14 @@ impl TakeExecute for Patched {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only pushdown take when we have primitive types.
-        if !array.dtype().is_primitive() {
-            return Ok(None);
-        }
-
-        // Perform take on the inner array, including the placeholders.
-        let inner = array
-            .inner()
-            .take(indices.clone())?
-            .execute::<PrimitiveArray>(ctx)?;
-
-        let PrimitiveDataParts {
-            buffer,
-            validity,
-            ptype,
-        } = inner.into_data_parts();
-
-        let indices_ptype = indices.dtype().as_ptype();
-
-        match_each_unsigned_integer_ptype!(indices_ptype, |I| {
-            match_each_native_ptype!(ptype, |V| {
-                let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let lane_offsets = array
-                    .lane_offsets()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_indices = array
-                    .patch_indices()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_values = array
-                    .patch_values()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-                take_map(
-                    output.as_mut(),
-                    indices.as_slice::<I>(),
-                    array.offset(),
-                    array.len(),
-                    array.n_lanes(),
-                    lane_offsets.as_slice::<u32>(),
-                    patch_indices.as_slice::<u16>(),
-                    patch_values.as_slice::<V>(),
-                );
-
-                // SAFETY: output and validity still have same length after take_map returns.
-                unsafe {
-                    Ok(Some(
-                        PrimitiveArray::new_unchecked(output.freeze(), validity).into_array(),
-                    ))
-                }
-            })
-        })
-    }
-}
-
-/// Take patches for the given `indices` and apply them onto an `output` using a hash map.
-///
-/// First, builds a hashmap from index to patch value, then uses the hashmap in a loop to collect
-/// the values.
-#[expect(clippy::too_many_arguments)]
-fn take_map<I: IntegerPType, V: NativePType>(
-    output: &mut [V],
-    indices: &[I],
-    offset: usize,
-    len: usize,
-    n_lanes: usize,
-    lane_offsets: &[u32],
-    patch_index: &[u16],
-    patch_value: &[V],
-) {
-    let n_chunks = (offset + len).div_ceil(1024);
-    // Build a hashmap of patch_index -> values.
-    let mut index_map = FxHashMap::with_capacity_and_hasher(patch_index.len(), Default::default());
-    for chunk in 0..n_chunks {
-        for lane in 0..n_lanes {
-            let lane_start = lane_offsets[chunk * n_lanes + lane];
-            let lane_end = lane_offsets[chunk * n_lanes + lane + 1];
-            for i in lane_start..lane_end {
-                let patch_idx = patch_index[i as usize];
-                let patch_value = patch_value[i as usize];
-
-                let index = chunk * 1024 + patch_idx as usize;
-                if index >= offset && index < offset + len {
-                    index_map.insert(index - offset, patch_value);
-                }
-            }
-        }
-    }
-
-    // Now, iterate the take indices using the prebuilt hashmap.
-    // Undefined/null indices will miss the hash map, which we can ignore.
-    for (output_index, index) in indices.iter().enumerate() {
-        let index = index.as_();
-        if let Some(&patch_value) = index_map.get(&index) {
-            output[output_index] = patch_value;
-        }
+        let base = array.inner().take(indices.clone())?;
+        // The base take already supplies nulls for null indices.
+        super::select_rows(
+            array,
+            base,
+            array.absolute_patches(ctx)?.take(indices, ctx)?,
+            ctx,
+        )
     }
 }
 

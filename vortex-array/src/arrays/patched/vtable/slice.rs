@@ -3,184 +3,62 @@
 
 use std::ops::Range;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ArrayView;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::ArrayView;
-use crate::arrays::Patched;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::arrays::patched::PatchedSlots;
-use crate::arrays::slice::SliceReduce;
+use crate::arrays::patched::indices::lower_bound;
+use crate::arrays::slice::SliceKernel;
+use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
+use crate::patches::PATCH_CHUNK_SIZE;
 
-impl SliceReduce for Patched {
-    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
-        // around so that when we execute we know how much to chop off.
-        let new_offset = (range.start + array.offset()) % 1024;
-        let chunk_start = (range.start + array.offset()) / 1024;
-        let chunk_stop = (range.end + array.offset()).div_ceil(1024);
-        let sliced_lane_offsets = array
-            .lane_offsets()
-            .slice((chunk_start * array.n_lanes())..(chunk_stop * array.n_lanes()) + 1)?;
-
-        // Unlike the patches, we slice the inner to the exact range. This is handled
-        // at execution time by making sure to skip patch indices that are < offset
-        // or >= len.
-        let inner = array.inner().slice(range.start..range.end)?;
-        let len = inner.len();
-
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets: sliced_lane_offsets,
-            patch_indices: array.patch_indices().clone(),
-            patch_values: array.patch_values().clone(),
+impl SliceKernel for Patched {
+    fn slice(
+        array: ArrayView<'_, Self>,
+        range: Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let inner = array.inner().slice(range.clone())?.optimize_ctx(ctx)?;
+        let first = lower_bound(array, range.start, ctx)?;
+        let last = lower_bound(array, range.end, ctx)?;
+        if first == last {
+            return Ok(Some(inner));
         }
-        .into_slots();
-
+        let offset = array.offset + range.start;
+        let end = array.offset + range.end;
+        let first_chunk = array.offset / PATCH_CHUNK_SIZE;
+        let chunks =
+            offset / PATCH_CHUNK_SIZE - first_chunk..end.div_ceil(PATCH_CHUNK_SIZE) - first_chunk;
+        let offsets = array.patch_chunk_offsets();
+        let offsets = if first == 0 {
+            offsets.slice(chunks)?.optimize_ctx(ctx)?
+        } else {
+            let primitive = offsets.clone().execute::<PrimitiveArray>(ctx)?;
+            match_each_unsigned_integer_ptype!(primitive.ptype(), |I| {
+                let bias = I::try_from(first).unwrap_or(I::MAX);
+                primitive.as_slice::<I>()[chunks]
+                    .iter()
+                    .map(|&v| v.saturating_sub(bias))
+                    .collect::<Buffer<I>>()
+                    .into_array()
+            })
+        };
+        let indices = array
+            .patch_indices()
+            .slice(first..last)?
+            .optimize_ctx(ctx)?;
+        let values = array.patch_values().slice(first..last)?.optimize_ctx(ctx)?;
         Ok(Some(
-            unsafe {
-                Patched::new_unchecked(
-                    array.dtype().clone(),
-                    len,
-                    slots,
-                    array.n_lanes(),
-                    new_offset,
-                )
-            }
-            .into_array(),
+            Patched::from_relative(inner, indices, values, offsets, offset, array.strategy())?
+                .into_array(),
         ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ops::Range;
-    use std::sync::LazyLock;
-
-    use rstest::rstest;
-    use vortex_buffer::Buffer;
-    use vortex_buffer::BufferMut;
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-
-    use crate::Canonical;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrays::Patched;
-    use crate::arrays::PrimitiveArray;
-    use crate::assert_arrays_eq;
-    use crate::dtype::NativePType;
-    use crate::optimizer::ArrayOptimizer;
-    use crate::patches::Patches;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    #[test]
-    fn test_reduce() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = buffer![0u16; 512].into_array();
-        let patch_indices = buffer![1u32, 8, 30].into_array();
-        let patch_values = buffer![u16::MAX; 3].into_array();
-        let patches = Patches::new(512, 0, patch_indices, patch_values, None, &mut ctx)?;
-
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
-
-        let sliced = patched_array
-            .into_array()
-            .slice(1..10)?
-            .optimize_ctx(&SESSION)?;
-
-        insta::assert_snapshot!(
-            sliced.display_tree_encodings_only(),
-            @r#"
-            root: vortex.patched(u16, len=9)
-              inner: vortex.primitive(u16, len=9)
-              lane_offsets: vortex.primitive(u32, len=33)
-              patch_indices: vortex.primitive(u16, len=3)
-              patch_values: vortex.primitive(u16, len=3)
-            "#);
-
-        let executed = sliced.execute::<Canonical>(&mut ctx)?.into_primitive();
-
-        assert_eq!(
-            &[u16::MAX, 0, 0, 0, 0, 0, 0, u16::MAX, 0],
-            executed.as_slice::<u16>()
-        );
-
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::trivial(buffer![1u64; 2], buffer![1u32], buffer![u64::MAX], 1..2)]
-    #[case::one_chunk(buffer![0u64; 1024], buffer![1u32, 8, 30], buffer![u64::MAX; 3], 1..10)]
-    #[case::multichunk(buffer![1u64; 10_000], buffer![0u32, 1, 2, 3, 4, 16, 17, 18, 19, 1024, 2048, 2049], buffer![u64::MAX; 12], 1024..5000)]
-    fn test_cases<T: NativePType>(
-        #[case] inner: Buffer<T>,
-        #[case] patch_indices: Buffer<u32>,
-        #[case] patch_values: Buffer<T>,
-        #[case] range: Range<usize>,
-    ) {
-        let mut expected = inner.to_vec();
-        for (&index, &value) in patch_indices.iter().zip(patch_values.iter()) {
-            expected[index as usize] = value;
-        }
-        let expected = PrimitiveArray::from_iter(expected[range.clone()].iter().copied());
-
-        // Create patched array.
-        let patches = Patches::new(
-            inner.len(),
-            0,
-            patch_indices.into_array(),
-            patch_values.into_array(),
-            None,
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
-            .unwrap()
-            .into_array();
-
-        let slice_first = patched_array.slice(range).unwrap();
-
-        assert_arrays_eq!(slice_first, &expected, &mut ctx);
-    }
-
-    #[test]
-    fn test_stacked_slices() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = PrimitiveArray::from_iter(0u64..10_000).into_array();
-
-        let patched_indices = buffer![1u32, 2, 1024, 2048, 3072, 3088].into_array();
-        let patched_values = buffer![0u64, 1, 2, 3, 4, 5].into_array();
-
-        let patches =
-            Patches::new(10_000, 0, patched_indices, patched_values, None, &mut ctx).unwrap();
-
-        let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
-            .unwrap()
-            .into_array();
-
-        let sliced = patched_array
-            .slice(1024..5000)
-            .unwrap()
-            .slice(1..2065)
-            .unwrap();
-
-        let mut expected = BufferMut::from_iter(1025u64..=3088);
-        expected[1023] = 3;
-        expected[2047] = 4;
-        expected[2063] = 5;
-
-        let expected = expected.into_array();
-
-        assert_arrays_eq!(sliced, expected, &mut ctx);
     }
 }

@@ -61,11 +61,11 @@ const RESERVED_FIELD_NAMES: &[&str] = &[
 ///     #[slot(0)]
 ///     pub inner: ArrayRef,
 ///     #[slot(1)]
-///     pub lane_offsets: ArrayRef,
-///     #[slot(2)]
 ///     pub patch_indices: ArrayRef,
-///     #[slot(3)]
+///     #[slot(2)]
 ///     pub patch_values: ArrayRef,
+///     #[slot(3)]
+///     pub patch_chunk_offsets: ArrayRef,
 /// }
 /// ```
 ///
@@ -80,11 +80,11 @@ const RESERVED_FIELD_NAMES: &[&str] = &[
 /// // --- Slot index constants and conversion methods on the struct ---
 /// impl PatchedSlots {
 ///     pub const INNER: usize = 0;
-///     pub const LANE_OFFSETS: usize = 1;
-///     pub const PATCH_INDICES: usize = 2;
-///     pub const PATCH_VALUES: usize = 3;
+///     pub const PATCH_INDICES: usize = 1;
+///     pub const PATCH_VALUES: usize = 2;
+///     pub const PATCH_CHUNK_OFFSETS: usize = 3;
 ///     pub const COUNT: usize = 4;
-///     pub const NAMES: [&'static str; 4] = ["inner", "lane_offsets", "patch_indices", "patch_values"];
+///     pub const NAMES: [&'static str; 4] = ["inner", "patch_indices", "patch_values", "patch_chunk_offsets"];
 ///
 ///     /// Take ownership of slots from an `ArraySlots`.
 ///     pub fn from_slots(slots: ArraySlots) -> Self { ... }
@@ -96,9 +96,9 @@ const RESERVED_FIELD_NAMES: &[&str] = &[
 /// // --- Borrowed view with &ArrayRef / Option<&ArrayRef> fields ---
 /// pub struct PatchedSlotsView<'a> {
 ///     pub inner: &'a ArrayRef,
-///     pub lane_offsets: &'a ArrayRef,
 ///     pub patch_indices: &'a ArrayRef,
 ///     pub patch_values: &'a ArrayRef,
+///     pub patch_chunk_offsets: &'a ArrayRef,
 /// }
 ///
 /// impl<'a> PatchedSlotsView<'a> {
@@ -109,9 +109,9 @@ const RESERVED_FIELD_NAMES: &[&str] = &[
 /// // --- Ext trait with per-field accessors + slots_view() ---
 /// pub trait PatchedArraySlotsExt<'a>: BorrowArraySlots<'a, Patched> {
 ///     fn inner(self) -> &'a ArrayRef { ... }         // indexes slots directly
-///     fn lane_offsets(self) -> &'a ArrayRef { ... }
 ///     fn patch_indices(self) -> &'a ArrayRef { ... }
 ///     fn patch_values(self) -> &'a ArrayRef { ... }
+///     fn patch_chunk_offsets(self) -> &'a ArrayRef { ... }
 ///     fn slots_view(self) -> PatchedSlotsView<'a> { ... }
 /// }
 ///

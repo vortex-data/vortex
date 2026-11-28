@@ -53,9 +53,9 @@ impl Scheme for ALPScheme {
         encodings
     }
 
-    /// Children: encoded_ints=0.
+    /// Children: encoded integers, then external patch positions when enabled.
     fn num_children(&self) -> usize {
-        1
+        1 + usize::from(use_experimental_patches())
     }
 
     fn expected_compression_ratio(
@@ -78,7 +78,7 @@ impl Scheme for ALPScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    /// Children: encoded ints=0, which carry the validity; patches, kept, from 1 on.
+    /// Children: encoded ints=0, which carry the validity; patch children follow.
     fn encode(
         &self,
         data: &ArrayAndStats,
@@ -89,20 +89,23 @@ impl Scheme for ALPScheme {
         let alp_stats = alp_encoded.as_array().statistics().to_owned();
         let exponents = alp_encoded.exponents();
 
-        let (patches, keep) =
-            KeptPatches::new(self, 1, data.array(), alp_encoded.patches(), exec_ctx)?;
-        Ok(Encoded::new(
-            vec![Child::new(self, 0, alp_encoded.encoded().clone())],
-            keep,
-            move |children, _| {
-                let [encoded] = children.compressed()?;
-                let array = patches.build(children, |patches| {
-                    Ok(ALP::new(encoded, exponents, patches).into_array())
-                })?;
-                array.statistics().set_all(alp_stats);
-                Ok(array)
-            },
-        ))
+        let mut compress = vec![Child::new(self, 0, alp_encoded.encoded().clone())];
+        let (patches, keep) = KeptPatches::new(
+            self,
+            1,
+            &mut compress,
+            data.array(),
+            alp_encoded.patches(),
+            exec_ctx,
+        )?;
+        Ok(Encoded::new(compress, keep, move |children, _| {
+            let [encoded] = children.compressed()?;
+            let array = patches.build(children, |patches| {
+                Ok(ALP::new(encoded, exponents, patches).into_array())
+            })?;
+            array.statistics().set_all(alp_stats);
+            Ok(array)
+        }))
     }
 
     #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
