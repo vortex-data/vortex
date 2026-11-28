@@ -21,11 +21,12 @@ use crate::CascadingCompressor;
 /// Configures when [`PlanReuse`] replays a plan and when it compares the plan with a new selection.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlanReuseOptions {
-    /// The largest deviation, between 0 and 1, of a replayed ratio from the baseline ratio of the
-    /// plan. A replayed ratio is accepted when it is between `baseline * (1 - max_ratio_deviation)`
-    /// and `baseline / (1 - max_ratio_deviation)`. Outside this range, the compressor also selects
-    /// schemes again and keeps the smaller result. The same limit applies to each child position
-    /// of the plan.
+    /// The largest deviation, between 0 and 1, of a replayed ratio from the plan's baseline ratio.
+    /// A replayed ratio is accepted when it is between `baseline * (1 - max_ratio_deviation)` and
+    /// `baseline / (1 - max_ratio_deviation)` — measured against the plan's baseline, not the best
+    /// result for the current chunk. Outside this range, the compressor also selects schemes again
+    /// and keeps the smaller result. The same limit applies to each child position of the plan
+    /// that selected a scheme; a child planned as unchanged replays without a ratio check.
     ///
     /// Both directions count: a ratio that rises can mean that a different scheme is now better.
     /// The two bounds are reciprocal factors, so a ratio that falls by a factor and a ratio that
@@ -34,8 +35,8 @@ pub struct PlanReuseOptions {
     pub max_ratio_deviation: f64,
 
     /// The number of replays before the next chunk also compares the plan with a new selection,
-    /// or `None` to compare only when the ratio deviates. This catches a plan that sampling noise
-    /// made a poor choice from the start.
+    /// or `None` to compare only when the ratio deviates from the plan's baseline. This catches a
+    /// plan that sampling noise made a poor choice from the start.
     pub challenge_after: Option<usize>,
 }
 
@@ -51,8 +52,9 @@ impl Default for PlanReuseOptions {
 /// The scheme decisions that one stream of chunks shares.
 ///
 /// The first chunk uses the full scheme selection and records its decisions as a plan. Later chunks
-/// replay the plan. When the replayed ratio deviates, and periodically, a chunk also gets a new
-/// selection, and the smaller result decides which plan to keep. See [`PlanReuseOptions`].
+/// replay the plan. When the replayed ratio deviates from the plan's baseline, and periodically, a
+/// chunk also gets a new selection, and the smaller result decides which plan to keep. See
+/// [`PlanReuseOptions`].
 ///
 /// Use one `PlanReuse` for each stream of chunks with the same dtype and similar data, for
 /// example the chunks of one column. It is safe to share between threads.

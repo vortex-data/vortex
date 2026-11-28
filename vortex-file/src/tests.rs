@@ -128,6 +128,9 @@ use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
+use vortex_layout::layouts::dict::writer::DictLayoutConstraints;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
+use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
@@ -4352,6 +4355,105 @@ async fn test_write_plan_reuse_deterministic_concurrent() -> VortexResult<()> {
     let default_first = write_default().await?;
     let default_second = write_default().await?;
     assert_eq!(default_first, default_second);
+
+    // Verify both plan-reuse files read back identically to the input chunks.
+    let expected = ChunkedArray::try_new(chunks, dtype.clone())?.into_array();
+    let mut ctx = session.create_execution_ctx();
+    for buf in [serial, default_first] {
+        let actual = session
+            .open_options()
+            .open_buffer(ByteBuffer::from(buf))?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+    }
+
+    // Exercise multi-run DictStrategy sharing PlanReuseScope across runs in run order.
+    let dict_chunks: Vec<ArrayRef> = (0..6u64)
+        .map(|chunk_idx| {
+            let run_offset = chunk_idx / 2;
+            let values: Vec<String> = (0..4096usize)
+                .map(|i| format!("dict-run-{run_offset}-entry-{:04}-payload-padding", i % 12))
+                .collect();
+            VarBinViewArray::from_iter_str(values).into_array()
+        })
+        .collect();
+    let dict_dtype = dict_chunks[0].dtype().clone();
+    let dict_expected =
+        ChunkedArray::try_new(dict_chunks.clone(), dict_dtype.clone())?.into_array();
+    let write_multi_run_dict = || {
+        let session = session.clone();
+        let compressor = BtrBlocksCompressor::from_session(&session);
+        let codes = CompressingStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            compressor.clone(),
+        )
+        .with_concurrency(4)
+        .with_plan_reuse(Some(options));
+        let values = CompressingStrategy::new(FlatLayoutStrategy::default(), compressor.clone())
+            .with_plan_reuse(Some(options));
+        let fallback = CompressingStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            compressor.clone(),
+        )
+        .with_plan_reuse(Some(options));
+        let dict_strategy = Arc::new(DictStrategy::new(
+            codes,
+            values,
+            fallback,
+            DictLayoutOptions {
+                constraints: DictLayoutConstraints {
+                    max_bytes: usize::MAX,
+                    max_len: 16,
+                },
+                ..Default::default()
+            },
+            Arc::new(compressor),
+        ));
+        let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            dict_dtype.clone(),
+            futures::stream::iter(dict_chunks.clone().into_iter().map(Ok)),
+        ));
+        async move {
+            let mut buf = Vec::new();
+            let summary = session
+                .write_options()
+                .with_strategy(dict_strategy)
+                .write(&mut buf, stream)
+                .await?;
+            VortexResult::Ok((buf, summary))
+        }
+    };
+
+    let (dict_first, dict_summary) = write_multi_run_dict().await?;
+    let (dict_second, _) = write_multi_run_dict().await?;
+    assert_eq!(dict_first, dict_second);
+
+    fn count_dict_layouts(layout: &dyn DynLayout) -> usize {
+        let here = usize::from(layout.encoding_id().as_ref() == "vortex.dict");
+        let below: usize = layout
+            .children()
+            .unwrap()
+            .into_iter()
+            .map(|child| count_dict_layouts(child.as_ref()))
+            .sum();
+        here + below
+    }
+    assert!(
+        count_dict_layouts(dict_summary.footer().layout().as_ref()) > 1,
+        "expected multiple dict runs to share PlanReuseScope"
+    );
+
+    let dict_actual = session
+        .open_options()
+        .open_buffer(ByteBuffer::from(dict_first))?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(dict_actual, dict_expected, &mut ctx);
 
     Ok(())
 }
