@@ -155,8 +155,9 @@ mod tests {
     fn test_input_slice_guards_empty_null_and_oversized() {
         let buf = [1u8, 2, 3, 4];
 
-        // SAFETY: Zero-sized, null, and oversized (`> isize::MAX`) inputs are rejected without
-        // dereferencing `data`; the final call passes a valid initialized slice `buf`.
+        // SAFETY: Zero-sized inputs return `Some(&[])` and null or oversized (`> isize::MAX`)
+        // inputs return `None` without dereferencing `data`; the final call passes a valid
+        // initialized slice `buf`.
         unsafe {
             // `wasmfuzz_malloc(0)` returns null; zero-size inputs must produce `&[]` without UB.
             assert_eq!(input_slice(ptr::null(), 0), Some([].as_slice()));
