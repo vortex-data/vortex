@@ -191,9 +191,8 @@ impl Scheme for FoRScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // V1 fuses single-reference FoR with BitPacking directly inside `encode` (a v2 child's
-        // `block_offsets` simply stays uncompressed at leaf depth); V2 registers per-chunk
-        // references as a child to compress.
+        // V1 fuses single-reference FoR with BitPacking directly inside `encode`; V2 registers
+        // per-chunk references as a child to compress.
         if self.mode == FoRSchemeMode::V2 && compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
