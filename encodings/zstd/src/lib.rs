@@ -38,6 +38,7 @@ mod decompressor;
 pub mod editions;
 mod rules;
 mod slice;
+mod take;
 mod zstd_buffers;
 
 #[cfg(test)]
