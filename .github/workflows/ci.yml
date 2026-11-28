@@ -30,6 +30,140 @@ env:
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
 jobs:
+  layout-template-survey:
+    name: Layout template survey
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'ji/layout-template-prototype'
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-bench/extras=s3-cache/tag=layout-templates
+    timeout-minutes: 90
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - run: cargo build --locked -p vortex-file --example layout_templates --release
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - name: Measure benchmark file footers
+        run: |
+          uv run --no-project --with boto3 scripts/survey-layout-templates.py \
+            --binary target/release/examples/layout_templates --output layout-templates.tsv
+          uv run --no-project --with boto3 scripts/survey-layout-templates.py \
+            --summary layout-templates.tsv >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: layout-templates
+          path: layout-templates.tsv
+          if-no-files-found: error
+
+  layout-template-generator:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'ji/layout-template-prototype'
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-bench/extras=s3-cache/tag=layout-generator
+    timeout-minutes: 60
+    outputs:
+      datasets: ${{ steps.matrix.outputs.datasets }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - id: matrix
+        name: Resolve regular local SQL datasets
+        run: |
+          datasets=$(uv run --project benchmarks/bench-orchestrator vx-bench matrix develop |
+            jq -c '[.[] | select(.remote_key == null and .records_data) |
+              .formats = ([.data_formats[] | select(startswith("vortex"))] | join(",")) | select(.formats != "")]')
+          echo "datasets=$datasets" >> "$GITHUB_OUTPUT"
+      - name: Build generator and layout encoder
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          cargo build --locked --profile release_debug --bin data-gen
+          cargo build --locked --profile release_debug -p vortex-file --example layout_templates
+          tar -C target/release_debug -czf layout-tools.tar.gz data-gen examples/layout_templates
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: layout-tools
+          path: layout-tools.tar.gz
+
+  layout-template-datasets:
+    name: Layout templates (${{ matrix.id }})
+    needs: layout-template-generator
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include: ${{ fromJSON(needs.layout-template-generator.outputs.datasets) }}
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=bench-dedicated/family=c8gd.16xlarge/image=ubuntu26-full-arm64-pre-v2/tag=layout-dataset
+    timeout-minutes: 120
+    env:
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-duckdb
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: layout-tools
+      - name: Generate the Vortex formats and measure every file
+        env:
+          SUITE: ${{ matrix.subcommand }}
+          FORMATS: ${{ matrix.formats }}
+          SCALE: ${{ matrix.scale_factor }}
+        run: |
+          mkdir -p target
+          tar -xzf layout-tools.tar.gz
+          options=()
+          if [[ -n "$SCALE" ]]; then options+=(--opt "scale-factor=$SCALE"); fi
+          ./data-gen "$SUITE" --formats "$FORMATS" "${options[@]}"
+          cd vortex-bench/data
+          find . -type f -name '*.vortex' -exec "$GITHUB_WORKSPACE/examples/layout_templates" {} + > "$RUNNER_TEMP/files.tsv"
+          test -s "$RUNNER_TEMP/files.tsv"
+          sed 's|^\./||' "$RUNNER_TEMP/files.tsv" > "$GITHUB_WORKSPACE/layout-${{ matrix.id }}.tsv"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: layout-generated-${{ matrix.id }}
+          path: layout-${{ matrix.id }}.tsv
+
+  layout-template-total:
+    needs: layout-template-datasets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: layout-generated-*
+          merge-multiple: true
+      - name: Summarize all regular SQL benchmark files
+        run: |
+          cat layout-*.tsv > regular-sql.tsv
+          python3 scripts/survey-layout-templates.py --summary regular-sql.tsv >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: layout-regular-sql
+          path: regular-sql.tsv
+
   duckdb-mirror:
     name: "Mirror DuckDB to R2"
     if: github.event.pull_request.draft != true && github.event_name == 'pull_request'
