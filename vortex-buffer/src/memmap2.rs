@@ -11,3 +11,23 @@ impl From<Mmap> for ByteBuffer {
         ByteBuffer::from(Bytes::from_owner(value))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use memmap2::MmapMut;
+
+    use crate::ByteBuffer;
+
+    #[test]
+    fn from_mmap_preserves_pointer_and_contents() {
+        let mut mmap_mut = MmapMut::map_anon(16).unwrap();
+        mmap_mut[..5].copy_from_slice(b"hello");
+        let mmap = mmap_mut.make_read_only().unwrap();
+        let ptr = mmap.as_ptr();
+
+        let buf = ByteBuffer::from(mmap);
+        assert_eq!(buf.as_ptr(), ptr);
+        assert_eq!(buf.len(), 16);
+        assert_eq!(&buf[..5], b"hello");
+    }
+}

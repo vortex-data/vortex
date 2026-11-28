@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(cn.name) AS from_company,
+       MIN(lt.link) AS movie_link_type,
+       MIN(t.title) AS non_polish_sequel_movie
+FROM company_name AS cn,
+     company_type AS ct,
+     keyword AS k,
+     link_type AS lt,
+     movie_companies AS mc,
+     movie_keyword AS mk,
+     movie_link AS ml,
+     title AS t
+WHERE cn.country_code !='[pl]'
+  AND (cn.name LIKE '%Film%'
+       OR cn.name LIKE '%Warner%')
+  AND ct.kind ='production companies'
+  AND k.keyword ='sequel'
+  AND lt.link LIKE '%follow%'
+  AND mc.note IS NULL
+  AND t.production_year BETWEEN 1950 AND 2000
+  AND lt.id = ml.link_type_id
+  AND ml.movie_id = t.id
+  AND t.id = mk.movie_id
+  AND mk.keyword_id = k.id
+  AND t.id = mc.movie_id
+  AND mc.company_type_id = ct.id
+  AND mc.company_id = cn.id
+  AND ml.movie_id = mk.movie_id
+  AND ml.movie_id = mc.movie_id
+  AND mk.movie_id = mc.movie_id;
+----
+logical_plan
+01)Projection: min(cn.name) AS from_company, min(lt.link) AS movie_link_type, min(t.title) AS non_polish_sequel_movie
+02)--Aggregate: groupBy=[[]], aggr=[[min(cn.name), min(lt.link), min(t.title)]]
+03)----Projection: cn.name, lt.link, t.title
+04)------Inner Join: ml.movie_id = t.id, mk.movie_id = t.id, mc.movie_id = t.id
+05)--------Projection: cn.name, mc.movie_id, mk.movie_id, ml.movie_id, lt.link
+06)----------Inner Join: ml.link_type_id = lt.id
+07)------------Inner Join: mk.movie_id = ml.movie_id, mc.movie_id = ml.movie_id
+08)--------------Projection: cn.name, mc.movie_id, mk.movie_id
+09)----------------Inner Join: mk.keyword_id = k.id
+10)------------------Inner Join: mc.movie_id = mk.movie_id
+11)--------------------Projection: cn.name, mc.movie_id
+12)----------------------Inner Join: mc.company_type_id = ct.id
+13)------------------------Projection: cn.name, mc.movie_id, mc.company_type_id
+14)--------------------------Inner Join: cn.id = mc.company_id
+15)----------------------------SubqueryAlias: cn
+16)------------------------------Projection: company_name.id, company_name.name
+17)--------------------------------Filter: company_name.country_code != Utf8View("[pl]") AND (company_name.name LIKE Utf8View("%Film%") OR company_name.name LIKE Utf8View("%Warner%"))
+18)----------------------------------TableScan: company_name projection=[id, name, country_code], partial_filters=[company_name.country_code != Utf8View("[pl]"), company_name.name LIKE Utf8View("%Film%") OR company_name.name LIKE Utf8View("%Warner%")]
+19)----------------------------SubqueryAlias: mc
+20)------------------------------Projection: movie_companies.movie_id, movie_companies.company_id, movie_companies.company_type_id
+21)--------------------------------Filter: movie_companies.note IS NULL
+22)----------------------------------TableScan: movie_companies projection=[movie_id, company_id, company_type_id, note], partial_filters=[movie_companies.note IS NULL]
+23)------------------------SubqueryAlias: ct
+24)--------------------------Projection: company_type.id
+25)----------------------------Filter: company_type.kind = Utf8View("production companies")
+26)------------------------------TableScan: company_type projection=[id, kind], partial_filters=[company_type.kind = Utf8View("production companies")]
+27)--------------------SubqueryAlias: mk
+28)----------------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+29)------------------SubqueryAlias: k
+30)--------------------Projection: keyword.id
+31)----------------------Filter: keyword.keyword = Utf8View("sequel")
+32)------------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword = Utf8View("sequel")]
+33)--------------SubqueryAlias: ml
+34)----------------TableScan: movie_link projection=[movie_id, link_type_id]
+35)------------SubqueryAlias: lt
+36)--------------Filter: link_type.link LIKE Utf8View("%follow%")
+37)----------------TableScan: link_type projection=[id, link], partial_filters=[link_type.link LIKE Utf8View("%follow%")]
+38)--------SubqueryAlias: t
+39)----------Projection: title.id, title.title
+40)------------Filter: title.production_year >= Float64(1950) AND title.production_year <= Float64(2000)
+41)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year >= Float64(1950), title.production_year <= Float64(2000)]
+physical_plan
+01)ProjectionExec: expr=[min(cn.name)@0 as from_company, min(lt.link)@1 as movie_link_type, min(t.title)@2 as non_polish_sequel_movie]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(cn.name), min(lt.link), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(cn.name), min(lt.link), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@3, id@0), (movie_id@2, id@0), (movie_id@1, id@0)], projection=[name@0, link@4, title@6]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, link_type_id@4)], projection=[name@2, movie_id@3, movie_id@4, movie_id@5, link@1]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/link_type.vortex]]}, projection=[id, link], file_type=vortex, predicate: link@1 LIKE %follow%
+09)--------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+10)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@2, movie_id@0), (movie_id@1, movie_id@0)]
+11)------------------CoalescePartitionsExec
+12)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, keyword_id@3)], projection=[name@1, movie_id@2, movie_id@3]
+13)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 = sequel
+14)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, movie_id@0)]
+15)------------------------CoalescePartitionsExec
+16)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_type_id@2)], projection=[name@1, movie_id@2]
+17)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = production companies
+18)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@1)], projection=[name@1, movie_id@2, company_type_id@4]
+19)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id, name], file_type=vortex, predicate: country_code@2 != [pl] AND (name@1 LIKE %Film% OR name@1 LIKE %Warner%)
+20)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+21)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id, company_type_id], file_type=vortex, predicate: note@4 IS NULL
+22)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+23)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+24)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_link.vortex]]}, projection=[movie_id, link_type_id], file_type=vortex
+25)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 >= 1950 AND production_year@4 <= 2000

@@ -44,13 +44,7 @@ impl Selection {
 
     /// Return the row count for this selection.
     pub fn row_count(&self, total_rows: u64) -> u64 {
-        match self {
-            Selection::All => total_rows,
-            Selection::IncludeByIndex(include) => include.len() as u64,
-            Selection::ExcludeByIndex(exclude) => total_rows.saturating_sub(exclude.len() as u64),
-            Selection::IncludeRoaring(roaring) => roaring.len(),
-            Selection::ExcludeRoaring(roaring) => total_rows.saturating_sub(roaring.len()),
-        }
+        self.row_count_in_range(&(0..total_rows))
     }
 
     /// Count the selected rows that fall within `range`.
@@ -200,6 +194,28 @@ mod tests {
 
     fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
         Selection::ExcludeByIndex(strict_sorted(indices))
+    }
+
+    #[test]
+    fn test_row_count_clamps_to_total_rows() {
+        assert_eq!(Selection::All.row_count(5), 5);
+        assert_eq!(Selection::All.row_count(0), 0);
+
+        // Indices beyond `total_rows` are excluded even when `indices.len() > total_rows`.
+        assert_eq!(include([0, 1, 2, 10, 20]).row_count(3), 3);
+        assert_eq!(include([0, 1, 2, 10, 20]).row_count(2), 2);
+        assert_eq!(include([5, 6, 7]).row_count(5), 0);
+        assert_eq!(include([0, 1]).row_count(0), 0);
+
+        // Out-of-bounds exclusions do not reduce the count of rows within `0..total_rows`.
+        assert_eq!(exclude([0, 10, 20]).row_count(5), 4);
+        assert_eq!(exclude([10, 20]).row_count(5), 5);
+        assert_eq!(exclude([0, 1, 2]).row_count(0), 0);
+
+        let roaring: roaring::RoaringTreemap = [0, 1, 2, 10, 20].into_iter().collect();
+        assert_eq!(Selection::IncludeRoaring(roaring.clone()).row_count(2), 2);
+        assert_eq!(Selection::IncludeRoaring(roaring.clone()).row_count(0), 0);
+        assert_eq!(Selection::ExcludeRoaring(roaring).row_count(5), 2);
     }
 
     #[test]

@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(mi_idx.info) AS rating,
+       MIN(t.title) AS western_dark_production
+FROM info_type AS it1,
+     info_type AS it2,
+     keyword AS k,
+     kind_type AS kt,
+     movie_info AS mi,
+     movie_info_idx AS mi_idx,
+     movie_keyword AS mk,
+     title AS t
+WHERE it1.info = 'countries'
+  AND it2.info = 'rating'
+  AND k.keyword IN ('murder',
+                    'murder-in-title')
+  AND kt.kind = 'movie'
+  AND mi.info IN ('Sweden',
+                  'Norway',
+                  'Germany',
+                  'Denmark',
+                  'Swedish',
+                  'Denish',
+                  'Norwegian',
+                  'German',
+                  'USA',
+                  'American')
+  AND mi_idx.info > '6.0'
+  AND t.production_year > 2010
+  AND (t.title LIKE '%murder%'
+       OR t.title LIKE '%Murder%'
+       OR t.title LIKE '%Mord%')
+  AND kt.id = t.kind_id
+  AND t.id = mi.movie_id
+  AND t.id = mk.movie_id
+  AND t.id = mi_idx.movie_id
+  AND mk.movie_id = mi.movie_id
+  AND mk.movie_id = mi_idx.movie_id
+  AND mi.movie_id = mi_idx.movie_id
+  AND k.id = mk.keyword_id
+  AND it1.id = mi.info_type_id
+  AND it2.id = mi_idx.info_type_id;
+----
+logical_plan
+01)Projection: min(mi_idx.info) AS rating, min(t.title) AS western_dark_production
+02)--Aggregate: groupBy=[[]], aggr=[[min(mi_idx.info), min(t.title)]]
+03)----Projection: mi_idx.info, t.title
+04)------Inner Join: t.kind_id = kt.id
+05)--------Projection: mi_idx.info, t.title, t.kind_id
+06)----------Inner Join: mi.movie_id = t.id, mk.movie_id = t.id, mi_idx.movie_id = t.id
+07)------------Projection: mi.movie_id, mi_idx.movie_id, mi_idx.info, mk.movie_id
+08)--------------Inner Join: mk.keyword_id = k.id
+09)----------------Inner Join: mi.movie_id = mk.movie_id, mi_idx.movie_id = mk.movie_id
+10)------------------Projection: mi.movie_id, mi_idx.movie_id, mi_idx.info
+11)--------------------Inner Join: mi_idx.info_type_id = it2.id
+12)----------------------Inner Join: mi.movie_id = mi_idx.movie_id
+13)------------------------Projection: mi.movie_id
+14)--------------------------Inner Join: it1.id = mi.info_type_id
+15)----------------------------SubqueryAlias: it1
+16)------------------------------Projection: info_type.id
+17)--------------------------------Filter: info_type.info = Utf8View("countries")
+18)----------------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("countries")]
+19)----------------------------SubqueryAlias: mi
+20)------------------------------Projection: movie_info.movie_id, movie_info.info_type_id
+21)--------------------------------Filter: movie_info.info IN ([Utf8View("Sweden"), Utf8View("Norway"), Utf8View("Germany"), Utf8View("Denmark"), Utf8View("Swedish"), Utf8View("Denish"), Utf8View("Norwegian"), Utf8View("German"), Utf8View("USA"), Utf8View("American")])
+22)----------------------------------TableScan: movie_info projection=[movie_id, info_type_id, info], partial_filters=[movie_info.info IN ([Utf8View("Sweden"), Utf8View("Norway"), Utf8View("Germany"), Utf8View("Denmark"), Utf8View("Swedish"), Utf8View("Denish"), Utf8View("Norwegian"), Utf8View("German"), Utf8View("USA"), Utf8View("American")])]
+23)------------------------SubqueryAlias: mi_idx
+24)--------------------------Filter: movie_info_idx.info > Utf8View("6.0")
+25)----------------------------TableScan: movie_info_idx projection=[movie_id, info_type_id, info], partial_filters=[movie_info_idx.info > Utf8View("6.0")]
+26)----------------------SubqueryAlias: it2
+27)------------------------Projection: info_type.id
+28)--------------------------Filter: info_type.info = Utf8View("rating")
+29)----------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("rating")]
+30)------------------SubqueryAlias: mk
+31)--------------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+32)----------------SubqueryAlias: k
+33)------------------Projection: keyword.id
+34)--------------------Filter: keyword.keyword = Utf8View("murder") OR keyword.keyword = Utf8View("murder-in-title")
+35)----------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword = Utf8View("murder") OR keyword.keyword = Utf8View("murder-in-title")]
+36)------------SubqueryAlias: t
+37)--------------Projection: title.id, title.title, title.kind_id
+38)----------------Filter: title.production_year > Float64(2010) AND (title.title LIKE Utf8View("%murder%") OR title.title LIKE Utf8View("%Murder%") OR title.title LIKE Utf8View("%Mord%"))
+39)------------------TableScan: title projection=[id, title, kind_id, production_year], partial_filters=[title.production_year > Float64(2010), title.title LIKE Utf8View("%murder%") OR title.title LIKE Utf8View("%Murder%") OR title.title LIKE Utf8View("%Mord%")]
+40)--------SubqueryAlias: kt
+41)----------Projection: kind_type.id
+42)------------Filter: kind_type.kind = Utf8View("movie")
+43)--------------TableScan: kind_type projection=[id, kind], partial_filters=[kind_type.kind = Utf8View("movie")]
+physical_plan
+01)ProjectionExec: expr=[min(mi_idx.info)@0 as rating, min(t.title)@1 as western_dark_production]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(mi_idx.info), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(mi_idx.info), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(kind_id@2, id@0)], projection=[info@0, title@1]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, id@0), (movie_id@3, id@0), (movie_id@1, id@0)], projection=[info@2, title@5, kind_id@6]
+08)--------------CoalescePartitionsExec
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(keyword_id@4, id@0)], projection=[movie_id@0, movie_id@1, info@2, movie_id@3]
+10)------------------CoalescePartitionsExec
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@0), (movie_id@1, movie_id@0)]
+12)----------------------CoalescePartitionsExec
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(info_type_id@2, id@0)], projection=[movie_id@0, movie_id@1, info@3]
+14)--------------------------CoalescePartitionsExec
+15)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@0)], projection=[movie_id@3, movie_id@0, info_type_id@1, info@2]
+16)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex, predicate: info@3 > 6.0
+17)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@1)], projection=[movie_id@1]
+18)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = countries
+19)--------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+20)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info.vortex]]}, projection=[movie_id, info_type_id], file_type=vortex, predicate: info@3 IN (SET) ([Sweden, Norway, Germany, Denmark, Swedish, Denish, Norwegian, German, USA, American])
+21)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = rating
+23)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+24)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+25)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+26)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 = murder OR keyword@1 = murder-in-title
+27)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title, kind_id], file_type=vortex, predicate: production_year@4 > 2010 AND (title@1 LIKE %murder% OR title@1 LIKE %Murder% OR title@1 LIKE %Mord%)
+28)----------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+29)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/kind_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = movie

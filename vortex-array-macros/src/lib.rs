@@ -885,3 +885,6 @@ fn to_screaming_snake_case(name: &str) -> String {
 
     result
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "error.hpp"
 #include "vector.h"
 #include "vector.hpp"
 
@@ -12,29 +13,42 @@
 
 using namespace duckdb;
 
-extern "C" duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end) {
-    const Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
-    Vector *const sliced = new Vector(vector, offset, end);
-    return reinterpret_cast<duckdb_vector>(sliced);
+extern "C" duckdb_vector
+duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end, duckdb_vx_error *error_out) {
+    duckdb_vector result = nullptr;
+    TryWrap(error_out, [&]() {
+        const Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+        Vector *const sliced = new Vector(vector, offset, end);
+        result = reinterpret_cast<duckdb_vector>(sliced);
+    });
+    return result;
 }
 
-extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
-                                            duckdb_vector ffi_dict,
-                                            idx_t dictionary_size,
-                                            duckdb_selection_vector ffi_sel_vec,
-                                            idx_t count) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto dict = reinterpret_cast<Vector *>(ffi_dict);
-    auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
-    // Vector::Dictionary requires dict.size() == dictionary_size
-    dict->BufferMutable().SetVectorSize(dictionary_size);
-    vector->Dictionary(*dict, dictionary_size, *sel_vec, count);
+extern "C" duckdb_state duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
+                                                    duckdb_vector ffi_dict,
+                                                    idx_t dictionary_size,
+                                                    duckdb_selection_vector ffi_sel_vec,
+                                                    idx_t count,
+                                                    duckdb_vx_error *error_out) {
+    return TryWrap(error_out, [&]() {
+        auto vector = reinterpret_cast<Vector *>(ffi_vector);
+        auto dict = reinterpret_cast<Vector *>(ffi_dict);
+        auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
+        // Vector::Dictionary requires dict.size() == dictionary_size
+        dict->BufferMutable().SetVectorSize(dictionary_size);
+        vector->Dictionary(*dict, dictionary_size, *sel_vec, count);
+    });
 }
 
-extern "C" void
-duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity) {
-    auto vector = reinterpret_cast<Vector *>(c_vector);
-    vector->Sequence(start, step, capacity);
+extern "C" duckdb_state duckdb_vx_sequence_vector(duckdb_vector c_vector,
+                                                  int64_t start,
+                                                  int64_t step,
+                                                  idx_t capacity,
+                                                  duckdb_vx_error *error_out) {
+    return TryWrap(error_out, [&]() {
+        auto vector = reinterpret_cast<Vector *>(c_vector);
+        vector->Sequence(start, step, capacity);
+    });
 }
 
 // Same hack for ValidityMask: access protected fields via inheritance.
@@ -92,17 +106,23 @@ extern "C" void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
 }
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {
-    auto vector = reinterpret_cast<Vector *>(ffi_vector);
-    auto value = duckdb::make_uniq<Value>(vector->GetValue(index));
-    return reinterpret_cast<duckdb_value>(value.release());
+    try {
+        auto vector = reinterpret_cast<Vector *>(ffi_vector);
+        auto value = duckdb::make_uniq<Value>(vector->GetValue(index));
+        return reinterpret_cast<duckdb_value>(value.release());
+    } catch (...) {
+        return nullptr;
+    }
 }
 
 void duckdb_vector_flatten(duckdb_vector vector) {
     reinterpret_cast<Vector *>(vector)->Flatten();
 }
 
-extern "C" void duckdb_vx_vector_set_size(duckdb_vector ffi_vector, idx_t size) {
-    reinterpret_cast<Vector *>(ffi_vector)->BufferMutable().SetVectorSize(size);
+extern "C" duckdb_state
+duckdb_vx_vector_set_size(duckdb_vector ffi_vector, idx_t size, duckdb_vx_error *error_out) {
+    return TryWrap(error_out,
+                   [&]() { reinterpret_cast<Vector *>(ffi_vector)->BufferMutable().SetVectorSize(size); });
 }
 
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {

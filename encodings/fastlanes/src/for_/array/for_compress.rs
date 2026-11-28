@@ -42,11 +42,19 @@ impl FoRData {
             .statistics()
             .compute_stat(Stat::Min, ctx)?
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
+        Self::encode_with_reference(array, min, ctx)
+    }
 
+    /// Encode a primitive array by subtracting an explicit global `reference`.
+    pub fn encode_with_reference(
+        array: PrimitiveArray,
+        reference: Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<FoRArray> {
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
-            encode_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
+            encode_primitive::<T>(array, T::try_from(&reference)?, ctx)?.into_array()
         });
-        FoR::try_new(encoded, min)
+        FoR::try_new(encoded, reference)
     }
 
     /// Encode with one reference per chunk: the minimum of the chunk's valid values.

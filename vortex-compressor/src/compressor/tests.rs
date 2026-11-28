@@ -24,23 +24,32 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveSlots;
 use vortex_array::arrays::varbinview::BinaryView;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::UnionVariants;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -2170,6 +2179,109 @@ fn whole_leaf_encoding_stores_compressed_validity() -> VortexResult<()> {
         .as_ref()
         .ok_or_else(|| vortex_err!("expected the validity bitmap to stay a slot"))?;
     assert!(bitmap.is::<Constant>(), "{}", bitmap.encoding_id());
+    Ok(())
+}
+
+#[test]
+fn test_container_children_preserve_is_sample() -> VortexResult<()> {
+    let comp = CascadingCompressor::new(Vec::new());
+    let mut ctx = SESSION.create_execution_ctx();
+    let sample_ctx = CompressorContext::new().with_sampling();
+
+    let const_i32 = PrimitiveArray::from_iter(iter::repeat_n(42i32, 1024)).into_array();
+    let const_u64 = PrimitiveArray::from_iter(iter::repeat_n(7u64, 1024)).into_array();
+
+    let fsl = FixedSizeListArray::new(const_u64, 16, Validity::NonNullable, 64).into_array();
+    let ext_dtype = ExtDType::<BytesExtension>::try_new(0, Nullability::NonNullable)?.erased();
+    let list = ListArray::try_new(
+        const_i32.clone(),
+        PrimitiveArray::from_iter(0..=1024u32).into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let list_view = ListViewArray::try_new(
+        const_i32.clone(),
+        PrimitiveArray::new(
+            (0..1024u32).map(|i| 1023 - i).collect::<Buffer<u32>>(),
+            Validity::NonNullable,
+        )
+        .into_array(),
+        PrimitiveArray::new(
+            iter::repeat_n(1u32, 1024).collect::<Buffer<u32>>(),
+            Validity::NonNullable,
+        )
+        .into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let union = UnionArray::try_new(
+        PrimitiveArray::from_iter(iter::repeat_n(0u8, 1024)).into_array(),
+        UnionVariants::try_new(
+            ["a"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![0],
+        )?,
+        vec![const_i32.clone()],
+    )?
+    .into_array();
+    let struct_arr = StructArray::try_new(
+        FieldNames::from(["a"]),
+        vec![const_i32.clone()],
+        1024,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let ext = ExtensionArray::new(ext_dtype, fsl.clone()).into_array();
+    let map = map_array_from_rows(&vec![Some(vec![(1, Some("same"))]); 128], true)?;
+    let variant_core = ConstantArray::new(
+        Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
+        1024,
+    )
+    .into_array();
+    let variant = VariantArray::try_new(variant_core, Some(const_i32))?;
+
+    for (name, input) in [
+        ("Struct", struct_arr),
+        ("Union", union),
+        ("FixedSizeList", fsl.clone()),
+        ("Extension", ext),
+        ("List", list),
+        ("ListView", list_view),
+        ("Map", map),
+    ] {
+        let compressed = comp.compress_canonical(
+            input.clone().execute::<Canonical>(&mut ctx)?,
+            sample_ctx.clone(),
+            &mut ctx,
+        )?;
+        assert!(
+            !compressed
+                .depth_first_traversal()
+                .any(|a| a.is::<Constant>()),
+            "sample {name} compression must not collapse constant children to Constant:\n{}",
+            compressed.display_tree()
+        );
+        assert_arrays_eq!(&compressed, &input, &mut ctx);
+    }
+
+    let compressed_variant =
+        comp.compress_canonical(Canonical::Variant(variant.clone()), sample_ctx, &mut ctx)?;
+    let shredded = compressed_variant
+        .as_::<Variant>()
+        .shredded()
+        .ok_or_else(|| vortex_err!("expected shredded child"))?;
+    assert!(
+        !shredded.depth_first_traversal().any(|a| a.is::<Constant>()),
+        "sample Variant shredded child must not collapse to Constant:\n{}",
+        shredded.display_tree()
+    );
+    assert_arrays_eq!(&compressed_variant, &variant.into_array(), &mut ctx);
+
+    // Non-sample compression still collapses constant elements.
+    let full_fsl = comp.compress(&fsl, &mut ctx)?;
+    assert!(full_fsl.depth_first_traversal().any(|a| a.is::<Constant>()));
     Ok(())
 }
 

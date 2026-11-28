@@ -21,6 +21,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListArray;
@@ -37,6 +38,7 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::test_harness::mark_decoded;
@@ -504,6 +506,8 @@ enum DictStructure {
     Dict,
     Chunked,
     Flat,
+    Nested,
+    ChunkedWithConstants,
 }
 
 impl Display for DictStructure {
@@ -512,6 +516,8 @@ impl Display for DictStructure {
             Self::Dict => "dict",
             Self::Chunked => "chunked",
             Self::Flat => "flat",
+            Self::Nested => "nested",
+            Self::ChunkedWithConstants => "chunked_constants",
         })
     }
 }
@@ -545,6 +551,14 @@ const DICT_EXPORT_CASES: &[DictExportCase] = &[
         structure: DictStructure::Flat,
         validity: StringValidity::NonNullable,
     },
+    DictExportCase {
+        structure: DictStructure::Nested,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::ChunkedWithConstants,
+        validity: StringValidity::NonNullable,
+    },
 ];
 const DICT_ROWS: usize = 2048;
 const DICT_CHUNKS: usize = 4;
@@ -567,15 +581,40 @@ fn dict_chunk(len: usize, validity: StringValidity) -> ArrayRef {
 
 fn dict_array(case: DictExportCase) -> ArrayRef {
     let dtype = DType::Utf8(case.validity.nullability());
-    let chunk_len = DICT_ROWS / DICT_CHUNKS;
+    // The existing 2,048-row chunked export takes about 1 ms under CodSpeed.
+    let rows = match case.structure {
+        DictStructure::Nested | DictStructure::ChunkedWithConstants => 1024,
+        _ => DICT_ROWS,
+    };
+    let chunk_len = rows / DICT_CHUNKS;
+    let dict_chunks = |count| {
+        ChunkedArray::try_new(
+            (0..count).map(|_| dict_chunk(chunk_len, case.validity)),
+            dtype.clone(),
+        )
+        .unwrap()
+        .into_array()
+    };
     let array = match case.structure {
-        DictStructure::Dict => dict_chunk(DICT_ROWS, case.validity),
-        DictStructure::Chunked => ChunkedArray::try_new(
-            (0..DICT_CHUNKS).map(|_| dict_chunk(chunk_len, case.validity)),
+        DictStructure::Dict => dict_chunk(rows, case.validity),
+        DictStructure::Chunked => dict_chunks(DICT_CHUNKS),
+        DictStructure::Nested => ChunkedArray::try_new(
+            [dict_chunks(DICT_CHUNKS / 2), dict_chunks(DICT_CHUNKS / 2)],
             dtype,
         )
         .unwrap()
         .into_array(),
+        DictStructure::ChunkedWithConstants => {
+            let constant = Scalar::utf8("constant", case.validity.nullability());
+            let chunks = (0..DICT_CHUNKS).map(|i| {
+                if i.is_multiple_of(2) {
+                    dict_chunk(chunk_len, case.validity)
+                } else {
+                    ConstantArray::new(constant.clone(), chunk_len).into_array()
+                }
+            });
+            ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
+        }
         DictStructure::Flat => {
             let mut ctx = SESSION.create_execution_ctx();
             ChunkedArray::try_new(

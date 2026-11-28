@@ -251,7 +251,7 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(l_orderkey = o_orderkey)",
-                                                    "Estimated Cardinality": "6000"
+                                                    "Estimated Cardinality": "1201"
                                                 }
                                             }
                                         ],
@@ -263,7 +263,7 @@ logical_opt [
                                                 "#3",
                                                 "CAST(#4 AS TINYINT)"
                                             ],
-                                            "Estimated Cardinality": "6000"
+                                            "Estimated Cardinality": "1201"
                                         }
                                     }
                                 ],
@@ -274,7 +274,7 @@ logical_opt [
                                         "o_shippriority"
                                     ],
                                     "Expressions": "sum((l_extendedprice * (1.00 - l_discount)))",
-                                    "Estimated Cardinality": "5999"
+                                    "Estimated Cardinality": "1200"
                                 }
                             }
                         ],
@@ -285,7 +285,7 @@ logical_opt [
                                 "CAST(#2 AS INTEGER)",
                                 "#3"
                             ],
-                            "Estimated Cardinality": "5999"
+                            "Estimated Cardinality": "1200"
                         }
                     }
                 ],
@@ -296,7 +296,7 @@ logical_opt [
                         "o_orderdate",
                         "o_shippriority"
                     ],
-                    "Estimated Cardinality": "5999"
+                    "Estimated Cardinality": "1200"
                 }
             }
         ],
@@ -384,7 +384,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "l_orderkey = o_orderkey",
-                                                            "Estimated Cardinality": "6000"
+                                                            "Estimated Cardinality": "1201"
                                                         }
                                                     }
                                                 ],
@@ -396,7 +396,7 @@ physical_plan [
                                                         "#3",
                                                         "CAST(#4 AS TINYINT)"
                                                     ],
-                                                    "Estimated Cardinality": "6000"
+                                                    "Estimated Cardinality": "1201"
                                                 }
                                             }
                                         ],
@@ -407,7 +407,7 @@ physical_plan [
                                                 "o_shippriority",
                                                 "(l_extendedprice * (1.00 - l_discount))"
                                             ],
-                                            "Estimated Cardinality": "6000"
+                                            "Estimated Cardinality": "1201"
                                         }
                                     }
                                 ],
@@ -418,7 +418,7 @@ physical_plan [
                                         "#2"
                                     ],
                                     "Aggregates": "sum(#3)",
-                                    "Estimated Cardinality": "5999"
+                                    "Estimated Cardinality": "1200"
                                 }
                             }
                         ],
@@ -429,7 +429,7 @@ physical_plan [
                                 "CAST(#2 AS INTEGER)",
                                 "#3"
                             ],
-                            "Estimated Cardinality": "5999"
+                            "Estimated Cardinality": "1200"
                         }
                     }
                 ],
@@ -440,7 +440,7 @@ physical_plan [
                         "o_orderdate",
                         "o_shippriority"
                     ],
-                    "Estimated Cardinality": "5999"
+                    "Estimated Cardinality": "1200"
                 }
             }
         ],

@@ -87,7 +87,7 @@ pub struct PivcoMetadata {
     /// Encoded element count of the final block (`1..=block_values`, or `0` when empty).
     #[prost(uint32, tag = "2")]
     pub last_block_len: u32,
-    /// `log2(block_values)` in `10..=13` (`0` decodes as default `12` = `4,096`).
+    /// `log2(block_values)` in `10..=13` (`1,024..=8,192`); values outside this range (including `0`) are rejected on read.
     #[prost(uint32, tag = "3")]
     pub block_shift: u32,
     /// Base byte offset subtracted from `block_headers` `tree_byte_offset` when sliced.

@@ -11,6 +11,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -129,6 +130,20 @@ pub enum ErasedStats {
 }
 
 impl ErasedStats {
+    /// Returns the minimum value as a non-nullable [`Scalar`].
+    pub fn min_scalar(&self) -> Scalar {
+        match self {
+            ErasedStats::U8(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::U16(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::U32(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::U64(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::I8(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::I16(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::I32(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+            ErasedStats::I64(x) => Scalar::primitive(x.min, Nullability::NonNullable),
+        }
+    }
+
     /// Returns `true` if the minimum value is zero.
     pub fn min_is_zero(&self) -> bool {
         match &self {
