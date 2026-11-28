@@ -8,7 +8,6 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::StringArray;
 use arrow_schema::DataType;
@@ -44,9 +43,9 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-fn json_row(bytes: &[u8]) -> Option<String> {
-    let number = i16::from_le_bytes([bytes[1], bytes[2]]);
-    let value = match bytes[0] % 8 {
+fn json_row(&[kind, low, high]: &[u8; 3]) -> Option<String> {
+    let number = i16::from_le_bytes([low, high]);
+    let value = match kind % 8 {
         0 => return None,
         1 => "null".to_owned(),
         2 => (number >= 0).to_string(),
@@ -56,7 +55,7 @@ fn json_row(bytes: &[u8]) -> Option<String> {
         6 => "{}".to_owned(),
         _ => number.to_string(),
     };
-    Some(match bytes[0] / 8 % 5 {
+    Some(match kind / 8 % 5 {
         0 => value,
         1 => format!(r#"{{"a":{value},"extra":{number}}}"#),
         2 => format!(r#"{{"a":{{"b":{value},"extra":{number}}}}}"#),
@@ -79,12 +78,13 @@ fn assert_variant_eq(actual: &ArrowVariant, expected: &ArrowVariant) -> VortexRe
 }
 
 fn compare(data: &[u8]) -> VortexResult<()> {
-    let Some((&[schema, path, target, offset, length], rows)) = data.split_first_chunk::<5>() else {
+    let Some((&[schema, path, target, offset, length], rows)) = data.split_first_chunk::<5>()
+    else {
         return Ok(());
     };
-    let strings: ArrowArrayRef = Arc::new(StringArray::from_iter(
-        rows.chunks_exact(3).take(32).map(json_row),
-    ));
+    let (rows, _) = rows.as_chunks::<3>();
+    let strings: ArrowArrayRef =
+        Arc::new(StringArray::from_iter(rows.iter().take(32).map(json_row)));
     let source = json_to_variant(&strings)?;
     let source = match schema % 5 {
         0 => source,
@@ -118,7 +118,10 @@ fn compare(data: &[u8]) -> VortexResult<()> {
             ArrowPath::default().join("a").join(0usize),
             VariantPath::new(["a".into(), VariantPathElement::index(0)]),
         ),
-        _ => (ArrowPath::default().join("missing"), VariantPath::field("missing")),
+        _ => (
+            ArrowPath::default().join("missing"),
+            VariantPath::field("missing"),
+        ),
     };
     let ty = match target % 5 {
         0 => None,
@@ -130,12 +133,20 @@ fn compare(data: &[u8]) -> VortexResult<()> {
     let field = ty.map(|ty| Arc::new(Field::new("result", ty, true)));
     let get = GetOptions::new_with_path(pq_path).with_as_type(field.clone());
     let expected = variant_get(&input, get)?;
-    let dtype = field.as_ref().map(|f| arrow.from_arrow_field(f)).transpose()?;
+    let dtype = field
+        .as_ref()
+        .map(|f| arrow.from_arrow_field(f))
+        .transpose()?;
     let options = VariantGetOptions::new(vx_path, dtype);
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = encoded.clone().execute::<VariantArray>(&mut ctx)?.into_array();
+    let canonical = encoded
+        .clone()
+        .execute::<VariantArray>(&mut ctx)?
+        .into_array();
     let variant_field = arrow.to_arrow_field("variant", canonical.dtype())?;
-    let exported = canonical.clone().execute_arrow(Some(&variant_field), &mut ctx)?;
+    let exported = canonical
+        .clone()
+        .execute_arrow(Some(&variant_field), &mut ctx)?;
     assert_variant_eq(&ArrowVariant::try_new(exported.as_ref())?, &reference)?;
 
     for array in [encoded, canonical] {
