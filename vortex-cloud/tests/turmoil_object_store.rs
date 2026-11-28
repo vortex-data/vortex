@@ -12,6 +12,8 @@ use std::io;
 use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
@@ -105,6 +107,7 @@ const MULTIPART_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 struct TurmoilHttpConnector {
     runtime: TokioHandle,
     connect_timeout: Duration,
+    connect_attempts: Arc<AtomicUsize>,
 }
 
 impl TurmoilHttpConnector {
@@ -112,7 +115,13 @@ impl TurmoilHttpConnector {
         Self {
             runtime: TokioHandle::current(),
             connect_timeout,
+            connect_attempts: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    fn with_connect_attempts(mut self, connect_attempts: Arc<AtomicUsize>) -> Self {
+        self.connect_attempts = connect_attempts;
+        self
     }
 }
 
@@ -250,6 +259,7 @@ impl HttpService for TurmoilHttpConnector {
             .parse::<Uri>()
             .map_err(|err| HttpError::new(HttpErrorKind::Request, err))?;
 
+        self.connect_attempts.fetch_add(1, Ordering::Relaxed);
         let connect_timeout = self.connect_timeout;
         let (parts_tx, parts_rx) = oneshot::channel();
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
@@ -531,7 +541,7 @@ async fn handle_connection(mut stream: TcpStream, state: Arc<ServerState>) -> io
             &mut stream,
             &format!("{code} {reason}"),
             "",
-            body.len(),
+            reason.len(),
             body,
         )
         .await;
@@ -614,12 +624,24 @@ fn http_store(
     max_retries: usize,
     connect_timeout: Duration,
 ) -> VortexResult<Arc<dyn ObjectStore>> {
+    http_store_with_connector(
+        url,
+        max_retries,
+        TurmoilHttpConnector::current(connect_timeout),
+    )
+}
+
+fn http_store_with_connector(
+    url: &str,
+    max_retries: usize,
+    connector: TurmoilHttpConnector,
+) -> VortexResult<Arc<dyn ObjectStore>> {
     Ok(Arc::new(
         HttpBuilder::new()
             .with_url(url)
             .with_retry(retry_config(max_retries))
             .with_client_options(ClientOptions::new().with_allow_http(true))
-            .with_http_connector(TurmoilHttpConnector::current(connect_timeout))
+            .with_http_connector(connector)
             .build()?,
     ))
 }
@@ -924,6 +946,8 @@ mod tests {
         attach_server(&mut sim, "server", &state);
 
         let heal_after = Duration::from_millis(heal_after_ms);
+        let connect_attempts = Arc::new(AtomicUsize::new(0));
+        let client_attempts = Arc::clone(&connect_attempts);
         sim.client("healer", async move {
             time::sleep(heal_after).await;
             if use_hold {
@@ -942,7 +966,9 @@ mod tests {
             }
             // Exceeds turmoil's default 200 ms max SYN+SYN-ACK handshake latency so healthy
             // post-heal connects never spuriously time out.
-            let store = http_store("http://server:80", 6, Duration::from_millis(250))?;
+            let connector = TurmoilHttpConnector::current(Duration::from_millis(250))
+                .with_connect_attempts(client_attempts);
+            let store = http_store_with_connector("http://server:80", 6, connector)?;
             let reader = ObjectStoreReadAt::new(
                 store,
                 ObjectPath::from("healed.bin"),
@@ -955,6 +981,10 @@ mod tests {
 
         sim.run()?;
         assert_eq!(state.requests.lock().len(), 1);
+        assert!(
+            connect_attempts.load(Ordering::Relaxed) >= 2,
+            "expected at least one failed connect attempt before recovery"
+        );
         assert!(sim.elapsed() >= heal_after);
         Ok(())
     }
