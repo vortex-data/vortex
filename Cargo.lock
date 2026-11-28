@@ -11087,6 +11087,7 @@ dependencies = [
  "vortex-metrics",
  "vortex-parquet-variant",
  "vortex-pco",
+ "vortex-pivco",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -11827,6 +11828,7 @@ dependencies = [
  "vortex-metrics",
  "vortex-onpair",
  "vortex-pco",
+ "vortex-pivco",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -12191,6 +12193,25 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
+]
+
+[[package]]
+name = "vortex-pivco"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
+ "num-traits",
+ "prost 0.14.4",
+ "rand 0.10.3",
+ "rstest",
+ "rstest_reuse",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+ "vortex-zigzag",
 ]
 
 [[package]]

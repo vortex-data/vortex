@@ -180,6 +180,9 @@
   "vortex-pco": {
     "scalar": 4
   },
+  "vortex-pivco": {
+    "pivco_compress": 32
+  },
   "vortex-row": {
     "row_encode": 5
   },

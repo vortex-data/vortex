@@ -199,6 +199,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_zstd::initialize(session);
 
     vortex_pco::initialize(session);
+    vortex_pivco::initialize(session);
     if use_experimental_patches() {
         session.arrays().register(Patched);
     }

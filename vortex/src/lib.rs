@@ -355,6 +355,12 @@ pub mod encodings {
         pub use vortex_pco::*;
     }
 
+    /// Block-reset Pow2-Bin + PIVCO wavelet-tree integer compression encoding.
+    pub mod pivco {
+        #[doc(no_inline)]
+        pub use vortex_pivco::*;
+    }
+
     /// Arrow-compatible run-end encoding.
     pub mod runend {
         #[doc(no_inline)]
