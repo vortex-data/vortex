@@ -1,50 +1,51 @@
 name-template: "$RESOLVED_VERSION"
 tag-template: "$RESOLVED_VERSION"
 categories:
+  - type: "pre-exclude"
+    when:
+      labels:
+        - "changelog/skip"
+        - "changelog/ci"
+
+  # Any features or breaks will trigger a minor version bump (while we are 0.x)
   - title: "📜 Editions"
-    labels:
-      - "changelog/edition"
+    semver-increment: "minor"
+    when:
+      label: "changelog/edition"
   - title: "⚠️ Breaks"
-    labels:
-      - "changelog/break"
+    semver-increment: "minor"
+    when:
+      label: "changelog/break"
   - title: "🚧 Deprecation"
-    labels:
-      - "changelog/deprecation"
+    when:
+      label: "changelog/deprecation"
   - title: "✨ Features"
-    labels:
-      - "changelog/feature"
+    semver-increment: "minor"
+    when:
+      label: "changelog/feature"
   - title: "🚀 Performance"
-    labels:
-      - "changelog/performance"
+    when:
+      label: "changelog/performance"
   - title: "🐛 Bug Fixes"
     collapse-after: 8
-    labels:
-      - "changelog/fix"
+    when:
+      label: "changelog/fix"
   - title: "📖 Documentation"
-    labels:
-      - "changelog/docs"
     collapse-after: 3
+    when:
+      label: "changelog/docs"
   - title: "🧰 Maintenance"
-    labels:
-      - "changelog/chore"
     collapse-after: 3
+    when:
+      label: "changelog/chore"
 
-version-resolver:
-  major:
-    labels:
-      # We must explicitly label a PR with "major" to trigger a major version bump.
-      - "major"
-  minor:
-    labels:
-      # Any features or breaks will trigger a minor version bump (while we are 0.x)
-      - "changelog/feature"
-      - "changelog/break"
-      - "changelog/edition"
-  default: patch
-
-exclude-labels:
-  - "changelog/skip"
-  - "changelog/ci"
+  # We must explicitly label a PR with "major" to trigger a major version bump.
+  - type: "version-resolver"
+    semver-increment: "major"
+    when:
+      label: "major"
+  - type: "version-resolver"
+    semver-increment: "patch"
 
 template: |
   ## Changes
