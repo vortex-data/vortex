@@ -124,6 +124,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     dict_max_bytes: usize,
+    column_buffer_bytes: u64,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
@@ -144,6 +145,7 @@ impl WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             dict_max_bytes: DictLayoutConstraints::default().max_bytes,
+            column_buffer_bytes: 2 * ONE_MEG,
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
@@ -179,6 +181,16 @@ impl WriteStrategyBuilder {
     /// dictionary.
     pub fn with_dict_max_bytes(mut self, max_bytes: usize) -> Self {
         self.dict_max_bytes = max_bytes;
+        self
+    }
+
+    /// Override how many compressed bytes each column buffers so its chunks are written next to
+    /// each other.
+    ///
+    /// Each column holds up to about twice this size. Larger values write longer contiguous runs;
+    /// smaller values hold less memory. Defaults to 2 MiB.
+    pub fn with_column_buffer_bytes(mut self, bytes: u64) -> Self {
+        self.column_buffer_bytes = bytes;
         self
     }
 
@@ -240,7 +252,7 @@ impl WriteStrategyBuilder {
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
         // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
+        let buffered = BufferedStrategy::new(chunked, self.column_buffer_bytes);
 
         // 4. coalesce chunks up to a minimum size, then 5. compress each chunk.
         // Dict codes and the chunks DictStrategy rejects get separate pipelines because they use
