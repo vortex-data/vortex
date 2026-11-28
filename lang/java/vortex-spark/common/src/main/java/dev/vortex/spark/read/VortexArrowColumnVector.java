@@ -14,6 +14,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.ArrowUtils;
+import dev.vortex.spark.SparkVariants;
 import java.math.BigDecimal;
 import java.nio.ByteOrder;
 import java.util.Arrays;
@@ -291,6 +292,17 @@ public class VortexArrowColumnVector extends ColumnVector {
         initAccessor(vector);
     }
 
+    /**
+     * Wraps an unsigned 64-bit vector as a Spark {@code LONG} column, for values known to stay below 2^63, such as the
+     * row indexes of a file.
+     *
+     * <p>Spark has no unsigned type, so schema inference leaves unsigned columns unmapped, and only a column the reader
+     * generates itself comes through here.
+     */
+    public static VortexArrowColumnVector unsignedAsLong(UInt8Vector vector) {
+        return withAccessor(DataTypes.LongType, new UnsignedLongAccessor(vector));
+    }
+
     private static VortexArrowColumnVector withAccessor(DataType type, ArrowVectorAccessor accessor) {
         VortexArrowColumnVector column = new VortexArrowColumnVector(type);
         column.accessor = accessor;
@@ -364,9 +376,17 @@ public class VortexArrowColumnVector extends ColumnVector {
         } else if (vector instanceof StructVector structVector) {
             accessor = new VortexArrowColumnVector.StructAccessor(structVector);
 
-            childColumns = new VortexArrowColumnVector[structVector.size()];
-            for (int i = 0; i < childColumns.length; ++i) {
-                childColumns[i] = new VortexArrowColumnVector(structVector.getVectorById(i));
+            if (SparkVariants.isVariant(structVector.getField())) {
+                // Spark reads a variant's value from child 0 and its metadata from child 1.
+                childColumns = new VortexArrowColumnVector[] {
+                    new VortexArrowColumnVector(structVector.getChild("value")),
+                    new VortexArrowColumnVector(structVector.getChild("metadata")),
+                };
+            } else {
+                childColumns = new VortexArrowColumnVector[structVector.size()];
+                for (int i = 0; i < childColumns.length; ++i) {
+                    childColumns[i] = new VortexArrowColumnVector(structVector.getVectorById(i));
+                }
             }
         } else if (vector instanceof NullVector nullVector) {
             accessor = new VortexArrowColumnVector.NullAccessor(nullVector);
@@ -570,6 +590,21 @@ public class VortexArrowColumnVector extends ColumnVector {
         @Override
         final long getLong(int rowId) {
             return Platform.getLong(null, values + ((long) rowId << 3));
+        }
+    }
+
+    static final class UnsignedLongAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final UInt8Vector accessor;
+
+        UnsignedLongAccessor(UInt8Vector vector) {
+            super(vector);
+            this.accessor = vector;
+        }
+
+        @Override
+        long getLong(int rowId) {
+            return accessor.get(rowId);
         }
     }
 
