@@ -9,7 +9,7 @@ import org.apache.spark.sql.types.StructType
 
 import dev.vortex.spark.VortexOptions
 
-/** Creates the scan builder for Spark 4.2, with variant extraction pushdown, block
+/** Creates the scan builder for Spark 4.2 and later, with variant extraction pushdown, block
   * sampling, and partition predicates.
   */
 object VortexScanBuilders {

@@ -13,6 +13,7 @@ Choose the artifact matching both Spark and Scala:
 | `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x to 4.3.x | 2.13  |
 | `dev.vortex:vortex-spark-4.1_2.13` | 4.1.x to 4.3.x | 2.13  |
 | `dev.vortex:vortex-spark-4.2_2.13` | 4.2.x to 4.3.x | 2.13  |
+| `dev.vortex:vortex-spark-4.3_2.13` | 4.3.x          | 2.13  |
 
 Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries, and
 relocated Arrow, Guava, and Jackson dependencies. The unclassified thin JAR is not usable by

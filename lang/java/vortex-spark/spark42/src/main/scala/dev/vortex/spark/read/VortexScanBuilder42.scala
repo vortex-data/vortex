@@ -13,7 +13,7 @@ import org.apache.spark.sql.types.StructType
 
 import dev.vortex.spark.VortexOptions
 
-/** The scan builder for Spark 4.2, which adds `TABLESAMPLE SYSTEM` and
+/** The scan builder for Spark 4.2 and later, which adds `TABLESAMPLE SYSTEM` and
   * runtime filters that Spark evaluates on partition values.
   *
   * A `SYSTEM` sample keeps or drops whole chunks of rows, so a reader decodes

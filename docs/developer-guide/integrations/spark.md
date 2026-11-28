@@ -2,7 +2,7 @@
 
 The `vortex-spark` connector is built on Spark's file-source DataSource V2 framework. Shared
 sources compile into Spark 3.5/Scala 2.12, Spark 3.5/Scala 2.13, Spark 4.0/Scala 2.13, Spark
-4.1/Scala 2.13, and Spark 4.2/Scala 2.13 artifacts. Each artifact is also tested on the later Spark
+4.1/Scala 2.13, Spark 4.2/Scala 2.13, and Spark 4.3/Scala 2.13 artifacts. Each artifact is also tested on the later Spark
 lines it supports.
 
 The connector uses the public `vortex-jni` API: `Session`, `DataSource`, `Scan`, and
@@ -168,7 +168,7 @@ projects a native `variant_get` and an `IS NOT NULL` of the column for each such
 `SparkVariants.extract` casts the extracted variants with Spark's own `variant_get` cast, so cast
 errors and `try_variant_get` behave as they do in Spark.
 
-On Spark 4.2, `VortexScanBuilder42` maps `TABLESAMPLE SYSTEM` to a sample of whole splits, which
+On Spark 4.2 and 4.3, `VortexScanBuilder42` maps `TABLESAMPLE SYSTEM` to a sample of whole splits, which
 `NativeFiles.splits` returns from the footer. `VortexScan42` supports iterative runtime filtering:
 it reports the predicates it acted on through `pushedPredicates`, and Spark offers it the rest of
 the partition-column runtime filters as `PartitionPredicate`s, which it evaluates on each file's
@@ -176,9 +176,9 @@ full partition values.
 
 ## Source layout
 
-Shared Java and Scala live in `lang/java/vortex-spark/common`. Sources for Spark 4.0 and later live
-in `spark4`, and sources for Spark 4.1 and later in `spark41`. Thin projects in `v3.5`, `v4.0`,
-`v4.1`, and `v4.2` select the corresponding Spark and Scala dependencies and the shared source
-directories, and each holds a `VortexScanBuilders` that creates the scan builder of its line. The Scala shims isolate the binary
-differences in Spark's Scala APIs; nothing in Java depends on them, so javac compiles the Java
-sources and ErrorProne and Nopen keep covering them.
+Shared Java and Scala live in `lang/java/vortex-spark/common`. The `spark4`, `spark41`, and `spark42`
+directories hold implementations and tests for APIs introduced in Spark 4.0, 4.1, and 4.2
+respectively. The versioned Gradle projects select the Spark and Scala dependencies and source
+directories for each artifact. The 4.2 and 4.3 artifacts compile the same scan builder against
+their respective Spark releases. The Scala shims isolate differences in Spark's Scala APIs so
+javac, ErrorProne, and Nopen can check the Java sources.

@@ -22,6 +22,7 @@ val sparkVersion =
         "4.0" -> libs.findVersion("spark40").get().requiredVersion
         "4.1" -> libs.findVersion("spark41").get().requiredVersion
         "4.2" -> libs.findVersion("spark42").get().requiredVersion
+        "4.3" -> libs.findVersion("spark43").get().requiredVersion
         else -> throw GradleException("Unsupported Spark line: $sparkLine")
     }
 val scalaVersion =
@@ -31,6 +32,7 @@ val scalaVersion =
         "4.0" to "2.13" -> libs.findVersion("scala213Spark40").get().requiredVersion
         "4.1" to "2.13" -> libs.findVersion("scala213Spark41").get().requiredVersion
         "4.2" to "2.13" -> libs.findVersion("scala213Spark42").get().requiredVersion
+        "4.3" to "2.13" -> libs.findVersion("scala213Spark43").get().requiredVersion
         else -> throw GradleException("Unsupported Spark/Scala variant: $sparkLine/$scalaBinaryVersion")
     }
 // Later Spark 4 releases run each Spark 4 module's tests against its jar to catch binary breaks.
@@ -47,12 +49,12 @@ layout.buildDirectory = layout.projectDirectory.dir("build/${project.name}")
 val commonSourceDir = rootProject.file("vortex-spark/common/src")
 val versionSourceDir = project.file("src")
 
-// Sources shared by several Spark lines: `spark4` holds what every Spark 4 line has, such as the
-// VARIANT type, and `spark41` what Spark 4.1 added, such as variant extraction pushdown.
+// Each shared directory holds the connector APIs introduced by that Spark line.
 val sharedSourceDirs =
     when (sparkLine) {
         "4.0" -> listOf("spark4")
-        "4.1", "4.2" -> listOf("spark4", "spark41")
+        "4.1" -> listOf("spark4", "spark41")
+        "4.2", "4.3" -> listOf("spark4", "spark41", "spark42")
         else -> emptyList()
     }.map { rootProject.file("vortex-spark/$it/src") }
 val sourceRoots = listOf(commonSourceDir) + sharedSourceDirs + listOf(versionSourceDir)

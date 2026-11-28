@@ -12,7 +12,10 @@ plugins {
 
 spotless {
     java {
-        target(fileTree("vortex-spark/common") { include("**/*.java") })
+        target(
+            fileTree("vortex-spark/common") { include("**/*.java") },
+            fileTree("vortex-spark/spark42") { include("**/*.java") },
+        )
         palantirJavaFormat().formatJavadoc(true)
         licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
         removeUnusedImports()

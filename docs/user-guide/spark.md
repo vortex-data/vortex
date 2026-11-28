@@ -10,10 +10,10 @@ artifact matching both the Spark and Scala versions in the application:
 | `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x to 4.3.x  | 2.13  |
 | `dev.vortex:vortex-spark-4.1_2.13` | 4.1.x to 4.3.x  | 2.13  |
 | `dev.vortex:vortex-spark-4.2_2.13` | 4.2.x to 4.3.x  | 2.13  |
+| `dev.vortex:vortex-spark-4.3_2.13` | 4.3.x           | 2.13  |
 
-An artifact also runs on the later Spark lines listed, but only the artifact of the Spark line in
-use pushes down what that line adds: variant extraction on 4.1, and `TABLESAMPLE SYSTEM` and
-partition predicates on 4.2.
+The 4.1 and later artifacts support variant extraction pushdown. The 4.2 and 4.3 artifacts also
+support `TABLESAMPLE SYSTEM` and partition predicates.
 
 Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries for Linux
 (x86_64 and aarch64), macOS (aarch64), and Windows (x86_64), and relocated Arrow, Guava, and
@@ -145,7 +145,7 @@ scan. Each row is kept when a hash of the seed, the file's path, and the row's i
 sampled range, so a seed selects the same rows on every run however the files are split. The
 native scan receives the kept rows as a row selection and never decodes a chunk without one.
 
-On Spark 4.2, `TABLESAMPLE SYSTEM (p PERCENT)` keeps or drops whole chunks of rows, chosen by a
+On Spark 4.2 and 4.3, `TABLESAMPLE SYSTEM (p PERCENT)` keeps or drops whole chunks of rows, chosen by a
 hash of the file's path and the chunk's index, so a reader decodes only the chunks it keeps. Spark
 does not accept a seed for `SYSTEM` sampling.
 
@@ -255,7 +255,7 @@ extensions add an optimizer rule that removes each pruning filter whose other si
 filters of its own. Such a side is not a broadcast dimension, so its pruning does not run, and the
 result does not change.
 
-On Spark 4.2, Spark wraps the runtime filters on
+On Spark 4.2 and 4.3, Spark wraps the runtime filters on
 partition columns that have no such form, such as `p % 7 = (SELECT ...)`, in partition predicates.
 The scan evaluates each on the driver once per file, and drops the files it rules out.
 

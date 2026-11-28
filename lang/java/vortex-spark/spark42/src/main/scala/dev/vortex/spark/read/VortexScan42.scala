@@ -19,7 +19,7 @@ import org.apache.spark.sql.types.StructType
 
 import dev.vortex.spark.VortexOptions
 
-/** The scan for Spark 4.2, which takes part in iterative runtime filtering.
+/** The scan for Spark 4.2 and later, which takes part in iterative runtime filtering.
   *
   * Spark first offers the runtime filters it can translate. It then wraps the
   * rest that read only partition columns, such as a filter on a function of a

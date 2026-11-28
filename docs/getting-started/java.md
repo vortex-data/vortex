@@ -4,8 +4,8 @@ Vortex has two Java libraries:
 
 - `dev.vortex:vortex-jni` writes and scans Vortex files as
   [Apache Arrow](https://arrow.apache.org/docs/java/) record batches.
-- `dev.vortex:vortex-spark-3.5_2.12`, `dev.vortex:vortex-spark-3.5_2.13`, and
-  `dev.vortex:vortex-spark-4.0_2.13` read and write Vortex files from Spark.
+- The [Spark connector](../user-guide/spark.md) reads and writes Vortex files from Spark 3.5
+  and Spark 4.0 through 4.3.
 
 ## Install
 
@@ -310,8 +310,8 @@ which bundles its dependencies, to Spark:
 spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark-4.0_2.13/0.93.0/vortex-spark-4.0_2.13-0.93.0-all.jar
 ```
 
-Use `vortex-spark-3.5_2.12` or `vortex-spark-3.5_2.13` for Spark 3.5, and `vortex-spark-4.0_2.13`
-for Spark 4.0 to 4.3. The connector registers the format name `vortex`:
+Choose the artifact for your Spark and Scala versions from the [Spark artifact table](../user-guide/spark.md).
+For Spark 4.3, use `vortex-spark-4.3_2.13`. The connector registers the format name `vortex`:
 
 ```java
 import org.apache.spark.sql.Dataset;

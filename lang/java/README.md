@@ -14,7 +14,7 @@ We provide two interfaces for working with Vortex from Java:
 We publish these artifacts from this repo to Maven Central at CI time:
 
 * `dev.vortex:vortex-jni` JAR containing the JNI code, plus compiled native libraries for all of the following targets: `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`. The `all` classifier is the "shadow JAR", which also bundles the upstream Java dependencies and relocates Arrow, Guava, and Jackson.
-* `dev.vortex:vortex-spark-3.5_2.12`, `dev.vortex:vortex-spark-3.5_2.13`, and `dev.vortex:vortex-spark-4.0_2.13`, the Spark-versioned connector artifacts. Use the `all` classifier JAR, which bundles `vortex-jni`.
+* The Spark-versioned connector artifacts cover Spark 3.5 and 4.0 through 4.3. Use the `all` classifier JAR, which bundles `vortex-jni`. See the [Spark artifact table](vortex-spark/README.md) for the Maven coordinates.
 
 We use the [following GPG key](https://keyserver.ubuntu.com/pks/lookup?search=8745D1A87C0B2159&fingerprint=on&op=index) for publishing:
 
