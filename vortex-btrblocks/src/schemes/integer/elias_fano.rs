@@ -32,7 +32,7 @@ use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::FoRReferences;
 use vortex_fastlanes::for_v1_id;
 
-use super::BITPACKING_V1;
+use super::BitPackingScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
@@ -61,7 +61,7 @@ impl Scheme for EliasFanoScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         let mut encodings = vec![for_v1_id(), EliasFano.id(), Unary.id()];
-        encodings.extend(BITPACKING_V1.produced_encodings());
+        encodings.extend(BitPackingScheme.produced_encodings());
         encodings
     }
 
@@ -106,7 +106,7 @@ impl Scheme for EliasFanoScheme {
         )))
     }
 
-    /// Children: none of its own. The low bits are bit-packed, as `BITPACKING_V1` encodes
+    /// Children: none of its own. The low bits are bit-packed, as [`BitPackingScheme`] encodes
     /// them, and the bucket counts are forced into [`Unary`], which has no children.
     fn encode(
         &self,
@@ -135,7 +135,7 @@ impl Scheme for EliasFanoScheme {
             .into_array();
 
         let lows = ArrayAndStats::new(ef.lower().clone(), compress_ctx.merged_stats_options());
-        let Some(lower) = BITPACKING_V1.try_encode(&lows, exec_ctx)? else {
+        let Some(lower) = BitPackingScheme.try_encode(&lows, exec_ctx)? else {
             // Low bits that do not bit-pack leave Elias-Fano no smaller than the input, so hand
             // it back for the size check to reject.
             return Ok(Encoded::leaf(data.array().clone()));

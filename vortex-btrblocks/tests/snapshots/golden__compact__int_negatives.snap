@@ -5,5 +5,5 @@ expression: rendered
 input: i64, len=16384, nbytes=131072
 root: vortex.zigzag(i64, len=16384) nbytes=16384
   metadata: 
-  encoded: fastlanes.bitpacked.v2(u64, len=16384) nbytes=16384
+  encoded: fastlanes.bitpacked(u64, len=16384) nbytes=16384
     metadata: bit_width: 8, offset: 0

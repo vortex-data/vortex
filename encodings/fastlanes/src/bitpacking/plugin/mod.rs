@@ -3,7 +3,7 @@
 
 //! [`ArrayPlugin`] implementations for `BitPacked`.
 //!
-//! [`BitPackedPlugin`] owns serde for `fastlanes.bitpacked` and `fastlanes.bitpacked.v2`.
+//! [`BitPackedPlugin`] owns serde for `fastlanes.bitpacked`.
 //! [`BitPackedPatchedPlugin`] lets you load in and deserialize a `BitPacked` array with interior
 //! patches as a `PatchedArray` that wraps a patchless `BitPacked` array.
 //!
@@ -19,40 +19,19 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 
 #[cfg(test)]
 mod tests;
 mod v1;
-mod v2;
 
-/// The frozen BitPacked serialized ID for arrays whose blocks share one bit width.
-pub fn bitpacked_v1_id() -> ArrayId {
-    static ID: CachedId = CachedId::new("fastlanes.bitpacked");
-    *ID
-}
-
-/// The in-memory BitPacked ID, and the serialized ID for arrays whose blocks have their own bit
-/// widths.
-pub fn bitpacked_v2_id() -> ArrayId {
-    static ID: CachedId = CachedId::new("fastlanes.bitpacked.v2");
-    *ID
-}
-
-/// Serde for the [`BitPacked`] array.
-///
-/// Arrays with a global bit width serialize as `fastlanes.bitpacked`, which stores the width in
-/// its metadata. Arrays whose blocks have their own bit widths serialize as
-/// `fastlanes.bitpacked.v2`, which stores the block offsets as a child.
+/// Serde for the [`BitPacked`] array (`fastlanes.bitpacked`).
 ///
 /// Register this plugin, or call [`crate::initialize`], to enable serde. [`BitPacked`] does not
 /// implement [`ArrayPlugin`], so it cannot be registered on its own.
@@ -64,14 +43,6 @@ impl ArrayPlugin for BitPackedPlugin {
         ArrayVTable::id(&BitPacked)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![bitpacked_v1_id(), bitpacked_v2_id()]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![bitpacked_v1_id(), bitpacked_v2_id()]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -80,11 +51,7 @@ impl ArrayPlugin for BitPackedPlugin {
         let view = array.as_opt::<BitPacked>().ok_or_else(|| {
             vortex_err!("BitPacked plugin cannot serialize {}", array.encoding_id())
         })?;
-        let serialization = match view.bit_widths() {
-            BitWidthsView::Global(bit_width) => v1::serialize(array, view, bit_width)?,
-            BitWidthsView::Blocked(block_offsets) => v2::serialize(array, view, block_offsets)?,
-        };
-        Ok(Some(serialization))
+        Ok(Some(v1::serialize(array, view, view.bit_width())?))
     }
 
     fn deserialize(
@@ -92,16 +59,13 @@ impl ArrayPlugin for BitPackedPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        if parts.serialized_id == bitpacked_v1_id() {
-            v1::deserialize(parts, session)
-        } else if parts.serialized_id == bitpacked_v2_id() {
-            v2::deserialize(parts, session)
-        } else {
-            vortex_bail!(
-                "BitPacked plugin does not recognize serialized ID {}",
-                parts.serialized_id
-            )
-        }
+        vortex_ensure_eq!(
+            parts.serialized_id,
+            ArrayVTable::id(&BitPacked),
+            "BitPacked plugin does not recognize serialized ID {}",
+            parts.serialized_id
+        );
+        v1::deserialize(parts, session)
     }
 }
 
@@ -118,14 +82,6 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         ArrayVTable::id(&BitPacked)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        BitPackedPlugin.read_ids()
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        BitPackedPlugin.write_ids()
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -140,8 +96,9 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         parts: ArrayDeserialization<'_>,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure!(
-            self.read_ids().contains(&parts.serialized_id),
+        vortex_ensure_eq!(
+            parts.serialized_id,
+            ArrayVTable::id(&BitPacked),
             "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
@@ -162,22 +119,10 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         let validity = bitpacked.validity()?;
         let len = bitpacked.len();
         let offset = bitpacked.offset();
+        let bit_width = bitpacked.bit_width();
 
-        let bitpacked_without_patches = match bitpacked.bit_widths() {
-            BitWidthsView::Global(bw) => {
-                BitPacked::try_new(packed, ptype, validity, None, bw, len, offset)?
-            }
-            BitWidthsView::Blocked(block_offsets) => BitPacked::try_new_with_block_offsets(
-                packed,
-                ptype,
-                validity,
-                None,
-                block_offsets.clone(),
-                len,
-                offset,
-            )?,
-        }
-        .into_array();
+        let bitpacked_without_patches =
+            BitPacked::try_new(packed, ptype, validity, None, bit_width, len, offset)?.into_array();
 
         let patched = Patched::from_array_and_patches(
             bitpacked_without_patches,

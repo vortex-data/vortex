@@ -35,13 +35,10 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPacked;
     use vortex_fastlanes::BitPackedArrayExt;
-    use vortex_fastlanes::BitWidthsView;
     use vortex_session::VortexSession;
 
     use crate::schemes::float::FloatDictScheme;
     use crate::schemes::integer::BitPackingScheme;
-
-    static BITPACKING: BitPackingScheme = BitPackingScheme::v1();
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -68,7 +65,7 @@ mod tests {
             .collect();
         let array = PrimitiveArray::from_iter(values).into_array();
 
-        let compressor = CascadingCompressor::new(vec![&FloatDictScheme, &BITPACKING]);
+        let compressor = CascadingCompressor::new(vec![&FloatDictScheme, &BitPackingScheme]);
         let compressed = compressor.compress(&array, &mut ctx)?;
         let dict = compressed
             .as_opt::<Dict>()
@@ -77,7 +74,7 @@ mod tests {
             .codes()
             .as_opt::<BitPacked>()
             .expect("expected BitPacked codes");
-        assert!(matches!(packed.bit_widths(), BitWidthsView::Global(1)));
+        assert_eq!(packed.bit_width(), 1);
         assert!(packed.patches().is_some());
         assert_arrays_eq!(compressed, array, &mut ctx);
         Ok(())

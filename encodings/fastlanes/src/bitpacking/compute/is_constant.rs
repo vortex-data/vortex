@@ -42,9 +42,6 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
         let Some(array) = batch.as_opt::<BitPacked>() else {
             return Ok(None);
         };
-        if !array.bit_widths().is_global() {
-            return Ok(None);
-        }
 
         let result = if batch.all_invalid(ctx)? {
             true

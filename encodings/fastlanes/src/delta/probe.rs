@@ -33,7 +33,6 @@ use vortex_error::vortex_err;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::Delta;
 use crate::FL_CHUNK_SIZE;
 use crate::delta::array::DeltaArrayExt;
@@ -312,44 +311,13 @@ impl<'a, T: NativePType + BitPacking> LaneDeltas<'a, T> {
         }
         let words_of = |width: usize| FL_CHUNK_SIZE * width / (8 * size_of::<T>());
         let all = bp.data().packed_slice::<T>();
-        match bp.bit_widths() {
-            BitWidthsView::Global(width) => {
-                let width = usize::from(width);
-                let words = words_of(width);
-                Some(Self::Packed {
-                    block: all.get(block * words..(block + 1) * words)?,
-                    width,
-                    block_index: block,
-                })
-            }
-            BitWidthsView::Blocked(offsets) => {
-                let offsets = offsets.as_opt::<Primitive>()?;
-                if !offsets.buffer_handle().is_on_host() {
-                    return None;
-                }
-                let (base, start, end): (u64, u64, u64) =
-                    match_each_unsigned_integer_ptype!(offsets.ptype(), |I| {
-                        let offsets = offsets.as_slice::<I>();
-                        (
-                            offsets.first()?.as_(),
-                            offsets.get(block)?.as_(),
-                            offsets.get(block + 1)?.as_(),
-                        )
-                    });
-                let start = usize::try_from(start.checked_sub(base)?).ok()?;
-                let end = usize::try_from(end.checked_sub(base)?).ok()?;
-                let width = (end - start) / 128;
-                let packed_block = all.get(start / size_of::<T>()..end / size_of::<T>())?;
-                if packed_block.len() != words_of(width) {
-                    return None;
-                }
-                Some(Self::Packed {
-                    block: packed_block,
-                    width,
-                    block_index: block,
-                })
-            }
-        }
+        let width = usize::from(bp.bit_width());
+        let words = words_of(width);
+        Some(Self::Packed {
+            block: all.get(block * words..(block + 1) * words)?,
+            width,
+            block_index: block,
+        })
     }
 
     /// The value at `position` of the undeltaed chunk, whose lane has base `base`, corrected for

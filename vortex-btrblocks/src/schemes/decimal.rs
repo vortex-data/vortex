@@ -243,7 +243,7 @@ mod tests {
     use crate::SESSION;
     use crate::Scheme;
     use crate::SchemeExt;
-    use crate::schemes::integer::BITPACKING_V1;
+    use crate::schemes::integer::BitPackingScheme;
 
     /// A value wider than 64 bits that the sample does not hold must not let v1 byte parts win.
     ///
@@ -274,7 +274,7 @@ mod tests {
         .into_array();
 
         let compressor =
-            CascadingCompressor::new(vec![&DecimalDictScheme, &DECIMAL_V1, &BITPACKING_V1]);
+            CascadingCompressor::new(vec![&DecimalDictScheme, &DECIMAL_V1, &BitPackingScheme]);
         let compressed = compressor.compress(&array, &mut ctx)?;
 
         assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());

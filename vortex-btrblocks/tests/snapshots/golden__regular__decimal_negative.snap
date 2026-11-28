@@ -9,5 +9,5 @@ root: vortex.decimal_byte_parts.v2(decimal(10,2), len=16384) nbytes=36864
     metadata: 
     values: vortex.zigzag(i32, len=16384) nbytes=36864
       metadata: 
-      encoded: fastlanes.bitpacked.v2(u32, len=16384) nbytes=36864
+      encoded: fastlanes.bitpacked(u32, len=16384) nbytes=36864
         metadata: bit_width: 18, offset: 0

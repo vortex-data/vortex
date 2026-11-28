@@ -424,13 +424,9 @@ fn test_cuda_binary_zstd_follows_editions(
     Ok(())
 }
 
-static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
-static BITPACKING_V2: BitPackingScheme = BitPackingScheme::v2();
-
 /// A scheme that stores its input's validity registers it, so it is compressed.
 #[rstest]
-#[case::bitpacking_v1(&BITPACKING_V1)]
-#[case::bitpacking_v2(&BITPACKING_V2)]
+#[case::bitpacking(&BitPackingScheme)]
 #[cfg_attr(feature = "pco", case::pco(&IntPcoScheme))]
 fn test_integer_scheme_compresses_its_validity(
     #[case] scheme: &'static dyn Scheme,
@@ -460,7 +456,7 @@ fn test_bitpacking_skips_small_savings(
     let input = PrimitiveArray::from_iter((0..7u8).cycle().take(10_000).map(|v| min_value + v))
         .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&BITPACKING_V2)
+        .with_new_scheme(&BitPackingScheme)
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
 
@@ -514,7 +510,7 @@ fn test_alp_keeps_its_patches() -> VortexResult<()> {
     .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&ALPScheme)
-        .with_new_scheme(&BITPACKING_V1)
+        .with_new_scheme(&BitPackingScheme)
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
 
@@ -737,7 +733,7 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
     let input = PrimitiveArray::from_iter((0..1_000_000).map(|i| i / 100)).into_array();
     let mut builder = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&RunEndScheme)
-        .with_new_scheme(&BITPACKING_V1);
+        .with_new_scheme(&BitPackingScheme);
     if keep {
         builder = builder.with_child_policy(Arc::new(KeepEverything));
     }

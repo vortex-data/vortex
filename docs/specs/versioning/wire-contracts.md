@@ -62,8 +62,8 @@ Under a frozen ID, any change an older reader would misread or reject needs a ne
 - changing the meaning of an existing metadata field;
 - writing values that the existing reader rejects.
 
-The writer can keep writing the original ID when the new feature is unused, as BitPacked does with
-`fastlanes.bitpacked` and `fastlanes.bitpacked.v2`. An edition then controls when writers may use
+The writer can keep writing the original ID when the new feature is unused, as FoR does with
+`fastlanes.for` and `fastlanes.for.v2`. An edition then controls when writers may use
 the new ID.
 
 ## Validating input

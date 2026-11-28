@@ -27,9 +27,7 @@ use vortex_error::vortex_ensure;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
-use crate::bitpack_decompress::execute_block_offsets;
 use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::transpose::TransposeKernel;
@@ -209,20 +207,12 @@ where
 /// The packed blocks of bit-packed deltas, one per chunk, and their patches by chunk.
 struct PackedChunks<'a, T> {
     packed: &'a [T],
-    blocks: Blocks,
+    bit_width: usize,
+    first: usize,
     /// The patches within the chunks, as (position in chunk, value), grouped by chunk.
     patches: Vec<(usize, T)>,
     /// `patches[patch_starts[c]..patch_starts[c + 1]]` are the patches of chunk `c`.
     patch_starts: Vec<usize>,
-}
-
-/// Where the packed block of each chunk is.
-enum Blocks {
-    /// Every block has `bit_width` bits per value; chunk `c` is block `first + c`.
-    Global { bit_width: usize, first: usize },
-    /// Block `b` lies between byte boundaries `offsets[b]` and `offsets[b + 1]`, relative to
-    /// `offsets[0]`; chunk `c` is block `first + c`.
-    Blocked { offsets: Buffer<u64>, first: usize },
 }
 
 impl<'a, T: NativePType + BitPacking> PackedChunks<'a, T> {
@@ -234,26 +224,12 @@ impl<'a, T: NativePType + BitPacking> PackedChunks<'a, T> {
         let bp = deltas.packed();
         let first = deltas.first_block();
         let packed = bp.data().packed_slice::<T>();
-        let blocks = match bp.bit_widths() {
-            BitWidthsView::Global(bit_width) => {
-                let bit_width = usize::from(bit_width);
-                let words = FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>());
-                vortex_ensure!(
-                    (first + num_chunks) * words <= packed.len(),
-                    "packed deltas hold too few blocks"
-                );
-                Blocks::Global { bit_width, first }
-            }
-            BitWidthsView::Blocked(offsets) => {
-                // The validated offsets bound every block to its bit width within `packed`.
-                let offsets = execute_block_offsets(bp, offsets, ctx)?;
-                vortex_ensure!(
-                    first + num_chunks < offsets.len(),
-                    "packed deltas hold too few blocks"
-                );
-                Blocks::Blocked { offsets, first }
-            }
-        };
+        let bit_width = usize::from(bp.bit_width());
+        let words = FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>());
+        vortex_ensure!(
+            (first + num_chunks) * words <= packed.len(),
+            "packed deltas hold too few blocks"
+        );
         let blocks_range = first..first + num_chunks;
         let patches = chunk_patches::<T>(bp, &blocks_range, ctx)?;
         let mut patch_starts = Vec::with_capacity(num_chunks + 1);
@@ -269,7 +245,8 @@ impl<'a, T: NativePType + BitPacking> PackedChunks<'a, T> {
             .collect();
         Ok(Self {
             packed,
-            blocks,
+            bit_width,
+            first,
             patches,
             patch_starts,
         })
@@ -277,23 +254,11 @@ impl<'a, T: NativePType + BitPacking> PackedChunks<'a, T> {
 
     /// The packed block of chunk `chunk` and its bit width.
     fn block(&self, chunk: usize) -> (&'a [T], usize) {
-        match &self.blocks {
-            Blocks::Global { bit_width, first } => {
-                let words = FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>());
-                (&self.packed[(first + chunk) * words..][..words], *bit_width)
-            }
-            Blocks::Blocked { offsets, first } => {
-                let block = first + chunk;
-                let base = offsets[0];
-                // Validation bounds these differences by the packed buffer's usize length.
-                let start = (offsets[block] - base) as usize;
-                let end = (offsets[block + 1] - base) as usize;
-                (
-                    &self.packed[start / size_of::<T>()..end / size_of::<T>()],
-                    (end - start) / 128,
-                )
-            }
-        }
+        let words = FL_CHUNK_SIZE * self.bit_width / (8 * size_of::<T>());
+        (
+            &self.packed[(self.first + chunk) * words..][..words],
+            self.bit_width,
+        )
     }
 
     /// The patches of chunk `chunk`, as (position in chunk, value).

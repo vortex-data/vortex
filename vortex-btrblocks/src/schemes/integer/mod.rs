@@ -16,7 +16,6 @@ mod zigzag;
 #[cfg(feature = "pco")]
 mod pco;
 
-pub(crate) use bitpacking::BITPACKING_V1;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub use elias_fano::EliasFanoScheme;
@@ -60,7 +59,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPacked;
     use vortex_fastlanes::BitPackedArrayExt;
-    use vortex_fastlanes::BitWidthsView;
     use vortex_session::VortexSession;
 
     use crate::schemes::binary::BinaryDictScheme;
@@ -68,8 +66,6 @@ mod tests {
     use crate::schemes::integer::BitPackingScheme;
     use crate::schemes::integer::IntDictScheme;
     use crate::schemes::string::StringDictScheme;
-
-    static BITPACKING: BitPackingScheme = BitPackingScheme::v1();
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -79,14 +75,14 @@ mod tests {
 
     fn assert_1bit_patched_dict(scheme: &'static dyn Scheme, array: ArrayRef) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let compressor = CascadingCompressor::new(vec![scheme, &BITPACKING]);
+        let compressor = CascadingCompressor::new(vec![scheme, &BitPackingScheme]);
         let compressed = compressor.compress(&array, &mut ctx)?;
         let dict = compressed.as_opt::<Dict>().expect("expected Dict");
         let packed = dict
             .codes()
             .as_opt::<BitPacked>()
             .expect("expected BitPacked codes");
-        assert!(matches!(packed.bit_widths(), BitWidthsView::Global(1)));
+        assert_eq!(packed.bit_width(), 1);
         assert!(packed.patches().is_some());
         assert_arrays_eq!(compressed, array, &mut ctx);
         Ok(())
