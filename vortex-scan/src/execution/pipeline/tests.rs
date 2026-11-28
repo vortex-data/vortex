@@ -816,6 +816,18 @@ fn sparse_dict_threshold_boundaries_and_cache_sharing() -> VortexResult<()> {
     assert_eq!(reads(&dense_run.events), 1);
     assert!(dense_run.arrays[0].as_::<Dict>().values().is::<Shared>());
 
+    // Empty selection on a dictionary reads nothing and emits no batches.
+    let empty_run = run_with_values(
+        &store,
+        &plan,
+        0..4,
+        Mask::new_false(4),
+        ValueCache::default(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&empty_run.events), 0);
+    assert!(empty_run.arrays.is_empty());
+
     let expected = VarBinArray::from_iter(
         (0..68).map(|i| (i != 1 && i != 2).then(|| format!("val-{i}"))),
         dtype,

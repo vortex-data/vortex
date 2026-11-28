@@ -198,6 +198,18 @@ impl GatedSegments {
         self.state.lock().peak
     }
 
+    fn complete_newest(&self) {
+        let tx = {
+            let mut state = self.state.lock();
+            state
+                .pending
+                .pop_back()
+                .map(|(_, tx)| tx)
+                .unwrap_or_else(|| vortex_panic!("no pending read to complete"))
+        };
+        let _ = tx.send(());
+    }
+
     fn complete(&self, count: usize) {
         let senders: Vec<_> = {
             let mut state = self.state.lock();
@@ -308,8 +320,8 @@ fn concurrency_bounds_chunks_in_flight_in_total(
         .spawn_local_with_handle(driver.run_prepared(prepared, Ok).try_collect::<Vec<_>>())
         .map_err(|err| vortex_err!("spawn scan: {err}"))?;
 
-    // Release one read at a time so each freed slot must be refilled without waiting for
-    // the other in-flight reads to finish.
+    // Release one read at a time (alternating newest and oldest) so each freed slot must be
+    // refilled immediately, even when a later read finishes before an earlier in-flight read.
     for completed in 0..chunks {
         runtime.run_until_stalled(&mut pool);
         let expected_started = (completed + concurrency).min(chunks);
@@ -317,7 +329,11 @@ fn concurrency_bounds_chunks_in_flight_in_total(
         assert_eq!(segments.started(), expected_started);
         assert_eq!(segments.pending_count(), expected_pending);
         assert_eq!(segments.peak(), concurrency);
-        segments.complete(1);
+        if completed % 2 == 0 {
+            segments.complete_newest();
+        } else {
+            segments.complete(1);
+        }
     }
 
     runtime.run_until_stalled(&mut pool);

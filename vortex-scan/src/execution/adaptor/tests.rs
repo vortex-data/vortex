@@ -135,7 +135,12 @@ fn batches_consecutive_reads_and_retains_pending_output() -> VortexResult<()> {
         ],
     )?
     .into_plan();
-    let locs = store.input(plan.clone()).locations;
+    let mut locs_vec = store.input(plan.clone()).locations.to_vec();
+    // Give the two segments distinct alignments so the test verifies per-segment alignment
+    // forwarding rather than matching a uniform default.
+    locs_vec[0].alignment = Alignment::new(8);
+    locs_vec[1].alignment = Alignment::new(64);
+    let locs: Arc<[SegmentLocation]> = Arc::from(locs_vec);
     // Split 0 hits the in-memory chunk; split 1 needs segments 0 and 1. Because Scan runs
     // active splits LIFO, split 1 issues both reads first and split 0 immediately emits an
     // output that ScanAdaptor retains in `pending` alongside the NeedsIO batch.
