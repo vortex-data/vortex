@@ -828,6 +828,8 @@ mod tests {
         let listview = builder.finish_into_listview();
         // The builder kept the source's overlapping layout.
         assert!(!listview.is_zero_copy_to_list());
+        assert_eq!(listview.offset_at(0, &mut ctx), 0);
+        assert_eq!(listview.offset_at(2, &mut ctx), 0);
         // List 1 is null, so the builder keeps its source size without rewriting it to zero.
         assert_eq!(listview.size_at(1, &mut ctx), source.size_at(1, &mut ctx));
 
