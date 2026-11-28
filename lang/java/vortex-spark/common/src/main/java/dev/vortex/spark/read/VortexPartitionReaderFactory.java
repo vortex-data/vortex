@@ -8,6 +8,7 @@ import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.io.VortexFile;
 import dev.vortex.spark.io.VortexIo;
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -66,6 +67,9 @@ public final class VortexPartitionReaderFactory extends FilePartitionReaderFacto
     /** Whether readers keep each file's row order, which the scan reports to Spark. */
     private final boolean ordered;
 
+    /** The pushed filters together with the runtime filters of the partition being read. */
+    private transient Filter[] partitionFilters;
+
     /** The top-N threshold the readers of the partition being read share. */
     private transient TopNThreshold partitionTopN;
 
@@ -110,6 +114,11 @@ public final class VortexPartitionReaderFactory extends FilePartitionReaderFacto
 
     @Override
     public PartitionReader<ColumnarBatch> createColumnarReader(InputPartition partition) {
+        Filter[] runtimeFilters =
+                partition instanceof VortexFilePartition vortexPartition ? vortexPartition.runtimeFilters() : null;
+        partitionFilters = runtimeFilters == null || runtimeFilters.length == 0
+                ? pushedFilters
+                : concat(pushedFilters, runtimeFilters);
         partitionTopN = topNThreshold();
         partitionMetrics = new VortexScanMetrics.Task();
         return VortexScanMetrics.reporting(super.createColumnarReader(partition), partitionMetrics);
@@ -125,6 +134,12 @@ public final class VortexPartitionReaderFactory extends FilePartitionReaderFacto
             }
         }
         return null;
+    }
+
+    private static Filter[] concat(Filter[] first, Filter[] second) {
+        Filter[] combined = Arrays.copyOf(first, first.length + second.length);
+        System.arraycopy(second, 0, combined, first.length, second.length);
+        return combined;
     }
 
     @Override
@@ -145,7 +160,7 @@ public final class VortexPartitionReaderFactory extends FilePartitionReaderFacto
                 readPartitionSchema,
                 io,
                 formatOptions,
-                pushedFilters,
+                partitionFilters == null ? pushedFilters : partitionFilters,
                 caseSensitive,
                 limit > 0 ? OptionalLong.of(limit) : OptionalLong.empty(),
                 partitionTopN,

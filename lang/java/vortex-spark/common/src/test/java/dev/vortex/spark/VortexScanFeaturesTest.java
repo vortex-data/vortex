@@ -4,21 +4,30 @@
 package dev.vortex.spark;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.vortex.api.Session;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.catalyst.expressions.DynamicPruningSubquery;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
+import scala.collection.JavaConverters;
 
 /** File splitting, row indexes, LIMIT, top-N, sample, and nested column pushdown, and runtime filtering. */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -76,6 +85,53 @@ public final class VortexScanFeaturesTest {
             assertEquals((long) ROWS, totals.getLong(1));
             assertEquals((long) ROWS * (ROWS - 1) / 2, totals.getLong(2));
         }
+    }
+
+    @Test
+    void footerStatisticsDropFilesNoRowCanMatch() {
+        Path output = tempDir.resolve("pruned");
+        // Each of the four files holds a separate range of 1000 ids.
+        spark.range(0, 4000, 1, 4)
+                .write()
+                .format("vortex")
+                .mode(SaveMode.Overwrite)
+                .save(output.toString());
+
+        // An open cost above the split size gives each file a partition of its own.
+        spark.conf().set("spark.sql.files.openCostInBytes", "1g");
+        Dataset<Row> data = spark.read().format("vortex").load(output.toString());
+
+        assertEquals(4, data.rdd().getNumPartitions());
+        assertEquals(1, data.filter("id = 1500").rdd().getNumPartitions());
+        assertEquals(List.of(RowFactory.create(1500L)), data.filter("id = 1500").collectAsList());
+
+        assertEquals(2, data.filter("id IN (5, 3500)").rdd().getNumPartitions());
+        assertEquals(2, data.filter("id < 1000 OR id >= 3000").rdd().getNumPartitions());
+        assertEquals(0, data.filter("id > 3999").rdd().getNumPartitions());
+        assertEquals(0L, data.filter("id > 3999").count());
+
+        Dataset<Row> unpruned = spark.read()
+                .format("vortex")
+                .option("vortex.pruneFiles", "false")
+                .load(output.toString());
+        assertEquals(4, unpruned.filter("id = 1500").rdd().getNumPartitions());
+    }
+
+    @Test
+    void filesSplitNoSmallerThanTheMinimumSplit() {
+        Path output = writeOneLargeFile("min_split");
+        // Spark alone would split the file in two, one piece for each core of the session.
+        spark.conf().set("spark.sql.files.openCostInBytes", "0");
+        Dataset<Row> whole = spark.read().format("vortex").load(output.toString());
+        assertEquals(1, whole.rdd().getNumPartitions());
+
+        Dataset<Row> split = spark.read()
+                .format("vortex")
+                .option("vortex.minSplitBytes", "256k")
+                .option("vortex.aggregatePushdown", "false")
+                .load(output.toString());
+        assertTrue(split.rdd().getNumPartitions() > 1);
+        assertEquals((long) ROWS, split.selectExpr("count(DISTINCT id)").first().getLong(0));
     }
 
     @Test
@@ -211,6 +267,48 @@ public final class VortexScanFeaturesTest {
     }
 
     @Test
+    void partitionKeysLetJoinsSkipTheShuffle() {
+        Path left = tempDir.resolve("keyed_left");
+        Path right = tempDir.resolve("keyed_right");
+        spark.range(0, 20_000)
+                .selectExpr("id", "cast(id % 5 AS int) AS p")
+                .repartition(7)
+                .write()
+                .format("vortex")
+                .partitionBy("p")
+                .save(left.toString());
+        spark.range(0, 500)
+                .selectExpr("id AS rid", "cast(id % 5 AS int) AS p")
+                .write()
+                .format("vortex")
+                .partitionBy("p")
+                .save(right.toString());
+
+        spark.conf().set("spark.sql.autoBroadcastJoinThreshold", "-1");
+        try {
+            spark.conf().set("spark.sql.sources.v2.bucketing.enabled", "true");
+            Dataset<Row> keyed = joinOnPartitions(left, right);
+            String plan = keyed.queryExecution().executedPlan().toString();
+            assertFalse(plan.contains("Exchange hashpartitioning"), "a keyed join needs no shuffle:\n" + plan);
+            Row keyedTotals = keyed.first();
+
+            spark.conf().set("spark.sql.sources.v2.bucketing.enabled", "false");
+            Dataset<Row> shuffled = joinOnPartitions(left, right);
+            assertTrue(shuffled.queryExecution().executedPlan().toString().contains("Exchange hashpartitioning"));
+            assertEquals(shuffled.first(), keyedTotals);
+        } finally {
+            spark.conf().unset("spark.sql.sources.v2.bucketing.enabled");
+            spark.conf().unset("spark.sql.autoBroadcastJoinThreshold");
+        }
+    }
+
+    private Dataset<Row> joinOnPartitions(Path left, Path right) {
+        Dataset<Row> facts = spark.read().format("vortex").load(left.toString());
+        Dataset<Row> others = spark.read().format("vortex").load(right.toString());
+        return facts.join(others, "p").selectExpr("count(*)", "sum(id)", "sum(rid)");
+    }
+
+    @Test
     void offsetSkipsWholeFilesAndEndsMidFile() {
         Path output = tempDir.resolve("offset");
         spark.range(0, 10_000).repartition(7).write().format("vortex").save(output.toString());
@@ -229,6 +327,114 @@ public final class VortexScanFeaturesTest {
 
         // Spark pushes LIMIT offset + n per file and the offset, and keeps the LIMIT n above the scan.
         assertEquals(25, data.offset(4321).limit(25).collectAsList().size());
+    }
+
+    public static final class SortedSession implements VortexSessionProvider {
+        @Override
+        public Session get() {
+            Session session = Session.create();
+            session.enableEdition("unstable2026.10.0");
+            return session;
+        }
+    }
+
+    @Test
+    void sortedFilesReportTheirOrderSoSparkNeedNotSort() {
+        Path output = tempDir.resolve("sorted_files");
+        spark.range(0, 50_000)
+                .selectExpr("id", "id % 7 AS other")
+                .repartition(5)
+                .sortWithinPartitions("id")
+                .write()
+                .format("vortex")
+                .option(VortexSparkSession.PROVIDER_OPTION, SortedSession.class.getName())
+                .save(output.toString());
+
+        Dataset<Row> reported = spark.read()
+                .format("vortex")
+                .option("vortex.reportOrdering", "true")
+                .load(output.toString())
+                .sortWithinPartitions("id");
+        String plan = reported.queryExecution().executedPlan().toString();
+        assertFalse(plan.contains("Sort ["), "the files' order makes the sort redundant:\n" + plan);
+        for (List<Row> partition : reported.select("id").javaRDD().glom().collect()) {
+            for (int i = 1; i < partition.size(); i++) {
+                assertTrue(partition.get(i - 1).getLong(0) <= partition.get(i).getLong(0));
+            }
+        }
+        assertEquals(50_000L, reported.count());
+
+        // Without the report, or for a column the footers do not state sorted, Spark sorts.
+        assertTrue(spark.read()
+                .format("vortex")
+                .load(output.toString())
+                .sortWithinPartitions("id")
+                .queryExecution()
+                .executedPlan()
+                .toString()
+                .contains("Sort ["));
+        assertTrue(spark.read()
+                .format("vortex")
+                .option("vortex.reportOrdering", "true")
+                .load(output.toString())
+                .sortWithinPartitions("other")
+                .queryExecution()
+                .executedPlan()
+                .toString()
+                .contains("Sort ["));
+    }
+
+    @Test
+    void sparkEvaluatesBloomFilterRuntimeFiltersAboveTheScan() {
+        Path facts = tempDir.resolve("bloom_facts");
+        spark.range(0, 50_000)
+                .selectExpr("id", "id % 1000 AS key")
+                .write()
+                .format("vortex")
+                .save(facts.toString());
+        Path dimensions = tempDir.resolve("bloom_dimensions");
+        spark.range(0, 1000)
+                .selectExpr("id AS key", "concat('name_', id % 50) AS name")
+                .write()
+                .format("vortex")
+                .save(dimensions.toString());
+
+        // A shuffle join with a selective side, and no dynamic pruning, which Spark prefers when it applies.
+        String[][] settings = {
+            {"spark.sql.autoBroadcastJoinThreshold", "-1"},
+            {"spark.sql.optimizer.dynamicPartitionPruning.enabled", "false"},
+            {"spark.sql.optimizer.runtime.bloomFilter.enabled", "true"},
+            {"spark.sql.optimizer.runtime.bloomFilter.applicationSideScanSizeThreshold", "1"},
+            {"spark.sql.optimizer.runtime.bloomFilter.creationSideThreshold", "100MB"}
+        };
+        for (String[] setting : settings) {
+            spark.conf().set(setting[0], setting[1]);
+        }
+        try {
+            Dataset<Row> fact = spark.read().format("vortex").load(facts.toString());
+            Dataset<Row> dimension =
+                    spark.read().format("vortex").load(dimensions.toString()).filter("name = 'name_7'");
+            Dataset<Row> joined = fact.join(dimension, "key").select("id");
+            String plan = joined.queryExecution().optimizedPlan().toString();
+
+            // Spark injects the bloom filter after it pushed filters into the scan. Spark 4.2 also lists it among a
+            // scan's runtime filters, but has no V2 form to hand the scan, so on a data column it is never among
+            // what the scan pushes. If a Spark release ever translates it, this fails, and the connector should
+            // take it.
+            assertTrue(plan.contains("might_contain"), "Spark should inject a bloom filter:\n" + plan);
+            String scans =
+                    joined.queryExecution().executedPlan().collectLeaves().mkString("\n");
+            Matcher pushed =
+                    Pattern.compile("Pushed(Filters|Predicates): \\[[^\\]]*]").matcher(scans);
+            while (pushed.find()) {
+                assertFalse(pushed.group().contains("might_contain"), "a scan pushed the bloom filter:\n" + scans);
+            }
+            assertEquals(1000L, joined.count());
+        } finally {
+            for (String[] setting : settings) {
+                spark.conf().unset(setting[0]);
+            }
+        }
     }
 
     @Test
@@ -261,6 +467,36 @@ public final class VortexScanFeaturesTest {
     }
 
     @Test
+    void runtimeFiltersNarrowDataAndPartitionColumns() {
+        Path facts = tempDir.resolve("facts");
+        spark.range(0, 50_000)
+                .selectExpr("id", "id % 1000 AS key", "cast(id % 8 AS int) AS part")
+                .repartition(8)
+                .write()
+                .format("vortex")
+                .partitionBy("part")
+                .save(facts.toString());
+        Path dimensions = tempDir.resolve("dimensions");
+        spark.range(0, 1000)
+                .selectExpr("id AS key", "cast(id % 8 AS int) AS part", "concat('name_', id % 50) AS name")
+                .write()
+                .format("vortex")
+                .save(dimensions.toString());
+
+        // Reads through the DataFrame API take the V2 scan, which accepts runtime filters on data columns too.
+        for (String joinColumn : List.of("key", "part")) {
+            spark.conf().set("spark.sql.optimizer.dynamicPartitionPruning.enabled", "true");
+            Dataset<Row> pruned = joinedIds(facts, dimensions, joinColumn);
+            String plan = pruned.queryExecution().executedPlan().toString();
+            assertTrue(plan.contains("dynamicpruningexpression"), "runtime filter on " + joinColumn + ":\n" + plan);
+            List<Row> prunedRows = pruned.orderBy("id").collectAsList();
+
+            spark.conf().set("spark.sql.optimizer.dynamicPartitionPruning.enabled", "false");
+            assertEquals(joinedIds(facts, dimensions, joinColumn).orderBy("id").collectAsList(), prunedRows);
+        }
+    }
+
+    @Test
     void decimalsReadBackAtEveryPrecision() {
         Path output = tempDir.resolve("decimals");
         // Up to 18 digits a decimal crosses the native boundary as its unscaled long, and above as a 128-bit decimal.
@@ -280,6 +516,79 @@ public final class VortexScanFeaturesTest {
                 written.selectExpr("sum(small)", "sum(widest_long)", "sum(medium)")
                         .collectAsList(),
                 read.selectExpr("sum(small)", "sum(widest_long)", "sum(medium)").collectAsList());
+    }
+
+    @Test
+    void pruningSubqueriesDoNotNestThroughASelfJoin() {
+        Path facts = tempDir.resolve("nested_facts");
+        spark.range(0, 20_000)
+                .selectExpr("id", "id % 500 AS key", "id % 37 AS other")
+                .repartition(4)
+                .write()
+                .format("vortex")
+                .save(facts.toString());
+        Path dimensions = tempDir.resolve("nested_dimensions");
+        spark.range(0, 500)
+                .selectExpr("id AS key", "concat('name_', id % 50) AS name")
+                .write()
+                .format("vortex")
+                .save(dimensions.toString());
+        spark.read().format("vortex").load(facts.toString()).createOrReplaceTempView("nested_facts");
+        spark.read().format("vortex").load(dimensions.toString()).createOrReplaceTempView("nested_dimensions");
+
+        // The join of the two references prunes one by the other, whose own scan the dimension prunes.
+        String query = "WITH x AS (SELECT f.other, sum(f.id) AS total FROM nested_facts f "
+                + "JOIN nested_dimensions d ON f.key = d.key WHERE d.name = 'name_7' GROUP BY f.other) "
+                + "SELECT a.other, a.total, b.total AS other_total FROM x a JOIN x b ON a.other = b.other "
+                + "WHERE b.total > 100";
+        spark.conf().set("spark.sql.optimizer.dynamicPartitionPruning.enabled", "true");
+        Dataset<Row> pruned = spark.sql(query);
+        LogicalPlan plan = pruned.queryExecution().optimizedPlan();
+        List<DynamicPruningSubquery> subqueries = pruningSubqueries(plan);
+        assertFalse(subqueries.isEmpty(), "the dimension still prunes the facts:\n" + plan);
+        for (DynamicPruningSubquery subquery : subqueries) {
+            assertTrue(
+                    pruningSubqueries(subquery.buildQuery()).isEmpty(),
+                    "a pruning subquery holds another one:\n" + plan);
+        }
+        List<Row> prunedRows = pruned.orderBy("other").collectAsList();
+
+        spark.conf().set("spark.sql.optimizer.dynamicPartitionPruning.enabled", "false");
+        assertEquals(spark.sql(query).orderBy("other").collectAsList(), prunedRows);
+    }
+
+    /** The dynamic pruning subqueries in {@code plan}, without those inside their own filtering plans. */
+    private static List<DynamicPruningSubquery> pruningSubqueries(LogicalPlan plan) {
+        List<DynamicPruningSubquery> found = new ArrayList<>();
+        collectPruningSubqueries(plan, found);
+        return found;
+    }
+
+    private static void collectPruningSubqueries(LogicalPlan plan, List<DynamicPruningSubquery> found) {
+        for (Expression expression : JavaConverters.seqAsJavaList(plan.expressions())) {
+            collectPruningSubqueries(expression, found);
+        }
+        for (LogicalPlan child : JavaConverters.seqAsJavaList(plan.children())) {
+            collectPruningSubqueries(child, found);
+        }
+    }
+
+    private static void collectPruningSubqueries(Expression expression, List<DynamicPruningSubquery> found) {
+        if (expression instanceof DynamicPruningSubquery subquery) {
+            found.add(subquery);
+            return;
+        }
+        for (Expression child : JavaConverters.seqAsJavaList(expression.children())) {
+            collectPruningSubqueries(child, found);
+        }
+    }
+
+    private Dataset<Row> joinedIds(Path facts, Path dimensions, String joinColumn) {
+        Dataset<Row> fact = spark.read().format("vortex").load(facts.toString());
+        Dataset<Row> dimension =
+                spark.read().format("vortex").load(dimensions.toString()).filter("name = 'name_7'");
+        return fact.join(dimension, fact.col(joinColumn).equalTo(dimension.col(joinColumn)))
+                .select(fact.col("id"));
     }
 
     private Path writeOneLargeFile(String name) {

@@ -23,12 +23,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -229,6 +231,127 @@ public final class VortexFooterReader {
     }
 
     /**
+     * Gathers footer statistics for Spark's cost-based optimizer: the dataset's row count, and for each of
+     * {@code columns} its null count and extrema, as Catalyst values.
+     *
+     * <p>Only what every footer states exactly is reported, so no data is read: a column whose null count one footer
+     * leaves open has no null count, and a column whose extrema one footer leaves open, among files that hold values in
+     * it, has no extrema. A file that predates a column holds only nulls in it. Like {@link #sumRowCounts}, this
+     * reports nothing for a dataset of more than {@value #MAX_FILES_OPTION} files.
+     *
+     * @param columns data columns whose types order through {@link Comparable} in their Catalyst form
+     */
+    public static Statistics statistics(
+            List<VortexFile> files, VortexIo io, VortexOptions options, List<StructField> columns, boolean caseSensitive) {
+        if (files.isEmpty()) {
+            return new Statistics(OptionalLong.of(0), Map.of());
+        }
+        int maxFiles = options.getInt(MAX_FILES_OPTION, DEFAULT_MAX_FILES);
+        if (maxFiles > 0 && files.size() > maxFiles) {
+            return new Statistics(OptionalLong.empty(), Map.of());
+        }
+
+        List<FileStatistics> perFile =
+                mapFiles(files, io, options, footer -> fileStatistics(footer, columns, caseSensitive));
+
+        long rowCount = 0;
+        Map<String, ColumnAccumulator> merged = new LinkedHashMap<>();
+        for (StructField requested : columns) {
+            String column = requested.name();
+            merged.put(column, new ColumnAccumulator());
+        }
+        for (FileStatistics file : perFile) {
+            rowCount = Math.addExact(rowCount, file.rowCount());
+            file.columns().forEach((column, statistics) -> merged.get(column).add(statistics));
+        }
+
+        Map<String, ColumnStatistics> result = new LinkedHashMap<>();
+        merged.forEach((column, accumulator) -> result.put(column, accumulator.finish()));
+        return new Statistics(OptionalLong.of(rowCount), result);
+    }
+
+    /**
+     * The footer statistics of each file, in the order of {@code files}, for {@code columns}. Like {@link #statistics},
+     * it reads no data, and it reads nothing for a dataset of more than {@value #MAX_FILES_OPTION} files.
+     *
+     * @param columns data columns whose types order through {@link Comparable} in their Catalyst form
+     */
+    public static Optional<List<FileStatistics>> statisticsByFile(
+            List<VortexFile> files, VortexIo io, VortexOptions options, List<StructField> columns, boolean caseSensitive) {
+        int maxFiles = options.getInt(MAX_FILES_OPTION, DEFAULT_MAX_FILES);
+        if (maxFiles > 0 && files.size() > maxFiles) {
+            return Optional.empty();
+        }
+
+        return Optional.of(mapFiles(files, io, options, footer -> fileStatistics(footer, columns, caseSensitive)));
+    }
+
+    /**
+     * The natural row splits of each file, in the order of {@code files}, as {@link NativeFiles#splits} states them.
+     * Split {@code i} of a file holds rows {@code [boundaries[i], boundaries[i + 1])}, and the last boundary is the
+     * file's row count.
+     */
+    public static List<long[]> splitBoundaries(
+            List<VortexFile> files, List<String> columns, VortexIo io, VortexOptions options) {
+        return mapFiles(files, io, options, footer -> NativeFiles.splits(footer.session(), footer.readable(), columns));
+    }
+
+    private static FileStatistics fileStatistics(OpenFooter footer, List<StructField> columns, boolean caseSensitive) {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Map<String, Field> fileFields = caseSensitive ? new HashMap<>() : new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Field field : footer.source().arrowSchema(allocator).getFields()) {
+            fileFields.putIfAbsent(field.getName(), field);
+        }
+
+        List<FileAggregate> requests = new ArrayList<>(1 + 3 * columns.size());
+        requests.add(FileAggregate.countStar());
+        List<String> present = new ArrayList<>(columns.size());
+        for (StructField requested : columns) {
+            String column = requested.name();
+            Field field = fileFields.get(column);
+            if (field != null && ReadTypes.literalType(field, requested.dataType())) {
+                present.add(column);
+                requests.add(FileAggregate.count(field.getName()));
+                requests.add(FileAggregate.min(field.getName()));
+                requests.add(FileAggregate.max(field.getName()));
+            }
+        }
+
+        // Without a scan, the answers are what the footer states exactly, and nothing more.
+        try (FileAggregateResult result =
+                NativeFiles.aggregate(footer.session(), footer.readable(), requests, false, allocator)) {
+            long rowCount = ((BigIntVector) result.vector(0)).get(0);
+            Map<String, ColumnStatistics> statistics = new HashMap<>();
+            for (StructField requested : columns) {
+                String column = requested.name();
+                if (fileFields.containsKey(column)) {
+                    statistics.put(column, new ColumnStatistics(OptionalLong.empty(), Optional.empty(), Optional.empty()));
+                    continue;
+                }
+                // A file that predates the column holds only nulls in it.
+                statistics.put(
+                        column,
+                        new ColumnStatistics(
+                                OptionalLong.of(rowCount), Optional.of(NO_VALUES), Optional.of(NO_VALUES)));
+            }
+            for (int i = 0; i < present.size(); i++) {
+                int count = 1 + 3 * i;
+                OptionalLong nullCount = result.answered(count)
+                        ? OptionalLong.of(rowCount - ((BigIntVector) result.vector(count)).get(0))
+                        : OptionalLong.empty();
+                boolean holdsValues = nullCount.isEmpty() || nullCount.getAsLong() < rowCount;
+                statistics.put(
+                        present.get(i),
+                        new ColumnStatistics(
+                                nullCount,
+                                holdsValues ? catalystValue(result, count + 1) : Optional.of(NO_VALUES),
+                                holdsValues ? catalystValue(result, count + 2) : Optional.of(NO_VALUES)));
+            }
+            return new FileStatistics(rowCount, statistics);
+        }
+    }
+
+    /**
      * A starting threshold for an {@code ORDER BY column ... LIMIT limit} from footer statistics alone, or empty.
      *
      * <p>A file holding at least {@code limit} non-null values of {@code column} proves that the result's last value is
@@ -264,6 +387,58 @@ public final class VortexFooterReader {
             }
         }
         return Optional.ofNullable(best);
+    }
+
+    /**
+     * The first of {@code columns} that every file's footer states sorted ascending without nulls, or empty.
+     *
+     * <p>Like {@link #sumRowCounts}, this reads nothing for more than {@value #MAX_FILES_OPTION} files.
+     */
+    public static Optional<String> sortedColumn(
+            List<VortexFile> files, VortexIo io, VortexOptions options, List<StructField> columns, boolean caseSensitive) {
+        int maxFiles = options.getInt(MAX_FILES_OPTION, DEFAULT_MAX_FILES);
+        if (files.isEmpty() || columns.isEmpty() || (maxFiles > 0 && files.size() > maxFiles)) {
+            return Optional.empty();
+        }
+
+        List<List<String>> sortedPerFile =
+                mapFiles(files, io, options, footer -> sortedColumns(footer, columns, caseSensitive));
+        return columns.stream().map(StructField::name)
+                .filter(column -> sortedPerFile.stream().allMatch(sorted -> sorted.contains(column)))
+                .findFirst();
+    }
+
+    private static List<String> sortedColumns(OpenFooter footer, List<StructField> columns, boolean caseSensitive) {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Map<String, Field> fileFields = caseSensitive ? new HashMap<>() : new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Field field : footer.source().arrowSchema(allocator).getFields()) {
+            fileFields.putIfAbsent(field.getName(), field);
+        }
+
+        List<String> present = new ArrayList<>();
+        List<FileAggregate> requests = new ArrayList<>();
+        for (StructField requested : columns) {
+            String column = requested.name();
+            Field field = fileFields.get(column);
+            if (field != null && ReadTypes.literalType(field, requested.dataType())) {
+                present.add(column);
+                requests.add(FileAggregate.isSorted(field.getName()));
+            }
+        }
+        if (requests.isEmpty()) {
+            return List.of();
+        }
+
+        try (FileAggregateResult result =
+                NativeFiles.aggregate(footer.session(), footer.readable(), requests, false, allocator)) {
+            List<String> sorted = new ArrayList<>();
+            for (int i = 0; i < present.size(); i++) {
+                if (result.answered(i) && Boolean.TRUE.equals(result.vector(i).getObject(0))) {
+                    sorted.add(present.get(i));
+                }
+            }
+            return sorted;
+        }
     }
 
     private static Optional<Object> fileTopNBound(
@@ -326,6 +501,57 @@ public final class VortexFooterReader {
             return Optional.empty();
         }
         return Optional.of(value);
+    }
+
+    /** Footer statistics of a dataset. See {@link #statistics}. */
+    public record Statistics(OptionalLong rowCount, Map<String, ColumnStatistics> columns) {}
+
+    /**
+     * Footer statistics of one column, with extrema in their Catalyst form. Extrema the footer leaves open are empty.
+     */
+    public record ColumnStatistics(OptionalLong nullCount, Optional<Object> min, Optional<Object> max) {
+        /** Whether the footer proves that every value of the column is null, which leaves it without extrema. */
+        public boolean holdsNoValues() {
+            return min.isPresent() && min.get() == NO_VALUES;
+        }
+    }
+
+    /** Footer statistics of one file: its row count, and the statistics of each column asked for. */
+    public record FileStatistics(long rowCount, Map<String, ColumnStatistics> columns) {}
+
+    /** Merges the statistics of one column across files. */
+    private static final class ColumnAccumulator {
+        private OptionalLong nullCount = OptionalLong.of(0);
+        private boolean extremaKnown = true;
+        private Comparable<Object> min;
+        private Comparable<Object> max;
+
+        @SuppressWarnings("unchecked")
+        void add(ColumnStatistics file) {
+            nullCount = nullCount.isPresent() && file.nullCount().isPresent()
+                    ? OptionalLong.of(Math.addExact(
+                            nullCount.getAsLong(), file.nullCount().getAsLong()))
+                    : OptionalLong.empty();
+            if (file.min().isEmpty() || file.max().isEmpty()) {
+                extremaKnown = false;
+                return;
+            }
+            if (file.min().get() == NO_VALUES || file.max().get() == NO_VALUES) {
+                return;
+            }
+            Comparable<Object> fileMin = (Comparable<Object>) file.min().get();
+            Comparable<Object> fileMax = (Comparable<Object>) file.max().get();
+            min = min == null || fileMin.compareTo(min) < 0 ? fileMin : min;
+            max = max == null || fileMax.compareTo(max) > 0 ? fileMax : max;
+        }
+
+        ColumnStatistics finish() {
+            boolean known = extremaKnown && min != null;
+            return new ColumnStatistics(
+                    nullCount,
+                    known ? Optional.<Object>of(min) : Optional.empty(),
+                    known ? Optional.<Object>of(max) : Optional.empty());
+        }
     }
 
     /**

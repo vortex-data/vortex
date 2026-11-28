@@ -14,8 +14,10 @@ import org.apache.spark.sql.catalyst.rules.Rule
 /** Spark session extensions for Vortex. Apply them with
   * `spark.sql.extensions=dev.vortex.spark.VortexSparkSessionExtensions`.
   *
-  * The extensions add the `NestedDynamicPruning` rule, which stops dynamic
-  * pruning filters from nesting into each other.
+  * With the extensions, dynamic pruning filters Vortex scans on data columns
+  * too, not only on partition columns. The extensions add the
+  * `NestedDynamicPruning` rule, which stops these filters from nesting into
+  * each other.
   */
 final class VortexSparkSessionExtensions
     extends SparkSessionExtensionsProvider {
