@@ -35,7 +35,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const ROWS: u32 = 4096;
+const ROWS: u32 = 2048;
 const HOT_ROWS: u32 = ROWS / 8;
 
 static VALUES: LazyLock<ArrayRef> = LazyLock::new(|| {
