@@ -98,23 +98,7 @@ impl Scheme for FixedSizeListDenseScheme {
             .array()
             .clone()
             .execute::<FixedSizeListArray>(exec_ctx)?;
-        let compressed_elems = compressor.compress_with_ctx(
-            fsl_array.elements(),
-            compress_ctx.fresh_root(),
-            exec_ctx,
-        )?;
-        Ok(FixedSizeListArray::try_new(
-            compressed_elems,
-            fsl_array.list_size(),
-            compressor.resolve_validity_with_len(
-                fsl_array.validity()?,
-                fsl_array.len(),
-                &compress_ctx,
-                exec_ctx,
-            )?,
-            fsl_array.len(),
-        )?
-        .into_array())
+        compressor.compress_fsl_dense(&fsl_array, &compress_ctx, exec_ctx)
     }
 }
 
@@ -154,12 +138,7 @@ impl Scheme for ExtensionStorageScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let ext_array = data.array().clone().execute::<ExtensionArray>(exec_ctx)?;
-        let compressed_storage = compressor.compress_with_ctx(
-            ext_array.storage_array(),
-            compress_ctx.fresh_root(),
-            exec_ctx,
-        )?;
-        Ok(ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage).into_array())
+        compressor.compress_extension_storage(&ext_array, &compress_ctx, exec_ctx)
     }
 }
 
@@ -347,23 +326,7 @@ impl CascadingCompressor {
                     return Ok(compressed);
                 }
 
-                let compressed_elems = self.compress_with_ctx(
-                    fsl_array.elements(),
-                    compress_ctx.fresh_root(),
-                    exec_ctx,
-                )?;
-                Ok(FixedSizeListArray::try_new(
-                    compressed_elems,
-                    fsl_array.list_size(),
-                    self.resolve_validity_with_len(
-                        fsl_array.validity()?,
-                        fsl_array.len(),
-                        &compress_ctx,
-                        exec_ctx,
-                    )?,
-                    fsl_array.len(),
-                )?
-                .into_array())
+                self.compress_fsl_dense(&fsl_array, &compress_ctx, exec_ctx)
             }
             Canonical::Extension(ext_array) => {
                 // Extension schemes (such as temporal) compete on a sample against
@@ -378,15 +341,7 @@ impl CascadingCompressor {
 
                 // A canonical extension array's storage is only canonical at its top level,
                 // so an unchanged input can still hold lazy, unserializable arrays.
-                let compressed_storage = self.compress_with_ctx(
-                    ext_array.storage_array(),
-                    compress_ctx.fresh_root(),
-                    exec_ctx,
-                )?;
-                Ok(
-                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
-                        .into_array(),
-                )
+                self.compress_extension_storage(&ext_array, &compress_ctx, exec_ctx)
             }
             Canonical::Variant(variant_array) => {
                 // Storage under a lazy array, such as a slice, would be written with it.
@@ -582,6 +537,46 @@ impl CascadingCompressor {
 }
 
 impl CascadingCompressor {
+    /// Compresses a `FixedSizeList` densely by compressing its elements from a fresh root context
+    /// (preserving sampling mode) and resolving its validity.
+    fn compress_fsl_dense(
+        &self,
+        fsl_array: &FixedSizeListArray,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let compressed_elems =
+            self.compress_with_ctx(fsl_array.elements(), compress_ctx.fresh_root(), exec_ctx)?;
+        Ok(FixedSizeListArray::try_new(
+            compressed_elems,
+            fsl_array.list_size(),
+            self.resolve_validity_with_len(
+                fsl_array.validity()?,
+                fsl_array.len(),
+                compress_ctx,
+                exec_ctx,
+            )?,
+            fsl_array.len(),
+        )?
+        .into_array())
+    }
+
+    /// Compresses an `Extension` by compressing its storage array from a fresh root context
+    /// (preserving sampling mode).
+    fn compress_extension_storage(
+        &self,
+        ext_array: &ExtensionArray,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let compressed_storage = self.compress_with_ctx(
+            ext_array.storage_array(),
+            compress_ctx.fresh_root(),
+            exec_ctx,
+        )?;
+        Ok(ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage).into_array())
+    }
+
     /// Compresses `data` with `scheme`: runs its [`encode`](Scheme::encode) and compresses the
     /// children it registers, or calls its [`compress`](Scheme::compress) when `encode` falls back
     /// to it. An estimate that already stored the scheme's complete output as a [`TrialOutput`]
