@@ -43,8 +43,8 @@ logical_plan
 06)----------Projection: partsupp.ps_suppkey, part.p_brand, part.p_type, part.p_size
 07)------------Inner Join: partsupp.ps_partkey = part.p_partkey
 08)--------------TableScan: partsupp projection=[ps_partkey, ps_suppkey]
-09)--------------Filter: part.p_brand != Utf8View("Brand#45") AND part.p_size IN ([Int32(49), Int32(14), Int32(23), Int32(45), Int32(19), Int32(3), Int32(36), Int32(9)]) AND part.p_type NOT LIKE Utf8View("MEDIUM POLISHED%")
-10)----------------TableScan: part projection=[p_partkey, p_brand, p_type, p_size], partial_filters=[part.p_brand != Utf8View("Brand#45"), part.p_size IN ([Int32(49), Int32(14), Int32(23), Int32(45), Int32(19), Int32(3), Int32(36), Int32(9)]), part.p_type NOT LIKE Utf8View("MEDIUM POLISHED%")]
+09)--------------Filter: part.p_size IN ([Int32(49), Int32(14), Int32(23), Int32(45), Int32(19), Int32(3), Int32(36), Int32(9)]) AND part.p_brand != Utf8View("Brand#45") AND part.p_type NOT LIKE Utf8View("MEDIUM POLISHED%")
+10)----------------TableScan: part projection=[p_partkey, p_brand, p_type, p_size], partial_filters=[part.p_size IN ([Int32(49), Int32(14), Int32(23), Int32(45), Int32(19), Int32(3), Int32(36), Int32(9)]), part.p_brand != Utf8View("Brand#45"), part.p_type NOT LIKE Utf8View("MEDIUM POLISHED%")]
 11)----------SubqueryAlias: __correlated_sq_1
 12)------------Projection: supplier.s_suppkey
 13)--------------Filter: supplier.s_comment LIKE Utf8View("%Customer%Complaints%")
@@ -59,10 +59,8 @@ physical_plan
 07)------------AggregateExec: mode=FinalPartitioned, gby=[p_brand@0 as p_brand, p_type@1 as p_type, p_size@2 as p_size, alias1@3 as alias1], aggr=[]
 08)--------------RepartitionExec: partitioning=Hash([p_brand@0, p_type@1, p_size@2, alias1@3], 4), input_partitions=4
 09)----------------AggregateExec: mode=Partial, gby=[p_brand@1 as p_brand, p_type@2 as p_type, p_size@3 as p_size, ps_suppkey@0 as alias1], aggr=[]
-10)------------------HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(ps_suppkey@0, s_suppkey@0)], null_aware
-11)--------------------CoalescePartitionsExec
-12)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_partkey@0, ps_partkey@0)], projection=[ps_suppkey@5, p_brand@1, p_type@2, p_size@3]
-13)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey, p_brand, p_type, p_size], file_type=vortex, predicate: p_brand@3 != Brand#45 AND p_size@5 IN (SET) ([49, 14, 23, 45, 19, 3, 36, 9]) AND p_type@4 NOT LIKE MEDIUM POLISHED%
-14)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey], file_type=vortex
-15)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-16)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey], file_type=vortex, predicate: s_comment@6 LIKE %Customer%Complaints%
+10)------------------HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(s_suppkey@0, ps_suppkey@0)], null_aware
+11)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/supplier.vortex]]}, projection=[s_suppkey], file_type=vortex, predicate: s_comment@6 LIKE %Customer%Complaints%
+12)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(p_partkey@0, ps_partkey@0)], projection=[ps_suppkey@5, p_brand@1, p_type@2, p_size@3]
+13)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/part.vortex]]}, projection=[p_partkey, p_brand, p_type, p_size], file_type=vortex, predicate: p_size@5 IN (SET) ([49, 14, 23, 45, 19, 3, 36, 9]) AND p_brand@3 != Brand#45 AND p_type@4 NOT LIKE MEDIUM POLISHED%
+14)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>], [${WORK_DIR}/partsupp.vortex:<slt:ignore>]]}, projection=[ps_partkey, ps_suppkey], file_type=vortex
