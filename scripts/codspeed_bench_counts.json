@@ -96,8 +96,6 @@
     "stats_calc": 0
   },
   "vortex-compute": {
-    "fold_lanes": 14,
-    "fold_masked": 10,
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
