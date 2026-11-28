@@ -298,7 +298,7 @@ impl CascadingCompressor {
 /// Returns a fresh root [`CompressorContext`] preserving whether `parent` is compressing a sample.
 ///
 /// Starting from a fresh root clears outer cascade history so root exclusions apply at index 0
-/// and ancestor exclusions do not cross into list or map metadata.
+/// and ancestor exclusions do not cross into list or map offsets and sizes.
 fn fresh_root_ctx(parent: &CompressorContext) -> CompressorContext {
     let ctx = CompressorContext::new();
     if parent.is_sample() {
