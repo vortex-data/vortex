@@ -76,6 +76,14 @@ fn accumulate_primitive_all(inner: &mut SumState, p: &PrimitiveArray, skip_nans:
 /// are skipped to match the scalar `sum` semantics; otherwise any NaN poisons the accumulator to
 /// NaN. Floats cannot overflow the accumulator, so this never reports saturation.
 pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nans: bool) -> bool {
+    if slice.len() < FLOAT_SUM_LANES {
+        for &v in slice {
+            if !skip_nans || !v.is_nan() {
+                *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+            }
+        }
+        return false;
+    }
     sum_float(acc, slice, None, skip_nans)
 }
 
@@ -253,7 +261,8 @@ where
     T: NativePType + AsPrimitive<S>,
     S: NativePType + Add<Output = S>,
 {
-    if NO_SIGN_EXTENSION && T::PTYPE.is_signed_int() {
+    // Small groups can finish before filling even one set of lanes. Their sum fits in S.
+    if chunk.len() < NARROW_SUM_LANES || (NO_SIGN_EXTENSION && T::PTYPE.is_signed_int()) {
         return chunk.iter().map(|&v| v.as_()).fold(S::zero(), |a, b| a + b);
     }
     chunk.fold_lanes::<NARROW_SUM_LANES, _, _, _>(S::zero(), |sum, v| sum + v.as_(), |a, b| a + b)
