@@ -7,6 +7,16 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
+// True if Op defines `uses_index`, else false, so ops that don't care are unaffected.
+template <typename Op>
+__host__ __device__ inline constexpr bool op_uses_index() {
+    if constexpr (requires { Op::uses_index; }) {
+        return Op::uses_index;
+    } else {
+        return false;
+    }
+}
+
 // Generic scalar kernel that applies an operation element-wise.
 //
 // Op should be a functor with: OutputT operator()(InputT value) const
@@ -34,14 +44,22 @@ scalar_kernel(const InputT *__restrict in, OutputT *__restrict out, uint64_t arr
         #pragma unroll
         // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
-            out[base_idx + i] = op(in[base_idx + i]);
+            if constexpr (op_uses_index<Op>()) {
+                out[base_idx + i] = op(in[base_idx + i], base_idx + i);
+            } else {
+                out[base_idx + i] = op(in[base_idx + i]);
+            }
         }
     }
 
     // Remainder loop for elements that don't fit in the vectorized loop.
     uint64_t remaining_start = block_end_vec * VALUES_PER_LOOP;
     for (uint64_t idx = remaining_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
-        out[idx] = op(in[idx]);
+        if constexpr (op_uses_index<Op>()) {
+            out[idx] = op(in[idx], idx);
+        } else {
+            out[idx] = op(in[idx]);
+        }
     }
 }
 
@@ -64,12 +82,20 @@ __device__ void scalar_kernel_inplace(T *__restrict values, uint64_t array_len, 
         #pragma unroll
         // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
-            values[base_idx + i] = op(values[base_idx + i]);
+            if constexpr (op_uses_index<Op>())  {
+                values[base_idx + i] = op(values[base_idx + i], base_idx + i);
+            } else {
+                values[base_idx + i] = op(values[base_idx + i]);
+            }
         }
     }
 
     uint64_t remaining_start = block_end_vec * VALUES_PER_LOOP;
     for (uint64_t idx = remaining_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
-        values[idx] = op(values[idx]);
+        if constexpr (op_uses_index<Op>()) {
+            values[idx] = op(values[idx], idx);
+        } else {
+            values[idx] = op(values[idx]);
+        }
     }
 }
