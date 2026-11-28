@@ -16,7 +16,6 @@ use vortex_array::dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
@@ -222,70 +221,56 @@ where
         HashMap::with_hasher(FxBuildHasher)
     };
 
-    let mut runs: u64 = 1;
+    let mut runs: u32 = 1;
     let buffer = array.to_buffer::<T>();
     let slice = buffer.as_slice();
+    let head_idx = validity
+        .first()
+        .vortex_expect("All null masks have been handled before");
+    let mut prev = slice[head_idx];
+
+    // The nulls before the head are skipped, so the loop can start at 0.
     // Compare bit patterns via `NativePType::is_eq` (matching `distinct_values` and FastLanes RLE)
     // so identical NaNs do not trigger spurious transitions and `-0.0` vs `+0.0` stay distinct.
-    if !count_distinct_values && matches!(validity.bit_buffer(), AllOr::All) {
-        let mut prev = slice[0];
-        let mut equal_pairs: u64 = 0;
-        for &v in slice {
-            equal_pairs += u64::from(prev.is_eq(v));
-            prev = v;
+    for_each_chunk(slice, &validity, |chunk, valid| match valid {
+        // All nulls -> no stats to update.
+        0 => {}
+        u64::MAX => {
+            if count_distinct_values {
+                for &value in chunk {
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                }
+            }
+            runs += count_transitions(prev, chunk);
+            prev = chunk[63];
         }
-        // The first iteration compares `slice[0]` with itself (always true bitwise), adding 1 to
-        // `equal_pairs`, which cancels the `- 1` in `slice.len() - 1 - actual_equal_pairs`.
-        runs += slice.len() as u64 - equal_pairs;
-    } else {
-        let head_idx = validity
-            .first()
-            .vortex_expect("All null masks have been handled before");
-        let mut prev = slice[head_idx];
-
-        // The nulls before the head are skipped, so the loop can start at 0.
-        for_each_chunk(slice, &validity, |chunk, valid| match valid {
-            // All nulls -> no stats to update.
-            0 => {}
-            u64::MAX => {
-                if count_distinct_values {
-                    for &value in chunk {
-                        *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-                    }
-                }
-                runs += count_transitions(prev, chunk);
-                prev = chunk[63];
+        // Gather valid values into a compact prefix so their transitions are counted
+        // branch-free.
+        _ => {
+            let mut gathered = *chunk;
+            let mut n = 0;
+            let mut bits = valid;
+            while bits != 0 {
+                gathered[n] = chunk[bits.trailing_zeros() as usize];
+                n += 1;
+                bits &= bits - 1;
             }
-            // Gather valid values into a compact prefix so their transitions are counted
-            // branch-free.
-            _ => {
-                let mut gathered = *chunk;
-                let mut n = 0;
-                let mut bits = valid;
-                while bits != 0 {
-                    gathered[n] = chunk[bits.trailing_zeros() as usize];
-                    n += 1;
-                    bits &= bits - 1;
+            let gathered = &gathered[..n];
+            if count_distinct_values {
+                for &value in gathered {
+                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
                 }
-                let gathered = &gathered[..n];
-                if count_distinct_values {
-                    for &value in gathered {
-                        *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-                    }
-                }
-                runs += count_transitions(prev, gathered);
-                prev = gathered[n - 1];
             }
-        });
-    }
+            runs += count_transitions(prev, gathered);
+            prev = gathered[n - 1];
+        }
+    });
 
     let distinct = count_distinct_values.then(|| DistinctInfo {
         distinct_count: u32::try_from(distinct_values.len())
             .vortex_expect("more than u32::MAX distinct values"),
         distinct_values,
     });
-
-    let runs = u32::try_from(runs)?;
 
     Ok(FloatStats {
         null_count,
