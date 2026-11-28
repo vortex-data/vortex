@@ -293,9 +293,36 @@ impl Validity {
         }
     }
 
-    /// Logically & two Validity values of the same length
+    /// Intersect two validities of the same length. Host boolean bitmaps are combined once
+    /// so repeated reads can reuse the result.
     #[inline]
     pub fn and(self, rhs: Validity) -> VortexResult<Validity> {
+        if let (Validity::Array(lhs), Validity::Array(rhs)) = (&self, &rhs)
+            && let (Some(lhs_bits), Some(rhs_bits)) = (lhs.as_opt::<Bool>(), rhs.as_opt::<Bool>())
+            && !lhs_bits.dtype().is_nullable()
+            && !rhs_bits.dtype().is_nullable()
+            && lhs.is_host()
+            && rhs.is_host()
+        {
+            vortex_ensure_eq!(
+                lhs.len(),
+                rhs.len(),
+                "Cannot AND validities of different lengths"
+            );
+            return Ok(Validity::Array(
+                BoolArray::new(
+                    &lhs_bits.to_bit_buffer() & &rhs_bits.to_bit_buffer(),
+                    Validity::NonNullable,
+                )
+                .into_array(),
+            ));
+        }
+        self.and_lazy(rhs)
+    }
+
+    /// Conjoin validities for an output whose kernel does not need to read the validity bits.
+    #[inline]
+    pub(crate) fn and_lazy(self, rhs: Validity) -> VortexResult<Validity> {
         Ok(match (self, rhs) {
             // Should be pretty clear
             (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
@@ -312,29 +339,6 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                // Both sides already hold their bits in host memory, e.g. a validity masked by a
-                // demand: a word-wise AND costs less than evaluating a lazy conjunction wherever it
-                // is read. Bits on a device stay lazy, so they are not copied to the host here.
-                if let (Some(lhs_bits), Some(rhs_bits)) =
-                    (lhs.as_opt::<Bool>(), rhs.as_opt::<Bool>())
-                    && !lhs_bits.dtype().is_nullable()
-                    && !rhs_bits.dtype().is_nullable()
-                    && lhs.is_host()
-                    && rhs.is_host()
-                {
-                    vortex_ensure_eq!(
-                        lhs.len(),
-                        rhs.len(),
-                        "Cannot AND validities of different lengths"
-                    );
-                    return Ok(Validity::Array(
-                        BoolArray::new(
-                            &lhs_bits.to_bit_buffer() & &rhs_bits.to_bit_buffer(),
-                            Validity::NonNullable,
-                        )
-                        .into_array(),
-                    ));
-                }
                 Validity::Array(Boolean::try_new(lhs, rhs, BooleanOperator::And)?.into_array())
             }
         })

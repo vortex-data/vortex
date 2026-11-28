@@ -414,6 +414,27 @@ mod tests {
     }
 
     #[test]
+    fn test_valid_range_i256_breaks_leading_word_ties() {
+        let min = i256::from_parts(1, -2);
+        let max = i256::from_parts(u128::MAX, 2);
+        let values = [
+            i256::MIN,
+            i256::from_parts(0, -1),
+            i256::from_parts(u128::MAX, -2),
+            min,
+            i256::from_parts(0, 2),
+            max,
+            i256::MAX,
+        ];
+        let valid = Mask::from_iter([false, true, true, true, true, true, false]);
+        assert_eq!(valid_range(&values, &valid), Some((min, max)));
+        assert_eq!(
+            valid_range(&values[1..6], &Mask::AllTrue(5)),
+            Some((min, max))
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "valid_range requires one validity bit per value")]
     fn test_valid_range_rejects_mismatched_mask() {
         valid_range(&[1i8, 2], &Mask::AllTrue(3));
