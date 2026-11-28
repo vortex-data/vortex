@@ -214,9 +214,7 @@ fn residual_absent(
     path: VariantPath,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    let values = VariantGet::try_new(core.clone(), VariantGetOptions::new(path, None))?
-        .into_array()
-        .execute::<ArrayRef>(ctx)?;
+    let values = VariantGet::try_new(core.clone(), VariantGetOptions::new(path, None))?;
     Ok(values
         .validity()?
         .execute_mask(values.len(), ctx)?
