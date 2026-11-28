@@ -279,7 +279,6 @@ impl CascadingCompressor {
     pub(super) fn compress_physical_slots(
         &self,
         array: &ArrayRef,
-        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let slots = array
@@ -287,7 +286,7 @@ impl CascadingCompressor {
             .iter()
             .map(|slot| {
                 slot.as_ref()
-                    .map(|child| self.compress_with_ctx(child, compress_ctx.fresh_root(), exec_ctx))
+                    .map(|child| self.compress(child, exec_ctx))
                     .transpose()
             })
             .collect::<VortexResult<ArraySlots>>()?;

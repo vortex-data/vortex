@@ -324,13 +324,13 @@ impl CascadingCompressor {
                     .variant_storage
                     .as_deref()
                     .unwrap_or(self)
-                    .compress_physical_slots(&core_storage, &compress_ctx, exec_ctx)?;
+                    .compress_physical_slots(&core_storage, exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {
                         // Avoid stack-overflow for variant shredded values
                         if arr.is::<Variant>() {
-                            self.compress_physical_slots(arr, &compress_ctx, exec_ctx)
+                            self.compress_physical_slots(arr, exec_ctx)
                         } else {
                             self.compress_with_ctx(arr, compress_ctx.fresh_root(), exec_ctx)
                         }

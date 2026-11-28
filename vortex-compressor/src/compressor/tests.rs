@@ -1967,7 +1967,7 @@ fn whole_leaf_encoding_stores_compressed_validity() -> VortexResult<()> {
 }
 
 #[test]
-fn container_children_preserve_is_sample() -> VortexResult<()> {
+fn test_container_children_preserve_is_sample() -> VortexResult<()> {
     let comp = CascadingCompressor::new(Vec::new());
     let mut ctx = SESSION.create_execution_ctx();
     let sample_ctx = CompressorContext::new().with_sampling();
