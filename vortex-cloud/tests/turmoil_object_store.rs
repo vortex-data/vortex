@@ -76,6 +76,7 @@ use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
@@ -617,8 +618,8 @@ fn http_store(
 }
 
 fn s3_store(endpoint: &str) -> VortexResult<Arc<dyn ObjectStore>> {
-    // `max_retries = 0` is required because `ObjectStoreWrite`'s off-host `smol` abort task has no
-    // Tokio timer reactor for `object_store`'s backoff `tokio::time::sleep`.
+    // `max_retries = 0` keeps `ObjectStoreWrite`'s detached `smol` abort task from sleeping on
+    // `Compat`'s wall-clock Tokio runtime instead of `turmoil`'s virtual clock.
     Ok(Arc::new(
         AmazonS3Builder::new()
             .with_endpoint(endpoint)
@@ -638,14 +639,25 @@ async fn read_range_err(
     connect_timeout: Duration,
     offset: u64,
     length: usize,
-) -> VortexResult<String> {
+) -> VortexResult<VortexError> {
     let store = http_store(url, max_retries, connect_timeout)?;
     let reader =
         ObjectStoreReadAt::new(store, ObjectPath::from("obj.bin"), TokioRuntime::current());
     match reader.read_at(offset, length, Alignment::new(1)).await {
-        Err(err) => Ok(err.to_string()),
+        Err(err) => Ok(err),
         Ok(_) => Err(vortex_err!("expected ObjectStoreReadAt::read_at to fail")),
     }
+}
+
+fn find_source<'a, E: StdError + 'static>(err: &'a (dyn StdError + 'static)) -> Option<&'a E> {
+    let mut current = Some(err);
+    while let Some(err) = current {
+        if let Some(found) = err.downcast_ref::<E>() {
+            return Some(found);
+        }
+        current = err.source();
+    }
+    None
 }
 
 fn make_sim() -> Sim<'static> {
@@ -780,7 +792,9 @@ mod tests {
         attach_server(&mut sim, "server", &state);
 
         sim.client("client", async move {
-            let msg = read_range_err("http://server:80", 2, DEFAULT_CONNECT_TIMEOUT, 0, 64).await?;
+            let msg = read_range_err("http://server:80", 2, DEFAULT_CONNECT_TIMEOUT, 0, 64)
+                .await?
+                .to_string();
             assert!(
                 msg.contains("after 2 retries") && msg.contains("503"),
                 "unexpected error message: {msg}"
@@ -806,11 +820,12 @@ mod tests {
         attach_server(&mut sim, "server", &state);
 
         sim.client("client", async move {
-            let msg =
+            let err =
                 read_range_err("http://server:80", 0, DEFAULT_CONNECT_TIMEOUT, 0, 100).await?;
-            assert!(
-                msg.contains("HTTP error") && msg.contains("error reading a body from connection"),
-                "unexpected error message: {msg}"
+            assert_eq!(
+                find_source::<HttpError>(&err).map(HttpError::kind),
+                Some(HttpErrorKind::Interrupted),
+                "expected interrupted HTTP error, got: {err}"
             );
             Ok(())
         });
@@ -872,8 +887,9 @@ mod tests {
         attach_server(&mut sim, "server", &state);
 
         sim.client("client", async move {
-            let msg =
-                read_range_err("http://server:80", 0, DEFAULT_CONNECT_TIMEOUT, 0, 100).await?;
+            let msg = read_range_err("http://server:80", 0, DEFAULT_CONNECT_TIMEOUT, 0, 100)
+                .await?
+                .to_string();
             assert!(
                 msg.contains(expected_error),
                 "expected {expected_error:?} in error: {msg}"
@@ -951,7 +967,8 @@ mod tests {
                 0,
                 16,
             )
-            .await?;
+            .await?
+            .to_string();
             assert!(
                 msg.contains("connection refused"),
                 "unexpected error message: {msg}"

@@ -38,7 +38,13 @@ rstest = { workspace = true }
 tempfile = { workspace = true }
 # So the registry's key resolution can be tested end to end against a real file open, which is
 # where the key reaches the store.
-tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "rt",
+    "sync",
+    "time",
+] }
 turmoil = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-buffer = { workspace = true }
