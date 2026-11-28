@@ -1,0 +1,781 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Typed, process-local DataFusion expressions inside Vortex expression trees.
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FmtResult;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::sync::Arc;
+
+use arrow_array::RecordBatch;
+use arrow_array::RecordBatchOptions;
+use arrow_schema::DataType;
+use arrow_schema::FieldRef;
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
+use datafusion_common::DataFusionError;
+use datafusion_common::HashMap;
+use datafusion_common::Result as DFResult;
+use datafusion_common::plan_err;
+use datafusion_physical_expr::DynamicFilterTracking;
+use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::async_scalar_function::AsyncFuncExpr;
+use datafusion_physical_expr::utils::collect_columns;
+use datafusion_physical_expr_common::physical_expr::is_volatile;
+use itertools::Itertools;
+use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ConstantArray;
+use vortex::dtype::DType;
+use vortex::error::VortexError;
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_ensure_eq;
+use vortex::expr::Expression;
+use vortex::expr::get_item;
+use vortex::expr::root;
+use vortex::scalar::Scalar;
+use vortex::scalar_fn::Arity;
+use vortex::scalar_fn::ChildName;
+use vortex::scalar_fn::ExecutionArgs;
+use vortex::scalar_fn::ScalarFnId;
+use vortex::scalar_fn::ScalarFnVTable;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::session::VortexSession;
+use vortex::session::registry::CachedId;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
+
+/// Wrap a synchronous, non-volatile DataFusion expression for Vortex execution.
+///
+/// The expression and its input schema retain their original column bindings.
+/// Every schema field is exported before evaluation, including unreferenced fields;
+/// their export errors propagate in both exact and advisory execution.
+/// The result preserves DataFusion's
+/// type, effective nullability, field metadata and evaluation errors. Runtime state
+/// is retained in-process; the expression cannot be serialized.
+/// Returns `None` for live/volatile/async expressions, ambiguous source-column
+/// names, or unsupported result types.
+/// Decimal outputs remain in DataFusion because Arrow permits coefficients outside
+/// their declared precision; decimal intermediates in other result types are allowed.
+///
+/// # Errors
+///
+/// Rejects invalid source-column name/index bindings and propagates expression
+/// metadata errors.
+pub fn df_expression(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: &Schema,
+    session: &VortexSession,
+) -> DFResult<Option<Expression>> {
+    raw_expression(expression, schema, session, false)
+}
+
+pub(crate) fn raw_expression(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: &Schema,
+    session: &VortexSession,
+    advisory: bool,
+) -> DFResult<Option<Expression>> {
+    let mut name_counts: HashMap<&str, usize> = HashMap::default();
+    for field in schema.fields() {
+        *name_counts.entry(field.name().as_str()).or_insert(0_usize) += 1;
+    }
+    for column in collect_columns(&expression) {
+        if schema
+            .fields()
+            .get(column.index())
+            .is_none_or(|field| field.name() != column.name())
+        {
+            return plan_err!("Invalid DF expression column: {column}");
+        }
+    }
+    if name_counts.values().any(|count| *count != 1) {
+        return Ok(None);
+    }
+    let schema = Arc::new(schema.clone());
+    let inputs = schema
+        .fields()
+        .iter()
+        .map(|field| get_item(field.name().as_str(), root()))
+        .collect_vec();
+    from_inputs(expression, schema, inputs, session, advisory)
+}
+
+pub(crate) fn eligible(expression: &Arc<dyn PhysicalExpr>) -> bool {
+    !is_volatile(expression)
+        && !contains_async(expression)
+        && !DynamicFilterTracking::classify(expression).contains_dynamic_filter()
+}
+
+fn from_inputs(
+    expression: Arc<dyn PhysicalExpr>,
+    schema: SchemaRef,
+    inputs: Vec<Expression>,
+    session: &VortexSession,
+    advisory: bool,
+) -> DFResult<Option<Expression>> {
+    if !eligible(&expression) {
+        return Ok(None);
+    }
+    let field = expression.return_field(&schema)?;
+    let output = field
+        .as_ref()
+        .clone()
+        .with_nullable(field.is_nullable() || expression.nullable(&schema)?);
+    if contains_decimal(output.data_type()) || advisory && output.data_type() != &DataType::Boolean
+    {
+        return Ok(None);
+    }
+    let output = Arc::new(output);
+    let Ok(dtype) = session.arrow().from_arrow_field(&output) else {
+        return Ok(None);
+    };
+    if advisory && !matches!(dtype, DType::Bool(_)) {
+        return Ok(None);
+    }
+    let Ok(input_dtypes) = schema
+        .fields()
+        .iter()
+        .map(|field| session.arrow().from_arrow_field(field))
+        .collect::<VortexResult<Vec<_>>>()
+    else {
+        return Ok(None);
+    };
+    Expression::try_new(
+        DataFusionExpression.bind(Options {
+            expression,
+            schema,
+            input_dtypes,
+            output,
+            dtype,
+            advisory,
+        }),
+        inputs,
+    )
+    .map(Some)
+    .map_err(|error| DataFusionError::External(Box::new(error)))
+}
+
+fn contains_decimal(dtype: &DataType) -> bool {
+    match dtype {
+        DataType::Decimal32(..)
+        | DataType::Decimal64(..)
+        | DataType::Decimal128(..)
+        | DataType::Decimal256(..) => true,
+        DataType::List(field)
+        | DataType::LargeList(field)
+        | DataType::ListView(field)
+        | DataType::LargeListView(field)
+        | DataType::FixedSizeList(field, _)
+        | DataType::Map(field, _) => contains_decimal(field.data_type()),
+        DataType::Struct(fields) => fields
+            .iter()
+            .any(|field| contains_decimal(field.data_type())),
+        DataType::Dictionary(_, value) => contains_decimal(value),
+        DataType::RunEndEncoded(_, value) => contains_decimal(value.data_type()),
+        _ => false,
+    }
+}
+
+fn contains_async(expression: &Arc<dyn PhysicalExpr>) -> bool {
+    expression.is::<AsyncFuncExpr>()
+        || expression
+            .children()
+            .iter()
+            .any(|child| contains_async(child))
+}
+
+#[derive(Clone, Debug)]
+struct Options {
+    expression: Arc<dyn PhysicalExpr>,
+    schema: SchemaRef,
+    input_dtypes: Vec<DType>,
+    output: FieldRef,
+    dtype: DType,
+    advisory: bool,
+}
+impl PartialEq for Options {
+    fn eq(&self, other: &Self) -> bool {
+        // Pointer identity preserves distinctions in captured process-local runtime state.
+        Arc::ptr_eq(&self.expression, &other.expression)
+            && self.schema == other.schema
+            && self.input_dtypes == other.input_dtypes
+            && self.output == other.output
+            && self.dtype == other.dtype
+            && self.advisory == other.advisory
+    }
+}
+impl Eq for Options {}
+impl Hash for Options {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (Arc::as_ptr(&self.expression) as *const ()).hash(state);
+        self.schema.hash(state);
+        self.input_dtypes.hash(state);
+        self.output.hash(state);
+        self.dtype.hash(state);
+        self.advisory.hash(state);
+    }
+}
+impl Display for Options {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        self.expression.fmt(f)
+    }
+}
+
+#[derive(Clone)]
+struct DataFusionExpression;
+impl ScalarFnVTable for DataFusionExpression {
+    type Options = Options;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("datafusion.df_expression");
+        *ID
+    }
+    fn arity(&self, options: &Options) -> Arity {
+        Arity::Exact(options.schema.fields().len())
+    }
+    fn child_name(&self, options: &Options, index: usize) -> ChildName {
+        ChildName::new_arc(options.schema.field(index).name().clone().into())
+    }
+    fn return_dtype(&self, options: &Options, args: &[DType]) -> VortexResult<DType> {
+        vortex_ensure_eq!(args.len(), options.input_dtypes.len());
+        for (actual, expected) in args.iter().zip(&options.input_dtypes) {
+            vortex_ensure!(
+                actual.with_nullability(expected.nullability()) == *expected
+                    && (!actual.is_nullable() || expected.is_nullable()),
+                "DF expression input dtype mismatch"
+            );
+        }
+        Ok(options.dtype.clone())
+    }
+    fn execute(
+        &self,
+        options: &Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let inputs = (0..options.schema.fields().len())
+            .map(|index| args.get(index))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let columns = inputs
+            .into_iter()
+            .zip(options.schema.fields())
+            .map(|(array, field)| array.execute_arrow(Some(field), ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let batch = RecordBatch::try_new_with_options(
+            Arc::clone(&options.schema),
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(args.row_count())),
+        )?;
+        let result = match options.expression.evaluate(&batch) {
+            Ok(result) => result,
+            Err(_) if options.advisory => {
+                return Ok(ConstantArray::new(
+                    Scalar::bool(true, options.dtype.nullability()),
+                    args.row_count(),
+                )
+                .into_array());
+            }
+            Err(error) => return Err(VortexError::external(error)),
+        }
+        .into_array_of_size(args.row_count())
+        .map_err(VortexError::external)?;
+        vortex_ensure_eq!(result.len(), args.row_count());
+        vortex_ensure_eq!(result.data_type(), options.output.data_type());
+        ctx.session()
+            .arrow()
+            .from_arrow_array(result, &options.output)
+    }
+    fn is_infallible(&self, options: &Options) -> bool {
+        options.advisory
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::BooleanArray;
+    use arrow_array::Int64Array;
+    use arrow_array::StringArray;
+    use arrow_schema::Field;
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion::prelude::SessionConfig;
+    use datafusion::prelude::SessionContext;
+    use datafusion_common::JoinType;
+    use datafusion_common::NullEquality;
+    use datafusion_common::ScalarValue;
+    use datafusion_common::config::ConfigOptions;
+    use datafusion_common::hash_utils::create_hashes;
+    use datafusion_datasource::memory::MemorySourceConfig;
+    use datafusion_expr::ColumnarValue;
+    use datafusion_expr::Operator;
+    use datafusion_expr::Volatility;
+    use datafusion_expr::create_udf;
+    use datafusion_physical_expr::ScalarFunctionExpr;
+    use datafusion_physical_expr::expressions::BinaryExpr;
+    use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+    use datafusion_physical_expr::expressions::IsNullExpr;
+    use datafusion_physical_expr::expressions::Literal;
+    use datafusion_physical_expr::expressions::lit;
+    use datafusion_physical_expr::split_conjunction;
+    use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
+    use datafusion_physical_plan::ExecutionPlan;
+    use datafusion_physical_plan::collect;
+    use datafusion_physical_plan::filter::FilterExec;
+    use datafusion_physical_plan::joins::HashJoinExec;
+    use datafusion_physical_plan::joins::HashTableLookupExpr;
+    use datafusion_physical_plan::joins::Map;
+    use datafusion_physical_plan::joins::PartitionMode;
+    use datafusion_physical_plan::joins::SeededRandomState;
+    use datafusion_physical_plan::joins::join_hash_map::JoinHashMapU32;
+    use datafusion_physical_plan::joins::utils::JoinHashMapType;
+    use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::VortexSessionExecute;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::extension::ExtDType;
+    use vortex::dtype::extension::ExtId;
+    use vortex::dtype::extension::ExtVTable;
+    use vortex::dtype::session::DTypeSessionExt;
+    use vortex::scalar::ScalarValue as VortexScalarValue;
+
+    use super::*;
+
+    #[rstest]
+    #[case::single(false)]
+    #[case::composite(true)]
+    fn matches_datafusion_with_nullable_keys(#[case] composite: bool) -> Result<()> {
+        let ids: ArrowArrayRef = Arc::new(Int64Array::from(vec![Some(2), None, Some(5)]));
+        let labels: ArrowArrayRef = Arc::new(StringArray::from(vec![Some("a"), Some("b"), None]));
+        let state = SeededRandomState::with_seed(17);
+        let build = if composite {
+            vec![ids, labels]
+        } else {
+            vec![ids]
+        };
+        let mut hashes = vec![0; 3];
+        create_hashes(&build, state.random_state(), &mut hashes)?;
+        let mut map = JoinHashMapU32::with_capacity(hashes.len());
+        map.update_from_iter(Box::new(hashes.iter().enumerate()), 0);
+        let mut keys: Vec<Arc<dyn PhysicalExpr>> = vec![Arc::new(Column::new("id", 1))];
+        if composite {
+            keys.push(Arc::new(Column::new("label", 2)));
+        }
+        let lookup: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            keys,
+            state,
+            Arc::new(Map::HashMap(Box::new(map))),
+            "test_membership".into(),
+        ));
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "unused",
+                Arc::new(StringArray::from(vec!["payload"; 5])) as ArrowArrayRef,
+            ),
+            (
+                "id",
+                Arc::new(Int64Array::from(vec![
+                    Some(2),
+                    Some(3),
+                    None,
+                    Some(5),
+                    Some(2),
+                ])) as ArrowArrayRef,
+            ),
+            (
+                "label",
+                Arc::new(StringArray::from(vec![
+                    Some("a"),
+                    Some("a"),
+                    Some("b"),
+                    None,
+                    Some("wrong"),
+                ])) as ArrowArrayRef,
+            ),
+        ])?;
+        let session = VortexSession::default();
+        let expression = df_expression(Arc::clone(&lookup), &batch.schema(), &session)?.unwrap();
+        assert!(
+            expression
+                .as_scalar()
+                .unwrap()
+                .options()
+                .serialize()?
+                .is_none()
+        );
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let result = input.apply(&expression)?;
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
+        let actual = result.execute_arrow(
+            Some(&Field::new("result", DataType::Boolean, false)),
+            &mut session.create_execution_ctx(),
+        )?;
+        let expected = lookup
+            .evaluate(&batch)?
+            .into_array_of_size(batch.num_rows())?;
+        assert_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn preserves_key_evaluation_errors() -> Result<()> {
+        let key = Arc::new(BinaryExpr::new(
+            lit(1_i64),
+            Operator::Divide,
+            Arc::new(Column::new("id", 0)),
+        ));
+        let lookup: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            vec![key],
+            SeededRandomState::with_seed(0),
+            Arc::new(Map::HashMap(Box::new(JoinHashMapU32::with_capacity(0)))),
+            "fallible_membership".into(),
+        ));
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![0])) as ArrowArrayRef,
+        )])?;
+        let expected = lookup.evaluate(&batch).unwrap_err();
+        let session = VortexSession::default();
+        let expression = df_expression(lookup, &batch.schema(), &session)?.unwrap();
+        assert!(!expression.as_scalar().unwrap().signature().is_infallible());
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let error = input
+            .apply(&expression)?
+            .execute_arrow(
+                Some(&Field::new("result", DataType::Boolean, false)),
+                &mut session.create_execution_ctx(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains(&expected.to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn declines_ambiguous_original_column_names() -> Result<()> {
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("id", DataType::Int64, false),
+        ]);
+        let lookup: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            vec![Arc::new(Column::new("id", 1))],
+            SeededRandomState::with_seed(0),
+            Arc::new(Map::HashMap(Box::new(JoinHashMapU32::with_capacity(0)))),
+            "second_id".into(),
+        ));
+        assert!(df_expression(lookup, &schema, &VortexSession::default())?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_original_column_bindings() -> Result<()> {
+        let schema = Schema::new(vec![
+            Field::new("a", DataType::Int64, false),
+            Field::new("b", DataType::Int64, false),
+        ]);
+        let crossed: Arc<dyn PhysicalExpr> = Arc::new(HashTableLookupExpr::new(
+            vec![Arc::new(Column::new("b", 0)), Arc::new(Column::new("a", 1))],
+            SeededRandomState::with_seed(0),
+            Arc::new(Map::HashMap(Box::new(JoinHashMapU32::with_capacity(0)))),
+            "crossed_columns".into(),
+        ));
+        assert!(df_expression(crossed, &schema, &VortexSession::default()).is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn matches_datafusion_array_map() -> Result<()> {
+        let build = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![Some(1), Some(2), Some(3), None])) as ArrowArrayRef,
+        )])?;
+        let probe = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![
+                Some(0),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                None,
+            ])) as ArrowArrayRef,
+        )])?;
+        let key = Arc::new(Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&key)],
+            lit(true),
+        ));
+        let left = MemorySourceConfig::try_new_exec(&[vec![build.clone()]], build.schema(), None)?;
+        let right = MemorySourceConfig::try_new_exec(&[vec![probe.clone()]], probe.schema(), None)?;
+        let right = Arc::new(FilterExec::try_new(
+            Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>,
+            right,
+        )?);
+        let join = Arc::new(
+            HashJoinExec::try_new(
+                left,
+                right,
+                vec![(Arc::clone(&key), key)],
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::CollectLeft,
+                NullEquality::NullEqualsNothing,
+                false,
+            )?
+            .with_dynamic_filter_expr(Arc::clone(&dynamic))?,
+        );
+        let mut config = SessionConfig::new().with_target_partitions(1);
+        config
+            .options_mut()
+            .optimizer
+            .hash_join_inlist_pushdown_max_distinct_values = 0;
+        let context = SessionContext::new_with_state(
+            SessionStateBuilder::new()
+                .with_default_features()
+                .with_config(config)
+                .build(),
+        );
+        collect(
+            Arc::clone(&join) as Arc<dyn ExecutionPlan>,
+            context.task_ctx(),
+        )
+        .await?;
+        assert_eq!(
+            join.metrics()
+                .unwrap()
+                .sum_by_name("array_map_created_count")
+                .unwrap()
+                .as_usize(),
+            1
+        );
+        let snapshot = snapshot_physical_expr(dynamic as Arc<dyn PhysicalExpr>)?;
+        let lookup = Arc::clone(
+            split_conjunction(&snapshot)
+                .into_iter()
+                .find(|expression| expression.is::<HashTableLookupExpr>())
+                .unwrap(),
+        );
+        let expected = lookup
+            .evaluate(&probe)?
+            .into_array_of_size(probe.num_rows())?;
+        let session = VortexSession::default();
+        let expression = df_expression(lookup, &probe.schema(), &session)?.unwrap();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(probe.clone(), &probe.schema())?;
+        let actual = input.apply(&expression)?.execute_arrow(
+            Some(&Field::new("result", DataType::Boolean, false)),
+            &mut session.create_execution_ctx(),
+        )?;
+        assert_eq!(&actual, &expected);
+        assert_eq!(
+            &actual,
+            &(Arc::new(BooleanArray::from(vec![
+                false, true, true, true, false, false
+            ])) as ArrowArrayRef)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn typed_results_preserve_nulls_wrapping_and_scalar_row_count() -> Result<()> {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![Some(i64::MAX), None, Some(0)])) as ArrowArrayRef,
+        )])?;
+        let expressions: Vec<Arc<dyn PhysicalExpr>> = vec![
+            Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("id", 0)),
+                Operator::Plus,
+                lit(1_i64),
+            )),
+            lit(7_i64),
+            Arc::new(IsNullExpr::new(Arc::new(Column::new("id", 0)))),
+        ];
+        let session = VortexSession::default();
+        for expression in expressions {
+            let output = expression.return_field(&batch.schema())?;
+            let expected = expression
+                .evaluate(&batch)?
+                .into_array_of_size(batch.num_rows())?;
+            let wrapped = df_expression(expression, &batch.schema(), &session)?.unwrap();
+            let input = session
+                .arrow()
+                .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+            let actual = input
+                .apply(&wrapped)?
+                .execute_arrow(Some(output.as_ref()), &mut session.create_execution_ctx())?;
+            assert_eq!(&actual, &expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_results_and_live_or_volatile_expressions_decline() -> Result<()> {
+        let schema = Schema::new(vec![Field::new("id", DataType::Int64, false)]);
+        let session = VortexSession::default();
+        let decimal: Arc<dyn PhysicalExpr> =
+            Arc::new(Literal::new(ScalarValue::Decimal128(Some(123), 10, 2)));
+        assert!(df_expression(Arc::clone(&decimal), &schema, &session)?.is_none());
+        let comparison: Arc<dyn PhysicalExpr> =
+            Arc::new(BinaryExpr::new(Arc::clone(&decimal), Operator::Eq, decimal));
+        assert!(df_expression(comparison, &schema, &session)?.is_some());
+        let live: Arc<dyn PhysicalExpr> = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("id", 0))],
+            lit(true),
+        ));
+        assert!(df_expression(live, &schema, &session)?.is_none());
+        let random: Arc<dyn PhysicalExpr> = Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(create_udf(
+                "volatile",
+                vec![],
+                DataType::Float64,
+                Volatility::Volatile,
+                Arc::new(|_| Ok(ColumnarValue::Scalar(ScalarValue::Float64(Some(0.5))))),
+            )),
+            vec![],
+            &schema,
+            Arc::new(ConfigOptions::new()),
+        )?);
+        assert!(df_expression(random, &schema, &session)?.is_none());
+        Ok(())
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    struct TaggedBool;
+    impl ExtVTable for TaggedBool {
+        type Metadata = u8;
+        type NativeValue<'a> = &'a VortexScalarValue;
+
+        fn id(&self) -> ExtId {
+            static ID: CachedId = CachedId::new("test.df_expression_bool");
+            *ID
+        }
+        fn serialize_metadata(&self, metadata: &u8) -> VortexResult<Vec<u8>> {
+            Ok(vec![*metadata])
+        }
+        fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<u8> {
+            vortex_ensure_eq!(bytes.len(), 1);
+            Ok(bytes[0])
+        }
+        fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
+            vortex_ensure!(matches!(dtype.storage_dtype(), DType::Bool(_)));
+            Ok(())
+        }
+        fn unpack_native<'a>(
+            _dtype: &'a ExtDType<Self>,
+            value: &'a VortexScalarValue,
+        ) -> VortexResult<&'a VortexScalarValue> {
+            Ok(value)
+        }
+    }
+
+    #[test]
+    fn boolean_result_preserves_original_field_metadata() -> Result<()> {
+        let session = VortexSession::default();
+        session.dtypes().register(TaggedBool);
+        let dtype = DType::Extension(
+            ExtDType::try_with_vtable(TaggedBool, 7, DType::Bool(Nullability::Nullable))?.erased(),
+        );
+        let field = session.arrow().to_arrow_field("flag", &dtype)?;
+        assert_eq!(field.data_type(), &DataType::Boolean);
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![field.clone()])),
+            vec![Arc::new(BooleanArray::from(vec![
+                Some(true),
+                None,
+                Some(false),
+            ]))],
+        )?;
+        let expression: Arc<dyn PhysicalExpr> = Arc::new(Column::new("flag", 0));
+        let wrapped = df_expression(Arc::clone(&expression), &batch.schema(), &session)?.unwrap();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let result = input.apply(&wrapped)?;
+        assert_eq!(result.dtype(), &dtype);
+        let actual = result.execute_arrow(Some(&field), &mut session.create_execution_ctx())?;
+        let expected = expression
+            .evaluate(&batch)?
+            .into_array_of_size(batch.num_rows())?;
+        assert_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn advisory_evaluation_errors_preserve_all_rows_and_nullability() -> Result<()> {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![Some(0), None])) as ArrowArrayRef,
+        )])?;
+        let division = Arc::new(BinaryExpr::new(
+            lit(1_i64),
+            Operator::Divide,
+            Arc::new(Column::new("id", 0)),
+        ));
+        let predicate: Arc<dyn PhysicalExpr> =
+            Arc::new(BinaryExpr::new(division, Operator::Gt, lit(0_i64)));
+        assert!(predicate.evaluate(&batch).is_err());
+        let session = VortexSession::default();
+        let wrapped = raw_expression(predicate, &batch.schema(), &session, true)?.unwrap();
+        assert!(wrapped.as_scalar().unwrap().signature().is_infallible());
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let result = input.apply(&wrapped)?;
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
+        let actual = result.execute_arrow(
+            Some(&Field::new("result", DataType::Boolean, true)),
+            &mut session.create_execution_ctx(),
+        )?;
+        let expected: ArrowArrayRef = Arc::new(BooleanArray::from(vec![true, true]));
+        assert_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn advisory_preserves_result_type_errors() -> Result<()> {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![1])) as ArrowArrayRef,
+        )])?;
+        let predicate: Arc<dyn PhysicalExpr> = Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(create_udf(
+                "invalid_boolean_result",
+                vec![],
+                DataType::Boolean,
+                Volatility::Immutable,
+                Arc::new(|_| Ok(ColumnarValue::Scalar(ScalarValue::Int64(Some(1))))),
+            )),
+            vec![],
+            &batch.schema(),
+            Arc::new(ConfigOptions::new()),
+        )?);
+        let session = VortexSession::default();
+        let wrapped = raw_expression(predicate, &batch.schema(), &session, true)?.unwrap();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let error = input
+            .apply(&wrapped)?
+            .execute_arrow(
+                Some(&Field::new("result", DataType::Boolean, true)),
+                &mut session.create_execution_ctx(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("Int64"));
+        assert!(error.to_string().contains("Boolean"));
+        Ok(())
+    }
+}
