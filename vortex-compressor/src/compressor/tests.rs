@@ -1390,6 +1390,8 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
 
 mod fsl_sparse_vs_dense {
     use std::iter;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use vortex_array::ArrayId;
     use vortex_array::ArrayRef;
@@ -1399,6 +1401,7 @@ mod fsl_sparse_vs_dense {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::FixedSizeList;
@@ -1416,13 +1419,14 @@ mod fsl_sparse_vs_dense {
     use crate::CascadingCompressor;
     use crate::scheme::CompressionEstimate;
     use crate::scheme::CompressorContext;
+    use crate::scheme::DeferredEstimate;
     use crate::scheme::EstimateVerdict;
     use crate::scheme::Scheme;
     use crate::stats::ArrayAndStats;
 
     /// A mock `FixedSizeList` scheme that dictionary-encodes only the valid rows so a 50%-null
-    /// list shrinks to roughly half its raw size, beating `exact_uncompressed_size` while still
-    /// losing to a dense list whose elements compress to a constant.
+    /// list shrinks to roughly half its raw size, competing via sampling against dense element
+    /// compression.
     #[derive(Debug)]
     struct HalfSizeFslScheme;
 
@@ -1445,7 +1449,7 @@ mod fsl_sparse_vs_dense {
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
-            CompressionEstimate::Verdict(EstimateVerdict::Ratio(2.0))
+            CompressionEstimate::Deferred(DeferredEstimate::Sample)
         }
 
         fn compress(
@@ -1490,14 +1494,106 @@ mod fsl_sparse_vs_dense {
         }
     }
 
+    /// Compresses all-equal `u64` primitive arrays even during sampling, standing in for integer
+    /// schemes like RLE/BitPacking that compress constant elements when built-in constant
+    /// detection is skipped on a sample.
+    #[derive(Debug)]
+    struct ConstantU64Scheme;
+
+    impl Scheme for ConstantU64Scheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.constant_u64"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(p) if p.ptype() == vortex_array::dtype::PType::U64)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            let Ok(prim) = data.array().clone().execute::<PrimitiveArray>(exec_ctx) else {
+                return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            };
+            let slice = prim.as_slice::<u64>();
+            if let Some(&first) = slice.first()
+                && slice.iter().all(|&v| v == first)
+            {
+                return CompressionEstimate::Verdict(EstimateVerdict::Ratio(100.0));
+            }
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            let prim = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
+            let first = prim.as_slice::<u64>()[0];
+            Ok(ConstantArray::new(first, prim.len()).into_array())
+        }
+    }
+
+    /// Records the largest primitive element array length evaluated during compression without
+    /// ever shrinking it, so a test can verify whether dense element compression ran on the full
+    /// column or only on the sample.
+    static MAX_ELEMENT_LEN_SEEN: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Debug)]
+    struct RecordingU64Scheme;
+
+    impl Scheme for RecordingU64Scheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.recording_u64"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches!(canonical, Canonical::Primitive(p) if p.ptype() == vortex_array::dtype::PType::U64)
+        }
+
+        fn produced_encodings(&self) -> Vec<ArrayId> {
+            Vec::new()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            MAX_ELEMENT_LEN_SEEN.fetch_max(data.array().len(), Ordering::Relaxed);
+            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(data.array().clone())
+        }
+    }
+
     #[test]
     fn test_fsl_compares_scheme_output_against_dense_compressed_size() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
-        let comp = CascadingCompressor::new(vec![&HalfSizeFslScheme]);
+        let comp = CascadingCompressor::new(vec![&HalfSizeFslScheme, &ConstantU64Scheme]);
 
         // Constant elements with 50% nulls: dense FSL compresses elements to Constant (~8B) +
-        // validity (128B) << HalfSizeFslScheme (~18 KiB).
-        let rows = 1024;
+        // validity (512B) << HalfSizeFslScheme (~72 KiB).
+        let rows = 4_096;
         let list_size: u32 = 4;
         let num_elems = rows * list_size as usize;
         let validity =
@@ -1515,7 +1611,7 @@ mod fsl_sparse_vs_dense {
         );
         assert_arrays_eq!(&result, &compressible, &mut exec_ctx);
 
-        // Incompressible elements: dense FSL stays ~32 KiB, so HalfSizeFslScheme (~18 KiB) wins.
+        // Incompressible elements: dense FSL cannot shrink on the sample, so HalfSizeFslScheme wins.
         let distinct_elems = PrimitiveArray::from_iter(0..num_elems as u64).into_array();
         let incompressible =
             FixedSizeListArray::new(distinct_elems, list_size, validity, rows).into_array();
@@ -1527,6 +1623,40 @@ mod fsl_sparse_vs_dense {
         );
         assert!(scheme_result.nbytes() < incompressible.nbytes());
         assert_arrays_eq!(&scheme_result, &incompressible, &mut exec_ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fsl_dense_not_run_on_full_column_when_scheme_wins() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        MAX_ELEMENT_LEN_SEEN.store(0, Ordering::Relaxed);
+        let comp = CascadingCompressor::new(vec![&HalfSizeFslScheme, &RecordingU64Scheme]);
+
+        // More rows than a single compression sample (1,024 rows) so sampling compresses a strict
+        // subset of the column.
+        let rows = 4_096;
+        let list_size: u32 = 4;
+        let num_elems = rows * list_size as usize;
+        let validity =
+            Validity::Array(BoolArray::from_iter((0..rows).map(|i| i % 2 == 0)).into_array());
+        let distinct_elems = PrimitiveArray::from_iter(0..num_elems as u64).into_array();
+        let incompressible =
+            FixedSizeListArray::new(distinct_elems, list_size, validity, rows).into_array();
+
+        let result = comp.compress(&incompressible, &mut exec_ctx)?;
+        assert!(
+            result.is::<Dict>(),
+            "HalfSizeFslScheme should win on incompressible elements, got {}",
+            result.encoding_id()
+        );
+        assert_arrays_eq!(&result, &incompressible, &mut exec_ctx);
+
+        let max_len = MAX_ELEMENT_LEN_SEEN.load(Ordering::Relaxed);
+        assert!(
+            max_len > 0 && max_len < num_elems,
+            "expected dense element compression to run only on the sample (< {num_elems} elems), \
+             saw max {max_len} elems"
+        );
         Ok(())
     }
 
