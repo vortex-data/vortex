@@ -44,7 +44,7 @@ vortex-arrow = { workspace = true, features = ["_test-harness-hegel"] }
 vortex-expr = { workspace = true }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
-vortex-layout = { workspace = true }
+vortex-layout = { workspace = true, features = ["_test-harness"] }
 vortex-uuid = { workspace = true }
 
 [[bench]]

@@ -244,6 +244,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray as VxStruct;
     use vortex_array::arrays::VarBinViewArray;
@@ -251,13 +252,13 @@ mod tests {
     use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::session::DTypeSessionExt;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::stream::ArrayStreamAdapter;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
@@ -278,16 +279,19 @@ mod tests {
     use vortex_expr::root;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
+    use vortex_file::v2::ScanDriver;
     use vortex_functions::expr::variant_get;
     use vortex_functions::variant_get::VariantPath;
     use vortex_functions::variant_get::VariantPathElement;
+    use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::VTable;
     use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::table::TableStrategy;
     use vortex_layout::layouts::variant::Variant as VariantLayoutEncoding;
-    use vortex_layout::scan::metrics::ScanUsage;
+    use vortex_layout::scan::v2::ScanBuilder;
+    use vortex_layout::segments::CountingSegmentSource;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
     use vortex_mask::Mask;
@@ -352,38 +356,58 @@ mod tests {
     }
 
     #[rstest]
+    #[case::coalesced([true, true, true, false], &[3, 1], false)]
+    #[case::alternating([true, false, true, false], &[1, 1, 1, 1], false)]
+    #[case::nested_overlap([true, false, true, false], &[1, 1, 1, 1], true)]
     #[tokio::test]
     async fn projected_field_reads_residual_only_for_incomplete_chunks(
+        #[case] complete: [bool; 4],
+        #[case] run_lengths: &[usize],
+        #[case] nested_overlap: bool,
+        #[values(false, true)] nullable: bool,
+        #[values(false, true)] v2: bool,
         parquet_variant_file_session: VortexResult<VortexSession>,
     ) -> VortexResult<()> {
+        const ROWS: u8 = 4;
         let session = parquet_variant_file_session?;
         crate::initialize(&session);
         let mut chunks = Vec::new();
-        let pad = "x".repeat(120);
-        for chunk in 0..4 {
-            let rows: Vec<String> = (0..256)
-                .map(|i| {
-                    if chunk == 3 {
-                        format!(r#"{{"a":7,"pad":"{pad}{i}"}}"#)
+        for (chunk, complete) in (0..).zip(complete) {
+            // Keep a shredded value under a SQL-null core, and a distinct fallback in each run.
+            let rows: Vec<_> = (0..ROWS)
+                .map(|row| {
+                    if nullable && row == 0 {
+                        None
+                    } else if complete {
+                        Some(r#"{"extra":true}"#.to_owned())
+                    } else if nested_overlap {
+                        Some(r#"{"z":{"residual":true}}"#.to_owned())
                     } else {
-                        format!(r#"{{"pad":"{pad}{i}"}}"#)
+                        Some(format!(r#"{{"a":{}}}"#, chunk * ROWS + row))
                     }
                 })
                 .collect();
             let json: ArrowArrayRef = Arc::new(StringArray::from(rows));
             let core =
                 ParquetVariant::from_arrow_variant(&json_to_variant(&json)?, &session.arrow())?;
-            let shredded = VxStruct::try_new(
-                FieldNames::from_iter(["a"]),
-                vec![
-                    PrimitiveArray::from_option_iter(
-                        (0..256).map(|_| (chunk != 3).then_some(7i32)),
-                    )
+            assert_eq!(core.dtype().is_nullable(), nullable);
+            let nested = VxStruct::from_fields(&[(
+                "n",
+                ConstantArray::new(1i32, usize::from(ROWS)).into_array(),
+            )])?
+            .into_array();
+            let shredded = VxStruct::from_fields(&[
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter((0..ROWS).map(|row| {
+                        ((nullable && row == 0) || complete || nested_overlap)
+                            .then_some(i32::from(chunk * ROWS + row))
+                    }))
                     .into_array(),
-                ],
-                256,
-                Validity::AllValid,
-            )?
+                ),
+                ("b", nested.clone()),
+                ("z", nested),
+            ])?
             .into_array();
             chunks.push(VariantArray::try_new(core, Some(shredded))?.into_array());
         }
@@ -397,39 +421,59 @@ mod tests {
             .with_strategy(Arc::new(strategy))
             .write(&mut bytes, chunks.to_array_stream())
             .await?;
-        let usage = Arc::new(ScanUsage::default());
-        let file = session
-            .open_options()
-            .open_buffer(bytes)?
-            .with_usage(Arc::clone(&usage));
+        let file = session.open_options().open_buffer(bytes)?;
+        let source = Arc::new(CountingSegmentSource::new(file.segment_source()));
+        let file = file.with_segment_source(Arc::<CountingSegmentSource>::clone(&source));
         let runs = file.footer().layout().children()?;
-        assert_eq!(runs.len(), 2);
-        assert!(runs.iter().all(|run| run.is::<VariantLayoutEncoding>()));
-        assert_eq!((runs[0].row_count(), runs[1].row_count()), (768, 256));
+        assert_eq!(runs.len(), run_lengths.len());
         let extract = variant_get(
             root(),
             VariantPath::field("a"),
             Some(DType::Primitive(PType::I32, Nullability::Nullable)),
         );
-        let actual = file
-            .scan()?
-            .with_projection(extract.bind(file.dtype())?)
-            .into_array_stream()?
-            .read_all()
-            .await?;
+        let projection = extract.bind(file.dtype())?;
+        let actual = if v2 {
+            let scan =
+                ScanBuilder::new(session.clone(), file.scan_file()).with_projection(projection);
+            let driver = ScanDriver::new(TokioRuntime::current(), 2, true);
+            ArrayStreamAdapter::new(scan.dtype().clone(), driver.run(scan))
+                .read_all()
+                .await?
+        } else {
+            file.scan()?
+                .with_projection(projection)
+                .into_array_stream()?
+                .read_all()
+                .await?
+        };
         assert_arrays_eq!(
             actual,
-            PrimitiveArray::from_option_iter((0..1024).map(|_| Some(7i32))),
+            PrimitiveArray::from_option_iter(
+                (0..ROWS * u8::try_from(complete.len())?)
+                    .map(|row| (!nullable || !row.is_multiple_of(ROWS)).then_some(i32::from(row)))
+            ),
             &mut session.create_execution_ctx()
         );
-        let projected = usage.snapshot().bytes_requested;
-        let full = Arc::new(ScanUsage::default());
-        file.with_usage(Arc::clone(&full))
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?;
-        assert!(projected < full.snapshot().bytes_requested / 2);
+        let requested = source.requested_segments();
+        let mut start = 0;
+        for (run, &length) in runs.iter().zip(run_lengths) {
+            assert!(run.is::<VariantLayoutEncoding>());
+            assert_eq!(run.row_count(), u64::try_from(length)? * u64::from(ROWS));
+            let core = &run.children()?[0];
+            let mut segments = Vec::new();
+            for layout in core.depth_first_traversal() {
+                segments.extend(layout?.segment_ids());
+            }
+            assert!(!segments.is_empty());
+            for id in segments {
+                assert_eq!(
+                    requested.contains(&id),
+                    !complete[start],
+                    "core segment {id}"
+                );
+            }
+            start += length;
+        }
         Ok(())
     }
 

@@ -4,8 +4,8 @@
 //! A Variant layout stores two row-aligned children: core Variant storage and shredded values.
 //!
 //! The struct writer splits a shredded struct into a column per field. When a chunk's shredded
-//! values are complete, a typed extraction can read the selected column directly. Nullable
-//! Variants also need the core's SQL validity.
+//! values are complete, a typed extraction can read the selected column directly. The writer
+//! carries the Variant's SQL nulls on a complete shredded child so the extraction preserves them.
 //!
 //! **Note**: this is an unstable and experimental format that is expected to change. Using it may
 //! lead to unreadable files in the future.
@@ -26,9 +26,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_expr::ScalarFnExprExt;
 use vortex_expr::get_item;
 use vortex_expr::root;
-use vortex_functions::expr::variant_pack;
+use vortex_functions::variant_pack::VariantPack;
+use vortex_functions::variant_pack::VariantPackOptions;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 pub use writer::VariantStrategy;
@@ -85,6 +87,7 @@ impl VariantData {
         let metadata = VariantLayoutMetadata {
             shredded_dtype: pb::DType::try_from(&shredded)?.encode_to_vec(),
             complete,
+            shredded_is_masked: complete && dtype.is_nullable(),
         };
         Ok(Self {
             storage_dtype: storage_dtype(dtype, shredded),
@@ -108,12 +111,16 @@ impl VariantData {
 
     /// The Variant, as an expression over the stored struct.
     fn projection(&self) -> VortexResult<BoundExpression> {
-        variant_pack(
-            get_item(CORE, root()),
-            get_item(SHREDDED, root()),
-            self.metadata.complete,
-        )
-        .bind(&self.storage_dtype)
+        let mut options = VariantPackOptions::new(self.metadata.complete);
+        if self.metadata.shredded_is_masked {
+            options = options.with_masked_shredded();
+        }
+        VariantPack
+            .new_expr(
+                options,
+                [get_item(CORE, root()), get_item(SHREDDED, root())],
+            )
+            .bind(&self.storage_dtype)
     }
 }
 
@@ -126,6 +133,9 @@ pub struct VariantLayoutMetadata {
     /// Whether the shredded child holds every value it could hold.
     #[prost(bool, tag = "2")]
     complete: bool,
+    /// Whether every SQL-null core row is also null in the shredded child.
+    #[prost(bool, tag = "3")]
+    shredded_is_masked: bool,
 }
 
 /// Layout vtable for a shredded Variant.

@@ -18,7 +18,9 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -27,6 +29,7 @@ use vortex_functions::variant_get::VariantGetOptions;
 use vortex_functions::variant_get::VariantPath;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CORE;
 use super::SHREDDED;
@@ -170,11 +173,19 @@ fn storage_chunk(
         return Ok((None, chunk));
     };
     let core = variant.core_storage();
+    let complete = is_complete(core, shredded, ctx)?;
+    let shredded = if complete && core.dtype().is_nullable() {
+        shredded
+            .clone()
+            .mask(core.validity()?.to_array(core.len()))?
+    } else {
+        shredded.clone()
+    };
     let schema = Shredding {
         dtype: shredded.dtype().clone(),
-        complete: is_complete(core, shredded, ctx)?,
+        complete,
     };
-    let storage = StructArray::from_fields(&[(CORE, core.clone()), (SHREDDED, shredded.clone())])?;
+    let storage = StructArray::from_fields(&[(CORE, core.clone()), (SHREDDED, shredded)])?;
     Ok((Some(schema), storage.into_array()))
 }
 
@@ -182,26 +193,35 @@ fn storage_chunk(
 /// have residual children even when the container itself is valid.
 fn is_complete(core: &ArrayRef, shredded: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     let valid = shredded.validity()?.execute_mask(shredded.len(), ctx)?;
-    // Any residual on a missing root could supply the requested value, including an
-    // object whose fields are all missing. Avoid a speculative cast to the shredded dtype.
-    if !valid.all_true() && !residual_absent(&core.filter(!&valid)?, VariantPath::root(), ctx)? {
-        return Ok(false);
+    // The root path exists on every SQL-valid row, including one containing Variant null.
+    if !valid.all_true() {
+        let core_valid = core.validity()?.execute_mask(core.len(), ctx)?;
+        if !core_valid.bitand_not(&valid).all_false() {
+            return Ok(false);
+        }
     }
     if shredded.dtype().is_struct() {
         let object = shredded.clone().execute::<StructArray>(ctx)?;
+        let mut nested = Vec::new();
         for (name, field) in object.names().iter().zip(object.iter_unmasked_fields()) {
+            if matches!(
+                field.dtype(),
+                DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..)
+            ) {
+                nested.push(name);
+                continue;
+            }
             let present = field.validity()?.execute_mask(field.len(), ctx)?;
-            let covered = &valid & &present;
-            let probe = match field.dtype() {
-                DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => core.clone(),
-                _ if covered.all_true() => continue,
-                _ => core.filter(!&covered)?,
-            };
-            if !residual_absent(&probe, VariantPath::field(name.clone()), ctx)? {
+            let missing = valid.clone().bitand_not(&present);
+            if !missing.all_false() && !residual_absent(&core.filter(missing)?, name, ctx)? {
                 return Ok(false);
             }
         }
-        return Ok(true);
+        return match nested.as_slice() {
+            [] => Ok(true),
+            [name] => residual_absent(core, name, ctx),
+            names => nested_residuals_absent(core, names, ctx),
+        };
     }
     Ok(!matches!(
         shredded.dtype(),
@@ -211,12 +231,42 @@ fn is_complete(core: &ArrayRef, shredded: &ArrayRef, ctx: &mut ExecutionCtx) -> 
 
 fn residual_absent(
     core: &ArrayRef,
-    path: VariantPath,
+    name: &FieldName,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
-    let values = VariantGet::try_new(core.clone(), VariantGetOptions::new(path, None))?;
+    let values = VariantGet::try_new(
+        core.clone(),
+        VariantGetOptions::new(VariantPath::field(name.clone()), None),
+    )?;
     Ok(values
         .validity()?
         .execute_mask(values.len(), ctx)?
         .all_false())
+}
+
+/// Inspect each residual object once when several shredded containers could overlap it.
+fn nested_residuals_absent(
+    core: &ArrayRef,
+    names: &[&FieldName],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let names: HashSet<&str> = names.iter().map(|name| name.as_ref()).collect();
+    let mut probe = core.repeated_probe();
+    for row in 0..core.len() {
+        let scalar = probe.execute_scalar(row, ctx)?;
+        let mut payload = Some(&scalar);
+        while let Some(variant) = payload.and_then(|s| s.as_variant_opt()) {
+            payload = variant.value();
+        }
+        if let Some(object) = payload.and_then(|s| s.as_struct_opt())
+            && !object.is_null()
+            && object
+                .names()
+                .iter()
+                .any(|name| names.contains(name.as_ref()))
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

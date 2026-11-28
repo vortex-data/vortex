@@ -234,8 +234,7 @@ impl ScalarFnVTable for VariantGet {
         };
         let core = input.child(0);
         let mut current = input.child(1);
-        // Completeness describes residual values. The core still owns SQL validity.
-        if core.node_dtype()?.is_nullable() {
+        if core.node_dtype()?.is_nullable() && !pack.shredded_is_masked() {
             current = node.new_node(
                 Mask.bind(EmptyOptions),
                 &[current, is_not_null_node(&core)?],

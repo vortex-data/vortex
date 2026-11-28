@@ -208,6 +208,7 @@ fn variant_rejects_invalid_shredded_dtype() -> VortexResult<()> {
     let metadata = VariantLayoutMetadata {
         shredded_dtype: vec![0xff],
         complete: false,
+        shredded_is_masked: false,
     };
     let err = read(
         Variant.id(),

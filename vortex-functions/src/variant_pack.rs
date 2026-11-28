@@ -67,12 +67,27 @@ impl VariantPack {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VariantPackOptions {
     complete: bool,
+    shredded_is_masked: bool,
 }
 
 impl VariantPackOptions {
     /// Creates options for a shredded child that is `complete` or not.
     pub fn new(complete: bool) -> Self {
-        Self { complete }
+        Self {
+            complete,
+            shredded_is_masked: false,
+        }
+    }
+
+    /// Allows typed reads to use the shredded child's validity directly.
+    /// The caller must ensure every SQL-null core row is also null in that child.
+    pub fn with_masked_shredded(mut self) -> Self {
+        self.shredded_is_masked = true;
+        self
+    }
+
+    pub(crate) fn shredded_is_masked(&self) -> bool {
+        self.shredded_is_masked
     }
 
     /// Whether the shredded child holds every value it could hold.
@@ -104,6 +119,7 @@ impl ScalarFnVTable for VariantPack {
         Ok(Some(
             pb::VariantPackOpts {
                 complete: options.complete,
+                shredded_is_masked: options.shredded_is_masked,
             }
             .encode_to_vec(),
         ))
@@ -116,7 +132,10 @@ impl ScalarFnVTable for VariantPack {
     ) -> VortexResult<Self::Options> {
         let opts = pb::VariantPackOpts::decode(metadata)?;
 
-        Ok(VariantPackOptions::new(opts.complete))
+        Ok(VariantPackOptions {
+            complete: opts.complete,
+            shredded_is_masked: opts.shredded_is_masked,
+        })
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -171,8 +190,14 @@ mod tests {
     use super::VariantPackOptions;
 
     #[rstest]
-    fn options_round_trip(#[values(false, true)] complete: bool) -> VortexResult<()> {
-        let options = VariantPackOptions::new(complete);
+    fn options_round_trip(
+        #[values(false, true)] complete: bool,
+        #[values(false, true)] shredded_is_masked: bool,
+    ) -> VortexResult<()> {
+        let options = VariantPackOptions {
+            complete,
+            shredded_is_masked,
+        };
         let metadata = VariantPack.serialize(&options)?.unwrap_or_default();
 
         let actual = VariantPack.deserialize(&metadata, &VortexSession::empty())?;
