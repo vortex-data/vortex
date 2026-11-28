@@ -322,6 +322,11 @@ impl Validity {
                     && lhs.is_host()
                     && rhs.is_host()
                 {
+                    vortex_ensure_eq!(
+                        lhs.len(),
+                        rhs.len(),
+                        "Cannot AND validities of different lengths"
+                    );
                     return Ok(Validity::Array(
                         BoolArray::new(
                             &lhs_bits.to_bit_buffer() & &rhs_bits.to_bit_buffer(),
@@ -910,5 +915,12 @@ mod tests {
                 .contains("Validity::Array length must equal chunk length"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn validity_and_mismatched_lengths_returns_err() {
+        let lhs = Validity::Array(BoolArray::from_iter([true, false]).into_array());
+        let rhs = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
+        assert!(lhs.and(rhs).is_err());
     }
 }
