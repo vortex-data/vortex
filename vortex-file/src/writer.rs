@@ -61,6 +61,7 @@ use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
+use vortex_layout::sequence::fully_defined;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
@@ -203,7 +204,9 @@ impl VortexWriteOptions {
     ///
     /// A deeper path takes precedence over a shallower one, and a repeated path replaces the
     /// previous statistics. Pass an empty vector to record nothing for the field. Fields nested
-    /// beneath a nullable struct record no statistics regardless.
+    /// beneath a nullable struct record their statistics over the logical column, which is null
+    /// wherever an ancestor struct is null (aggregates that measure physical storage, such as
+    /// `UncompressedSizeInBytes`, still cover the stored batch).
     ///
     /// The write fails if `path` does not name a field reachable through struct fields of the
     /// file dtype, or if it asks for an aggregate the enabled editions don't include.
@@ -393,7 +396,7 @@ impl VortexWriteOptions {
             dtype.clone(),
             stream
                 .try_filter(|chunk| ready(!chunk.is_empty()))
-                .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
+                .map(move |result| result.map(|chunk| fully_defined(ptr.advance(), chunk))),
         )
         .sendable();
         let omit_statistics = self.file_statistics.is_empty()

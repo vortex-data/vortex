@@ -111,6 +111,7 @@ use vortex_expr::lt;
 use vortex_expr::lt_eq;
 use vortex_expr::or;
 use vortex_expr::root;
+use vortex_functions::expr::is_null;
 use vortex_functions::expr::lower;
 use vortex_functions::expr::select;
 use vortex_io::IoBuf;
@@ -1754,9 +1755,41 @@ async fn file_take() -> VortexResult<()> {
     Ok(())
 }
 
+/// A filtered scan over a field of a nullable struct returns the rows of the logical column. The
+/// field stores values under the struct's null rows that would match each predicate, and its zone
+/// maps leave them out, so no zone is kept or pruned because of a hidden value.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn scan_filters_nullable_struct_field_by_logical_values() -> VortexResult<()> {
+    const ROWS: i32 = 20_000;
+    // `s` is null in the last 5,000 rows except the very last, so `s.a > 15_000` matches one row
+    // and `is_null(s.a)` matches 4,999.
+    let values = PrimitiveArray::from_iter(0..ROWS).into_array();
+    let s_validity = Validity::from_iter((0..ROWS).map(|i| i < 15_000 || i == ROWS - 1));
+    let s = StructArray::try_new(["a"].into(), vec![values], ROWS as usize, s_validity)?;
+    let array = StructArray::from_fields(&[("s", s.into_array())])?.into_array();
+
+    let s_a = get_item("a", get_item("s", root()));
+    let count = |filter: Expression| {
+        let array = array.clone();
+        async move {
+            let result = round_trip(&array, |scan| {
+                Ok(scan.with_filter(filter.bind(array.dtype())?.optimize_recursive()?))
+            })
+            .await?;
+            VortexResult::Ok(result.len())
+        }
+    };
+    assert_eq!(count(gt(s_a.clone(), lit(15_000i32))).await?, 1);
+    assert_eq!(count(is_null(s_a)).await?, 4_999);
+    Ok(())
+}
+
+/// The fields of a nullable top-level struct are null wherever the struct is null, so `age`'s 99
+/// under the struct's last null row is left out of its statistics and counted as null.
 #[tokio::test]
 async fn write_nullable_top_level_struct() -> VortexResult<()> {
-    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), Some(99)]);
     let row_validity = BoolArray::from_iter([true, true, false, true, false]).into_array();
 
     let array = StructArray::try_new(
@@ -1787,16 +1820,32 @@ async fn write_nullable_top_level_struct() -> VortexResult<()> {
         Precision::exact(ScalarValue::from(2u64))
     );
     let (age, _) = stats.get_by_path(&field_path!(age)).expect("age entry");
-    assert!(age.is_empty());
+    assert_logical_age_stats(age);
 
     let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
     let stats = file
         .file_stats()
         .expect("file statistics should be present");
     let (age, _) = stats.get_by_path(&field_path!(age)).expect("age entry");
-    assert!(age.is_empty());
+    assert_logical_age_stats(age);
 
     Ok(())
+}
+
+/// `age` is `[25, 31, null, 57, null]` once the struct's null rows are null.
+fn assert_logical_age_stats(age: &AggregateStats) {
+    assert_eq!(
+        stat_value(age, Stat::NullCount),
+        Precision::exact(ScalarValue::from(2u64))
+    );
+    assert_eq!(
+        stat_value(age, Stat::Min),
+        Precision::exact(ScalarValue::from(25i32))
+    );
+    assert_eq!(
+        stat_value(age, Stat::Max),
+        Precision::exact(ScalarValue::from(57i32))
+    );
 }
 
 #[tokio::test]
@@ -2642,6 +2691,47 @@ async fn nested_empty_list_roundtrip(#[case] validity: Validity) -> VortexResult
 
     let result = write_read_roundtrip(array.clone()).await?;
     assert_arrays_eq!(result, array, &mut ctx);
+    Ok(())
+}
+
+/// The list writer drops the elements of null lists, of lists under null struct rows, and
+/// elements no list references, and writes those lists as empty. The column reads back
+/// unchanged.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn lists_with_absent_elements_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // Lists [1, 2], [null, 3] (null), [4], [5, 6] over elements that start and end with an
+    // unreferenced element.
+    let elements = PrimitiveArray::from_option_iter([
+        Some(0i32),
+        Some(1),
+        Some(2),
+        None,
+        Some(3),
+        Some(4),
+        Some(5),
+        Some(6),
+        Some(7),
+    ])
+    .into_array();
+    let lists = ListArray::try_new(
+        elements,
+        buffer![1u32, 3, 5, 6, 8].into_array(),
+        Validity::from_iter([true, false, true, true]),
+        &mut ctx,
+    )?
+    .into_array();
+    let array = StructArray::try_new(
+        ["lists"].into(),
+        vec![lists],
+        4,
+        Validity::from_iter([true, true, false, true]),
+    )?
+    .into_array();
+
+    let result = write_read_roundtrip(array.clone()).await?;
+    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
@@ -3912,6 +4002,36 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     let age = get_item("age", col("person"));
     assert!(file.can_prune(&gt(age.clone(), lit(30)))?);
     assert!(!file.can_prune(&gt(age, lit(20)))?);
+
+    Ok(())
+}
+
+/// Whole-file pruning over a field of a nullable struct uses logical statistics: values under null
+/// struct rows do not prevent pruning, and null struct rows prevent `is_null` from pruning even
+/// when the stored child field has no nulls.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_can_prune_nullable_struct_field() -> VortexResult<()> {
+    let s = StructArray::try_new(
+        ["a"].into(),
+        vec![buffer![10i32, 100, 20, 200].into_array()],
+        4,
+        Validity::from_iter([true, false, true, false]),
+    )?;
+    let st = StructArray::try_new(["s"].into(), vec![s.into_array()], 4, Validity::NonNullable)?;
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .include_nested_statistics()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let s_a = get_item("a", col("s"));
+    assert!(file.can_prune(&gt(s_a.clone(), lit(50)))?);
+    assert!(!file.can_prune(&gt(s_a.clone(), lit(15)))?);
+    assert!(!file.can_prune(&is_null(s_a))?);
 
     Ok(())
 }

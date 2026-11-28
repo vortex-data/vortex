@@ -128,10 +128,10 @@ impl LayoutStrategy for CompressingStrategy {
                 let input_reservation = chunk
                     .as_ref()
                     .ok()
-                    .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
+                    .map(|(_, chunk, _)| size_scope.reserve(chunk.nbytes()));
 
                 handle.spawn_cpu(move || {
-                    let (sequence_id, chunk) = chunk?;
+                    let (sequence_id, chunk, defined) = chunk?;
                     let mut ctx = session.create_execution_ctx();
                     // Compute the stats for the chunk prior to compression. The exact
                     // uncompressed size is measured once here and cached for the compressor.
@@ -150,15 +150,16 @@ impl LayoutStrategy for CompressingStrategy {
 
                     let output_reservation = buffered_bytes.reserve(compressed_size);
                     drop(input_reservation);
-                    Ok((sequence_id, compressed, output_reservation))
+                    Ok((sequence_id, compressed, defined, output_reservation))
                 })
             })
             .buffered(self.concurrency)
             .map(|result: VortexResult<_>| {
                 // The child counts the chunk when it takes it, so release the compressed bytes
                 // here.
-                result
-                    .map(|(sequence_id, compressed, _output_reservation)| (sequence_id, compressed))
+                result.map(|(sequence_id, compressed, defined, _output_reservation)| {
+                    (sequence_id, compressed, defined)
+                })
             });
 
         self.child

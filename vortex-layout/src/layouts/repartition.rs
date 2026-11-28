@@ -20,6 +20,7 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::BufferedBytesReservation;
@@ -121,10 +122,10 @@ impl LayoutStrategy for RepartitionStrategy {
             SequentialStreamAdapter::new(
                 dtype.clone(),
                 stream.map(move |chunk| {
-                    let (sequence_id, chunk) = chunk?;
+                    let (sequence_id, chunk, defined) = chunk?;
                     let mut ctx = canonicalize_session.create_execution_ctx();
                     let canonical = chunk.execute::<Canonical>(&mut ctx)?.into_array();
-                    VortexResult::Ok((sequence_id, canonical))
+                    VortexResult::Ok((sequence_id, canonical, defined))
                 }),
             )
             .sendable()
@@ -151,17 +152,19 @@ impl LayoutStrategy for RepartitionStrategy {
             let mut ctx = repartition_session.create_execution_ctx();
             let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, size_scope);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
-                let (sequence_id, chunk) = chunk?;
+                let (sequence_id, chunk, defined) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + block_len).min(chunk.len());
                     let sliced = chunk.slice(offset..end)?;
-                    chunks.push_back(sliced, &mut ctx)?;
+                    chunks.push_back(sliced, defined.slice(offset..end), &mut ctx)?;
                     offset = end;
 
                     if chunks.have_enough() {
-                        let (output_chunks, reservations) = chunks.collect_exact_blocks(&mut ctx)?;
+                        let (output, reservations) = chunks.collect_exact_blocks(&mut ctx)?;
+                        let (output_chunks, output_defined): (Vec<_>, Vec<_>) =
+                            output.into_iter().unzip();
                         assert!(!output_chunks.is_empty());
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
@@ -170,6 +173,7 @@ impl LayoutStrategy for RepartitionStrategy {
                             yield (
                                 sequence_pointer.advance(),
                                 canonical,
+                                Mask::concat(output_defined.iter())?,
                             )
                         }
 
@@ -179,14 +183,21 @@ impl LayoutStrategy for RepartitionStrategy {
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let (output_chunks, reservations): (Vec<_>, Vec<_>) =
-                        chunks.data.drain(..).unzip();
+                    let mut output_chunks = Vec::with_capacity(chunks.data.len());
+                    let mut flush_defined = Vec::with_capacity(chunks.data.len());
+                    let mut reservations = Vec::with_capacity(chunks.data.len());
+                    for (arr, defined, reservation) in chunks.data.drain(..) {
+                        output_chunks.push(arr);
+                        flush_defined.push(defined);
+                        reservations.push(reservation);
+                    }
                     let to_flush = ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                     if !to_flush.is_empty() {
                         let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
                         yield (
                             sequence_pointer.advance(),
                             canonical,
+                            Mask::concat(flush_defined.iter())?,
                         )
                     }
 
@@ -207,15 +218,19 @@ impl LayoutStrategy for RepartitionStrategy {
     }
 }
 
+/// Whole blocks removed from [`ChunksBuffer`], paired with their byte reservations.
+type ExactBlocks = (Vec<(ArrayRef, Mask)>, Vec<BufferedBytesReservation>);
+
 /// Buffers blocks until they hold enough rows and bytes to emit.
 ///
 /// Bytes are the exact uncompressed size of each block, not the buffers it holds: a view array
 /// read from Arrow points into whole decompressed pages, which `nbytes()` would count in full.
 struct ChunksBuffer {
-    /// Each entry stores the chunk and a reservation of the size snapshot taken at push time.
+    /// Each entry stores the chunk, the definedness on its rows, and a reservation of the size
+    /// snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
-    data: VecDeque<(ArrayRef, BufferedBytesReservation)>,
+    data: VecDeque<(ArrayRef, Mask, BufferedBytesReservation)>,
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
@@ -244,16 +259,13 @@ impl ChunksBuffer {
     /// A chunk that is split counts in full in the returned reservations, and its remainder gets
     /// a new reservation. So the bytes are counted twice until the caller drops the returned
     /// reservations, but they are never not counted.
-    fn collect_exact_blocks(
-        &mut self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<(Vec<ArrayRef>, Vec<BufferedBytesReservation>)> {
+    fn collect_exact_blocks(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<ExactBlocks> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut reservations = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, reservation) = self
+            let (chunk, defined, reservation) = self
                 .pop_front()
                 .vortex_expect("must have at least one chunk");
             reservations.push(reservation);
@@ -262,36 +274,48 @@ impl ChunksBuffer {
             if len > remaining {
                 let left = chunk.slice(0..remaining)?;
                 let right = chunk.slice(remaining..len)?;
-                self.push_front(right, ctx)?;
-                res.push(left);
+                self.push_front(right, defined.slice(remaining..len), ctx)?;
+                res.push((left, defined.slice(0..remaining)));
                 remaining = 0;
             } else {
-                res.push(chunk);
+                res.push((chunk, defined));
                 remaining -= len;
             }
         }
         Ok((res, reservations))
     }
 
-    fn push_back(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn push_back(
+        &mut self,
+        chunk: ArrayRef,
+        defined: Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_back((chunk, self.size_scope.reserve(nb)));
+        self.data
+            .push_back((chunk, defined, self.size_scope.reserve(nb)));
         Ok(())
     }
 
-    fn push_front(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn push_front(
+        &mut self,
+        chunk: ArrayRef,
+        defined: Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_front((chunk, self.size_scope.reserve(nb)));
+        self.data
+            .push_front((chunk, defined, self.size_scope.reserve(nb)));
         Ok(())
     }
 
-    fn pop_front(&mut self) -> Option<(ArrayRef, BufferedBytesReservation)> {
+    fn pop_front(&mut self) -> Option<(ArrayRef, Mask, BufferedBytesReservation)> {
         let res = self.data.pop_front();
-        if let Some((chunk, reservation)) = res.as_ref() {
+        if let Some((chunk, _, reservation)) = res.as_ref() {
             self.row_count -= chunk.len();
             self.nbytes -= reservation.bytes();
         }
@@ -325,6 +349,7 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::varbinview::BinaryView;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
@@ -646,14 +671,25 @@ mod tests {
         let tracker = SizeScope::new();
         let mut buf = ChunksBuffer::new(0, 6, tracker.clone());
 
-        buf.push_back(buffer![1u64, 2, 3, 4].into_array(), &mut ctx)?;
-        buf.push_back(buffer![5u64, 6, 7, 8].into_array(), &mut ctx)?;
+        buf.push_back(
+            buffer![1u64, 2, 3, 4].into_array(),
+            Mask::new_true(4),
+            &mut ctx,
+        )?;
+        buf.push_back(
+            buffer![5u64, 6, 7, 8].into_array(),
+            Mask::new_true(4),
+            &mut ctx,
+        )?;
         assert_eq!(tracker.uncompressed_bytes(), 64);
 
         // The split chunk counts in full until the caller drops the returned reservations, and
         // its remainder has its own reservation.
         let (blocks, reservations) = buf.collect_exact_blocks(&mut ctx)?;
-        assert_eq!(blocks.iter().map(|block| block.len()).sum::<usize>(), 6);
+        assert_eq!(
+            blocks.iter().map(|(block, _)| block.len()).sum::<usize>(),
+            6
+        );
         assert_eq!(tracker.uncompressed_bytes(), 80);
 
         drop(reservations);
@@ -684,8 +720,9 @@ mod tests {
         let s2 = arr.slice(block_len..n)?;
 
         let mut buf = ChunksBuffer::new(0, block_len, SizeScope::new());
-        buf.push_back(s1, &mut ctx)?;
-        buf.push_back(s2, &mut ctx)?;
+        let (d1, d2) = (Mask::new_true(s1.len()), Mask::new_true(s2.len()));
+        buf.push_back(s1, d1, &mut ctx)?;
+        buf.push_back(s2, d2, &mut ctx)?;
 
         let _output = buf.pop_front().unwrap();
 
@@ -699,6 +736,77 @@ mod tests {
         assert_eq!(buf.nbytes, 0);
         assert_eq!(buf.row_count, 0);
 
+        Ok(())
+    }
+
+    /// Blocks cut across input chunks keep the definedness on each of their rows.
+    #[test]
+    fn exact_blocks_carry_the_definedness_on_their_rows() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut buf = ChunksBuffer::new(0, 3, SizeScope::new());
+        buf.push_back(
+            buffer![1i32, 2].into_array(),
+            Mask::from_iter([true, false]),
+            &mut ctx,
+        )?;
+        buf.push_back(
+            buffer![3i32, 4, 5, 6].into_array(),
+            Mask::from_iter([false, true, true, false]),
+            &mut ctx,
+        )?;
+
+        let (blocks, _reservations) = buf.collect_exact_blocks(&mut ctx)?;
+        let defined_masks: Vec<_> = blocks.iter().map(|(_, defined)| defined.clone()).collect();
+        assert_eq!(
+            Mask::concat(defined_masks.iter())?,
+            Mask::from_iter([true, false, false, true, true, false])
+        );
+        assert!(
+            blocks
+                .iter()
+                .all(|(block, defined)| block.len() == defined.len())
+        );
+        Ok(())
+    }
+
+    /// A split chunk with mixed definedness gives each part the definedness of its rows, and the
+    /// remainder that stays in the buffer holds its own reservation.
+    #[test]
+    fn split_chunk_keeps_definedness_and_reserves_remainder() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let tracker = SizeScope::new();
+        let mut buf = ChunksBuffer::new(0, 4, tracker.clone());
+        buf.push_back(
+            buffer![1i32, 2].into_array(),
+            Mask::from_iter([true, false]),
+            &mut ctx,
+        )?;
+        buf.push_back(
+            buffer![3i32, 4, 5, 6].into_array(),
+            Mask::from_iter([false, true, true, false]),
+            &mut ctx,
+        )?;
+        assert_eq!(tracker.uncompressed_bytes(), 24);
+
+        let (blocks, reservations) = buf.collect_exact_blocks(&mut ctx)?;
+        let defined_masks: Vec<_> = blocks.iter().map(|(_, defined)| defined.clone()).collect();
+        assert_eq!(
+            Mask::concat(defined_masks.iter())?,
+            Mask::from_iter([true, false, false, true])
+        );
+        assert_eq!(tracker.uncompressed_bytes(), 32);
+
+        drop(reservations);
+        assert_eq!(tracker.uncompressed_bytes(), 8);
+
+        let (remainder, defined, reservation) = buf
+            .pop_front()
+            .vortex_expect("remainder stays in the buffer");
+        assert_arrays_eq!(remainder, buffer![5i32, 6].into_array(), &mut ctx);
+        assert_eq!(defined, Mask::from_iter([true, false]));
+
+        drop(reservation);
+        assert_eq!(tracker.uncompressed_bytes(), 0);
         Ok(())
     }
 }

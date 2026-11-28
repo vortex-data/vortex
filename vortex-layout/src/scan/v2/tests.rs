@@ -84,6 +84,7 @@ use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt as _;
+use crate::sequence::fully_defined;
 use crate::test::new_session;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -145,7 +146,7 @@ async fn write_chunks(
     let (mut sequence_id, eof) = SequenceId::root().split();
     let chunks = chunks
         .into_iter()
-        .map(move |chunk| Ok((sequence_id.advance(), chunk)));
+        .map(move |chunk| Ok(fully_defined(sequence_id.advance(), chunk)));
     let layout = strategy
         .write_stream(
             ArrayContext::empty().into(),
@@ -342,7 +343,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
             Arc::<TestSegments>::clone(&segments),
             SequentialStreamAdapter::new(
                 dtype.clone(),
-                stream::iter([Ok((sequence.advance(), values))]),
+                stream::iter([Ok(fully_defined(sequence.advance(), values))]),
             )
             .sendable(),
             eof,
