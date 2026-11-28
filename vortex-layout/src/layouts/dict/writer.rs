@@ -49,6 +49,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -587,7 +588,7 @@ impl Stream for DictionaryTransformer {
                         }
                     },
                     TransformerState::Discarding => {}
-                    TransformerState::Done => unreachable!("checked before loop"),
+                    TransformerState::Done => vortex_panic!("checked before loop"),
                 },
                 Poll::Ready(Some(Ok(DictionaryChunk::Values(values)))) => {
                     match mem::replace(&mut self.state, TransformerState::Idle) {
@@ -600,7 +601,7 @@ impl Stream for DictionaryTransformer {
                                 "Unexpected dictionary values without active group"
                             ));
                         }
-                        TransformerState::Done => unreachable!("checked before loop"),
+                        TransformerState::Done => vortex_panic!("checked before loop"),
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
@@ -614,7 +615,7 @@ impl Stream for DictionaryTransformer {
                         self.state = TransformerState::Done;
                         return Poll::Ready(None);
                     }
-                    TransformerState::Done => unreachable!("checked before loop"),
+                    TransformerState::Done => vortex_panic!("checked before loop"),
                 },
                 Poll::Pending => return Poll::Pending,
             }
@@ -757,6 +758,7 @@ mod tests {
     use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Poll;
 
     use futures::StreamExt;
     use futures::TryStreamExt;
@@ -788,6 +790,7 @@ mod tests {
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_error::vortex_panic;
     use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -1255,10 +1258,10 @@ mod tests {
             transformer.next().await.expect("expected first group")?;
 
         // First codes chunk is already buffered before polling `transformer` again.
-        let (_, first_chunk) = codes_stream
-            .next()
-            .await
-            .expect("expected first codes chunk")?;
+        let Poll::Ready(Some(first_chunk)) = futures::poll!(codes_stream.next()) else {
+            vortex_panic!("expected first codes chunk to be immediately ready");
+        };
+        let (_, first_chunk) = first_chunk?;
         assert_arrays_eq!(
             first_chunk,
             buffer![0u8, 1],
