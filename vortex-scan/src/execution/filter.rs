@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
@@ -136,6 +138,36 @@ impl FilterPlans {
         self.pruning.iter().flatten()
     }
 
+    /// How many conjuncts the filter has.
+    pub(super) fn conjuncts(&self) -> usize {
+        self.predicates.len()
+    }
+
+    /// The dynamic version of conjunct `idx` now, `None` for a conjunct without dynamic
+    /// expressions.
+    pub(super) fn dynamic_version(&self, idx: usize) -> Option<u64> {
+        self.expression.dynamic_version(idx)
+    }
+
+    /// The pruning plans of the dynamic conjuncts that pruning ran at `versions` and whose values
+    /// changed since, skipping conjuncts that are switched off. A conjunct pruning did not run has
+    /// no version, so it is never pruned here: pruning skipped it for a reason, such as a scan of
+    /// one chunk, and has not read its zones.
+    fn changed_dynamic_pruning(&self, versions: &[Option<u64>]) -> Vec<PlanRef> {
+        self.pruning
+            .iter()
+            .zip(versions)
+            .enumerate()
+            .filter_map(|(idx, (plan, pruned_at))| {
+                let plan = plan.as_ref()?;
+                let pruned_at = (*pruned_at)?;
+                let version = self.expression.dynamic_version(idx)?;
+                (version != pruned_at && !self.expression.is_switched_off(idx))
+                    .then(|| plan.clone())
+            })
+            .collect()
+    }
+
     /// The pruning plans worth running before a scan of `rows` rows.
     ///
     /// A scan of at most one filtered chunk evaluates its conjuncts on that chunk next, so
@@ -143,14 +175,16 @@ impl FilterPlans {
     /// join's key bounds also proves its current predicate over the zones again. Without those
     /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
     /// SF10 was unchanged.
-    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+    ///
+    /// Each plan comes with the index of its conjunct.
+    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = (usize, &PlanRef)> {
         let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
         self.pruning
             .iter()
             .enumerate()
             .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
-            .filter_map(|(_, plan)| plan.as_ref())
+            .filter_map(|(idx, plan)| Some((idx, plan.as_ref()?)))
     }
 }
 
@@ -184,6 +218,18 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
 /// The first compute starts the reads of every conjunct's segments for the selected rows and
 /// announces the projection's, so the conjuncts run back to back and the projection's reads
 /// coalesce with them. Conjuncts run in the order the shared [`FilterExpr`] picks.
+///
+/// Before those reads, a dynamic conjunct whose value changed since the chunk was planned, as a
+/// top-N's bound tightens while the scan runs, prunes the chunk's rows again with its current
+/// value, from the zone maps the scan's pruning already read. The chunk then reads nothing for
+/// the rows the tightened value rules out, and nothing at all when it rules them all out. The
+/// versions compared are those the chunk's kept rows were pruned at, carried with them in
+/// [`Kept`](super::Kept), so a value that changed between pruning and planning the chunk is
+/// rechecked too. Only conjuncts that pruning ran are rechecked: a scan of one chunk skips its
+/// dynamic pruning and reads no zones, and a recheck must not read them ahead of the chunk. Pruning
+/// ran when the chunk's part started, so without this, every chunk of the part would read its
+/// conjuncts' columns under the value pruning saw. Setting `VORTEX_V2_CHUNK_DYNAMIC_RECHECK=0`
+/// turns it off; that switch is temporary, for comparing both behaviours in one binary.
 pub(super) struct FilterPlanner {
     scan: Arc<PreparedScan>,
     selected: Option<SelectedRows>,
@@ -195,6 +241,31 @@ pub(super) struct FilterPlanner {
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
+    dynamic_recheck: DynamicRecheck,
+}
+
+/// Where a chunk's recheck of the dynamic conjuncts that changed since pruning ran them stands.
+enum DynamicRecheck {
+    /// The dynamic version each conjunct's pruning ran at, `None` for a conjunct pruning did not
+    /// run; the recheck has not started.
+    Planned(Arc<[Option<u64>]>),
+    /// The pruning plans of the changed dynamic conjuncts still to run, and the one running.
+    Running {
+        pending: VecDeque<PlanRef>,
+        current: Option<Box<ScanAdaptor>>,
+    },
+    /// Every changed conjunct has been rechecked, or rechecking is off.
+    Done,
+}
+
+/// Whether chunks prune again with dynamic values that changed since they were planned.
+///
+/// `VORTEX_V2_CHUNK_DYNAMIC_RECHECK=0` turns rechecking off. The switch is temporary: it exists
+/// only to compare both behaviours in one binary, and goes away once that comparison is decided.
+fn recheck_dynamic() -> bool {
+    static RECHECK: LazyLock<bool> =
+        LazyLock::new(|| std::env::var("VORTEX_V2_CHUNK_DYNAMIC_RECHECK").as_deref() != Ok("0"));
+    *RECHECK
 }
 
 /// The segments `plans` read over `rows` under `mask`, each once, in id order. Compiling finds
@@ -217,6 +288,10 @@ pub(super) fn segments_read<'a>(
 impl FilterPlanner {
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
         let filter = Arc::clone(scan.filter.as_ref().vortex_expect("filter plans exist"));
+        let dynamic_recheck = match &selected.pruned_at {
+            Some(versions) if recheck_dynamic() => DynamicRecheck::Planned(Arc::clone(versions)),
+            _ => DynamicRecheck::Done,
+        };
         Self {
             remaining: BitVec::from_elem(filter.predicates.len(), true),
             scan,
@@ -226,7 +301,79 @@ impl FilterPlanner {
             pieces: Vec::new(),
             announced: false,
             next_hint: u32::MAX,
+            dynamic_recheck,
         }
+    }
+
+    /// Prunes the selected rows again with every dynamic conjunct whose value changed since
+    /// pruning ran it, one at a time. Returns the output to return now, or `None` once the
+    /// rechecks have run and some rows remain.
+    fn run_dynamic_recheck(&mut self) -> VortexResult<Option<PlannerOutput>> {
+        let Some(selected) = &mut self.selected else {
+            return Ok(Some(PlannerOutput::Done));
+        };
+        if let DynamicRecheck::Planned(versions) = &self.dynamic_recheck {
+            let pending = VecDeque::from(self.filter.changed_dynamic_pruning(versions));
+            self.dynamic_recheck = if pending.is_empty() {
+                DynamicRecheck::Done
+            } else {
+                DynamicRecheck::Running {
+                    pending,
+                    current: None,
+                }
+            };
+        }
+        let DynamicRecheck::Running { pending, current } = &mut self.dynamic_recheck else {
+            return Ok(None);
+        };
+        if let Some(adaptor) = current.as_mut() {
+            if adaptor.state() != State::Done {
+                return Ok(Some(match adaptor.compute()? {
+                    AdaptorStep::Yield => PlannerOutput::Continue,
+                    AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
+                    AdaptorStep::Piece(piece) => {
+                        self.pieces.push(piece_mask(&self.scan.session, piece)?);
+                        PlannerOutput::Continue
+                    }
+                }));
+            }
+            let input = selected.mask.true_count();
+            let excluded = Mask::concat(self.pieces.iter())?;
+            vortex_ensure_eq!(excluded.len(), input);
+            selected.mask = selected.mask.intersect_by_rank(&!excluded);
+            tracing::debug!(
+                row_start = selected.scope.rows.start,
+                row_end = selected.scope.rows.end,
+                input_rows = input,
+                output_rows = selected.mask.true_count(),
+                "v2 dynamic conjunct rechecked"
+            );
+            *current = None;
+            self.pieces.clear();
+            if selected.mask.all_false() {
+                self.selected = None;
+                return Ok(Some(PlannerOutput::Done));
+            }
+        }
+        let Some(plan) = pending.pop_front() else {
+            self.dynamic_recheck = DynamicRecheck::Done;
+            return Ok(None);
+        };
+        let scan = Scan::try_new(
+            self.scan.session.clone(),
+            plan,
+            vec![Split {
+                rows: selected.scope.rows.clone(),
+                mask: selected.mask.clone(),
+            }],
+        )?
+        .with_row_offset(self.scan.row_offset)
+        .with_value_cache(self.scan.values.clone());
+        *current = Some(Box::new(ScanAdaptor::new(
+            scan,
+            Arc::clone(&self.scan.locations),
+        )));
+        Ok(Some(PlannerOutput::Continue))
     }
 }
 
@@ -260,7 +407,13 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, _, adaptor)) = &mut self.active {
+        if let DynamicRecheck::Running {
+            current: Some(adaptor),
+            ..
+        } = &mut self.dynamic_recheck
+        {
+            adaptor.set_io_result(request, result);
+        } else if let Some((_, _, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
     }
@@ -271,6 +424,14 @@ impl Planner for FilterPlanner {
         if self.selected.is_none() {
             return State::Done;
         }
+        if let DynamicRecheck::Running {
+            current: Some(adaptor),
+            ..
+        } = &self.dynamic_recheck
+            && adaptor.state() != State::Done
+        {
+            return adaptor.state();
+        }
         match &self.active {
             Some((_, _, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
             _ => State::NeedsCompute,
@@ -278,6 +439,11 @@ impl Planner for FilterPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        if !self.announced
+            && let Some(output) = self.run_dynamic_recheck()?
+        {
+            return Ok(output);
+        }
         let Some(selected) = &mut self.selected else {
             return Ok(PlannerOutput::Done);
         };

@@ -25,6 +25,7 @@ use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_expr::Expression;
@@ -40,6 +41,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::execution::SegmentLocation;
+use crate::execution::filter::segments_read;
 use crate::execution::row_chunks;
 use crate::execution::scan_chunks;
 use crate::execution::*;
@@ -192,7 +194,7 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
     let chunks = {
         let scan = Arc::clone(scan);
         let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
+        move |kept: Option<Kept>| -> Box<dyn Planner> {
             let selection = scan.selection().clone();
             Box::new(ChunkPlanner::new(scan, rows, selection, kept))
         }
@@ -607,13 +609,13 @@ async fn pruned_rows_get_no_chunk(
 }
 
 /// Runs only the pruning plans of `scan` over `rows`, returning the rows they kept.
-async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Option<Mask>> {
+async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Option<Kept>> {
     let io = scan.io();
     let kept = Arc::new(parking_lot::Mutex::new(None));
     let next = {
         let scan = Arc::clone(scan);
         let kept = Arc::clone(&kept);
-        move |rows_kept: Option<Mask>| -> Box<dyn Planner> {
+        move |rows_kept: Option<Kept>| -> Box<dyn Planner> {
             *kept.lock() = rows_kept;
             let selection = scan.selection().clone();
             Box::new(ChunkPlanner::new(scan, 0..0, selection, None))
@@ -686,12 +688,140 @@ async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
     let all = prune(&scan, scan.rows().clone()).await?;
     let reads = counted.requests();
     assert!(reads > 0, "the first pruning reads the zone maps");
-    assert_eq!(all.map(|kept| kept.true_count()), Some(200_000));
+    assert_eq!(all.map(|kept| kept.mask().true_count()), Some(200_000));
 
     bound.store(2_999, Ordering::Relaxed);
     let part = prune(&scan, 1_000..151_000).await?;
-    assert_eq!(part.map(|kept| kept.true_count()), Some(148_000));
+    assert_eq!(part.map(|kept| kept.mask().true_count()), Some(148_000));
     assert_eq!(counted.requests(), reads);
+    Ok(())
+}
+
+/// A dynamic conjunct whose value tightens after a part's pruning prunes each chunk again before
+/// the chunk reads anything, whether the value changed before or after the chunks were planned:
+/// the chunks compare the version pruning ran at, not the version they were planned at. A bound
+/// every zone rules out leaves the chunks reading no segment at all, while an unchanged bound
+/// reads the column.
+#[rstest]
+#[case::tightened_after_planning(Some(199_999), false, 0)]
+#[case::tightened_before_planning(Some(199_999), true, 0)]
+#[case::unchanged(None, false, 200_000)]
+#[tokio::test]
+async fn chunks_recheck_a_tightened_dynamic_conjunct_before_reading(
+    #[case] tightened: Option<i32>,
+    #[case] before_planning: bool,
+    #[case] expected_rows: usize,
+) -> VortexResult<()> {
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+    let rows = scan.rows().clone();
+    let kept = prune(&scan, rows.clone()).await?;
+    assert_eq!(
+        kept.as_ref().map(|kept| kept.mask().true_count()),
+        Some(200_000)
+    );
+    let tighten = || {
+        if let Some(tightened) = tightened {
+            bound.store(tightened, Ordering::Relaxed);
+        }
+    };
+    if before_planning {
+        tighten();
+    }
+
+    let mut planner = ChunkPlanner::new(Arc::clone(&scan), rows, scan.selection().clone(), kept);
+    let mut chunks = Vec::new();
+    while let PlannerOutput::Spawn(scope, chunk) = planner.compute()? {
+        chunks.push((scope, chunk));
+    }
+    assert!(chunks.len() > 1, "the scan has several chunks");
+    if !before_planning {
+        tighten();
+    }
+
+    let reads = counted.requests();
+    let io = scan.io();
+    let mut run = Run::new();
+    for (scope, chunk) in chunks {
+        run.admit(chunk, scope, io.session());
+    }
+    let mut returned = 0;
+    loop {
+        match run.advance()? {
+            Progress::Batch(batch) => returned += batch.array.len(),
+            Progress::Spawn(scope, planner) => {
+                run.admit(planner, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    assert_eq!(returned, expected_rows);
+    if tightened.is_some() {
+        assert_eq!(
+            counted.requests(),
+            reads,
+            "the rechecked chunks read nothing"
+        );
+    } else {
+        assert!(counted.requests() > reads, "the chunks read the column");
+    }
+    Ok(())
+}
+
+/// A chunk rechecks only the dynamic conjuncts its pruning ran. With no pruning before them, as
+/// in a scan of one chunk, the chunks skip the recheck rather than read the zones ahead of their
+/// own reads, and evaluate the conjunct on the column instead.
+#[tokio::test]
+async fn chunks_skip_the_recheck_when_no_pruning_read_the_zones() -> VortexResult<()> {
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+    let rows = scan.rows().clone();
+
+    let mut planner = ChunkPlanner::new(
+        Arc::clone(&scan),
+        rows.clone(),
+        scan.selection().clone(),
+        None,
+    );
+    let mut chunks = Vec::new();
+    while let PlannerOutput::Spawn(scope, chunk) = planner.compute()? {
+        chunks.push((scope, chunk));
+    }
+    assert!(chunks.len() > 1, "the scan has several chunks");
+    bound.store(199_999, Ordering::Relaxed);
+
+    let reads = counted.requests();
+    let io = scan.io();
+    let mut run = Run::new();
+    for (scope, chunk) in chunks {
+        run.admit(chunk, scope, io.session());
+    }
+    let mut returned = 0;
+    loop {
+        match run.advance()? {
+            Progress::Batch(batch) => returned += batch.array.len(),
+            Progress::Spawn(scope, planner) => {
+                run.admit(planner, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    assert_eq!(returned, 0);
+    assert!(counted.requests() > reads, "the chunks read the column");
+    let filter = scan.filter.as_ref().vortex_expect("the scan has a filter");
+    let zones = segments_read(
+        &scan.session,
+        filter
+            .pruning_over(rows.end - rows.start)
+            .map(|(_, plan)| plan),
+        rows.clone(),
+        &Mask::new_true(usize::try_from(rows.end - rows.start)?),
+    )?;
+    assert!(!zones.is_empty(), "no chunk read the zones");
     Ok(())
 }
 

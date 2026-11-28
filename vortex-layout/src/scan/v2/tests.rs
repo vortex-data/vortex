@@ -50,7 +50,6 @@ use vortex_expr::root;
 use vortex_functions::expr::is_null;
 use vortex_functions::expr::select;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_mask::Mask;
 use vortex_scan::execution::SegmentLocation;
 use vortex_scan::planning::driver::Batch;
 use vortex_scan::planning::driver::Progress;
@@ -62,6 +61,7 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::ChunkPlanner;
+use super::Kept;
 use super::PreparedScan;
 use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
@@ -221,7 +221,7 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
     let chunks = {
         let scan = Arc::clone(scan);
         let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
+        move |kept: Option<Kept>| -> Box<dyn Planner> {
             let selection = scan.selection().clone();
             Box::new(ChunkPlanner::new(scan, rows, selection, kept))
         }
