@@ -22,7 +22,7 @@
 //! use vortex::VortexSessionDefault;
 //! use vortex::scan::DataSourceRef;
 //! use vortex::session::VortexSession;
-//! use vortex_datafusion::v2::VortexDataSource;
+//! use vortex_datafusion::table::VortexDataSource;
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -174,7 +174,7 @@ const SCAN_PARTITION_READ_AHEAD: usize = 2;
 /// use vortex::VortexSessionDefault;
 /// use vortex::scan::DataSourceRef;
 /// use vortex::session::VortexSession;
-/// use vortex_datafusion::v2::VortexDataSource;
+/// use vortex_datafusion::table::VortexDataSource;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -375,7 +375,7 @@ impl VortexDataSource {
 
 /// DataFusion [`DataSource`] backed by a Vortex [`DataSourceRef`].
 ///
-/// `VortexDataSource` is the core execution adapter for the `v2` integration.
+/// `VortexDataSource` is the core execution adapter for the `table` integration.
 /// It presents DataFusion with a scanable Arrow data source while preserving the
 /// underlying Vortex source until execution time.
 ///
@@ -1159,7 +1159,7 @@ mod tests {
     use vortex_arrow::ArrowSessionExt;
 
     use super::*;
-    use crate::v2::VortexTable;
+    use crate::table::VortexTable;
 
     #[derive(Default)]
     struct WakeCounter(AtomicUsize);
