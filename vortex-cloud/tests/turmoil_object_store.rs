@@ -522,12 +522,17 @@ async fn handle_connection(mut stream: TcpStream, state: Arc<ServerState>) -> io
 
     let fault = state.next_fault();
     if let Some(Fault::Status(code, reason)) = fault {
+        let body = if req.method == Method::HEAD.as_str() {
+            b"".as_slice()
+        } else {
+            reason.as_bytes()
+        };
         return write_response(
             &mut stream,
             &format!("{code} {reason}"),
             "",
-            reason.len(),
-            reason.as_bytes(),
+            body.len(),
+            body,
         )
         .await;
     }
@@ -591,10 +596,12 @@ async fn handle_connection(mut stream: TcpStream, state: Arc<ServerState>) -> io
 }
 
 fn retry_config(max_retries: usize) -> RetryConfig {
+    // Setting `init_backoff == max_backoff` clamps `object_store`'s thread-local jitter to a fixed
+    // 25 ms virtual-clock sleep per retry; `retry_timeout` is a wall-clock safety ceiling.
     RetryConfig {
         backoff: BackoffConfig {
             init_backoff: Duration::from_millis(25),
-            max_backoff: Duration::from_millis(100),
+            max_backoff: Duration::from_millis(25),
             base: 2.0,
         },
         max_retries,
@@ -671,10 +678,6 @@ fn make_sim_with_duration(duration: Duration) -> Sim<'static> {
         .build()
 }
 
-fn run_sim(sim: &mut Sim<'_>) -> VortexResult<()> {
-    sim.run().map_err(|err| vortex_err!("{err}"))
-}
-
 /// Steps a simulation paired with `ObjectStoreWrite`'s detached `smol` cleanup task.
 ///
 /// Both `ObjectStoreWrite::shutdown()` (via `cleanup_error`) and `ObjectStoreWrite::abort()` await
@@ -683,16 +686,17 @@ fn run_sim(sim: &mut Sim<'_>) -> VortexResult<()> {
 /// Callers should build the sim with a generous virtual duration (e.g. 24h) so idle ticks while
 /// waiting on OS scheduling of `smol` cannot exhaust turmoil's virtual clock under heavy CI load;
 /// the 30s wall-clock deadline still catches genuine deadlocks without any wall-clock sleeps.
-fn run_sim_with_background_cleanup(sim: &mut Sim<'_>) -> VortexResult<()> {
+fn run_sim_with_background_cleanup(sim: &mut Sim<'_>) -> turmoil::Result {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        if sim.step().map_err(|err| vortex_err!("{err}"))? {
+        if sim.step()? {
             return Ok(());
         }
         if Instant::now() >= deadline {
             return Err(vortex_err!(
                 "simulation timed out waiting for background multipart cleanup"
-            ));
+            )
+            .into());
         }
         std::thread::yield_now();
     }
@@ -738,7 +742,7 @@ mod tests {
     /// Transient HTTP 500, 503, and 429 responses recover within `RetryConfig` budget and allow a
     /// full Vortex file open and scan through `ObjectStoreReadAt`.
     #[test]
-    fn transient_http_errors_retry_and_read_vortex_file() -> VortexResult<()> {
+    fn test_transient_http_errors_retry_and_read_vortex_file() -> turmoil::Result {
         let mut sim = make_sim();
         let (file_bytes, expected) = {
             let session = test_session()?;
@@ -772,7 +776,7 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         // 3 injected failures + the successful HEAD/GET requests for footer & data segments.
         assert!(state.requests.lock().len() >= 5);
         assert!(sim.elapsed() >= Duration::from_millis(75));
@@ -782,7 +786,7 @@ mod tests {
     /// Persistent retryable HTTP status fails cleanly once `max_retries` is exhausted, reporting
     /// both the retry count and HTTP status code.
     #[test]
-    fn persistent_http_error_exhausts_retry_budget() -> VortexResult<()> {
+    fn test_persistent_http_error_exhausts_retry_budget() -> turmoil::Result {
         let mut sim = make_sim();
         let state = Arc::new(ServerState {
             object: Bytes::from_static(&[0x42; 256]),
@@ -802,7 +806,7 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         assert_eq!(state.requests.lock().len(), 3);
         Ok(())
     }
@@ -810,7 +814,7 @@ mod tests {
     /// Mid-stream TCP drop after a partial `206` body fails cleanly with a transport error when
     /// retries are disabled (`max_retries = 0`).
     #[test]
-    fn mid_stream_tcp_reset_fails_when_retries_disabled() -> VortexResult<()> {
+    fn test_mid_stream_tcp_reset_fails_when_retries_disabled() -> turmoil::Result {
         let mut sim = make_sim();
         let state = Arc::new(ServerState {
             object: Bytes::from((0u8..200).collect::<Vec<_>>()),
@@ -830,7 +834,7 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         assert_eq!(state.requests.lock().len(), 1);
         Ok(())
     }
@@ -838,7 +842,7 @@ mod tests {
     /// Mid-stream TCP drop with retries enabled resumes from the offset already delivered and
     /// reconstructs the exact requested range.
     #[test]
-    fn mid_stream_tcp_reset_resumes_range_on_retry() -> VortexResult<()> {
+    fn test_mid_stream_tcp_reset_resumes_range_on_retry() -> turmoil::Result {
         let mut sim = make_sim();
         let payload = Bytes::from((0u8..200).collect::<Vec<_>>());
         let expected = payload.slice(10..110);
@@ -861,7 +865,7 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         let requests = state.requests.lock();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].range.as_deref(), Some("bytes=10-109"));
@@ -874,10 +878,10 @@ mod tests {
     #[rstest]
     #[case::too_few_bytes(60, "Object store stream returned too few bytes")]
     #[case::too_many_bytes(120, "Object store stream returned too many bytes")]
-    fn range_body_length_mismatch_rejected(
+    fn test_range_body_length_mismatch_rejected(
         #[case] actual_len: usize,
         #[case] expected_error: &'static str,
-    ) -> VortexResult<()> {
+    ) -> turmoil::Result {
         let mut sim = make_sim();
         let state = Arc::new(ServerState {
             object: Bytes::from((0u8..200).collect::<Vec<_>>()),
@@ -897,16 +901,19 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         Ok(())
     }
 
     /// Both an active network partition (`partition`/`repair`) and a blackhole packet hold
     /// (`hold`/`release` hitting connect timeout) retry and recover once connectivity is restored.
     #[rstest]
-    #[case::partition_repair(false)]
-    #[case::blackhole_hold_timeout(true)]
-    fn network_partition_recovers_after_repair(#[case] use_hold: bool) -> VortexResult<()> {
+    #[case::partition_repair(false, 80)]
+    #[case::blackhole_hold_timeout(true, 300)]
+    fn test_network_partition_recovers_after_repair(
+        #[case] use_hold: bool,
+        #[case] heal_after_ms: u64,
+    ) -> turmoil::Result {
         let mut sim = make_sim();
         let payload = Bytes::from_static(b"deterministic partition recovery payload");
         let expected = payload.clone();
@@ -916,8 +923,9 @@ mod tests {
         });
         attach_server(&mut sim, "server", &state);
 
+        let heal_after = Duration::from_millis(heal_after_ms);
         sim.client("healer", async move {
-            time::sleep(Duration::from_millis(80)).await;
+            time::sleep(heal_after).await;
             if use_hold {
                 turmoil::release("client", "server");
             } else {
@@ -932,7 +940,9 @@ mod tests {
             } else {
                 turmoil::partition("client", "server");
             }
-            let store = http_store("http://server:80", 6, Duration::from_millis(25))?;
+            // Exceeds turmoil's default 200 ms max SYN+SYN-ACK handshake latency so healthy
+            // post-heal connects never spuriously time out.
+            let store = http_store("http://server:80", 6, Duration::from_millis(250))?;
             let reader = ObjectStoreReadAt::new(
                 store,
                 ObjectPath::from("healed.bin"),
@@ -943,16 +953,16 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         assert_eq!(state.requests.lock().len(), 1);
-        assert!(sim.elapsed() >= Duration::from_millis(80));
+        assert!(sim.elapsed() >= heal_after);
         Ok(())
     }
 
     /// Connecting to a host with no listener propagates a connection-refused error through
     /// `ObjectStoreReadAt`.
     #[test]
-    fn connection_refused_error_propagates() -> VortexResult<()> {
+    fn test_connection_refused_error_propagates() -> turmoil::Result {
         let mut sim = make_sim();
         sim.host("closed-server", || async {
             future::pending::<()>().await;
@@ -976,7 +986,7 @@ mod tests {
             Ok(())
         });
 
-        run_sim(&mut sim)?;
+        sim.run()?;
         Ok(())
     }
 
@@ -986,11 +996,11 @@ mod tests {
     #[rstest]
     #[case::put_part_failure(Some(2), false, "injected put_part failure")]
     #[case::complete_failure(None, true, "injected complete_multipart failure")]
-    fn multipart_upload_failure_aborts_upload_on_server(
+    fn test_multipart_upload_failure_aborts_upload_on_server(
         #[case] fail_part_number: Option<usize>,
         #[case] fail_complete: bool,
         #[case] expected_error: &'static str,
-    ) -> VortexResult<()> {
+    ) -> turmoil::Result {
         let mut sim = make_sim_with_duration(Duration::from_secs(86_400));
         let state = Arc::new(ServerState {
             fail_part_number,
@@ -1046,7 +1056,7 @@ mod tests {
     /// Calling `ObjectStoreWrite::abort()` after submitting a 16 MiB part waits for in-flight
     /// parts and sends `DELETE ?uploadId=...` to clean up the upload.
     #[test]
-    fn multipart_explicit_abort_cleans_up_upload() -> VortexResult<()> {
+    fn test_multipart_explicit_abort_cleans_up_upload() -> turmoil::Result {
         let mut sim = make_sim_with_duration(Duration::from_secs(86_400));
         let state = Arc::new(ServerState::default());
         attach_server(&mut sim, "s3", &state);
@@ -1064,6 +1074,23 @@ mod tests {
 
         run_sim_with_background_cleanup(&mut sim)?;
         assert_eq!(*state.aborted_uploads.lock(), vec!["sim-upload-1"]);
+        let requests = state.requests.lock();
+        let put_idx = requests
+            .iter()
+            .position(|req| {
+                req.method == "PUT"
+                    && query_param(&req.target, "partNumber") == Some("1")
+                    && req.body_len == MULTIPART_CHUNK_SIZE
+            })
+            .ok_or_else(|| vortex_err!("expected part 1 PUT before multipart abort"))?;
+        let delete_idx = requests
+            .iter()
+            .position(|req| req.method == "DELETE" && req.target.contains("uploadId=sim-upload-1"))
+            .ok_or_else(|| vortex_err!("expected DELETE abort for sim-upload-1"))?;
+        assert!(
+            put_idx < delete_idx,
+            "expected part 1 PUT (index {put_idx}) before DELETE abort (index {delete_idx})"
+        );
         Ok(())
     }
 }
