@@ -30,6 +30,7 @@ use vortex_error::vortex_err;
 use vortex_io::request::IoService;
 use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::planning::driver::Progress;
 use crate::planning::driver::Run;
@@ -132,32 +133,57 @@ impl ScanDriver {
         scan: PreparedScan,
         map_fn: impl Fn(ArrayRef) -> VortexResult<A> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<A>> {
-        let scan = Arc::new(scan);
+        self.run_prepared_files(vec![scan], map_fn)
+    }
+
+    /// Runs the prepared scans of several files as one scan: their roots share the root run, and
+    /// their chunks share the driver's concurrency. Each file reads through its own
+    /// [`PreparedScan::io`], found by the [file ordinal](PreparedScan::file_ordinal) of the work,
+    /// so the files' ordinals must differ. When `ordered`, batches come in file-ordinal order, then
+    /// row order within each file.
+    pub fn run_prepared_files<A: Send + 'static>(
+        self,
+        scans: Vec<PreparedScan>,
+        map_fn: impl Fn(ArrayRef) -> VortexResult<A> + Send + Sync + 'static,
+    ) -> BoxStream<'static, VortexResult<A>> {
+        let scans: Vec<Arc<PreparedScan>> = scans.into_iter().map(Arc::new).collect();
+        let mut ios = HashMap::with_capacity(scans.len());
+        for scan in &scans {
+            if ios.insert(scan.file_ordinal, scan.io()).is_some() {
+                let error = vortex_err!("two scans have file ordinal {}", scan.file_ordinal);
+                return stream::once(future::ready(Err(error))).boxed();
+            }
+        }
+        let ios = FileIo(Arc::new(ios));
+        let roots = scans
+            .iter()
+            .map(|scan| {
+                let scope = WorkScope {
+                    file_ordinal: scan.file_ordinal,
+                    rows: scan.rows().clone(),
+                };
+                (compose(scan), scope)
+            })
+            .collect();
         let map_fn: MapFn<A> = Arc::new(map_fn);
         let in_flight = self.concurrency;
         let inline = in_flight == 0;
-        let scope = WorkScope {
-            file_ordinal: 0,
-            rows: scan.rows().clone(),
-        };
-        let io = scan.io();
-        let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
-            (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
+            (self.handle.clone(), ios.clone(), Arc::clone(&map_fn));
         let slots = self
             .budget
             .map(|budget| (Arc::new(Semaphore::new(1)), budget.slots));
-        let batches = run_stream(self.handle, root, scope, io, map_fn, inline)
+        let batches = run_stream(self.handle, roots, ios, map_fn, inline)
             .map_ok(move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
                 }
                 Yielded::Spawn(scope, chunk) => {
-                    let (handle, io, map_fn) = (
-                        chunk_handle.clone(),
-                        Arc::clone(&chunk_io),
-                        Arc::clone(&chunk_map),
-                    );
+                    let io = match chunk_io.get(&scope) {
+                        Ok(io) => io,
+                        Err(error) => return stream::once(future::ready(Err(error))).boxed(),
+                    };
+                    let (handle, map_fn) = (chunk_handle.clone(), Arc::clone(&chunk_map));
                     let Some((own, shared)) = slots.clone() else {
                         return chunk_stream(&handle, chunk, scope, io, map_fn);
                     };
@@ -173,23 +199,44 @@ impl ScanDriver {
                 }
             })
             .try_flatten_unordered(in_flight);
-        // The prepared scan holds the file's shared cache: keep it until the stream ends, so
-        // scans of the file that start meanwhile find it.
+        // The prepared scans hold the files' shared caches: keep them until the stream ends, so
+        // scans of the files that start meanwhile find them.
         let batches = batches.chain(stream::poll_fn(move |_| {
-            let _ = &scan;
+            let _ = &scans;
             Poll::Ready(None)
         }));
         if !self.ordered {
             return batches.map_ok(|(_, batch)| batch).boxed();
         }
         stream::once(async move {
-            let mut held: Vec<(u64, A)> = batches.try_collect().await?;
+            let mut held: Vec<(BatchStart, A)> = batches.try_collect().await?;
             // Morsels finish in whatever order their reads arrive.
             held.sort_by_key(|(start, _)| *start);
             VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
         })
         .try_flatten()
         .boxed()
+    }
+}
+
+/// Where a batch starts: its file's ordinal, then its first row in the file.
+type BatchStart = (u64, u64);
+
+fn batch_start(scope: &WorkScope) -> BatchStart {
+    (scope.file_ordinal, scope.rows.start)
+}
+
+/// Each file's IO service, by file ordinal.
+#[derive(Clone)]
+struct FileIo(Arc<HashMap<u64, Arc<dyn IoService>>>);
+
+impl FileIo {
+    /// The service of the file `scope`'s work reads.
+    fn get(&self, scope: &WorkScope) -> VortexResult<Arc<dyn IoService>> {
+        self.0
+            .get(&scope.file_ordinal)
+            .cloned()
+            .ok_or_else(|| vortex_err!("no scan has file ordinal {}", scope.file_ordinal))
     }
 }
 
@@ -230,13 +277,13 @@ type MapFn<A> = Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>;
 /// What the root run's stream yields: a mapped batch with the row it starts at, or a chunk a
 /// planner of the run spawned.
 enum Yielded<A> {
-    Batch(u64, A),
+    Batch(BatchStart, A),
     Spawn(WorkScope, Box<dyn Planner>),
 }
 
 /// One CPU step of a run, taken on a `spawn_cpu` task with the run.
 enum Step<A> {
-    Batch(u64, A),
+    Batch(BatchStart, A),
     Spawn(WorkScope, Box<dyn Planner>),
     RootDone,
     Idle,
@@ -248,26 +295,32 @@ struct RunState<A> {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
-    /// Each root owns a session that the run clears when the root retires.
-    io: Arc<dyn IoService>,
+    /// Each root owns a session of its file's service that the run clears when the root retires.
+    io: FileIo,
     map_fn: MapFn<A>,
     /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
     inline: bool,
 }
 
-/// Runs `root` over `scope` on a planning run of its own, reading through `io`, each CPU step
-/// on a `spawn_cpu` task, and yields its mapped batches and, unless `inline`, the chunks it
-/// spawns.
+/// Runs `roots`, each over its scope, on a planning run of their own, each reading through its
+/// file's service in `io`, each CPU step on a `spawn_cpu` task, and yields their mapped batches
+/// and, unless `inline`, the chunks they spawn.
 fn run_stream<A: Send + 'static>(
     handle: Handle,
-    root: Box<dyn Planner>,
-    scope: WorkScope,
-    io: Arc<dyn IoService>,
+    roots: Vec<(Box<dyn Planner>, WorkScope)>,
+    io: FileIo,
     map_fn: MapFn<A>,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded<A>>> {
     let mut run = Run::new();
-    run.admit(root, scope, io.session());
+    for (root, scope) in roots {
+        match io.get(&scope) {
+            Ok(io) => {
+                run.admit(root, scope, io.session());
+            }
+            Err(error) => return stream::once(future::ready(Err(error))).boxed(),
+        }
+    }
     let state = RunState {
         handle,
         run: Some(run),
@@ -289,7 +342,7 @@ fn run_stream<A: Send + 'static>(
                     let step = run.advance().and_then(|progress| {
                         Ok(match progress {
                             Progress::Batch(batch) => {
-                                Step::Batch(batch.scope.rows.start, map_fn(batch.array)?)
+                                Step::Batch(batch_start(&batch.scope), map_fn(batch.array)?)
                             }
                             Progress::Spawn(scope, child) => Step::Spawn(scope, child),
                             Progress::RootDone(_) => Step::RootDone,
@@ -306,7 +359,8 @@ fn run_stream<A: Send + 'static>(
                     return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
                 Step::Spawn(scope, child) if state.inline => {
-                    run.admit(child, scope, state.io.session());
+                    let io = state.io.get(&scope)?;
+                    run.admit(child, scope, io.session());
                 }
                 Step::Spawn(scope, child) => {
                     return Ok(Some((Yielded::Spawn(scope, child), state)));
@@ -329,7 +383,7 @@ fn chunk_stream<A: Send + 'static>(
     scope: WorkScope,
     io: Arc<dyn IoService>,
     map_fn: MapFn<A>,
-) -> BoxStream<'static, VortexResult<(u64, A)>> {
+) -> BoxStream<'static, VortexResult<(BatchStart, A)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
@@ -337,7 +391,7 @@ fn chunk_stream<A: Send + 'static>(
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
-                    let start = batch.scope.rows.start;
+                    let start = batch_start(&batch.scope);
                     let batch = map_fn(batch.array);
                     let failed = batch.is_err();
                     if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {

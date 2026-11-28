@@ -5,8 +5,8 @@
 //! one read, drop the files whose statistics rule the filter out, and run each remaining file's
 //! ordinary scan, in table order.
 //!
-//! Every file is scanned by its own [`ScanDriver`]. TODO: once IO requests carry a source id, a
-//! single plan driver can run all the files' planners together.
+//! One [`ScanDriver`] runs every kept file's planners together, so the files' chunks share its
+//! concurrency, each file reading through its own IO service.
 
 use std::sync::Arc;
 
@@ -110,24 +110,42 @@ impl TableScan {
             .await
     }
 
-    /// Scans the planned files one after another, in table order.
+    /// Scans the planned files together on one driver and yields their batches in table order.
+    /// The driver holds the batches until every file is scanned.
     pub fn run(
         &self,
         files: Vec<PlannedFile>,
     ) -> VortexResult<BoxStream<'static, VortexResult<ArrayRef>>> {
-        let scans = files
+        let builders = files
             .into_iter()
-            .map(|PlannedFile { file, row_offset }| {
+            .enumerate()
+            .map(|(ordinal, PlannedFile { file, row_offset })| {
                 let dtype = file.dtype();
                 let mut scan = ScanBuilder::new(self.session.clone(), file.scan_file())
                     .with_some_filter(self.filter.as_ref().map(|f| f.bind(dtype)).transpose()?)
-                    .with_row_offset(row_offset);
+                    .with_row_offset(row_offset)
+                    .with_file_ordinal(u64::try_from(ordinal)?);
                 if let Some(projection) = &self.projection {
                     scan = scan.with_projection(projection.bind(dtype)?);
                 }
-                Ok(ScanDriver::new(self.session.handle(), self.concurrency, true).run(scan))
+                Ok(scan)
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(stream::iter(scans).flatten().boxed())
+        let handle = self.session.handle();
+        let driver = ScanDriver::new(handle.clone(), self.concurrency, true);
+        // Lowering and planning the files is real CPU: it runs where compute runs.
+        Ok(stream::once(async move {
+            handle
+                .spawn_cpu(move || {
+                    let scans = builders
+                        .into_iter()
+                        .map(ScanBuilder::prepare)
+                        .collect::<VortexResult<Vec<_>>>()?;
+                    VortexResult::Ok(driver.run_prepared_files(scans, Ok))
+                })
+                .await
+        })
+        .try_flatten()
+        .boxed())
     }
 }
