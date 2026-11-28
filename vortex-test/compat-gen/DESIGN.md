@@ -252,17 +252,17 @@ Two-phase workflow:
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 
 Validates the current code against previously published fixtures and checks
-edition-targeted generation against each edition's oldest reader. Runs daily
-(6am UTC, using `mode: all` and `check_editions: true`), as a release-blocking
-check via `release-checks.yml` (`mode: all`, `check_editions: true`), via
-`workflow_call` (defaults to `mode: all` and `check_editions: true`), and via
-manual dispatch with `mode` (defaults to `last`) and `check_editions`
-(defaults to `false`):
+edition-targeted generation against each edition's oldest reader. Runs every
+6 hours (`0 */6 * * *` UTC, using `mode: all` and `check_editions: true`), as a
+release-blocking check via `release-checks.yml` (`mode: all`,
+`check_editions: true`), via `workflow_call` (defaults to `mode: all` and
+`check_editions: true`), and via manual dispatch with `mode` (defaults to
+`last`) and `check_editions` (defaults to `false`):
 
 | Mode | Behavior |
 |------|----------|
 | `last` | Compare against the most recent published release only |
-| `all` | Compare against all previously published versions (daily schedule, release checks, or when passed explicitly) |
+| `all` | Compare against all previously published versions (6-hour schedule, release checks, or when passed explicitly) |
 | `check_editions` | Generate fixtures at each frozen `core` edition and verify with its oldest `vortex-data` reader against `accepted-edition-failures.json` |
 
 ## Known Limitations

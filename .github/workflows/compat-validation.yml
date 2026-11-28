@@ -2,7 +2,7 @@ name: Compat Validation
 
 on:
   schedule:
-    - cron: "0 6 * * *"  # Daily 6am UTC
+    - cron: "0 */6 * * *"  # Every 6 hours UTC
   workflow_call:
     inputs:
       mode:
