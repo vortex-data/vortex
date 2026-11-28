@@ -175,8 +175,15 @@ fn assert_patches_match_model(
     assert_eq!(actual_logical_indices, expected_positions);
     assert_arrays_eq!(actual.values(), model.patch_values_array(), ctx);
 
-    // Probe search_index & get_patched at every patch position, adjacent gaps, and boundaries.
-    let mut probe_points = BTreeSet::from([0usize, model.len().saturating_sub(1), model.len()]);
+    // Probe search_index & get_patched at every patch position, adjacent gaps, boundaries,
+    // and past the end of the array (including past the last chunk).
+    let mut probe_points = BTreeSet::from([
+        0usize,
+        model.len().saturating_sub(1),
+        model.len(),
+        model.len() + 1,
+        model.len() + PATCH_CHUNK_SIZE,
+    ]);
     for &p in &expected_positions {
         probe_points.insert(p);
         if p > 0 {
@@ -862,6 +869,73 @@ fn test_from_metadata_without_offset_within_chunk(#[case] chunked: bool) -> Vort
     assert_eq!(
         patches.search_index(1029, &mut ctx)?,
         SearchResult::Found(1)
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::later_single_chunk(1500..1501)]
+#[case::multiple_chunks(900..2050)]
+fn test_from_metadata_short_slice(#[case] range: Range<usize>) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let indices = PrimitiveArray::from_iter(0u32..3072).into_array();
+    let patches = Patches::new(
+        3072,
+        0,
+        indices.clone(),
+        indices,
+        Some(buffer![0u32, 1024, 2048].into_array()),
+        &mut ctx,
+    )?;
+    let sliced = patches
+        .slice(range, &mut ctx)?
+        .vortex_expect("slice has patches");
+    let metadata = sliced.to_metadata(sliced.array_len(), sliced.dtype())?;
+    let read = Patches::from_metadata(
+        sliced.array_len(),
+        &metadata,
+        sliced.indices().clone(),
+        sliced.values().clone(),
+        sliced.chunk_offsets().clone(),
+        &mut ctx,
+    )?;
+
+    assert_eq!(read.offset_within_chunk(), sliced.offset_within_chunk());
+    assert_eq!(read.search_index(0, &mut ctx)?, SearchResult::Found(0));
+    assert_arrays_eq!(read.values(), sliced.values(), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_take_search_large_chunked() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let patches = Patches::new(
+        1500,
+        0,
+        PrimitiveArray::from_iter(0..1500u64).into_array(),
+        PrimitiveArray::from_iter(0..1500i32).into_array(),
+        Some(buffer![0u64, 1024u64].into_array()),
+        &mut ctx,
+    )?;
+
+    let taken = patches
+        .take_search(
+            PrimitiveArray::new((0..1500u64).collect::<Buffer<_>>(), Validity::AllValid),
+            false,
+            &mut ctx,
+        )?
+        .vortex_expect("taken patches");
+
+    assert_eq!(taken.array_len(), 1500);
+    assert_arrays_eq!(
+        taken.indices(),
+        PrimitiveArray::from_iter(0..1500u64),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        taken.values(),
+        PrimitiveArray::from_option_iter((0..1500i32).map(Some)),
+        &mut ctx
     );
     Ok(())
 }

@@ -581,20 +581,44 @@ fn hegel_varbinview_builder_modes_and_bulk_ops(tc: TestCase) {
 
 /// Builds a reference `ListArray` directly from flat buffers and offsets without calling
 /// `ListBuilder`, avoiding circularity in list-builder differential tests.
-fn list_array_from_model(
+fn list_array_from_model_with_offset_ptype(
     model: &[Option<Vec<i32>>],
     nullable: bool,
+    offset_ptype: PType,
     ctx: &mut ExecutionCtx,
 ) -> ListArray {
     let mut flat_elems: Vec<i32> = Vec::new();
-    let mut offsets: Vec<u32> = Vec::with_capacity(model.len() + 1);
+    let mut offsets: Vec<usize> = Vec::with_capacity(model.len() + 1);
     offsets.push(0);
     for entry in model {
         if let Some(vals) = entry {
             flat_elems.extend_from_slice(vals);
         }
-        offsets.push(u32::try_from(flat_elems.len()).vortex_expect("u32 offset"));
+        offsets.push(flat_elems.len());
     }
+    let offsets_arr = match offset_ptype {
+        PType::U32 => offsets
+            .into_iter()
+            .map(|v| u32::try_from(v).vortex_expect("u32 offset"))
+            .collect::<Buffer<u32>>()
+            .into_array(),
+        PType::U64 => offsets
+            .into_iter()
+            .map(|v| v as u64)
+            .collect::<Buffer<u64>>()
+            .into_array(),
+        PType::I32 => offsets
+            .into_iter()
+            .map(|v| i32::try_from(v).vortex_expect("i32 offset"))
+            .collect::<Buffer<i32>>()
+            .into_array(),
+        PType::I64 => offsets
+            .into_iter()
+            .map(|v| i64::try_from(v).vortex_expect("i64 offset"))
+            .collect::<Buffer<i64>>()
+            .into_array(),
+        other => unreachable!("unsupported list offset ptype {other}"),
+    };
     let validity = if nullable {
         Validity::from_iter(model.iter().map(Option::is_some))
     } else {
@@ -602,10 +626,18 @@ fn list_array_from_model(
     };
     ListArray::new(
         Buffer::from(flat_elems).into_array(),
-        Buffer::from(offsets).into_array(),
+        offsets_arr,
         validity,
         ctx,
     )
+}
+
+fn list_array_from_model(
+    model: &[Option<Vec<i32>>],
+    nullable: bool,
+    ctx: &mut ExecutionCtx,
+) -> ListArray {
+    list_array_from_model_with_offset_ptype(model, nullable, PType::U32, ctx)
 }
 
 fn draw_list_source_chunk(
@@ -626,7 +658,10 @@ fn draw_list_source_chunk(
                 }
             })
             .collect();
-    let list_arr = list_array_from_model(&lists, nullable, ctx).into_array();
+    let offset_ptypes = [PType::U32, PType::U64, PType::I32, PType::I64];
+    let offset_ptype = offset_ptypes[tc.draw(gs::integers::<usize>().max_value(3))];
+    let list_arr =
+        list_array_from_model_with_offset_ptype(&lists, nullable, offset_ptype, ctx).into_array();
     let src = if tc.draw(gs::booleans()) {
         list_arr
             .execute::<ListViewArray>(ctx)
@@ -715,6 +750,20 @@ fn run_list_builder_model<O: OffsetBuilderPType>(tc: &TestCase, ctx: &mut Execut
         }
 
         let actual = builder.finish_into_list();
+        let expected_elem_len: usize = model.iter().flatten().map(Vec::len).sum();
+        assert_eq!(
+            actual.elements().len(),
+            expected_elem_len,
+            "list builder must not retain stale elements across batches"
+        );
+        let first_offset = usize::try_from(
+            &actual
+                .offsets()
+                .execute_scalar(0, ctx)
+                .vortex_expect("offset 0"),
+        )
+        .vortex_expect("usize offset");
+        assert_eq!(first_offset, 0, "list builder offsets must start at 0");
         let expected = list_array_from_model(&model, nullable, ctx);
         assert_arrays_eq!(&actual, &expected, ctx);
         if let Some((batch1, batch1_expected)) = prev_batch.take() {
@@ -788,6 +837,19 @@ fn run_listview_builder_model<O: OffsetBuilderPType, S: OffsetBuilderPType>(
         }
 
         let actual = builder.finish_into_listview();
+        let expected_elem_len: usize = model.iter().flatten().map(Vec::len).sum();
+        assert_eq!(
+            actual.elements().len(),
+            expected_elem_len,
+            "listview builder must not retain stale elements across batches"
+        );
+        if !actual.is_empty() {
+            assert_eq!(
+                actual.offset_at(0, ctx),
+                0,
+                "listview builder offsets must start at 0"
+            );
+        }
         // Contiguous appends must preserve `is_zero_copy_to_list()`, with no gaps or overlaps
         // (`offset[i] + size[i] == offset[i + 1]`).
         assert!(
