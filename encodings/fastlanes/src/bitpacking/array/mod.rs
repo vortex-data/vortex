@@ -32,6 +32,9 @@ use vortex_error::vortex_panic;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
+// cargo-mutants parses every module with syn, which rejects the `#[gat]` associated type
+// syntax in this file. The never-set `mutants` cfg makes the attribute inert for rustc.
+#[cfg_attr(mutants, mutants::skip)]
 pub mod unpack_iter;
 
 #[cfg(test)]
